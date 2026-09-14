@@ -117,8 +117,17 @@ def find_marker(buffer: SearchableBuffer, marker: bytes, start: int, end: int) -
 
 
 def iter_markers(buffer: SearchableBuffer, marker: bytes, start: int, end: int) -> Iterator[int]:
-    """Every index where the marker lies wholly inside [start, end), overlapping, in order."""
+    """Every index where the marker lies wholly inside [start, end), overlapping, in order.
+
+    The arguments are checked when this is called, before iteration starts.
+    """
     _check_search(buffer, marker, start, end)
+    return _marker_positions(buffer, marker, start, end)
+
+
+def _marker_positions(
+    buffer: SearchableBuffer, marker: bytes, start: int, end: int
+) -> Iterator[int]:
     position = buffer.find(marker, start, end)
     while position >= 0:
         yield position

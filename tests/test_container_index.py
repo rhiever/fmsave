@@ -136,14 +136,43 @@ def test_directory_without_sections_is_corrupt(tmp_path: Path) -> None:
 
 def test_entry_running_past_trailer_is_corrupt(tmp_path: Path) -> None:
     fragment = build_container_fragment(declared_sizes={"humans.dat": (10**9, 40)})
-    with pytest.raises(CorruptSaveError):
+    with pytest.raises(
+        CorruptSaveError, match=r"directory entry humans\.dat points outside the frame area"
+    ):
         read_index(fragment.write(tmp_path / "fragment.bin"))
 
 
 def test_overlapping_entries_are_corrupt(tmp_path: Path) -> None:
-    fragment = build_container_fragment(declared_sizes={"game_info.dat": (10_000, 300)})
-    with pytest.raises(CorruptSaveError):
+    frame_offsets = build_container_fragment().frame_offsets
+    overlapping_size = frame_offsets["memory_pools.dat"] - frame_offsets["game_info.dat"] + 10
+    fragment = build_container_fragment(declared_sizes={"game_info.dat": (overlapping_size, 300)})
+    with pytest.raises(
+        CorruptSaveError, match=r"directory entry memory_pools\.dat points outside the frame area"
+    ):
         read_index(fragment.write(tmp_path / "fragment.bin"))
+
+
+def test_index_repr_hides_folder_and_save_name(tmp_path: Path) -> None:
+    fragment_path = build_container_fragment(save_name="Example Career").write(
+        tmp_path / "privatefolder" / "fragment.bin"
+    )
+    description = repr(read_index(fragment_path))
+    assert "privatefolder" not in description
+    assert "Example Career" not in description
+
+
+def test_damaged_save_name_error_names_the_file(fragment_path: Path) -> None:
+    oversized_name_fragment = build_container_fragment(save_name="x" * 5000)
+    oversized_name_fragment.write(fragment_path)
+    with pytest.raises(CorruptSaveError) as error_info:
+        read_index(fragment_path)
+    message = str(error_info.value)
+    assert message.startswith(
+        "fragment.bin: the save directory is damaged or was being written (string at offset 0 "
+    )
+    assert message.endswith("try again.")
+    assert "folder" not in message
+    assert isinstance(error_info.value.__cause__, CorruptSaveError)
 
 
 def test_duplicate_section_names_are_corrupt(tmp_path: Path) -> None:

@@ -83,7 +83,10 @@ def test_decode_date_with_time_slot() -> None:
     ("hex_bytes", "expected"),
     [
         ("0000 6c07", None),  # day 0, year 1900: the null date
+        ("0000 ef07", None),  # day 0 in a valid year
         ("0100 6c07", None),  # year 1900 is not a real game year
+        ("0100 6d07", date(1901, 1, 1)),  # the earliest game year
+        ("6d01 9808", date(2200, 12, 31)),  # the latest game year (2200 is not a leap year)
         ("6f01 ef07", None),  # day 367
         ("6e01 ef07", None),  # day 366 in 2031 (not a leap year)
         ("6e01 f007", date(2032, 12, 31)),  # day 366 in 2032
@@ -119,6 +122,27 @@ def test_find_marker_is_bounded() -> None:
 
 def test_iter_markers_yields_overlapping_matches() -> None:
     assert list(iter_markers(b"aaaa", b"aa", 0, 4)) == [0, 1, 2]
+
+
+def test_iter_markers_respects_the_end_bound() -> None:
+    assert list(iter_markers(b"aaaa", b"aa", 1, 3)) == [1]
+
+
+@pytest.mark.parametrize(
+    ("marker", "start", "end", "expected_error"),
+    [
+        (b"x", -1, 2, CorruptSaveError),
+        (b"x", 0, 11, CorruptSaveError),
+        (b"x", 5, 4, CorruptSaveError),
+        (b"", 0, 10, ValueError),
+    ],
+    ids=["negative-start", "end-past-buffer", "start-after-end", "empty-marker"],
+)
+def test_iter_markers_checks_arguments_when_called(
+    marker: bytes, start: int, end: int, expected_error: type[Exception]
+) -> None:
+    with pytest.raises(expected_error):
+        iter_markers(bytes(10), marker, start, end)
 
 
 @pytest.mark.parametrize(("start", "end"), [(-1, 2), (0, 11), (5, 4)])

@@ -104,9 +104,9 @@ class Fingerprint:
 
 @dataclass(frozen=True, slots=True)
 class ContainerIndex:
-    path: Path
+    path: Path = field(repr=False)
     fingerprint: Fingerprint
-    save_name: str
+    save_name: str = field(repr=False)
     trailer_offset: int
     entries: tuple[DirectoryEntry, ...]
     sections: Mapping[str, DirectoryEntry] = field(compare=False)
@@ -222,10 +222,20 @@ def read_index(
     )
 
 
+def damaged_part_error(file_name: str, part: str, error: CorruptSaveError) -> CorruptSaveError:
+    """Restate a low-level read error with the file name and the part of the save being read."""
+    return CorruptSaveError(
+        f"{file_name}: {part} is damaged or was being written ({error}). {RETRY_HINT}"
+    )
+
+
 def parse_directory(
     trailer_payload: bytes, file_name: str
 ) -> tuple[str, tuple[DirectoryEntry, ...]]:
-    save_name, cursor = read_length_prefixed_string(trailer_payload, 0, MAX_SAVE_NAME_BYTES)
+    try:
+        save_name, cursor = read_length_prefixed_string(trailer_payload, 0, MAX_SAVE_NAME_BYTES)
+    except CorruptSaveError as error:
+        raise damaged_part_error(file_name, "the save directory", error) from error
     cursor += 4  # a u32 whose meaning is not identified
     entries: list[DirectoryEntry] = []
     while (parsed := parse_directory_entry(trailer_payload, cursor)) is not None:
@@ -346,14 +356,11 @@ def verify_unchanged(container_index: ContainerIndex, save_file: BinaryIO) -> No
         or file_status.st_mtime_ns != fingerprint.mtime_ns
     ):
         raise changed_on_disk_error(container_index.file_name)
+    # Plain bounded reads: a file that shrank after fstat reads short and fails the digest check.
     save_file.seek(0)
     header = save_file.read(HEADER_SIZE)
-    trailer_bytes = read_exact(
-        save_file,
-        container_index.trailer_offset,
-        fingerprint.file_size - container_index.trailer_offset,
-        container_index.file_name,
-    )
+    save_file.seek(container_index.trailer_offset)
+    trailer_bytes = save_file.read(fingerprint.file_size - container_index.trailer_offset)
     if trailer_digest(header, trailer_bytes) != fingerprint.header_digest:
         raise changed_on_disk_error(container_index.file_name)
 

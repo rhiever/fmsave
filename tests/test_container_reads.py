@@ -3,13 +3,17 @@ from __future__ import annotations
 import io
 import itertools
 import os
+import random
 import struct
 import sys
 import tracemalloc
 from pathlib import Path
+from types import SimpleNamespace
+from typing import BinaryIO
 
 import pytest
 
+import fmsave._container as container_module
 from fmsave._container import (
     ContainerLimits,
     read_index,
@@ -443,3 +447,52 @@ def test_frame_walker_checks_region_before_reading_descriptor() -> None:
     region_bytes = ZSTD_MAGIC
     with pytest.raises(CorruptSaveError, match="frame at offset 0 runs past its region"):
         walk_frame_headers(io.BytesIO(region_bytes), 0, len(region_bytes), "fragment.bin")
+
+
+def test_file_shrinking_during_verification_raises_save_changed(
+    fragment_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    container_index = read_index(fragment_path)
+    fingerprint = container_index.fingerprint
+    fragment_path.write_bytes(fragment_path.read_bytes()[:-5])
+
+    def fstat_reporting_the_opened_size(file_descriptor: int) -> SimpleNamespace:
+        return SimpleNamespace(st_size=fingerprint.file_size, st_mtime_ns=fingerprint.mtime_ns)
+
+    monkeypatch.setattr(
+        "fmsave._container.os", SimpleNamespace(fstat=fstat_reporting_the_opened_size)
+    )
+    with pytest.raises(SaveChangedError):
+        read_section(container_index, "humans")
+
+
+def test_section_head_prefix_cut_inside_a_compressed_block_reads_the_whole_frame(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    patterned_body = section_body(
+        ".dat", 4000, bytes(random.Random(26).choices(b"ABCDEFGH", k=20000))
+    )
+    sections = [*default_sections(), SectionFrame("patterned_example", patterned_body)]
+    container_index = read_index(
+        build_container_fragment(sections).write(tmp_path / "fragment.bin")
+    )
+    entry = container_index.sections["patterned_example"]
+    head_read_bytes = 64
+    wanted_length = 1000
+    frame_prefix = zstd.compress(patterned_body)[:head_read_bytes]
+    assert entry.compressed_size > head_read_bytes
+    assert zstd.ZstdDecompressor().decompress(frame_prefix, max_length=wanted_length) == b""
+    original_read_exact = container_module.read_exact
+    read_lengths: list[int] = []
+
+    def recording_read_exact(
+        save_file: BinaryIO, offset: int, length: int, file_name: str
+    ) -> bytes:
+        read_lengths.append(length)
+        return original_read_exact(save_file, offset, length, file_name)
+
+    monkeypatch.setattr(container_module, "HEAD_READ_BYTES", head_read_bytes)
+    monkeypatch.setattr(container_module, "read_exact", recording_read_exact)
+    heads = read_section_heads(container_index, ["patterned_example"], wanted_length)
+    assert heads["patterned_example"] == patterned_body[:wanted_length]
+    assert read_lengths[-2:] == [head_read_bytes, entry.compressed_size]
