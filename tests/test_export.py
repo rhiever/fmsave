@@ -19,6 +19,7 @@ import pytest
 from fmsave._frozen import FrozenMapping
 from fmsave.export import (
     column_names,
+    flat_rows,
     flatten_dict,
     record_to_dict,
     select_columns,
@@ -158,7 +159,7 @@ EXPECTED_FULL_FLAT_ROW: dict[str, object] = {
 BOTH_RECORDS = (FULL_RECORD, SPARSE_RECORD)
 
 
-def flat_rows(records: Sequence[object]) -> list[dict[str, object]]:
+def flattened_record_dicts(records: Sequence[object]) -> list[dict[str, object]]:
     return [flatten_dict(record_to_dict(record, json_ready=False)) for record in records]
 
 
@@ -267,7 +268,7 @@ def assert_matches_json_normalize(records: Sequence[object], record_type: type) 
 
 def test_csv_writes_header_and_cells(tmp_path: Path) -> None:
     csv_path = tmp_path / "players.csv"
-    write_csv(flat_rows(BOTH_RECORDS), column_names(ExampleRecord), csv_path)
+    write_csv(flattened_record_dicts(BOTH_RECORDS), column_names(ExampleRecord), csv_path)
     csv_text = csv_path.read_bytes().decode("utf-8")
     csv_lines = csv_text.split("\r\n")
     assert csv_lines[0] == ",".join(column_names(ExampleRecord))
@@ -467,7 +468,7 @@ def test_coded_value_tuples_become_label_and_code_sequences() -> None:
 
 def test_optional_item_and_coded_value_tuples_in_csv(tmp_path: Path) -> None:
     csv_path = tmp_path / "members.csv"
-    write_csv(flat_rows(BOTH_MEMBERS), column_names(ExampleSquadMember), csv_path)
+    write_csv(flattened_record_dicts(BOTH_MEMBERS), column_names(ExampleSquadMember), csv_path)
     with csv_path.open(encoding="utf-8", newline="") as csv_file:
         parsed_rows = list(csv.DictReader(csv_file))
     assert parsed_rows[0] == {
@@ -561,7 +562,80 @@ def test_to_columns_matches_flattened_record_dicts() -> None:
         ),
     ]
     for record_type, records in record_sets:
-        expected_rows = flat_rows(records)
+        expected_rows = flattened_record_dicts(records)
         columns = to_columns(records, record_type)
         for column_name, column_values in columns.items():
             assert column_values == [expected_row[column_name] for expected_row in expected_rows]
+
+
+@dataclass(frozen=True, slots=True)
+class ExampleSpell:
+    start: date | None
+    end: date | None
+
+
+@dataclass(frozen=True, slots=True)
+class ExampleLoanHolder:
+    uid: int
+    loan: ExampleSpell | None
+    spells: tuple[ExampleSpell, ...]
+    match_dates: tuple[date, ...] | None
+
+
+LOAN_HOLDERS = (
+    ExampleLoanHolder(
+        uid=3001,
+        loan=ExampleSpell(date(2030, 7, 1), None),
+        spells=(ExampleSpell(date(2029, 1, 2), date(2029, 6, 30)),),
+        match_dates=(date(2030, 8, 9), date(2030, 8, 16)),
+    ),
+    ExampleLoanHolder(uid=3002, loan=None, spells=(), match_dates=None),
+)
+
+
+def test_flat_rows_match_flattened_record_dicts_for_every_shape() -> None:
+    record_sets: list[tuple[type, Sequence[object]]] = [
+        (ExampleRecord, BOTH_RECORDS),
+        (ExampleRecord, (replace(FULL_RECORD, unknown=FrozenMapping({"e8": 3})),)),
+        (ExampleSquadMember, BOTH_MEMBERS),
+        (
+            ExampleContractHolder,
+            (ExampleContractHolder(7, None), ExampleContractHolder(8, ExampleGroup(1, None))),
+        ),
+        (ExampleClause, (ExampleClause(None, None), ExampleClause(FULL_RECORD.clauses[0].kind, 5))),
+        (ExampleGroup, ()),
+        (ExampleLoanHolder, LOAN_HOLDERS),
+    ]
+    for record_type, records in record_sets:
+        for json_ready in (False, True):
+            expected_rows = [
+                flatten_dict(record_to_dict(record, json_ready=json_ready)) for record in records
+            ]
+            actual_rows = list(flat_rows(records, record_type, json_ready=json_ready))
+            assert actual_rows == expected_rows, (record_type.__name__, json_ready)
+            for actual_row, expected_row in zip(actual_rows, expected_rows, strict=True):
+                assert list(actual_row) == list(expected_row)
+                for column_name, expected_value in expected_row.items():
+                    assert type(actual_row[column_name]) is type(expected_value), column_name
+
+
+def test_flat_rows_default_keeps_python_values() -> None:
+    first_row = next(flat_rows(LOAN_HOLDERS, ExampleLoanHolder))
+    assert first_row["loan_start"] == date(2030, 7, 1)
+    assert first_row["match_dates"] == (date(2030, 8, 9), date(2030, 8, 16))
+    json_row = next(flat_rows(LOAN_HOLDERS, ExampleLoanHolder, json_ready=True))
+    assert json_row["loan_start"] == "2030-07-01"
+    assert json_row["match_dates"] == ["2030-08-09", "2030-08-16"]
+
+
+def test_flat_rows_reject_records_of_another_type() -> None:
+    with pytest.raises(TypeError, match="ExampleContractHolder"):
+        list(flat_rows([FULL_RECORD], ExampleContractHolder))
+    with pytest.raises(TypeError, match="ExampleContractHolder"):
+        list(flat_rows([FULL_RECORD], ExampleContractHolder, json_ready=True))
+
+
+def test_group_type_error_names_the_expected_class() -> None:
+    holder = replace(ExampleContractHolder(uid=6, ability=None), ability=ExampleClause(None, None))
+    with pytest.raises(TypeError, match="is not an instance of ExampleGroup or None"):
+        list(flat_rows([holder], ExampleContractHolder))

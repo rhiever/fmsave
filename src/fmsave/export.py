@@ -18,7 +18,7 @@ import operator
 import os
 import types
 import typing
-from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import date
 from enum import StrEnum
@@ -68,6 +68,8 @@ class _ClassPlan:
             declaration order. Used for flat values and for dicts that are not JSON-ready.
         json_steps: The same, but runs hold plain fields only. Used for JSON-ready dicts.
         all_plain: Whether steps is at most one run, so the field values are the flat values.
+        json_all_plain: The same for json_steps, so the field values are the JSON-ready flat
+            values.
         missing_columns: One None per column, for a missing group.
     """
 
@@ -78,10 +80,11 @@ class _ClassPlan:
     steps: tuple[_Step, ...]
     json_steps: tuple[_Step, ...]
     all_plain: bool
+    json_all_plain: bool
     missing_columns: tuple[None, ...]
 
 
-_NO_MEMBERS = _ClassPlan(object, (), (), _read_no_fields, (), (), True, ())
+_NO_MEMBERS = _ClassPlan(object, (), (), _read_no_fields, (), (), True, True, ())
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -280,16 +283,22 @@ def _class_plan(record_type: type) -> _ClassPlan:
         if duplicate_name is not None:
             raise ValueError(f"{type_name} has more than one {name_role} named {duplicate_name!r}")
     steps = _steps(field_plans, _FLAT_RUN_KINDS)
+    json_steps = _steps(field_plans, _JSON_RUN_KINDS)
     return _ClassPlan(
         record_type=record_type,
         fields=field_plans,
         columns=columns,
         read_fields=_field_reader(tuple(record_field.name for record_field in record_fields)),
         steps=steps,
-        json_steps=_steps(field_plans, _JSON_RUN_KINDS),
-        all_plain=len(steps) == 0 or (len(steps) == 1 and isinstance(steps[0], _FieldRun)),
+        json_steps=json_steps,
+        all_plain=_is_one_run(steps),
+        json_all_plain=_is_one_run(json_steps),
         missing_columns=(None,) * len(columns),
     )
+
+
+def _is_one_run(steps: tuple[_Step, ...]) -> bool:
+    return len(steps) == 0 or (len(steps) == 1 and isinstance(steps[0], _FieldRun))
 
 
 def column_names(record_type: type) -> tuple[str, ...]:
@@ -358,7 +367,7 @@ def _record_items(field_plan: _FieldPlan, value: object, *, json_ready: bool) ->
     for item in _sequence_items(field_plan, value):
         if not isinstance(item, members.record_type):
             raise TypeError(
-                f"{field_plan.qualified_name} holds an item that is not a "
+                f"{field_plan.qualified_name} holds an item that is not an instance of "
                 f"{members.record_type.__name__}"
             )
         nested_items.append(_nested_record(item, members, json_ready=json_ready))
@@ -382,7 +391,8 @@ def _unknown_values(field_plan: _FieldPlan, value: object) -> list[object]:
 
 def _group_type_error(field_plan: _FieldPlan) -> TypeError:
     return TypeError(
-        f"{field_plan.qualified_name} is not a {field_plan.members.record_type.__name__} or None"
+        f"{field_plan.qualified_name} is not an instance of "
+        f"{field_plan.members.record_type.__name__} or None"
     )
 
 
@@ -446,10 +456,12 @@ def _nested_record(
     return nested
 
 
-def _append_flat_values(flat_values: list[object], record: object, class_plan: _ClassPlan) -> None:
+def _append_flat_values(
+    flat_values: list[object], record: object, class_plan: _ClassPlan, *, json_ready: bool
+) -> None:
     """Append a record's flat column values, in column order, without building nested dicts."""
     field_values = class_plan.read_fields(record)
-    for step in class_plan.steps:
+    for step in class_plan.json_steps if json_ready else class_plan.steps:
         if isinstance(step, _FieldRun):
             flat_values.extend(field_values[step.values])
             continue
@@ -461,23 +473,27 @@ def _append_flat_values(flat_values: list[object], record: object, class_plan: _
                     flat_values.extend(members.missing_columns)
                 elif not isinstance(value, members.record_type):
                     raise _group_type_error(step)
-                elif members.all_plain:
+                elif members.json_all_plain if json_ready else members.all_plain:
                     flat_values.extend(members.read_fields(value))
                 else:
-                    _append_flat_values(flat_values, value, members)
+                    _append_flat_values(flat_values, value, members, json_ready=json_ready)
             case "coded":
                 flat_values.extend(_coded_pair(step, value))
             case "text_enum":
                 flat_values.append(value.value if isinstance(value, StrEnum) else value)
             case "values":
-                flat_values.append(_scalar_items(step, value, json_ready=False))
+                flat_values.append(_scalar_items(step, value, json_ready=json_ready))
             case "coded_values":
-                flat_values.extend(_coded_items(step, value, json_ready=False))
+                flat_values.extend(_coded_items(step, value, json_ready=json_ready))
             case "records":
-                flat_values.append(_record_items(step, value, json_ready=False))
+                flat_values.append(_record_items(step, value, json_ready=json_ready))
             case "unknown":
                 flat_values.extend(_unknown_values(step, value))
-            case "value" | "date":
+            case "date":
+                flat_values.append(
+                    value.isoformat() if json_ready and isinstance(value, date) else value
+                )
+            case "value":
                 flat_values.append(value)
 
 
@@ -554,14 +570,47 @@ def to_columns(records: Iterable[object], record_type: type) -> dict[str, list[o
     flat_values: list[object] = []
     for record in records:
         if type(record) is not record_type:
-            raise TypeError(
-                f"to_columns expected {record_type.__name__} records, not {type(record).__name__}"
-            )
+            raise _record_type_error("to_columns", record_type, record)
         flat_values.clear()
-        _append_flat_values(flat_values, record, class_plan)
-        for append_value, value in zip(column_appenders, flat_values):
+        _append_flat_values(flat_values, record, class_plan, json_ready=False)
+        for append_value, value in zip(column_appenders, flat_values, strict=True):
             append_value(value)
     return columns
+
+
+def flat_rows[RecordT](
+    records: Iterable[RecordT], record_type: type[RecordT], *, json_ready: bool = False
+) -> Iterator[dict[str, object]]:
+    """Yield each record as a flat row keyed by column_names(record_type), one at a time.
+
+    Each row equals flatten_dict(record_to_dict(record, json_ready=json_ready)), but is built
+    in one pass without nested dicts.
+
+    Args:
+        records: Records that are all exactly of record_type.
+        record_type: The record class.
+        json_ready: When true, dates become ISO 8601 strings and tuples become lists.
+
+    Raises:
+        TypeError: A record is not exactly of record_type, record_type is not supported, or a
+            value does not match its field's type.
+        ValueError: Two fields give the same column name, or a record's unknown mapping holds
+            an undeclared key.
+    """
+    class_plan = _class_plan(record_type)
+    columns = class_plan.columns
+    for record in records:
+        if type(record) is not record_type:
+            raise _record_type_error("flat_rows", record_type, record)
+        flat_values: list[object] = []
+        _append_flat_values(flat_values, record, class_plan, json_ready=json_ready)
+        yield dict(zip(columns, flat_values, strict=True))
+
+
+def _record_type_error(function_name: str, record_type: type, record: object) -> TypeError:
+    return TypeError(
+        f"{function_name} expected {record_type.__name__} records, not {type(record).__name__}"
+    )
 
 
 def _json_default(value: object) -> object:
