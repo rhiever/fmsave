@@ -321,3 +321,20 @@ def test_main_without_argv_hides_folder(
     error_output = capsys.readouterr().err
     assert "career.fm" in error_output
     assert "Private Folder" not in error_output
+
+
+@pytest.mark.parametrize(
+    "leading_arguments",
+    [[], ["info", "a.fm"]],
+    ids=["first-argument", "after-info"],
+)
+def test_short_option_glued_path_hides_folder(
+    tmp_path: Path, leading_arguments: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    glued_argument = f"-h-{tmp_path / 'Private Folder' / 'career.fm'}"
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main([*leading_arguments, glued_argument])
+    assert exit_info.value.code == cli.EXIT_USAGE
+    error_output = capsys.readouterr().err
+    assert "career.fm" in error_output
+    assert "Private Folder" not in error_output

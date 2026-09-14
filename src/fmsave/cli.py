@@ -48,28 +48,30 @@ def is_path_like(argument_text: str) -> bool:
     return has_separator and argument_text.strip("/\\") != ""
 
 
-def redaction_candidates(argument_tokens: Sequence[str]) -> list[str]:
-    """Return the path-like argument texts to redact, longest first.
+def redaction_replacements(argument_tokens: Sequence[str]) -> dict[str, str]:
+    """Map every path-like suffix of every argument to that argument's last component.
 
-    A candidate is a whole argument, or the text after the first "=" of an argument such as
-    --flag=value, because usage errors can quote either one.
+    Usage errors can quote a whole argument or any tail of it, such as the text after "=" or
+    after a short option, so every tail that contains a separator is redacted.
     """
-    candidates: set[str] = set()
+    replacements: dict[str, str] = {}
     for token in argument_tokens:
-        candidates.add(token)
-        if "=" in token:
-            candidates.add(token.partition("=")[2])
-    path_like_candidates = [candidate for candidate in candidates if is_path_like(candidate)]
-    return sorted(path_like_candidates, key=lambda candidate: (-len(candidate), candidate))
+        token_name = argument_display_name(token)
+        for start_index in range(len(token)):
+            suffix = token[start_index:]
+            if is_path_like(suffix):
+                replacements.setdefault(suffix, token_name)
+    return replacements
 
 
 def redact_path_arguments(message: str, argument_tokens: Sequence[str]) -> str:
-    """Replace every path-like argument in a message with its last component."""
+    """Replace every path-like argument text in a message with its argument's last component."""
+    replacements = redaction_replacements(argument_tokens)
     redacted_message = message
-    for candidate in redaction_candidates(argument_tokens):
-        candidate_name = argument_display_name(candidate)
-        redacted_message = redacted_message.replace(repr(candidate), repr(candidate_name))
-        redacted_message = redacted_message.replace(candidate, candidate_name)
+    for candidate in sorted(replacements, key=lambda candidate: (-len(candidate), candidate)):
+        replacement = replacements[candidate]
+        redacted_message = redacted_message.replace(repr(candidate), repr(replacement))
+        redacted_message = redacted_message.replace(candidate, replacement)
     return redacted_message
 
 
