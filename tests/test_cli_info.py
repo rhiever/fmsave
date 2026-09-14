@@ -69,7 +69,9 @@ def test_info_json(fragment_path: Path, capsys: pytest.CaptureFixture[str]) -> N
         "section_schemas",
     ]
     assert record["game"] == "FM26"
+    assert record["known_build"] is True
     assert record["game_date"] == "2031-03-01"
+    assert record["time_slot"] == 66
     assert record["section_count"] == 7
     assert record["section_schemas"]["game_info"] == 46
     assert list(record["section_schemas"]) == sorted(record["section_schemas"])
@@ -103,15 +105,19 @@ def test_missing_file_exits_2_without_folder(
     assert "Private Folder" not in error_output
 
 
-def test_directory_exits_1(tmp_path: Path) -> None:
+def test_directory_exits_1(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["info", str(tmp_path)]) == cli.EXIT_UNEXPECTED
+    assert "unexpected" not in capsys.readouterr().err
 
 
-def test_truncated_save_exits_1(tmp_path: Path) -> None:
+def test_truncated_save_exits_1(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     content = build_container_fragment().content
     file_path = tmp_path / "career.bin"
     file_path.write_bytes(content[:-10])
     assert cli.main(["info", str(file_path)]) == cli.EXIT_UNEXPECTED
+    error_output = capsys.readouterr().err
+    assert "unexpected" not in error_output
+    assert "career.bin" in error_output
 
 
 def test_future_game_exits_3(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -134,9 +140,10 @@ def test_unknown_build_prints_warning(tmp_path: Path, capsys: pytest.CaptureFixt
     )
     file_path = build_container_fragment(sections).write(tmp_path / "career.bin")
     assert cli.main(["info", str(file_path)]) == cli.EXIT_OK
-    error_output = capsys.readouterr().err
-    assert "fmsave: warning:" in error_output
-    assert "26.4.0" in error_output
+    captured_output = capsys.readouterr()
+    assert "fmsave: warning:" in captured_output.err
+    assert "26.4.0" in captured_output.err
+    assert "(unknown build)" in captured_output.out
 
 
 def test_unexpected_exception_exits_1(
@@ -168,3 +175,95 @@ def test_module_entry_point_info_json(fragment_path: Path) -> None:
     )
     assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout)["build"] == "26.3.2+2329565"
+
+
+def test_warning_is_printed_before_a_failed_check(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sections = replaced_sections(
+        save_game_summary=save_summary_body(version="26.4.0+2400000"),
+        game_info=game_info_body(build_numbers=(2400000, 2400000, 1)),
+    )
+    file_path = build_container_fragment(sections).write(tmp_path / "career.bin")
+    assert cli.main(["info", str(file_path)]) == cli.EXIT_UNSUPPORTED
+    error_lines = capsys.readouterr().err.splitlines()
+    warning_indexes = [
+        line_index
+        for line_index, line in enumerate(error_lines)
+        if line.startswith("fmsave: warning:") and "26.4.0" in line
+    ]
+    failure_indexes = [
+        line_index
+        for line_index, line in enumerate(error_lines)
+        if line.startswith("fmsave: error:")
+    ]
+    assert warning_indexes, error_lines
+    assert failure_indexes, error_lines
+    assert warning_indexes[0] < failure_indexes[0]
+
+
+def test_invalid_command_path_hides_folder(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    command_path = tmp_path / "Private Folder" / "career.fm"
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main([str(command_path)])
+    assert exit_info.value.code == cli.EXIT_USAGE
+    error_output = capsys.readouterr().err
+    assert "career.fm" in error_output
+    assert "Private Folder" not in error_output
+
+
+@pytest.mark.parametrize("path_style", ["posix", "windows"])
+def test_unrecognized_path_argument_hides_folder(
+    fragment_path: Path, path_style: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    if path_style == "windows":
+        extra_argument = "C:\\Private Folder\\career.fm"
+        expected_name = "career.fm"
+    else:
+        extra_argument = str(fragment_path)
+        expected_name = fragment_path.name
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["info", str(fragment_path), extra_argument])
+    assert exit_info.value.code == cli.EXIT_USAGE
+    error_output = capsys.readouterr().err
+    assert expected_name in error_output
+    assert "Private Folder" not in error_output
+
+
+def test_os_error_without_strerror_names_the_error_type(
+    fragment_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def raise_bare_os_error(arguments: object) -> int:
+        raise OSError()
+
+    monkeypatch.setattr(cli, "run_info", raise_bare_os_error)
+    assert cli.main(["info", str(fragment_path)]) == cli.EXIT_UNEXPECTED
+    error_output = capsys.readouterr().err
+    assert "None" not in error_output
+    assert "OSError" in error_output
+    assert "unexpected" not in error_output
+
+
+@pytest.mark.parametrize(
+    ("raised_error", "expected_message"),
+    [
+        (IsADirectoryError(21, "Is a directory", "."), "cannot read the given path"),
+        (FileNotFoundError(2, "No such file or directory", "."), "file not found: the given path"),
+    ],
+    ids=["os-error", "file-not-found"],
+)
+def test_empty_file_name_uses_the_given_path(
+    fragment_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    raised_error: OSError,
+    expected_message: str,
+) -> None:
+    def raise_path_error(arguments: object) -> int:
+        raise raised_error
+
+    monkeypatch.setattr(cli, "run_info", raise_path_error)
+    cli.main(["info", str(fragment_path)])
+    assert expected_message in capsys.readouterr().err
