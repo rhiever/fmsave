@@ -2,9 +2,10 @@
 
 Rules for corpus tests (marked corpus, corpus_fast or corpus_full, or using a corpus fixture):
 
-- Never print or log save data. The report hook below redacts unexpected failures and drops
-  their captured output and logs, but quiet failures, passing tests shown with -rA, and
-  warnings still show whatever was printed or logged.
+- Never print or log save data. The report hook below redacts unexpected failures (and quiet
+  failures under --full-trace) and drops their captured output and logs, but other quiet
+  failures, passing tests shown with -rA, and warnings still show whatever was printed or
+  logged.
 - Never parametrize by corpus file names: test ids are printed.
 """
 
@@ -75,13 +76,16 @@ def pytest_runtest_makereport(
 
     Tracebacks, chained exceptions, captured output and logs can all hold corpus paths and
     save data, so a redacted report keeps none of them. Quiet failures (pytest.fail with
-    pytrace=False and no visible chained exception) carry safe messages and are kept.
+    pytrace=False and no visible chained exception) carry safe messages and are kept, except
+    under --full-trace, which would print their traceback and local variables.
     Teardown failures are also redacted for any test once a corpus fixture has been set up,
     because session fixtures are torn down under whichever test ran last.
     """
     report = yield
     exception_info = call.excinfo
-    if not report.failed or exception_info is None or is_quiet_failure(exception_info.value):
+    if not report.failed or exception_info is None:
+        return report
+    if is_quiet_failure(exception_info.value) and not item.config.getoption("fulltrace"):
         return report
     corpus_teardown = call.when == "teardown" and item.session.stash.get(
         CORPUS_FIXTURES_USED, False

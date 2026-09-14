@@ -210,6 +210,25 @@ def test_quiet_failure_with_visible_chained_error_is_redacted(
     assert PRIVATE_FOLDER not in output
 
 
+def test_quiet_failure_under_full_trace_is_redacted(corpus_project: pytest.Pytester) -> None:
+    corpus_project.makepyfile(
+        test_generated="""
+        import pytest
+
+        @pytest.mark.corpus
+        def test_fails_quietly_beside_a_private_local():
+            crash_path = "/examples/privatefolder/career/x.fm"
+            pytest.fail("x.fm: unreadable", pytrace=False)
+        """
+    )
+
+    run_result, output = run_verbose_with_locals(corpus_project, "--full-trace")
+
+    run_result.assert_outcomes(failed=1)
+    assert "test_fails_quietly_beside_a_private_local (call) raised Failed" in output
+    assert PRIVATE_FOLDER not in output
+
+
 def test_unmarked_test_using_a_corpus_fixture_is_redacted(
     corpus_project: pytest.Pytester,
 ) -> None:

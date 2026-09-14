@@ -16,6 +16,7 @@ def test_version_is_a_string() -> None:
 
 
 def test_output_schema_version_is_int() -> None:
+    assert type(fmsave.OUTPUT_SCHEMA_VERSION) is int
     assert fmsave.OUTPUT_SCHEMA_VERSION == 1
 
 
@@ -51,7 +52,7 @@ def test_public_api_names() -> None:
 def test_cli_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exit_info:
         cli.main(["--version"])
-    assert exit_info.value.code == 0
+    assert exit_info.value.code == cli.EXIT_OK
     assert capsys.readouterr().out.strip() == f"fmsave {fmsave.__version__}"
 
 
