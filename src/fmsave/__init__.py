@@ -14,6 +14,8 @@ from fmsave._errors import (
 from fmsave._package import __version__
 from fmsave._save import Save
 from fmsave._save import open_save as open
+from fmsave._status import field_status
+from fmsave.models.common import CodedValue
 from fmsave.models.meta import SaveInfo, SectionInfo
 
 OUTPUT_SCHEMA_VERSION = 1
@@ -21,6 +23,7 @@ OUTPUT_SCHEMA_VERSION = 1
 __all__ = [
     "OUTPUT_SCHEMA_VERSION",
     "AmbiguousNameError",
+    "CodedValue",
     "CorruptSaveError",
     "FmsaveError",
     "NotAFmSaveError",
@@ -33,5 +36,6 @@ __all__ = [
     "UnknownBuildWarning",
     "UnsupportedGameError",
     "__version__",
+    "field_status",
     "open",
 ]

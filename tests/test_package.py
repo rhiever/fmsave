@@ -7,6 +7,7 @@ import sys
 import pytest
 
 import fmsave
+import fmsave.models
 from fmsave import cli
 
 
@@ -46,7 +47,21 @@ def test_all_names_exist() -> None:
 
 
 def test_public_api_names() -> None:
-    assert {"open", "Save", "SaveInfo", "SectionInfo"} <= set(fmsave.__all__)
+    assert {"open", "Save", "SaveInfo", "SectionInfo", "CodedValue", "field_status"} <= set(
+        fmsave.__all__
+    )
+
+
+def test_all_model_names_exist() -> None:
+    for exported_name in fmsave.models.__all__:
+        assert hasattr(fmsave.models, exported_name), exported_name
+    assert {
+        "CodedValue",
+        "ContractEndSource",
+        "SaveInfo",
+        "SectionInfo",
+        "TransferValueState",
+    } <= set(fmsave.models.__all__)
 
 
 def test_cli_version_flag(capsys: pytest.CaptureFixture[str]) -> None:

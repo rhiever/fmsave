@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date
 
+from fmsave._status import register_field_statuses
+
 
 @dataclass(frozen=True, slots=True)
 class SectionInfo:
@@ -18,7 +20,8 @@ class SectionInfo:
         compressed_size: Size of the compressed frame in bytes.
         decompressed_size: Size of the section once decompressed.
         schema: Schema number stored at the start of the section.
-        unknown: Directory values without an identified meaning ("tail0", "tail1").
+        unknown: Directory values without an identified meaning ("tail0", "tail1")
+            (unconfirmed).
     """
 
     name: str
@@ -41,9 +44,9 @@ class SaveInfo:
         build: Version and build that last wrote the save, for example "26.3.2+2329565".
         build_number: The numeric build.
         known_build: Whether fmsave has layout tables for this build.
-        db_version: Game database version string stored in the save.
-        game_date: In-game date, or None when it cannot be read.
-        time_slot: Intra-day time slot stored with the in-game date (meaning unconfirmed).
+        db_version: Game database version string stored in the save (unconfirmed).
+        game_date: In-game date, or None when it cannot be read (unconfirmed).
+        time_slot: Intra-day time slot stored with the in-game date (unconfirmed).
         save_name: The save's own name. `fmsave info` hides it unless --show-name is passed.
         sections: Every named section in file order.
         section_schemas: Schema number of every named section, read-only.
@@ -61,3 +64,24 @@ class SaveInfo:
     sections: tuple[SectionInfo, ...] = field(repr=False)
     section_schemas: Mapping[str, int] = field(hash=False)
     file_name: str
+
+
+register_field_statuses(
+    SectionInfo,
+    verified=("name", "extension", "file_offset", "compressed_size", "decompressed_size", "schema"),
+    unconfirmed=("unknown",),
+)
+register_field_statuses(
+    SaveInfo,
+    verified=(
+        "game",
+        "build",
+        "build_number",
+        "known_build",
+        "save_name",
+        "sections",
+        "section_schemas",
+        "file_name",
+    ),
+    unconfirmed=("db_version", "game_date", "time_slot"),
+)
