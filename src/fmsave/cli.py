@@ -50,25 +50,35 @@ def is_path_like(argument_text: str) -> bool:
 def redact_argument(argument_token: str) -> str:
     """Reduce a path-like argument to its last component, keeping any "--flag=" before the path.
 
-    The last component splits on both / and \\ on every system.
+    Text up to an "=" is kept only when the argument starts with "-", so a folder name that
+    contains "=" is removed with the rest of the folder. The last component splits on both
+    / and \\ on every system.
     """
     if not is_path_like(argument_token):
         return argument_token
-    separator_indexes = [argument_token.find(separator) for separator in PATH_SEPARATORS]
-    first_separator_index = min(index for index in separator_indexes if index >= 0)
-    kept_prefix_length = argument_token.find("=", 0, first_separator_index) + 1
+    kept_prefix_length = 0
+    if argument_token.startswith("-"):
+        separator_indexes = [argument_token.find(separator) for separator in PATH_SEPARATORS]
+        first_separator_index = min(index for index in separator_indexes if index >= 0)
+        kept_prefix_length = argument_token.find("=", 0, first_separator_index) + 1
     path_name = PureWindowsPath(argument_token[kept_prefix_length:]).name
     return argument_token[:kept_prefix_length] + (path_name or UNNAMED_PATH_ARGUMENT)
 
 
 def argument_folder_texts(argument_tokens: Sequence[str]) -> list[str]:
-    """Return the text before the last separator of each path-like argument that names a folder."""
+    """Return the text before the last separator of each path-like argument that names a folder.
+
+    Trailing separators are ignored, so "extra/" names no folder.
+    """
     folder_texts: list[str] = []
     for argument_token in argument_tokens:
         if not is_path_like(argument_token):
             continue
-        last_separator_index = max(argument_token.rfind(separator) for separator in PATH_SEPARATORS)
-        folder_text = argument_token[:last_separator_index]
+        trimmed_token = argument_token.rstrip(PATH_SEPARATORS)
+        last_separator_index = max(trimmed_token.rfind(separator) for separator in PATH_SEPARATORS)
+        if last_separator_index < 0:
+            continue
+        folder_text = trimmed_token[:last_separator_index]
         if len(folder_text) >= 2 and folder_text.strip(PATH_SEPARATORS):
             folder_texts.append(folder_text)
     return folder_texts
@@ -171,7 +181,7 @@ def run_info(arguments: argparse.Namespace) -> int:
     with fmsave.open(save_path) as career_save:
         save_info = career_save.info
     if arguments.json:
-        print(json.dumps(info_record(save_info, arguments.show_name), indent=2, ensure_ascii=False))
+        print(json.dumps(info_record(save_info, arguments.show_name), indent=2, ensure_ascii=True))
     else:
         print(render_info_text(save_info, arguments.show_name))
     return EXIT_OK

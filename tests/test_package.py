@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import subprocess
 import sys
 
@@ -58,6 +59,12 @@ def test_cli_without_command_is_a_usage_error() -> None:
     with pytest.raises(SystemExit) as exit_info:
         cli.main([])
     assert exit_info.value.code == cli.EXIT_USAGE
+
+
+def test_importing_the_main_module_does_not_run_the_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["fmsave", "--version"])
+    monkeypatch.delitem(sys.modules, "fmsave.__main__", raising=False)
+    importlib.import_module("fmsave.__main__")
 
 
 def test_module_entry_point_runs() -> None:
