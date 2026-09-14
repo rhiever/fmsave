@@ -25,6 +25,6 @@ class CorpusMismatches:
         self._messages.append(message)
 
     def fail_if_any(self) -> None:
-        """Fail the test, without a traceback, when anything was recorded."""
+        """Fail the test, without a traceback or chained exception, when anything was recorded."""
         if self._messages:
-            pytest.fail("; ".join(self._messages), pytrace=False)
+            raise pytest.fail.Exception("; ".join(self._messages), pytrace=False) from None

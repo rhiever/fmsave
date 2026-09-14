@@ -1,9 +1,10 @@
 """Shared test configuration, including the maintainer's local corpus (never present in CI).
 
-Rules for corpus tests (marked corpus, corpus_fast or corpus_full):
+Rules for corpus tests (marked corpus, corpus_fast or corpus_full, or using a corpus fixture):
 
-- Never print or log save data. Failure reports are redacted by the report hook below, but
-  captured output, log records and warnings are shown as they are.
+- Never print or log save data. The report hook below redacts unexpected failures and drops
+  their captured output and logs, but quiet failures, passing tests shown with -rA, and
+  warnings still show whatever was printed or logged.
 - Never parametrize by corpus file names: test ids are printed.
 """
 
@@ -23,6 +24,7 @@ import fmsave
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CORPUS_ENVIRONMENT_VARIABLE = "FMSAVE_CORPUS"
 CORPUS_MARKER_NAMES = ("corpus", "corpus_fast", "corpus_full")
+CORPUS_FIXTURE_NAMES = ("corpus_save_paths", "corpus_saves", "golden_values")
 CORPUS_FIXTURES_USED = pytest.StashKey[bool]()
 HASH_CHUNK_BYTES = 8 * 1024 * 1024
 
@@ -47,8 +49,22 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             item.add_marker(skip_marker)
 
 
+def handles_corpus_data(item: pytest.Item) -> bool:
+    fixture_names = getattr(item, "fixturenames", ())
+    uses_corpus_fixture = any(
+        fixture_name in fixture_names for fixture_name in CORPUS_FIXTURE_NAMES
+    )
+    return carries_corpus_marker(item) or uses_corpus_fixture
+
+
 def is_quiet_failure(error: BaseException) -> bool:
-    return isinstance(error, pytest.fail.Exception) and not error.pytrace
+    """True for pytest.fail with pytrace=False whose report shows no chained exception."""
+    return (
+        isinstance(error, pytest.fail.Exception)
+        and not error.pytrace
+        and error.__cause__ is None
+        and (error.__context__ is None or error.__suppress_context__)
+    )
 
 
 @pytest.hookimpl(wrapper=True)
@@ -57,8 +73,9 @@ def pytest_runtest_makereport(
 ) -> Generator[None, pytest.TestReport, pytest.TestReport]:
     """Replace failure details from corpus tests with the phase and exception type only.
 
-    Tracebacks print function arguments and locals, which hold corpus paths and save data.
-    Quiet failures (pytest.fail with pytrace=False) already carry safe messages and are kept.
+    Tracebacks, chained exceptions, captured output and logs can all hold corpus paths and
+    save data, so a redacted report keeps none of them. Quiet failures (pytest.fail with
+    pytrace=False and no visible chained exception) carry safe messages and are kept.
     Teardown failures are also redacted for any test once a corpus fixture has been set up,
     because session fixtures are torn down under whichever test ran last.
     """
@@ -69,12 +86,13 @@ def pytest_runtest_makereport(
     corpus_teardown = call.when == "teardown" and item.session.stash.get(
         CORPUS_FIXTURES_USED, False
     )
-    if carries_corpus_marker(item) or corpus_teardown:
+    if handles_corpus_data(item) or corpus_teardown:
         report.longrepr = (
             f"{item.name} ({call.when}) raised {exception_info.typename}; "
             "details hidden to keep save content out of test output. "
             "Reproduce locally in a debugger if needed."
         )
+        report.sections = []
     return report
 
 
