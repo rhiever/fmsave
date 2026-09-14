@@ -5,16 +5,18 @@ import io
 import json
 import math
 import sys
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import date
 from enum import IntEnum
 from pathlib import Path
 from typing import ClassVar
 
+import numpy
 import pandas
 import pytest
 
+from fmsave._frozen import FrozenMapping
 from fmsave.export import (
     column_names,
     flatten_dict,
@@ -85,6 +87,32 @@ class ExampleWithCollidingNames:
     ability_current: int
 
 
+class ExampleTrait(IntEnum):
+    UNKNOWN = -1
+    TRIES_LONG_SHOTS = 12
+
+
+@dataclass(frozen=True, slots=True)
+class ExampleWithCodeSuffixClash:
+    status: CodedValue[ExampleStatus] | None
+    status_code: int
+
+
+@dataclass(frozen=True, slots=True)
+class ExampleWithoutUnknownKeys:
+    uid: int
+    unknown: Mapping[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class ExampleSquadMember:
+    uid: int
+    traits: tuple[CodedValue[ExampleTrait], ...]
+    home_grown_club_names: tuple[str | None, ...]
+    chain_club_uids: tuple[int | None, ...]
+    on_loan: bool
+
+
 FULL_RECORD = ExampleRecord(
     uid=1001,
     name="Alex Example",
@@ -130,7 +158,7 @@ EXPECTED_FULL_FLAT_ROW: dict[str, object] = {
 BOTH_RECORDS = (FULL_RECORD, SPARSE_RECORD)
 
 
-def flat_rows(records: tuple[ExampleRecord, ...]) -> list[dict[str, object]]:
+def flat_rows(records: Sequence[object]) -> list[dict[str, object]]:
     return [flatten_dict(record_to_dict(record, json_ready=False)) for record in records]
 
 
@@ -181,9 +209,18 @@ def test_unsupported_annotation_raises_type_error_naming_the_field() -> None:
         column_names(ExampleWithFloat)
 
 
-def test_colliding_column_names_raise_type_error() -> None:
-    with pytest.raises(TypeError, match="ability_current"):
+def test_colliding_column_names_raise_value_error() -> None:
+    with pytest.raises(ValueError, match="ability_current"):
         column_names(ExampleWithCollidingNames)
+    record = ExampleWithCollidingNames(ability=ExampleGroup(1, 2), ability_current=3)
+    with pytest.raises(ValueError, match="ability_current"):
+        record_to_dict(record, json_ready=False)
+
+
+def test_coded_field_clashing_with_a_code_suffix_field_raises_value_error() -> None:
+    record = ExampleWithCodeSuffixClash(status=CodedValue.from_raw(ExampleStatus, 3), status_code=4)
+    with pytest.raises(ValueError, match="status_code"):
+        record_to_dict(record, json_ready=False)
 
 
 def test_flatten_dict_keeps_sequences_whole() -> None:
@@ -196,8 +233,10 @@ def test_flatten_dict_keeps_sequences_whole() -> None:
 
 
 def normalized_cell(cell: object) -> object:
+    if isinstance(cell, (bool, numpy.bool_)):
+        return ("bool", bool(cell))
     if isinstance(cell, (list, tuple)):
-        return list(cell)
+        return [normalized_cell(item) for item in cell]
     if cell is None:
         return None
     if isinstance(cell, float) and math.isnan(cell):
@@ -208,9 +247,13 @@ def normalized_cell(cell: object) -> object:
 
 
 def test_flattening_matches_pandas_json_normalize() -> None:
-    nested_rows = [record_to_dict(record, json_ready=True) for record in BOTH_RECORDS]
+    assert_matches_json_normalize(BOTH_RECORDS, ExampleRecord)
+
+
+def assert_matches_json_normalize(records: Sequence[object], record_type: type) -> None:
+    nested_rows = [record_to_dict(record, json_ready=True) for record in records]
     frame = pandas.json_normalize(nested_rows, sep="_")
-    expected_columns = column_names(ExampleRecord)
+    expected_columns = column_names(record_type)
     # json_normalize lists top-level values before flattened groups, so compare names only.
     assert len(frame.columns) == len(expected_columns)
     assert set(frame.columns) == set(expected_columns)
@@ -358,3 +401,167 @@ def test_to_polars_without_polars_names_the_extra(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setitem(sys.modules, "polars", None)
     with pytest.raises(ImportError, match=r"fmsave\[polars\]"):
         to_polars({"uid": [1]})
+
+
+MEMBER_WITH_TRAITS = ExampleSquadMember(
+    uid=2001,
+    traits=(CodedValue.from_raw(ExampleTrait, 12), CodedValue.from_raw(ExampleTrait, 40)),
+    home_grown_club_names=("Northbridge FC", None, "Example Rovers"),
+    chain_club_uids=(31, None, 33),
+    on_loan=True,
+)
+
+MEMBER_WITHOUT_TRAITS = ExampleSquadMember(
+    uid=2002, traits=(), home_grown_club_names=(), chain_club_uids=(None,), on_loan=False
+)
+
+BOTH_MEMBERS = (MEMBER_WITH_TRAITS, MEMBER_WITHOUT_TRAITS)
+
+MEMBER_COLUMNS = (
+    "uid",
+    "traits",
+    "traits_code",
+    "home_grown_club_names",
+    "chain_club_uids",
+    "on_loan",
+)
+
+
+def test_column_names_cover_optional_item_and_coded_value_tuples() -> None:
+    assert column_names(ExampleSquadMember) == MEMBER_COLUMNS
+    for member in BOTH_MEMBERS:
+        for json_ready in (False, True):
+            flat_row = flatten_dict(record_to_dict(member, json_ready=json_ready))
+            assert tuple(flat_row) == MEMBER_COLUMNS
+
+
+def test_optional_item_tuples_keep_their_none_items() -> None:
+    flat_row = flatten_dict(record_to_dict(MEMBER_WITH_TRAITS, json_ready=False))
+    assert flat_row["home_grown_club_names"] == ("Northbridge FC", None, "Example Rovers")
+    assert flat_row["chain_club_uids"] == (31, None, 33)
+    nested_row = record_to_dict(MEMBER_WITH_TRAITS, json_ready=True)
+    assert nested_row["home_grown_club_names"] == ["Northbridge FC", None, "Example Rovers"]
+    assert nested_row["chain_club_uids"] == [31, None, 33]
+    columns = to_columns(BOTH_MEMBERS, ExampleSquadMember)
+    assert columns["home_grown_club_names"] == [("Northbridge FC", None, "Example Rovers"), ()]
+    assert columns["chain_club_uids"] == [(31, None, 33), (None,)]
+
+
+def test_coded_value_tuples_become_label_and_code_sequences() -> None:
+    flat_row = flatten_dict(record_to_dict(MEMBER_WITH_TRAITS, json_ready=False))
+    assert flat_row["traits"] == ("tries_long_shots", "unknown")
+    assert flat_row["traits_code"] == (12, 40)
+    nested_row = record_to_dict(MEMBER_WITH_TRAITS, json_ready=True)
+    assert nested_row["traits"] == ["tries_long_shots", "unknown"]
+    assert nested_row["traits_code"] == [12, 40]
+    empty_flat_row = flatten_dict(record_to_dict(MEMBER_WITHOUT_TRAITS, json_ready=False))
+    assert empty_flat_row["traits"] == ()
+    assert empty_flat_row["traits_code"] == ()
+    empty_nested_row = record_to_dict(MEMBER_WITHOUT_TRAITS, json_ready=True)
+    assert empty_nested_row["traits"] == []
+    assert empty_nested_row["traits_code"] == []
+    columns = to_columns(BOTH_MEMBERS, ExampleSquadMember)
+    assert columns["traits"] == [("tries_long_shots", "unknown"), ()]
+    assert columns["traits_code"] == [(12, 40), ()]
+
+
+def test_optional_item_and_coded_value_tuples_in_csv(tmp_path: Path) -> None:
+    csv_path = tmp_path / "members.csv"
+    write_csv(flat_rows(BOTH_MEMBERS), column_names(ExampleSquadMember), csv_path)
+    with csv_path.open(encoding="utf-8", newline="") as csv_file:
+        parsed_rows = list(csv.DictReader(csv_file))
+    assert parsed_rows[0] == {
+        "uid": "2001",
+        "traits": "tries_long_shots;unknown",
+        "traits_code": "12;40",
+        "home_grown_club_names": "Northbridge FC;;Example Rovers",
+        "chain_club_uids": "31;;33",
+        "on_loan": "true",
+    }
+    assert parsed_rows[1]["traits"] == ""
+    assert parsed_rows[1]["traits_code"] == ""
+
+
+def test_optional_item_and_coded_value_tuples_in_json(tmp_path: Path) -> None:
+    nested_rows = [record_to_dict(member, json_ready=True) for member in BOTH_MEMBERS]
+    json_path = tmp_path / "members.json"
+    write_json(nested_rows, json_path)
+    loaded_rows = json.loads(json_path.read_text(encoding="utf-8"))
+    assert loaded_rows[0]["home_grown_club_names"] == ["Northbridge FC", None, "Example Rovers"]
+    assert loaded_rows[0]["traits"] == ["tries_long_shots", "unknown"]
+    assert loaded_rows[0]["traits_code"] == [12, 40]
+    assert loaded_rows[1]["traits_code"] == []
+    stream = io.StringIO()
+    write_jsonl(nested_rows, stream)
+    assert '"home_grown_club_names":["Northbridge FC",null,"Example Rovers"]' in stream.getvalue()
+
+
+def test_optional_item_and_coded_value_tuples_match_json_normalize() -> None:
+    assert_matches_json_normalize(BOTH_MEMBERS, ExampleSquadMember)
+
+
+def test_optional_item_and_coded_value_tuples_build_a_polars_frame() -> None:
+    frame = to_polars(to_columns(BOTH_MEMBERS, ExampleSquadMember))
+    assert frame.shape == (2, 6)
+
+
+def test_none_item_in_a_coded_value_tuple_raises_type_error() -> None:
+    member = replace(MEMBER_WITH_TRAITS, traits=(None,))
+    with pytest.raises(TypeError, match=r"ExampleSquadMember\.traits"):
+        record_to_dict(member, json_ready=True)
+    with pytest.raises(TypeError, match=r"ExampleSquadMember\.traits"):
+        to_columns([member], ExampleSquadMember)
+
+
+def test_group_of_the_wrong_class_raises_type_error() -> None:
+    holder = replace(ExampleContractHolder(uid=6, ability=None), ability=ExampleClause(None, None))
+    with pytest.raises(TypeError, match=r"ExampleContractHolder\.ability"):
+        record_to_dict(holder, json_ready=False)
+    with pytest.raises(TypeError, match=r"ExampleContractHolder\.ability"):
+        to_columns([holder], ExampleContractHolder)
+
+
+def test_none_item_in_a_record_tuple_raises_type_error() -> None:
+    record = replace(FULL_RECORD, clauses=(None,))
+    with pytest.raises(TypeError, match=r"ExampleRecord\.clauses"):
+        record_to_dict(record, json_ready=True)
+    with pytest.raises(TypeError, match=r"ExampleRecord\.clauses"):
+        to_columns([record], ExampleRecord)
+
+
+def test_frozen_mapping_unknown_values_are_read() -> None:
+    record = replace(FULL_RECORD, unknown=FrozenMapping({"e8": 3, "money_a": 7}))
+    flat_row = flatten_dict(record_to_dict(record, json_ready=True))
+    assert flat_row["unknown_money_a"] == 7
+    assert flat_row["unknown_e8"] == 3
+    columns = to_columns([record], ExampleRecord)
+    assert columns["unknown_money_a"] == [7]
+    assert columns["unknown_e8"] == [3]
+
+
+def test_unknown_field_without_unknown_keys_raises_type_error() -> None:
+    with pytest.raises(TypeError, match="UNKNOWN_KEYS"):
+        column_names(ExampleWithoutUnknownKeys)
+    with pytest.raises(TypeError, match="UNKNOWN_KEYS"):
+        record_to_dict(ExampleWithoutUnknownKeys(uid=1, unknown={}), json_ready=False)
+
+
+def test_to_columns_rejects_records_of_another_type() -> None:
+    with pytest.raises(TypeError, match="ExampleContractHolder"):
+        to_columns([FULL_RECORD], ExampleContractHolder)
+
+
+def test_to_columns_matches_flattened_record_dicts() -> None:
+    record_sets: list[tuple[type, Sequence[object]]] = [
+        (ExampleRecord, BOTH_RECORDS),
+        (ExampleSquadMember, BOTH_MEMBERS),
+        (
+            ExampleContractHolder,
+            (ExampleContractHolder(7, None), ExampleContractHolder(8, ExampleGroup(1, None))),
+        ),
+    ]
+    for record_type, records in record_sets:
+        expected_rows = flat_rows(records)
+        columns = to_columns(records, record_type)
+        for column_name, column_values in columns.items():
+            assert column_values == [expected_row[column_name] for expected_row in expected_rows]
