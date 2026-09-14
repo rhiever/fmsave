@@ -40,6 +40,7 @@ MAX_TRAILER_COMPRESSED_BYTES = 64 * 1024**2
 MAX_TRAILER_DECOMPRESSED_BYTES = 64 * 1024**2
 MAX_SAVE_NAME_BYTES = 4096
 MAX_ENTRY_NAME_BYTES = 256
+MAX_DIRECTORY_ENTRIES = 100_000
 ENTRY_FIXED_TAIL_BYTES = 40
 ENTRY_NAME_PATTERN = re.compile(rb"[A-Za-z0-9_]+")
 EXTENSION_PATTERN = re.compile(rb"\.[A-Za-z0-9]{3}")
@@ -137,7 +138,9 @@ def decompress_frame(
     if not decompressor.eof:
         raise CorruptSaveError(f"{file_name}: {what} is truncated. {RETRY_HINT}")
     if decompressor.unused_data:
-        raise CorruptSaveError(f"{file_name}: {what} has unexpected bytes after its frame")
+        raise CorruptSaveError(
+            f"{file_name}: {what} has unexpected bytes after its frame. {RETRY_HINT}"
+        )
     if expected_size is not None and len(data) != expected_size:
         raise CorruptSaveError(
             f"{file_name}: {what} decompressed to {len(data)} bytes, expected {expected_size}"
@@ -168,7 +171,9 @@ def read_index(
         if not HEADER_SIZE <= trailer_offset < file_size - TRAILER_HEADER_SIZE:
             raise CorruptSaveError(f"{file_name}: the save directory is missing. {RETRY_HINT}")
         if file_size - trailer_offset - TRAILER_HEADER_SIZE > MAX_TRAILER_COMPRESSED_BYTES:
-            raise CorruptSaveError(f"{file_name}: the save directory is implausibly large")
+            raise CorruptSaveError(
+                f"{file_name}: the save directory is implausibly large. {RETRY_HINT}"
+            )
         trailer_bytes = read_exact(save_file, trailer_offset, file_size - trailer_offset, file_name)
     if trailer_bytes[: len(FILE_MAGIC)] != FILE_MAGIC:
         raise CorruptSaveError(f"{file_name}: the save directory is damaged. {RETRY_HINT}")
@@ -210,6 +215,11 @@ def parse_directory(
     while (parsed := parse_directory_entry(trailer_payload, cursor)) is not None:
         entry, cursor = parsed
         entries.append(entry)
+        if len(entries) > MAX_DIRECTORY_ENTRIES:
+            raise CorruptSaveError(
+                f"{file_name}: the save directory has too many directory entries "
+                f"(more than {MAX_DIRECTORY_ENTRIES})"
+            )
     if not any(entry.is_section for entry in entries):
         raise CorruptSaveError(f"{file_name}: the save directory lists no sections")
     return save_name, tuple(sorted(entries, key=lambda entry: entry.frame_offset))

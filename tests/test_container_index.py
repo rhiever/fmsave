@@ -16,6 +16,7 @@ from tests.fixtures.container import (
     SectionFrame,
     build_container_fragment,
     default_sections,
+    length_prefixed,
     section_body,
     skippable_frame,
 )
@@ -101,8 +102,9 @@ def write_bytes(tmp_path: Path, content: bytes) -> Path:
 
 
 def test_magic_but_too_short_is_corrupt(tmp_path: Path) -> None:
-    with pytest.raises(CorruptSaveError):
+    with pytest.raises(CorruptSaveError, match="too short") as error_info:
         read_index(write_bytes(tmp_path, FILE_MAGIC + bytes(4)))
+    assert "try again" in str(error_info.value)
 
 
 def test_truncated_file_is_corrupt_with_hint(tmp_path: Path) -> None:
@@ -146,7 +148,7 @@ def test_overlapping_entries_are_corrupt(tmp_path: Path) -> None:
 
 def test_duplicate_section_names_are_corrupt(tmp_path: Path) -> None:
     sections = default_sections() + [SectionFrame("humans", section_body(".dat", 21, bytes(4)))]
-    with pytest.raises(CorruptSaveError):
+    with pytest.raises(CorruptSaveError, match="lists a section twice"):
         read_index(build_container_fragment(sections).write(tmp_path / "fragment.bin"))
 
 
@@ -183,6 +185,21 @@ def trailer_payload_of(content: bytes, trailer_offset: int) -> bytes:
     return zstd.decompress(content[trailer_offset + len(TRAILER_HEADER) :])
 
 
+def test_fingerprint_digest_covers_the_directory(tmp_path: Path) -> None:
+    first_fragment = build_container_fragment(save_name="Example Career A")
+    second_fragment = build_container_fragment(save_name="Example Career B")
+    assert len(first_fragment.content) == len(second_fragment.content)
+    assert first_fragment.trailer_offset == second_fragment.trailer_offset
+    frames_end = first_fragment.trailer_offset
+    assert first_fragment.content[:frames_end] == second_fragment.content[:frames_end]
+    first_index = read_index(first_fragment.write(tmp_path / "first" / "fragment.bin"))
+    second_index = read_index(second_fragment.write(tmp_path / "second" / "fragment.bin"))
+    copy_index = read_index(first_fragment.write(tmp_path / "copy" / "fragment.bin"))
+    assert first_index.fingerprint.file_size == second_index.fingerprint.file_size
+    assert first_index.fingerprint.header_digest != second_index.fingerprint.header_digest
+    assert first_index.fingerprint.header_digest == copy_index.fingerprint.header_digest
+
+
 def test_trailer_pointer_before_first_frame_is_corrupt(tmp_path: Path) -> None:
     content = bytearray(build_container_fragment().content)
     content[9:17] = (0).to_bytes(8, "little")
@@ -195,8 +212,9 @@ def test_oversized_directory_is_rejected_before_it_is_read(tmp_path: Path) -> No
     with file_path.open("wb") as save_file:
         save_file.write(header_pointing_at(HEADER_SIZE))
         save_file.truncate(HEADER_SIZE + len(TRAILER_HEADER) + 64 * 1024**2 + 1)
-    with pytest.raises(CorruptSaveError, match="implausibly large"):
+    with pytest.raises(CorruptSaveError, match="implausibly large") as error_info:
         read_index(file_path)
+    assert "try again" in str(error_info.value)
 
 
 def test_undecodable_directory_is_corrupt(tmp_path: Path) -> None:
@@ -224,12 +242,19 @@ def test_truncated_directory_frame_names_the_file_only(tmp_path: Path) -> None:
 
 def test_bytes_after_directory_frame_are_corrupt(tmp_path: Path) -> None:
     content = build_container_fragment().content + b"extra"
-    with pytest.raises(CorruptSaveError, match="after its frame"):
+    with pytest.raises(CorruptSaveError, match="after its frame") as error_info:
         read_index(write_bytes(tmp_path, content))
+    assert "try again" in str(error_info.value)
 
 
 def test_zero_compressed_size_is_corrupt(tmp_path: Path) -> None:
     fragment = build_container_fragment(declared_sizes={"humans.dat": (0, 40)})
+    with pytest.raises(CorruptSaveError, match="outside the frame area"):
+        read_index(fragment.write(tmp_path / "fragment.bin"))
+
+
+def test_last_entry_running_past_the_trailer_is_corrupt(tmp_path: Path) -> None:
+    fragment = build_container_fragment(declared_sizes={"1_2_3.apm": (10**9, 10)})
     with pytest.raises(CorruptSaveError, match="outside the frame area"):
         read_index(fragment.write(tmp_path / "fragment.bin"))
 
@@ -277,12 +302,90 @@ def directory_entry_bytes(
     *,
     extension_length: int = 4,
     tail_length: int = 40,
+    relative_offset: int = 0,
+    compressed_size: int = 64,
+    decompressed_size: int = 300,
 ) -> bytes:
-    """An entry whose frame sits at the first frame's offset, so parsing it always fails."""
-    tail = struct.pack("<5Q", 0, 64, 300, 0, 0)[:tail_length]
+    """One directory entry; by default its frame sits at the first frame's offset.
+
+    With the defaults, adding the entry to a fragment's directory makes it overlap
+    a listed frame, so `read_index` raises if it parses the entry.
+    """
+    tail = struct.pack("<5Q", relative_offset, compressed_size, decompressed_size, 0, 0)
     return (
-        struct.pack("<I", len(name)) + name + struct.pack("<I", extension_length) + extension + tail
+        struct.pack("<I", len(name))
+        + name
+        + struct.pack("<I", extension_length)
+        + extension
+        + tail[:tail_length]
     )
+
+
+def hand_built_container(frame_stream: bytes, directory: bytes) -> bytes:
+    """Header, frame stream and a trailer whose payload lists `directory`."""
+    trailer_payload = (
+        length_prefixed("Example Career") + struct.pack("<I", 300) + directory + bytes(16)
+    )
+    trailer_offset = HEADER_SIZE + len(frame_stream)
+    return (
+        header_pointing_at(trailer_offset)
+        + frame_stream
+        + TRAILER_HEADER
+        + zstd.compress(trailer_payload)
+    )
+
+
+def test_gap_before_the_first_frame_is_named_after_the_header(tmp_path: Path) -> None:
+    section_frame = zstd.compress(section_body(".dat", 21, bytes(32)))
+    directory = directory_entry_bytes(
+        b"humans",
+        b".dat",
+        relative_offset=1,
+        compressed_size=len(section_frame),
+        decompressed_size=40,
+    )
+    content = hand_built_container(b"\x00" + section_frame, directory)
+    container_index = read_index(write_bytes(tmp_path, content))
+    header_region = container_index.regions["unlisted_after_header"]
+    assert (header_region.start, header_region.end) == (26, 27)
+    assert header_region.entry is None
+    assert container_index.regions["humans"].start == 27
+    assert set(container_index.regions) == {"unlisted_after_header", "humans"}
+
+
+DIRECTORY_ENTRY_CAP = 100_000
+EMPTY_SKIPPABLE_FRAME = skippable_frame(b"")
+
+
+def test_directory_at_the_entry_cap_parses(tmp_path: Path) -> None:
+    frame_size = len(EMPTY_SKIPPABLE_FRAME)
+    directory = directory_entry_bytes(
+        b"game_info", b".dat", compressed_size=frame_size, decompressed_size=8
+    ) + b"".join(
+        directory_entry_bytes(
+            f"a{position}".encode("ascii"),
+            b".apm",
+            relative_offset=frame_size * position,
+            compressed_size=frame_size,
+            decompressed_size=8,
+        )
+        for position in range(1, DIRECTORY_ENTRY_CAP)
+    )
+    content = hand_built_container(EMPTY_SKIPPABLE_FRAME * DIRECTORY_ENTRY_CAP, directory)
+    container_index = read_index(write_bytes(tmp_path, content))
+    assert len(container_index.entries) == DIRECTORY_ENTRY_CAP
+    assert set(container_index.sections) == {"game_info"}
+
+
+def test_directory_entry_flood_is_corrupt(tmp_path: Path) -> None:
+    # Every entry is an attachment at the same offset: only a cap applied while
+    # parsing reports the flood; later checks would report overlap or no sections.
+    minimal_entry = directory_entry_bytes(
+        b"a", b".apm", compressed_size=len(EMPTY_SKIPPABLE_FRAME), decompressed_size=8
+    )
+    content = hand_built_container(EMPTY_SKIPPABLE_FRAME, minimal_entry * (DIRECTORY_ENTRY_CAP + 1))
+    with pytest.raises(CorruptSaveError, match="too many directory entries"):
+        read_index(write_bytes(tmp_path, content))
 
 
 def with_directory_extended_by(extra_bytes: bytes) -> bytes:
