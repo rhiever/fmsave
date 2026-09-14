@@ -4,14 +4,14 @@ repos:
     hooks:
       - id: guard-staged
         name: guard (staged files)
-        entry: python3 scripts/guard.py --staged
+        entry: uv run --frozen python scripts/guard.py --staged
         language: system
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
       - id: guard-commit-message
         name: guard (commit message)
-        entry: python3 scripts/guard.py --commit-msg
+        entry: uv run --frozen python scripts/guard.py --commit-msg
         language: system
         stages: [commit-msg]
       - id: gitleaks
