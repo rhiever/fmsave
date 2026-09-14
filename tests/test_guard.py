@@ -321,6 +321,52 @@ def test_denylisted_path_is_blocked_without_printing_it(
         assert matched_text not in error_output
 
 
+PUNCTUATED_DENYLIST = "Jean-Luc Example\nJ.R. Example\n"
+PUNCTUATED_NAME_PARTS = ("example", "jean", "j.r", "luc")
+
+
+@pytest.mark.parametrize(
+    "staged_path",
+    [
+        "tests/fixtures/jean-luc_example.json",
+        "tests/fixtures/jean-luc-example.json",
+        "docs/j.r._example.md",
+    ],
+    ids=["hyphen-then-underscore", "hyphens-only", "dotted-initials"],
+)
+def test_hyphenated_or_dotted_denylisted_name_in_path_is_blocked(
+    repository: Path, capsys: pytest.CaptureFixture[str], staged_path: str
+) -> None:
+    write_private(repository, "corpus/denylist.txt", PUNCTUATED_DENYLIST)
+    stage(repository, staged_path, "{}\n")
+    assert run_guard(repository, "--staged") == 1
+    error_output = capsys.readouterr().err.casefold()
+    assert "path withheld" in error_output
+    for matched_text in PUNCTUATED_NAME_PARTS:
+        assert matched_text not in error_output
+
+
+def test_save_file_named_after_hyphenated_denylisted_name_does_not_print_it(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_private(repository, "corpus/denylist.txt", PUNCTUATED_DENYLIST)
+    stage(repository, "data/jean-luc_example.fm", "text\n")
+    assert run_guard(repository, "--staged") == 1
+    error_output = capsys.readouterr().err.casefold()
+    assert "save file" in error_output
+    for matched_text in PUNCTUATED_NAME_PARTS:
+        assert matched_text not in error_output
+
+
+@pytest.mark.parametrize("signed_name", ["Jean-Luc Example", "J.R. Example"])
+def test_hyphenated_or_dotted_denylisted_name_in_content_is_blocked(
+    repository: Path, signed_name: str
+) -> None:
+    write_private(repository, "corpus/denylist.txt", PUNCTUATED_DENYLIST)
+    stage(repository, "signed.txt", f"Signed: {signed_name}\n")
+    assert run_guard(repository, "--staged") == 1
+
+
 def test_denylisted_path_is_blocked_in_tracked_and_history_modes(repository: Path) -> None:
     write_private(repository, "corpus/denylist.txt", "Alex Example\n")
     stage(repository, "tests/fixtures/alex_example.json", "{}\n")

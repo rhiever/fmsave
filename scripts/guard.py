@@ -78,6 +78,8 @@ class PrivateReferences:
     overlap_windows: dict[str, str] = field(default_factory=dict[str, str])
     denied_names: set[tuple[str, ...]] = field(default_factory=set[tuple[str, ...]])
     denied_name_lengths: set[int] = field(default_factory=set[int])
+    denied_path_names: set[tuple[str, ...]] = field(default_factory=set[tuple[str, ...]])
+    denied_path_name_lengths: set[int] = field(default_factory=set[int])
     denied_uids: set[str] = field(default_factory=set[str])
     denied_term_patterns: list[re.Pattern[str]] = field(default_factory=list[re.Pattern[str]])
     denied_path_term_patterns: list[re.Pattern[str]] = field(default_factory=list[re.Pattern[str]])
@@ -219,6 +221,9 @@ def load_denylist(denylist_text: str, references: PrivateReferences) -> None:
             if len(tokens) >= 2:
                 references.denied_names.add(tokens)
                 references.denied_name_lengths.add(len(tokens))
+                path_tokens = tuple(tokenize(PATH_SEPARATOR_PATTERN.sub(" ", entry_form)))
+                references.denied_path_names.add(path_tokens)
+                references.denied_path_name_lengths.add(len(path_tokens))
 
 
 def boundary_pattern(term_text: str) -> re.Pattern[str]:
@@ -283,6 +288,8 @@ def join_nonblank_lines(lines: Sequence[str]) -> tuple[str, list[int], list[int]
 def private_match_lines(
     lines: Sequence[str],
     references: PrivateReferences,
+    names: set[tuple[str, ...]],
+    name_lengths: set[int],
     term_patterns: Sequence[re.Pattern[str]],
 ) -> list[tuple[int, str]]:
     """(line number, reason) pairs for denylisted uids and names and denied terms.
@@ -297,16 +304,16 @@ def private_match_lines(
                     match.group(0) in references.denied_uids for match in UID_PATTERN.finditer(line)
                 ):
                     matches.add((line_number, UID_REASON_INDEX))
-        if references.denied_names:
+        if names:
             numbered_tokens = [
                 (line_number, token)
                 for line_number, line in enumerate(form_lines, start=1)
                 for token in tokenize(line)
             ]
             tokens = [token for _, token in numbered_tokens]
-            for length in references.denied_name_lengths:
+            for length in name_lengths:
                 for start in range(len(tokens) - length + 1):
-                    if tuple(tokens[start : start + length]) in references.denied_names:
+                    if tuple(tokens[start : start + length]) in names:
                         matches.add((numbered_tokens[start][0], NAME_REASON_INDEX))
         if term_patterns:
             joined_text, line_offsets, line_numbers = join_nonblank_lines(form_lines)
@@ -326,7 +333,11 @@ def text_findings(location: str, text: str, references: PrivateReferences) -> li
     return [
         Finding(f"{location}:{line_number}", reason)
         for line_number, reason in private_match_lines(
-            text.splitlines(), references, references.denied_term_patterns
+            text.splitlines(),
+            references,
+            references.denied_names,
+            references.denied_name_lengths,
+            references.denied_term_patterns,
         )
     ]
 
@@ -337,7 +348,11 @@ def path_findings(location: str, path: str, references: PrivateReferences) -> li
     return [
         Finding(location, f"path {reason}")
         for _, reason in private_match_lines(
-            [path_text], references, references.denied_path_term_patterns
+            [path_text],
+            references,
+            references.denied_path_names,
+            references.denied_path_name_lengths,
+            references.denied_path_term_patterns,
         )
     ]
 
