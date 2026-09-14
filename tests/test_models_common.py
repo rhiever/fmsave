@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import pickle
 from enum import IntEnum
+from typing import assert_type
 
 import pytest
 
@@ -29,6 +30,10 @@ def test_known_raw_value_gets_its_member_label() -> None:
     assert coded_status.label is ExampleStatus.FIRST_CHOICE
     assert coded_status.raw == 3
     assert coded_status.label_text == "first_choice"
+
+
+def test_from_raw_infers_the_enum_type() -> None:
+    assert_type(CodedValue.from_raw(ExampleStatus, 3), CodedValue[ExampleStatus])
 
 
 def test_unrecognised_raw_value_is_unknown_and_keeps_the_raw_value() -> None:

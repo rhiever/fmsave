@@ -23,6 +23,7 @@ from fmsave._status import (
 from fmsave.models import CodedValue
 
 ATTRIBUTE_ENTRY_PATTERN = re.compile(r"^ {4}(\w+): (.*)$")
+NON_RECORD_CLASSES: frozenset[type] = frozenset({CodedValue})
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +38,41 @@ class ExampleRecord:
     ability: ExampleAbility
 
 
+@dataclass(frozen=True, slots=True)
+class ExampleSquad:
+    uid: int
+    abilities: tuple[ExampleAbility, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExampleContract:
+    """A contract.
+
+    Attributes:
+        wage: Weekly wage, spread over
+            two lines (unconfirmed).
+        months: Months left.
+
+    Other text after the section.
+    """
+
+    wage: int
+    months: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class ExamplePlayer:
+    uid: int
+    contract: ExampleContract | None
+    status: CodedValue[typing.Any]
+
+
+@dataclass(frozen=True, slots=True)
+class ExampleMixedRecord:
+    either: ExampleAbility | ExampleContract
+    bare_status: CodedValue  # type: ignore[type-arg]
+
+
 @pytest.fixture(autouse=True)
 def restore_registry() -> Iterator[None]:
     saved_statuses = {
@@ -48,27 +84,77 @@ def restore_registry() -> Iterator[None]:
 
 
 def register_example_record() -> None:
-    register_field_statuses(
-        ExampleRecord, verified=["uid", "ability.current"], unconfirmed=["ability.potential"]
-    )
+    register_field_statuses(ExampleAbility, verified=["current"], unconfirmed=["potential"])
+    register_field_statuses(ExampleRecord, verified=["uid"])
 
 
-def test_registered_paths_report_their_status() -> None:
+def test_nested_paths_resolve_through_group_classes() -> None:
     register_example_record()
     assert field_status(ExampleRecord, "ability.potential") == "unconfirmed"
     assert field_status(ExampleRecord, "ability.current") == "verified"
     assert field_status(ExampleRecord, "uid") == "verified"
-    assert registered_statuses()["ExampleRecord.ability.current"] == "verified"
+    assert field_status(ExampleAbility, "potential") == "unconfirmed"
 
 
-def test_registered_statuses_are_sorted_and_read_only() -> None:
+def test_registered_statuses_are_one_level_sorted_and_read_only() -> None:
     register_example_record()
     statuses = registered_statuses()
+    assert statuses["ExampleAbility.current"] == "verified"
+    assert statuses["ExampleRecord.uid"] == "verified"
+    assert "ExampleRecord.ability.current" not in statuses
+    assert "ExampleRecord.ability" not in statuses
     assert isinstance(statuses, FrozenMapping)
     assert list(statuses) == sorted(statuses)
     with pytest.raises(TypeError):
         statuses["ExampleRecord.uid"] = "unconfirmed"  # type: ignore[index]
     assert field_status(ExampleRecord, "uid") == "verified"
+
+
+def test_registering_a_dotted_path_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="own class"):
+        register_field_statuses(ExampleRecord, verified=["ability.current"])
+    with pytest.raises(KeyError):
+        field_status(ExampleRecord, "ability.current")
+
+
+def test_registering_a_group_field_raises_value_error() -> None:
+    with pytest.raises(ValueError, match=r"ExampleRecord\.ability.*ExampleAbility"):
+        register_field_statuses(ExampleRecord, verified=["ability"])
+    with pytest.raises(ValueError, match=r"ExamplePlayer\.contract.*ExampleContract"):
+        register_field_statuses(ExamplePlayer, unconfirmed=["contract"])
+    assert not any(key.startswith("ExampleRecord.") for key in registered_statuses())
+
+
+def test_tuple_of_dataclasses_registers_as_a_leaf() -> None:
+    register_field_statuses(ExampleSquad, verified=["uid", "abilities"])
+    assert field_status(ExampleSquad, "abilities") == "verified"
+    with pytest.raises(KeyError, match=r"ExampleSquad.*'abilities\.current'"):
+        field_status(ExampleSquad, "abilities.current")
+
+
+def test_coded_value_field_registers_as_a_leaf() -> None:
+    register_field_statuses(ExamplePlayer, verified=["uid"], unconfirmed=["status"])
+    assert field_status(ExamplePlayer, "status") == "unconfirmed"
+
+
+def test_unions_of_records_and_bare_coded_values_register_as_leaves() -> None:
+    register_field_statuses(ExampleMixedRecord, verified=["either", "bare_status"])
+    assert field_status(ExampleMixedRecord, "either") == "verified"
+    assert field_status(ExampleMixedRecord, "bare_status") == "verified"
+    with pytest.raises(KeyError, match=r"ExampleMixedRecord.*'either\.current'"):
+        field_status(ExampleMixedRecord, "either.current")
+
+
+def test_dotted_path_on_a_non_dataclass_raises_key_error() -> None:
+    class ExamplePlainClass:
+        uid: int = 0
+
+    with pytest.raises(KeyError, match=r"ExamplePlainClass.*'uid\.x'"):
+        field_status(ExamplePlainClass, "uid.x")
+
+
+def test_coded_value_is_not_registered() -> None:
+    assert not any(key.startswith("CodedValue.") for key in registered_statuses())
 
 
 def test_registration_accepts_any_iterable_of_paths() -> None:
@@ -86,17 +172,34 @@ def test_single_string_instead_of_paths_raises_type_error() -> None:
 
 
 def test_unregistered_path_raises_key_error_naming_class_and_path() -> None:
-    register_example_record()
+    register_field_statuses(ExampleRecord, verified=["uid"])
     with pytest.raises(KeyError, match=r"ExampleRecord.*'missing'"):
         field_status(ExampleRecord, "missing")
+    with pytest.raises(KeyError, match=r"ExampleRecord.*'ability\.current'"):
+        field_status(ExampleRecord, "ability.current")
     with pytest.raises(KeyError, match=r"ExampleAbility.*'current'"):
         field_status(ExampleAbility, "current")
 
 
+def test_unknown_segment_raises_key_error_naming_class_and_path() -> None:
+    register_example_record()
+    with pytest.raises(KeyError, match=r"ExampleRecord.*'height\.current'"):
+        field_status(ExampleRecord, "height.current")
+    with pytest.raises(KeyError, match=r"ExampleRecord.*'ability\.height'"):
+        field_status(ExampleRecord, "ability.height")
+
+
+def test_path_through_a_non_group_field_raises_key_error() -> None:
+    register_example_record()
+    with pytest.raises(KeyError, match=r"ExampleRecord.*'uid\.x'"):
+        field_status(ExampleRecord, "uid.x")
+
+
 def test_same_status_can_be_registered_again() -> None:
     register_example_record()
-    register_field_statuses(ExampleRecord, verified=["uid"], unconfirmed=["ability.potential"])
-    assert field_status(ExampleRecord, "uid") == "verified"
+    register_field_statuses(ExampleRecord, verified=["uid"])
+    register_field_statuses(ExampleAbility, unconfirmed=["potential"])
+    assert field_status(ExampleRecord, "ability.potential") == "unconfirmed"
 
 
 def test_conflicting_re_registration_raises_value_error() -> None:
@@ -144,6 +247,8 @@ def test_registering_no_paths_records_nothing() -> None:
 def test_failed_registration_changes_nothing() -> None:
     statuses_before = dict(registered_statuses())
     with pytest.raises(ValueError):
+        register_field_statuses(ExampleRecord, verified=["uid", "ability"])
+    with pytest.raises(ValueError):
         register_field_statuses(ExampleRecord, verified=["uid", "height"])
     assert dict(registered_statuses()) == statuses_before
 
@@ -166,50 +271,61 @@ def test_unconfirmed_marker_text() -> None:
     assert unconfirmed_marker == "(unconfirmed)"
 
 
-def nested_group_class(field_type: object) -> type | None:
-    if typing.get_origin(field_type) in (typing.Union, types.UnionType):
-        candidate_types = [
-            argument for argument in typing.get_args(field_type) if argument is not type(None)
-        ]
-    else:
-        candidate_types = [field_type]
-    if len(candidate_types) != 1:
-        return None
-    candidate_type = candidate_types[0]
-    if (
-        isinstance(candidate_type, type)
-        and dataclasses.is_dataclass(candidate_type)
-        and candidate_type is not CodedValue
-    ):
-        return candidate_type
-    return None
-
-
-def field_types(model_class: type) -> dict[str, object]:
+def resolved_field_types(model_class: type) -> dict[str, object]:
     type_parameters = {
         parameter.__name__: parameter for parameter in getattr(model_class, "__type_params__", ())
     }
     return typing.get_type_hints(model_class, localns=type_parameters)
 
 
-def documented_classes(model_class: type, prefix: str = "") -> Iterator[tuple[type, str]]:
-    """Yield the model class and every nested group class, each with its path prefix."""
-    yield model_class, prefix
-    resolved_types = field_types(model_class)
-    for model_field in dataclasses.fields(model_class):
-        group_class = nested_group_class(resolved_types[model_field.name])
-        if group_class is not None:
-            yield from documented_classes(group_class, f"{prefix}{model_field.name}.")
+def without_none(field_type: object) -> list[object]:
+    if typing.get_origin(field_type) in (typing.Union, types.UnionType):
+        return [argument for argument in typing.get_args(field_type) if argument is not type(None)]
+    return [field_type]
 
 
-def leaf_field_paths(model_class: type) -> set[str]:
-    leaf_paths: set[str] = set()
-    for owner_class, prefix in documented_classes(model_class):
-        resolved_types = field_types(owner_class)
-        for model_field in dataclasses.fields(owner_class):
-            if nested_group_class(resolved_types[model_field.name]) is None:
-                leaf_paths.add(f"{prefix}{model_field.name}")
-    return leaf_paths
+def is_record_class(candidate_type: object) -> typing.TypeGuard[type]:
+    return (
+        isinstance(candidate_type, type)
+        and dataclasses.is_dataclass(candidate_type)
+        and candidate_type not in NON_RECORD_CLASSES
+    )
+
+
+def group_class(field_type: object) -> type | None:
+    member_types = without_none(field_type)
+    if len(member_types) == 1 and is_record_class(member_types[0]):
+        return member_types[0]
+    return None
+
+
+def leaf_field_names(record_class: type) -> set[str]:
+    field_types = resolved_field_types(record_class)
+    return {
+        model_field.name
+        for model_field in dataclasses.fields(record_class)
+        if group_class(field_types[model_field.name]) is None
+    }
+
+
+def reachable_record_classes(record_class: type) -> Iterator[type]:
+    """Yield the record class, then every group class and tuple element record class it uses."""
+    yield record_class
+    field_types = resolved_field_types(record_class)
+    for model_field in dataclasses.fields(record_class):
+        field_type = field_types[model_field.name]
+        nested_classes = [
+            argument
+            for member_type in without_none(field_type)
+            for argument in (
+                typing.get_args(member_type)
+                if typing.get_origin(member_type) is tuple
+                else [member_type]
+            )
+            if is_record_class(argument)
+        ]
+        for nested_class in nested_classes:
+            yield from reachable_record_classes(nested_class)
 
 
 def attribute_entries(model_class: type) -> dict[str, str]:
@@ -232,83 +348,60 @@ def attribute_entries(model_class: type) -> dict[str, str]:
     return {entry_name: " ".join(parts) for entry_name, parts in entry_parts.items()}
 
 
-PUBLIC_MODEL_CLASSES = [
-    exported
-    for exported_name in fmsave.models.__all__
-    if isinstance(exported := getattr(fmsave.models, exported_name), type)
-    and dataclasses.is_dataclass(exported)
-]
+def public_record_classes() -> list[type]:
+    found_classes: dict[str, type] = {}
+    for exported_name in fmsave.models.__all__:
+        exported = getattr(fmsave.models, exported_name)
+        if not is_record_class(exported):
+            continue
+        for record_class in reachable_record_classes(exported):
+            found_classes[f"{record_class.__module__}.{record_class.__qualname__}"] = record_class
+    return [found_classes[class_key] for class_key in sorted(found_classes)]
 
 
-def test_public_models_include_the_save_metadata() -> None:
-    assert {fmsave.SaveInfo, fmsave.SectionInfo, CodedValue} <= set(PUBLIC_MODEL_CLASSES)
+PUBLIC_RECORD_CLASSES = public_record_classes()
+PUBLIC_RECORD_IDS = [record_class.__name__ for record_class in PUBLIC_RECORD_CLASSES]
 
 
-@pytest.mark.parametrize(
-    "model_class", PUBLIC_MODEL_CLASSES, ids=[model.__name__ for model in PUBLIC_MODEL_CLASSES]
-)
-def test_every_public_model_field_has_a_status(model_class: type) -> None:
-    expected_paths = leaf_field_paths(model_class)
-    for field_path in expected_paths:
-        assert field_status(model_class, field_path) in ("verified", "unconfirmed"), field_path
-    name_prefix = f"{model_class.__name__}."
-    registered_paths = {
+def test_public_records_include_the_save_metadata_but_not_coded_values() -> None:
+    assert {fmsave.SaveInfo, fmsave.SectionInfo} <= set(PUBLIC_RECORD_CLASSES)
+    assert CodedValue not in PUBLIC_RECORD_CLASSES
+
+
+@pytest.mark.parametrize("record_class", PUBLIC_RECORD_CLASSES, ids=PUBLIC_RECORD_IDS)
+def test_every_record_field_is_a_group_or_has_one_status(record_class: type) -> None:
+    name_prefix = f"{record_class.__name__}."
+    registered_fields = {
         registered_key.removeprefix(name_prefix)
         for registered_key in registered_statuses()
         if registered_key.startswith(name_prefix)
     }
-    assert registered_paths == expected_paths
+    assert registered_fields == leaf_field_names(record_class)
 
 
-@pytest.mark.parametrize(
-    "model_class", PUBLIC_MODEL_CLASSES, ids=[model.__name__ for model in PUBLIC_MODEL_CLASSES]
-)
-def test_docstrings_mark_exactly_the_unconfirmed_fields(model_class: type) -> None:
-    for owner_class, prefix in documented_classes(model_class):
-        entries = attribute_entries(owner_class)
-        resolved_types = field_types(owner_class)
-        field_names = [model_field.name for model_field in dataclasses.fields(owner_class)]
-        assert set(entries) == set(field_names), owner_class.__name__
-        for field_name in field_names:
-            if nested_group_class(resolved_types[field_name]) is None:
-                expects_marker = field_status(model_class, prefix + field_name) == "unconfirmed"
-            else:
-                expects_marker = False
-            has_marker = unconfirmed_marker in entries[field_name]
-            assert has_marker == expects_marker, f"{owner_class.__name__}.{field_name}"
+@pytest.mark.parametrize("record_class", PUBLIC_RECORD_CLASSES, ids=PUBLIC_RECORD_IDS)
+def test_docstrings_mark_exactly_the_unconfirmed_fields(record_class: type) -> None:
+    entries = attribute_entries(record_class)
+    field_names = [model_field.name for model_field in dataclasses.fields(record_class)]
+    assert set(entries) == set(field_names), record_class.__name__
+    leaf_names = leaf_field_names(record_class)
+    for field_name in field_names:
+        expects_marker = (
+            field_name in leaf_names and field_status(record_class, field_name) == "unconfirmed"
+        )
+        has_marker = unconfirmed_marker in entries[field_name]
+        assert has_marker == expects_marker, f"{record_class.__name__}.{field_name}"
 
 
-@dataclass(frozen=True, slots=True)
-class ExampleContract:
-    """A contract.
-
-    Attributes:
-        wage: Weekly wage, spread over
-            two lines (unconfirmed).
-        months: Months left.
-
-    Other text after the section.
-    """
-
-    wage: int
-    months: int | None
-
-
-@dataclass(frozen=True, slots=True)
-class ExamplePlayer:
-    uid: int
-    contract: ExampleContract | None
-    status: CodedValue[typing.Any]
-
-
-def test_docstring_check_reads_nested_groups_and_continuation_lines() -> None:
+def test_docstring_parser_joins_continuation_lines() -> None:
     assert attribute_entries(ExampleContract) == {
         "wage": "Weekly wage, spread over two lines (unconfirmed).",
         "months": "Months left.",
     }
-    assert leaf_field_paths(ExamplePlayer) == {
-        "uid",
-        "contract.wage",
-        "contract.months",
-        "status",
-    }
+
+
+def test_completeness_helpers_find_groups_and_tuple_elements() -> None:
+    assert leaf_field_names(ExamplePlayer) == {"uid", "status"}
+    assert leaf_field_names(ExampleSquad) == {"uid", "abilities"}
+    assert list(reachable_record_classes(ExamplePlayer)) == [ExamplePlayer, ExampleContract]
+    assert list(reachable_record_classes(ExampleSquad)) == [ExampleSquad, ExampleAbility]

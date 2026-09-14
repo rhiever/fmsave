@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 
-from fmsave._status import register_field_statuses
-
 _UNKNOWN_MEMBER_NAME = "UNKNOWN"
 _UNKNOWN_MEMBER_VALUE = -1
 
@@ -27,7 +25,7 @@ class CodedValue[EnumT: IntEnum]:
     raw: int
 
     @classmethod
-    def from_raw(cls, enum_type: type[EnumT], raw: int) -> CodedValue[EnumT]:
+    def from_raw[LabelT: IntEnum](cls, enum_type: type[LabelT], raw: int) -> CodedValue[LabelT]:
         """Label a raw code from the save.
 
         Raises:
@@ -43,7 +41,7 @@ class CodedValue[EnumT: IntEnum]:
             label = enum_type(raw)
         except ValueError:
             label = unknown_label
-        return cls(label=label, raw=raw)
+        return CodedValue(label=label, raw=raw)
 
     @property
     def label_text(self) -> str:
@@ -66,6 +64,3 @@ class ContractEndSource(StrEnum):
     TAIL = "tail"
     FALLBACK = "fallback"
     NONE = "none"
-
-
-register_field_statuses(CodedValue, verified=("label", "raw"))
