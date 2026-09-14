@@ -1,0 +1,26 @@
+# Private material and saves
+/.local/
+*.fm
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Tests, coverage, fuzzing
+.pytest_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+.benchmarks/
+crash-*
+leak-*
+timeout-*
+oom-*
+
+# Tools
+.ruff_cache/
