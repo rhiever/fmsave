@@ -17,6 +17,7 @@ from fmsave._save import open_save as open
 from fmsave._status import field_status
 from fmsave.models.common import CodedValue
 from fmsave.models.meta import SaveInfo, SectionInfo
+from fmsave.table import Table
 
 OUTPUT_SCHEMA_VERSION = 1
 
@@ -33,6 +34,7 @@ __all__ = [
     "SaveClosedError",
     "SaveInfo",
     "SectionInfo",
+    "Table",
     "UnknownBuildWarning",
     "UnsupportedGameError",
     "__version__",
