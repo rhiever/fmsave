@@ -43,6 +43,10 @@ def test_all_names_exist() -> None:
         assert hasattr(fmsave, exported_name), exported_name
 
 
+def test_public_api_names() -> None:
+    assert {"open", "Save", "SaveInfo", "SectionInfo"} <= set(fmsave.__all__)
+
+
 def test_cli_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exit_info:
         cli.main(["--version"])

@@ -12,6 +12,9 @@ from fmsave._errors import (
     UnsupportedGameError,
 )
 from fmsave._package import __version__
+from fmsave._save import Save
+from fmsave._save import open_save as open
+from fmsave.models.meta import SaveInfo, SectionInfo
 
 OUTPUT_SCHEMA_VERSION = 1
 
@@ -22,9 +25,13 @@ __all__ = [
     "FmsaveError",
     "NotAFmSaveError",
     "ReaderCheckError",
+    "Save",
     "SaveChangedError",
     "SaveClosedError",
+    "SaveInfo",
+    "SectionInfo",
     "UnknownBuildWarning",
     "UnsupportedGameError",
     "__version__",
+    "open",
 ]
