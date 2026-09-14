@@ -42,18 +42,34 @@ def error_file_name(filename: object) -> str:
     return file_name or UNNAMED_PATH
 
 
+def is_path_like(argument_text: str) -> bool:
+    """Whether an argument contains a path separator and is not made only of separators."""
+    has_separator = "/" in argument_text or "\\" in argument_text
+    return has_separator and argument_text.strip("/\\") != ""
+
+
+def redaction_candidates(argument_tokens: Sequence[str]) -> list[str]:
+    """Return the path-like argument texts to redact, longest first.
+
+    A candidate is a whole argument, or the text after the first "=" of an argument such as
+    --flag=value, because usage errors can quote either one.
+    """
+    candidates: set[str] = set()
+    for token in argument_tokens:
+        candidates.add(token)
+        if "=" in token:
+            candidates.add(token.partition("=")[2])
+    path_like_candidates = [candidate for candidate in candidates if is_path_like(candidate)]
+    return sorted(path_like_candidates, key=lambda candidate: (-len(candidate), candidate))
+
+
 def redact_path_arguments(message: str, argument_tokens: Sequence[str]) -> str:
     """Replace every path-like argument in a message with its last component."""
-    path_tokens = sorted(
-        {token for token in argument_tokens if "/" in token or "\\" in token},
-        key=len,
-        reverse=True,
-    )
     redacted_message = message
-    for path_token in path_tokens:
-        token_name = argument_display_name(path_token)
-        redacted_message = redacted_message.replace(repr(path_token), repr(token_name))
-        redacted_message = redacted_message.replace(path_token, token_name)
+    for candidate in redaction_candidates(argument_tokens):
+        candidate_name = argument_display_name(candidate)
+        redacted_message = redacted_message.replace(repr(candidate), repr(candidate_name))
+        redacted_message = redacted_message.replace(candidate, candidate_name)
     return redacted_message
 
 

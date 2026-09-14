@@ -267,3 +267,57 @@ def test_empty_file_name_uses_the_given_path(
     monkeypatch.setattr(cli, "run_info", raise_path_error)
     cli.main(["info", str(fragment_path)])
     assert expected_message in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "flag_arguments",
+    [
+        ["info", "--json=/Example/Private Folder/career.fm", "a.fm"],
+        ["info", "a.fm", "--show-name=C:\\Private Folder\\career.fm"],
+        ["info", "--js=/Example/Private Folder/career.fm", "a.fm"],
+        ["--version=/Example/Private Folder/career.fm"],
+    ],
+    ids=["json-posix", "show-name-windows", "abbreviated-json", "version"],
+)
+def test_flag_value_path_hides_folder(
+    flag_arguments: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(flag_arguments)
+    assert exit_info.value.code == cli.EXIT_USAGE
+    error_output = capsys.readouterr().err
+    assert "career.fm" in error_output
+    assert "Private Folder" not in error_output
+
+
+@pytest.mark.parametrize(
+    ("separator_arguments", "expected_text"),
+    [
+        (["/", "extra"], "invalid choice: '/'"),
+        (["\\", "extra"], "invalid choice: '\\\\'"),
+        (["--help=extra", "/"], "argument -h/--help: ignored explicit argument 'extra'"),
+    ],
+    ids=["slash-command", "backslash-command", "help-option-name"],
+)
+def test_separator_only_argument_is_not_redacted(
+    separator_arguments: list[str], expected_text: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(separator_arguments)
+    assert exit_info.value.code == cli.EXIT_USAGE
+    error_output = capsys.readouterr().err
+    assert expected_text in error_output
+    assert "the given path" not in error_output
+
+
+def test_main_without_argv_hides_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    command_path = tmp_path / "Private Folder" / "career.fm"
+    monkeypatch.setattr(sys, "argv", ["fmsave", str(command_path)])
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main()
+    assert exit_info.value.code == cli.EXIT_USAGE
+    error_output = capsys.readouterr().err
+    assert "career.fm" in error_output
+    assert "Private Folder" not in error_output
