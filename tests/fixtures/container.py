@@ -149,6 +149,9 @@ def build_container_fragment(
             stream.extend(raw_frame)
     for attachment_name, attachment_extension, attachment_payload in attachments:
         add_listed_frame(attachment_name, attachment_extension, attachment_payload)
+    unknown_keys = sorted(set(overrides) - set(frame_offsets))
+    if unknown_keys:
+        raise ValueError(f"declared_sizes keys name no listed frame: {unknown_keys}")
 
     trailer_payload = bytearray(length_prefixed(save_name))
     trailer_payload.extend(struct.pack("<I", trailer_unidentified))

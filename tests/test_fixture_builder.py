@@ -3,6 +3,8 @@ from __future__ import annotations
 import struct
 import sys
 
+import pytest
+
 from tests.fixtures.container import (
     FILE_MAGIC,
     HEADER_SIZE,
@@ -76,3 +78,9 @@ def test_summary_contains_length_prefixed_version() -> None:
 
 def test_section_body_magic_for_cmt() -> None:
     assert section_body(".cmt", 7, b"xy") == bytes.fromhex("0301746d632e0700") + b"xy"
+
+
+def test_declared_sizes_rejects_keys_that_name_no_listed_frame() -> None:
+    build_container_fragment(declared_sizes={"humans.dat": (1, 2)})
+    with pytest.raises(ValueError, match=r"humans\.dta"):
+        build_container_fragment(declared_sizes={"humans.dta": (1, 2)})
