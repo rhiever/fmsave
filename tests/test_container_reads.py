@@ -384,3 +384,62 @@ def test_damaged_section_head_is_corrupt(tmp_path: Path) -> None:
     container_index = read_index(damaged_path)
     with pytest.raises(CorruptSaveError, match="could not be decompressed"):
         read_section_heads(container_index, ["humans"], 8)
+
+
+def test_section_heads_beyond_the_first_block(tmp_path: Path) -> None:
+    large_body = section_body(".dat", 4000, os.urandom(1024 * 1024))
+    sections = [*default_sections(), SectionFrame("large_example", large_body)]
+    container_index = read_index(
+        build_container_fragment(sections).write(tmp_path / "fragment.bin")
+    )
+    heads = read_section_heads(container_index, ["large_example"], 200000)
+    assert heads["large_example"] == large_body[:200000]
+
+
+def early_flushed_frame(body: bytes, first_block_bytes: int) -> bytes:
+    """A valid frame whose first block holds only `first_block_bytes` bytes."""
+    compressor = zstd.ZstdCompressor()
+    first_part = compressor.compress(body[:first_block_bytes], mode=zstd.ZstdCompressor.FLUSH_BLOCK)
+    return first_part + compressor.compress(
+        body[first_block_bytes:], mode=zstd.ZstdCompressor.FLUSH_FRAME
+    )
+
+
+@pytest.mark.parametrize("length", [64, 140000])
+def test_section_heads_with_a_small_first_block(tmp_path: Path, length: int) -> None:
+    flushed_body = section_body(".dat", 4000, os.urandom(300000))
+    flushed_frame = early_flushed_frame(flushed_body, 10)
+    placeholder_body = os.urandom(len(flushed_body) + 256)
+    assert len(zstd.compress(placeholder_body)) >= len(flushed_frame)
+    fragment = build_container_fragment(
+        [*default_sections(), SectionFrame("flushed_example", placeholder_body)],
+        declared_sizes={"flushed_example.dat": (len(flushed_frame), len(flushed_body))},
+    )
+    frame_offset = fragment.frame_offsets["flushed_example.dat"]
+    spliced_content = bytearray(fragment.content)
+    spliced_content[frame_offset : frame_offset + len(flushed_frame)] = flushed_frame
+    spliced_path = tmp_path / "fragment.bin"
+    spliced_path.write_bytes(bytes(spliced_content))
+    container_index = read_index(spliced_path)
+    assert read_section(container_index, "flushed_example") == flushed_body
+    heads = read_section_heads(container_index, ["flushed_example"], length)
+    assert heads["flushed_example"] == flushed_body[:length]
+
+
+def test_short_large_section_head_is_corrupt(tmp_path: Path) -> None:
+    large_body = section_body(".dat", 4000, os.urandom(300000))
+    fragment = build_container_fragment(
+        [*default_sections(), SectionFrame("large_example", large_body)],
+        declared_sizes={
+            "large_example.dat": (len(zstd.compress(large_body)), len(large_body) + 1000)
+        },
+    )
+    container_index = read_index(fragment.write(tmp_path / "fragment.bin"))
+    with pytest.raises(CorruptSaveError, match="shorter than its directory entry says"):
+        read_section_heads(container_index, ["large_example"], len(large_body) + 1)
+
+
+def test_frame_walker_checks_region_before_reading_descriptor() -> None:
+    region_bytes = ZSTD_MAGIC
+    with pytest.raises(CorruptSaveError, match="frame at offset 0 runs past its region"):
+        walk_frame_headers(io.BytesIO(region_bytes), 0, len(region_bytes), "fragment.bin")

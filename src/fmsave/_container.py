@@ -348,8 +348,12 @@ def verify_unchanged(container_index: ContainerIndex, save_file: BinaryIO) -> No
         raise changed_on_disk_error(container_index.file_name)
     save_file.seek(0)
     header = save_file.read(HEADER_SIZE)
-    save_file.seek(container_index.trailer_offset)
-    trailer_bytes = save_file.read()
+    trailer_bytes = read_exact(
+        save_file,
+        container_index.trailer_offset,
+        fingerprint.file_size - container_index.trailer_offset,
+        container_index.file_name,
+    )
     if trailer_digest(header, trailer_bytes) != fingerprint.header_digest:
         raise changed_on_disk_error(container_index.file_name)
 
@@ -390,33 +394,40 @@ def read_section(container_index: ContainerIndex, name: str) -> bytes:
 def read_section_heads(
     container_index: ContainerIndex, names: Sequence[str], length: int
 ) -> dict[str, bytes]:
-    """The first `length` bytes of each section, decoding only the start of each frame."""
+    """The first `length` bytes of each section, decoding only as much of each frame as needed.
+
+    A capped prefix of each frame is decoded first; the whole frame is read only when
+    that prefix yields too few bytes.
+    """
+    file_name = container_index.file_name
     entries = {name: section_entry(container_index, name) for name in names}
-    with open_verified(container_index) as save_file:
-        compressed_heads = {
-            name: read_exact(
-                save_file,
-                entry.frame_offset,
-                min(entry.compressed_size, HEAD_READ_BYTES),
-                container_index.file_name,
-            )
-            for name, entry in entries.items()
-        }
     heads: dict[str, bytes] = {}
-    for name, compressed_head in compressed_heads.items():
-        wanted_length = min(length, entries[name].decompressed_size)
-        try:
-            head = zstd.ZstdDecompressor().decompress(compressed_head, max_length=wanted_length)
-        except zstd.ZstdError as error:
-            raise CorruptSaveError(
-                f"{container_index.file_name}: section {name!r} could not be decompressed. {RETRY_HINT}"
-            ) from error
-        if len(head) < wanted_length:
-            raise CorruptSaveError(
-                f"{container_index.file_name}: section {name!r} is shorter than its directory entry says"
-            )
-        heads[name] = head
+    with open_verified(container_index) as save_file:
+        for name, entry in entries.items():
+            wanted_length = min(length, entry.decompressed_size)
+            prefix_size = min(entry.compressed_size, HEAD_READ_BYTES)
+            prefix = read_exact(save_file, entry.frame_offset, prefix_size, file_name)
+            head = decompress_head(prefix, wanted_length, name, file_name)
+            if len(head) < wanted_length and prefix_size < entry.compressed_size:
+                whole_frame = read_exact(
+                    save_file, entry.frame_offset, entry.compressed_size, file_name
+                )
+                head = decompress_head(whole_frame, wanted_length, name, file_name)
+            if len(head) < wanted_length:
+                raise CorruptSaveError(
+                    f"{file_name}: section {name!r} is shorter than its directory entry says"
+                )
+            heads[name] = head
     return heads
+
+
+def decompress_head(compressed: bytes, wanted_length: int, name: str, file_name: str) -> bytes:
+    try:
+        return zstd.ZstdDecompressor().decompress(compressed, max_length=wanted_length)
+    except zstd.ZstdError as error:
+        raise CorruptSaveError(
+            f"{file_name}: section {name!r} could not be decompressed. {RETRY_HINT}"
+        ) from error
 
 
 def walk_frame_headers(
@@ -457,6 +468,8 @@ def walk_frame_headers(
 def compressed_frame_end(
     save_file: BinaryIO, frame_start: int, region_end: int, file_name: str
 ) -> int:
+    if frame_start + 5 > region_end:
+        raise CorruptSaveError(f"{file_name}: frame at offset {frame_start} runs past its region")
     descriptor = read_exact(save_file, frame_start + 4, 1, file_name)[0]
     if descriptor & 0x08:
         raise CorruptSaveError(f"{file_name}: invalid frame header at offset {frame_start}")
