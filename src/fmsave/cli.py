@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import io
 import json
 import sys
@@ -29,11 +30,9 @@ EXIT_USAGE = 2
 EXIT_UNSUPPORTED = 3
 
 UNNAMED_PATH = "the given path"
-
-
-def argument_display_name(path_argument: str) -> str:
-    """Return the last component of a path argument, splitting on both / and \\."""
-    return PureWindowsPath(path_argument).name or UNNAMED_PATH
+PATH_SEPARATORS = "/\\"
+UNNAMED_PATH_ARGUMENT = "path"
+GENERIC_USAGE_MESSAGE = "invalid arguments; run 'fmsave --help' for usage"
 
 
 def error_file_name(filename: object) -> str:
@@ -44,52 +43,62 @@ def error_file_name(filename: object) -> str:
 
 def is_path_like(argument_text: str) -> bool:
     """Whether an argument contains a path separator and is not made only of separators."""
-    has_separator = "/" in argument_text or "\\" in argument_text
-    return has_separator and argument_text.strip("/\\") != ""
+    has_separator = any(separator in argument_text for separator in PATH_SEPARATORS)
+    return has_separator and argument_text.strip(PATH_SEPARATORS) != ""
 
 
-def redaction_replacements(argument_tokens: Sequence[str]) -> dict[str, str]:
-    """Map every path-like suffix of every argument to that argument's last component.
+def redact_argument(argument_token: str) -> str:
+    """Reduce a path-like argument to its last component, keeping any "--flag=" before the path.
 
-    Usage errors can quote a whole argument or any tail of it, such as the text after "=" or
-    after a short option, so every tail that contains a separator is redacted.
+    The last component splits on both / and \\ on every system.
     """
-    replacements: dict[str, str] = {}
-    for token in argument_tokens:
-        token_name = argument_display_name(token)
-        for start_index in range(len(token)):
-            suffix = token[start_index:]
-            if is_path_like(suffix):
-                replacements.setdefault(suffix, token_name)
-    return replacements
+    if not is_path_like(argument_token):
+        return argument_token
+    separator_indexes = [argument_token.find(separator) for separator in PATH_SEPARATORS]
+    first_separator_index = min(index for index in separator_indexes if index >= 0)
+    kept_prefix_length = argument_token.find("=", 0, first_separator_index) + 1
+    path_name = PureWindowsPath(argument_token[kept_prefix_length:]).name
+    return argument_token[:kept_prefix_length] + (path_name or UNNAMED_PATH_ARGUMENT)
 
 
-def redact_path_arguments(message: str, argument_tokens: Sequence[str]) -> str:
-    """Replace every path-like argument text in a message with its argument's last component."""
-    replacements = redaction_replacements(argument_tokens)
-    redacted_message = message
-    for candidate in sorted(replacements, key=lambda candidate: (-len(candidate), candidate)):
-        replacement = replacements[candidate]
-        redacted_message = redacted_message.replace(repr(candidate), repr(replacement))
-        redacted_message = redacted_message.replace(candidate, replacement)
-    return redacted_message
+def argument_folder_texts(argument_tokens: Sequence[str]) -> list[str]:
+    """Return the text before the last separator of each path-like argument that names a folder."""
+    folder_texts: list[str] = []
+    for argument_token in argument_tokens:
+        if not is_path_like(argument_token):
+            continue
+        last_separator_index = max(argument_token.rfind(separator) for separator in PATH_SEPARATORS)
+        folder_text = argument_token[:last_separator_index]
+        if len(folder_text) >= 2 and folder_text.strip(PATH_SEPARATORS):
+            folder_texts.append(folder_text)
+    return folder_texts
 
 
-class PathRedactingParser(argparse.ArgumentParser):
-    """Argument parser whose usage errors never show the folders of a path argument."""
+class UsageError(Exception):
+    """A usage error the argument parser raises instead of printing it and exiting."""
 
-    argument_tokens: tuple[str, ...] = ()
+    def __init__(self, parser: CommandLineParser, message: str) -> None:
+        super().__init__(message)
+        self.parser = parser
+        self.message = message
+
+
+class CommandLineParser(argparse.ArgumentParser):
+    """Argument parser that raises UsageError rather than printing a usage error."""
 
     def error(self, message: str) -> NoReturn:
-        super().error(redact_path_arguments(message, self.argument_tokens))
+        raise UsageError(self, message)
+
+    def exit_with_usage_error(self, message: str) -> NoReturn:
+        """Print this parser's usage line and the message as argparse does, then exit with 2."""
+        super().error(message)
 
 
-def build_parser(argument_tokens: Sequence[str] = ()) -> argparse.ArgumentParser:
-    parser = PathRedactingParser(
+def build_parser() -> CommandLineParser:
+    parser = CommandLineParser(
         prog="fmsave",
         description="Read Football Manager 26 save files. fmsave never modifies a save.",
     )
-    parser.argument_tokens = tuple(argument_tokens)
     parser.add_argument("--version", action="version", version=f"fmsave {__version__}")
     subcommands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
     info_parser = subcommands.add_parser(
@@ -97,13 +106,33 @@ def build_parser(argument_tokens: Sequence[str] = ()) -> argparse.ArgumentParser
         help="show the game, build and in-game date of a save",
         description="Show save metadata.",
     )
-    info_parser.argument_tokens = tuple(argument_tokens)
     info_parser.add_argument("save_path", metavar="SAVE", help="path to a .fm save file")
     info_parser.add_argument(
         "--show-name", action="store_true", help="include the save's name (hidden by default)"
     )
     info_parser.add_argument("--json", action="store_true", help="print JSON instead of text")
     return parser
+
+
+def redacted_usage_error(argument_tokens: Sequence[str]) -> tuple[CommandLineParser, str]:
+    """Return the parser and message to show for arguments the parser rejected.
+
+    Usage errors quote only parser vocabulary and argument text, so the message comes from parsing
+    the arguments again with every path reduced to its last component. When that parse does not
+    fail, or its message still shows a folder, a generic message is used instead.
+    """
+    parser = build_parser()
+    redacted_tokens = [redact_argument(argument_token) for argument_token in argument_tokens]
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            parser.parse_args(redacted_tokens)
+    except UsageError as usage_error:
+        folder_texts = argument_folder_texts(argument_tokens)
+        if not any(folder_text in usage_error.message for folder_text in folder_texts):
+            return usage_error.parser, usage_error.message
+    except SystemExit:
+        pass  # The redacted arguments asked for help or the version.
+    return parser, GENERIC_USAGE_MESSAGE
 
 
 def info_record(save_info: SaveInfo, show_name: bool) -> dict[str, object]:
@@ -190,7 +219,11 @@ def configure_output_streams() -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     configure_output_streams()
     argument_tokens = list(sys.argv[1:] if argv is None else argv)
-    arguments = build_parser(argument_tokens).parse_args(argument_tokens)
+    try:
+        arguments = build_parser().parse_args(argument_tokens)
+    except UsageError:
+        usage_parser, usage_message = redacted_usage_error(argument_tokens)
+        usage_parser.exit_with_usage_error(usage_message)
     with warnings.catch_warnings(record=True) as caught_warnings:
         warnings.simplefilter("always")
         exit_code, error_message = run_guarded(arguments)

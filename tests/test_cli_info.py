@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -337,4 +338,110 @@ def test_short_option_glued_path_hides_folder(
     assert exit_info.value.code == cli.EXIT_USAGE
     error_output = capsys.readouterr().err
     assert "career.fm" in error_output
+    assert "Private Folder" not in error_output
+
+
+@pytest.mark.parametrize("path_style", ["posix", "windows"])
+def test_paths_split_across_arguments_hide_every_folder(
+    tmp_path: Path, path_style: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    if path_style == "windows":
+        path_arguments = [
+            "a.fm",
+            "C:\\Users\\Fictional\\FM Saves\\c.fm",
+            "D:\\Backup\\FM",
+            "Saves\\c.fm",
+        ]
+        expected_name = "c.fm"
+        folder_texts = ["Fictional", "FM Saves", "Backup"]
+    else:
+        path_arguments = [f"{tmp_path}/FM Saves/career.fm", "/fictional/FM", "Saves/career.fm"]
+        expected_name = "career.fm"
+        folder_texts = ["FM Saves", "fictional", str(tmp_path)]
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["info", *path_arguments])
+    assert exit_info.value.code == cli.EXIT_USAGE
+    error_output = capsys.readouterr().err
+    assert expected_name in error_output
+    for folder_text in folder_texts:
+        assert folder_text not in error_output
+
+
+def test_flag_value_with_trailing_separator_keeps_its_name(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["--version=saves/"])
+    assert exit_info.value.code == cli.EXIT_USAGE
+    assert "ignored explicit argument 'saves'" in capsys.readouterr().err
+
+
+def test_help_option_name_is_kept_beside_a_folder_value(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main([f"--help={tmp_path / 'Bath'}/"])
+    assert exit_info.value.code == cli.EXIT_USAGE
+    error_output = capsys.readouterr().err
+    assert "argument -h/--help: ignored explicit argument 'Bath'" in error_output
+    assert str(tmp_path) not in error_output
+
+
+@pytest.mark.parametrize(
+    "argument_tokens",
+    [
+        ["x/" * 50_000],
+        ["info", *[f"{token_index:02d}" + "/x" * 99 for token_index in range(50)]],
+    ],
+    ids=["one-long-argument", "many-arguments"],
+)
+def test_long_path_arguments_fail_quickly(
+    argument_tokens: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    started_seconds = time.perf_counter()
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(argument_tokens)
+    elapsed_seconds = time.perf_counter() - started_seconds
+    assert exit_info.value.code == cli.EXIT_USAGE
+    assert elapsed_seconds < 1
+    assert capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "argument_tokens",
+    [
+        ["Private Folder/--help"],
+        ["Private Folder\\-h"],
+        ["Private Folder/--version"],
+        ["info", "a.fm", "Private Folder/--help"],
+        ["info", "a.fm", "Private Folder/--json"],
+    ],
+    ids=["help", "short-help-windows", "version", "info-help", "info-parses"],
+)
+def test_redacted_arguments_that_do_not_fail_use_the_generic_message(
+    argument_tokens: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(argument_tokens)
+    assert exit_info.value.code == cli.EXIT_USAGE
+    captured_output = capsys.readouterr()
+    assert captured_output.out == ""
+    error_lines = captured_output.err.splitlines()
+    assert error_lines[0].startswith("usage: fmsave [-h] [--version]")
+    assert error_lines[-1] == f"fmsave: error: {cli.GENERIC_USAGE_MESSAGE}"
+    assert "Private Folder" not in captured_output.err
+
+
+def test_message_that_still_shows_a_folder_uses_the_generic_message(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def keep_argument(argument_token: str) -> str:
+        return argument_token
+
+    monkeypatch.setattr(cli, "redact_argument", keep_argument)
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["info", "a.fm", "/Example/Private Folder/career.fm"])
+    assert exit_info.value.code == cli.EXIT_USAGE
+    error_output = capsys.readouterr().err
+    assert f"fmsave: error: {cli.GENERIC_USAGE_MESSAGE}" in error_output
     assert "Private Folder" not in error_output
