@@ -14,13 +14,14 @@ import os
 import re
 import struct
 import sys
-from collections.abc import Mapping
+from collections.abc import Generator, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import BinaryIO
 
-from fmsave._errors import CorruptSaveError, NotAFmSaveError
+from fmsave._errors import CorruptSaveError, NotAFmSaveError, SaveChangedError
 from fmsave._scan import read_length_prefixed_string, read_u32, read_u64
 
 if sys.version_info >= (3, 14):
@@ -46,6 +47,14 @@ ENTRY_NAME_PATTERN = re.compile(rb"[A-Za-z0-9_]+")
 EXTENSION_PATTERN = re.compile(rb"\.[A-Za-z0-9]{3}")
 UNLISTED_REGION_PREFIX = "unlisted_after_"
 RETRY_HINT = "If the game was saving, wait for it to finish or copy the file, then try again."
+HEAD_READ_BYTES = 128 * 1024 + 32
+MAX_FRAMES_PER_REGION = 1_000_000
+ZSTD_FRAME_MAGIC = 0xFD2FB528
+SKIPPABLE_MAGIC_FIRST = 0x184D2A50
+SKIPPABLE_MAGIC_LAST = 0x184D2A5F
+ZSTD_MAX_BLOCK_BYTES = 128 * 1024
+BLOCK_TYPE_RLE = 1
+BLOCK_TYPE_RESERVED = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +116,13 @@ class ContainerIndex:
     @property
     def file_name(self) -> str:
         return self.path.name
+
+
+@dataclass(frozen=True, slots=True)
+class FrameSpan:
+    offset: int
+    size: int
+    skippable: bool
 
 
 def read_exact(save_file: BinaryIO, offset: int, length: int, file_name: str) -> bytes:
@@ -314,3 +330,215 @@ def build_regions(
     if trailer_offset > cursor:
         add_region(Region(UNLISTED_REGION_PREFIX + previous_name, cursor, trailer_offset, None))
     return regions
+
+
+def changed_on_disk_error(file_name: str) -> SaveChangedError:
+    return SaveChangedError(
+        f"{file_name} changed on disk after it was opened. Open it again; if the game is running, copy the file first."
+    )
+
+
+def verify_unchanged(container_index: ContainerIndex, save_file: BinaryIO) -> None:
+    fingerprint = container_index.fingerprint
+    file_status = os.fstat(save_file.fileno())
+    if (
+        file_status.st_size != fingerprint.file_size
+        or file_status.st_mtime_ns != fingerprint.mtime_ns
+    ):
+        raise changed_on_disk_error(container_index.file_name)
+    save_file.seek(0)
+    header = save_file.read(HEADER_SIZE)
+    save_file.seek(container_index.trailer_offset)
+    trailer_bytes = save_file.read()
+    if trailer_digest(header, trailer_bytes) != fingerprint.header_digest:
+        raise changed_on_disk_error(container_index.file_name)
+
+
+@contextmanager
+def open_verified(container_index: ContainerIndex) -> Generator[BinaryIO]:
+    try:
+        save_file = container_index.path.open("rb")
+    except FileNotFoundError as error:
+        raise changed_on_disk_error(container_index.file_name) from error
+    with save_file:
+        verify_unchanged(container_index, save_file)
+        yield save_file
+
+
+def section_entry(container_index: ContainerIndex, name: str) -> DirectoryEntry:
+    entry = container_index.sections.get(name)
+    if entry is None:
+        raise CorruptSaveError(f"{container_index.file_name} has no {name!r} section")
+    return entry
+
+
+def read_section(container_index: ContainerIndex, name: str) -> bytes:
+    entry = section_entry(container_index, name)
+    with open_verified(container_index) as save_file:
+        compressed = read_exact(
+            save_file, entry.frame_offset, entry.compressed_size, container_index.file_name
+        )
+    return decompress_frame(
+        compressed,
+        expected_size=entry.decompressed_size,
+        cap=container_index.limits.frame_decompressed_cap,
+        what=f"section {name!r}",
+        file_name=container_index.file_name,
+    )
+
+
+def read_section_heads(
+    container_index: ContainerIndex, names: Sequence[str], length: int
+) -> dict[str, bytes]:
+    """The first `length` bytes of each section, decoding only the start of each frame."""
+    entries = {name: section_entry(container_index, name) for name in names}
+    with open_verified(container_index) as save_file:
+        compressed_heads = {
+            name: read_exact(
+                save_file,
+                entry.frame_offset,
+                min(entry.compressed_size, HEAD_READ_BYTES),
+                container_index.file_name,
+            )
+            for name, entry in entries.items()
+        }
+    heads: dict[str, bytes] = {}
+    for name, compressed_head in compressed_heads.items():
+        wanted_length = min(length, entries[name].decompressed_size)
+        try:
+            head = zstd.ZstdDecompressor().decompress(compressed_head, max_length=wanted_length)
+        except zstd.ZstdError as error:
+            raise CorruptSaveError(
+                f"{container_index.file_name}: section {name!r} could not be decompressed. {RETRY_HINT}"
+            ) from error
+        if len(head) < wanted_length:
+            raise CorruptSaveError(
+                f"{container_index.file_name}: section {name!r} is shorter than its directory entry says"
+            )
+        heads[name] = head
+    return heads
+
+
+def walk_frame_headers(
+    save_file: BinaryIO, start: int, end: int, file_name: str
+) -> tuple[FrameSpan, ...]:
+    """Locate every frame in [start, end) from frame and block headers, without decompressing."""
+    spans: list[FrameSpan] = []
+    position = start
+    while position < end:
+        if len(spans) >= MAX_FRAMES_PER_REGION:
+            raise CorruptSaveError(
+                f"{file_name}: too many frames between offsets {start} and {end}"
+            )
+        if position + 4 > end:
+            raise CorruptSaveError(f"{file_name}: stray bytes at offset {position}")
+        magic = read_u32(read_exact(save_file, position, 4, file_name), 0)
+        if SKIPPABLE_MAGIC_FIRST <= magic <= SKIPPABLE_MAGIC_LAST:
+            if position + 8 > end:
+                raise CorruptSaveError(
+                    f"{file_name}: truncated skippable frame at offset {position}"
+                )
+            frame_size = 8 + read_u32(read_exact(save_file, position + 4, 4, file_name), 0)
+            if position + frame_size > end:
+                raise CorruptSaveError(
+                    f"{file_name}: skippable frame at offset {position} runs past its region"
+                )
+            spans.append(FrameSpan(position, frame_size, skippable=True))
+            position += frame_size
+            continue
+        if magic != ZSTD_FRAME_MAGIC:
+            raise CorruptSaveError(f"{file_name}: expected a compressed frame at offset {position}")
+        frame_end = compressed_frame_end(save_file, position, end, file_name)
+        spans.append(FrameSpan(position, frame_end - position, skippable=False))
+        position = frame_end
+    return tuple(spans)
+
+
+def compressed_frame_end(
+    save_file: BinaryIO, frame_start: int, region_end: int, file_name: str
+) -> int:
+    descriptor = read_exact(save_file, frame_start + 4, 1, file_name)[0]
+    if descriptor & 0x08:
+        raise CorruptSaveError(f"{file_name}: invalid frame header at offset {frame_start}")
+    single_segment = bool(descriptor & 0x20)
+    header_size = (
+        5
+        + (0 if single_segment else 1)
+        + (0, 1, 2, 4)[descriptor & 0x03]
+        + ((1 if single_segment else 0), 2, 4, 8)[descriptor >> 6]
+    )
+    block_position = frame_start + header_size
+    while True:
+        if block_position + 3 > region_end:
+            raise CorruptSaveError(
+                f"{file_name}: frame at offset {frame_start} runs past its region"
+            )
+        block_header_bytes = read_exact(save_file, block_position, 3, file_name)
+        block_header = int.from_bytes(block_header_bytes, "little")
+        block_type = (block_header >> 1) & 0x03
+        block_size = block_header >> 3
+        if block_type == BLOCK_TYPE_RESERVED or block_size > ZSTD_MAX_BLOCK_BYTES:
+            raise CorruptSaveError(f"{file_name}: invalid block in frame at offset {frame_start}")
+        block_position += 3 + (1 if block_type == BLOCK_TYPE_RLE else block_size)
+        if block_header & 0x01:
+            break
+    if descriptor & 0x04:
+        block_position += 4
+    if block_position > region_end:
+        raise CorruptSaveError(f"{file_name}: frame at offset {frame_start} runs past its region")
+    return block_position
+
+
+def region_named(container_index: ContainerIndex, region_name: str) -> Region:
+    region = container_index.regions.get(region_name)
+    if region is None:
+        raise CorruptSaveError(f"{container_index.file_name} has no region {region_name!r}")
+    return region
+
+
+def walk_frames(container_index: ContainerIndex, region_name: str) -> tuple[FrameSpan, ...]:
+    region = region_named(container_index, region_name)
+    with open_verified(container_index) as save_file:
+        return walk_frame_headers(save_file, region.start, region.end, container_index.file_name)
+
+
+def read_region_frames(container_index: ContainerIndex, region_name: str) -> Iterator[bytes]:
+    """Read a region's frames with one short file open, then decompress them lazily."""
+    region = region_named(container_index, region_name)
+    file_name = container_index.file_name
+    with open_verified(container_index) as save_file:
+        spans = walk_frame_headers(save_file, region.start, region.end, file_name)
+        compressed_frames = [
+            read_exact(save_file, span.offset, span.size, file_name)
+            for span in spans
+            if not span.skippable
+        ]
+    declared_total = sum(entry.decompressed_size for entry in container_index.entries)
+    return decompress_region_frames(
+        compressed_frames, container_index.limits, declared_total, region_name, file_name
+    )
+
+
+def decompress_region_frames(
+    compressed_frames: list[bytes],
+    limits: ContainerLimits,
+    declared_total: int,
+    region_name: str,
+    file_name: str,
+) -> Iterator[bytes]:
+    """Yield each frame's bytes; unlisted data counts against the total cap after the directory's."""
+    total_decompressed = declared_total
+    for frame_number, compressed_frame in enumerate(compressed_frames):
+        frame_bytes = decompress_frame(
+            compressed_frame,
+            expected_size=None,
+            cap=limits.frame_decompressed_cap,
+            what=f"frame {frame_number} of region {region_name!r}",
+            file_name=file_name,
+        )
+        total_decompressed += len(frame_bytes)
+        if total_decompressed > limits.total_decompressed_cap:
+            raise CorruptSaveError(
+                f"{file_name}: region {region_name!r} exceeds the total decompression cap"
+            )
+        yield frame_bytes
