@@ -46,6 +46,13 @@ def test_mutation_attempts_raise_type_error() -> None:
     assert schemas == {"game_info": 46, "humans": 21}
 
 
+def test_calling_init_again_does_not_replace_the_items() -> None:
+    schemas = example_schemas()
+    schemas.__init__({"replaced": 1})
+    assert schemas == {"game_info": 46, "humans": 21}
+    assert repr(schemas) == "{'game_info': 46, 'humans': 21}"
+
+
 def test_is_unhashable_and_has_no_instance_dictionary() -> None:
     schemas = example_schemas()
     with pytest.raises(TypeError):
