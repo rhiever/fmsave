@@ -14,7 +14,9 @@ from tests.fixtures.container import (
     build_container_fragment,
     default_sections,
     game_info_body,
+    length_prefixed,
     save_summary_body,
+    section_body,
 )
 
 
@@ -119,6 +121,19 @@ def test_truncated_save_exits_1(tmp_path: Path, capsys: pytest.CaptureFixture[st
     error_output = capsys.readouterr().err
     assert "unexpected" not in error_output
     assert "career.bin" in error_output
+
+
+def test_short_game_info_error_names_the_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    short_game_info = section_body(".dat", 46, length_prefixed("26.2.0+0"))
+    file_path = build_container_fragment(replaced_sections(game_info=short_game_info)).write(
+        tmp_path / "Private Folder" / "career.bin"
+    )
+    assert cli.main(["info", str(file_path)]) == cli.EXIT_UNEXPECTED
+    error_output = capsys.readouterr().err
+    assert "fmsave: error: career.bin: game_info is damaged or was being written" in error_output
+    assert "Private Folder" not in error_output
 
 
 def test_future_game_exits_3(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

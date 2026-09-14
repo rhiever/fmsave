@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import os
 import re
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
-from types import MappingProxyType
+from pathlib import Path
 
-from fmsave._container import ContainerIndex, read_section, read_section_heads
+import fmsave
+from fmsave._container import (
+    ContainerIndex,
+    damaged_part_error,
+    read_section,
+    read_section_heads,
+)
 from fmsave._errors import (
     ISSUES_URL,
     CorruptSaveError,
@@ -17,6 +24,7 @@ from fmsave._errors import (
     UnknownBuildWarning,
     UnsupportedGameError,
 )
+from fmsave._frozen import FrozenMapping
 from fmsave._layouts import (
     FALLBACK_BUILD,
     GameInfoLayout,
@@ -122,6 +130,16 @@ def detect_game_version(container_index: ContainerIndex) -> GameVersion:
 def decode_game_info(
     game_info: bytes, layout: GameInfoLayout, version: GameVersion, file_name: str
 ) -> GameInfoFacts:
+    """Decode `game_info`; a read outside the section is reported with the file name."""
+    try:
+        return decode_game_info_fields(game_info, layout, version, file_name)
+    except CorruptSaveError as error:
+        raise damaged_part_error(file_name, GAME_INFO_SECTION, error) from error
+
+
+def decode_game_info_fields(
+    game_info: bytes, layout: GameInfoLayout, version: GameVersion, file_name: str
+) -> GameInfoFacts:
     db_version, version_end = read_length_prefixed_string(
         game_info, layout.db_version_length_offset, layout.max_db_version_bytes
     )
@@ -179,7 +197,7 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
                 f"layouts for. Using the {FALLBACK_BUILD} layouts; readers check their results and raise "
                 "ReaderCheckError if they do not fit."
             ),
-            stacklevel=3,
+            skip_file_prefixes=(str(Path(fmsave.__file__).parent) + os.sep,),
         )
     section_names = list(container_index.sections)
     heads = read_section_heads(container_index, section_names, SECTION_HEAD_BYTES)
@@ -196,7 +214,7 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
             compressed_size=entry.compressed_size,
             decompressed_size=entry.decompressed_size,
             schema=section_schemas[entry.name],
-            unknown=MappingProxyType(
+            unknown=FrozenMapping(
                 {"tail0": entry.trailing_values[0], "tail1": entry.trailing_values[1]}
             ),
         )
@@ -212,6 +230,6 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
         time_slot=facts.time_slot,
         save_name=container_index.save_name,
         sections=sections,
-        section_schemas=MappingProxyType(dict(section_schemas)),
+        section_schemas=FrozenMapping(section_schemas),
         file_name=file_name,
     )

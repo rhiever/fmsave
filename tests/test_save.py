@@ -60,6 +60,20 @@ def test_repr_hides_save_name_and_path(tmp_path: Path, fragment_path: Path) -> N
     assert "closed" in repr(career_save)
 
 
+def test_error_inside_with_closes_the_save_and_propagates(fragment_path: Path) -> None:
+    career_save = fmsave.open(fragment_path)
+    with pytest.raises(LookupError, match="fictional failure"), career_save:
+        raise LookupError("fictional failure")
+    assert career_save.closed
+
+
+def test_repr_is_exact(fragment_path: Path) -> None:
+    career_save = fmsave.open(fragment_path)
+    assert repr(career_save) == "<fmsave.Save FM26 26.3.2+2329565 open>"
+    career_save.close()
+    assert repr(career_save) == "<fmsave.Save FM26 26.3.2+2329565 closed>"
+
+
 def test_file_is_not_held_open(tmp_path: Path, fragment_path: Path) -> None:
     career_save = fmsave.open(fragment_path)
     career_save._read_section("humans")

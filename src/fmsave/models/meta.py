@@ -34,6 +34,8 @@ class SectionInfo:
 class SaveInfo:
     """Facts about a save, read when it is opened.
 
+    The repr leaves out the save name and the section list.
+
     Attributes:
         game: Game edition, for example "FM26".
         build: Version and build that last wrote the save, for example "26.3.2+2329565".
@@ -55,7 +57,7 @@ class SaveInfo:
     db_version: str
     game_date: date | None
     time_slot: int
-    save_name: str
-    sections: tuple[SectionInfo, ...]
+    save_name: str = field(repr=False)
+    sections: tuple[SectionInfo, ...] = field(repr=False)
     section_schemas: Mapping[str, int] = field(hash=False)
     file_name: str

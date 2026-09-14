@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import copy
+import pickle
 import warnings
 from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
 
-from fmsave._container import ContainerIndex, read_index
+from fmsave._container import RETRY_HINT, ContainerIndex, read_index
 from fmsave._errors import (
     ISSUES_URL,
     CorruptSaveError,
@@ -203,8 +205,15 @@ def test_game_info_decode_failure_on_known_build_and_exact_layout_is_corrupt(
     tmp_path: Path,
 ) -> None:
     body = game_info_body(db_version=OVERLONG_DB_VERSION)
-    with pytest.raises(CorruptSaveError):
+    with pytest.raises(CorruptSaveError) as error_info:
         read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+    message = str(error_info.value)
+    assert message.startswith(
+        "fragment.bin: game_info is damaged or was being written "
+        "(string at offset 8 claims 65 bytes, more than the 64 allowed)"
+    )
+    assert message.endswith(RETRY_HINT)
+    assert isinstance(error_info.value.__cause__, CorruptSaveError)
 
 
 def test_bad_section_signature_is_corrupt(tmp_path: Path) -> None:
@@ -219,6 +228,38 @@ def test_unknown_game_info_schema_uses_fallback_layout(tmp_path: Path) -> None:
     )
     assert save_info.section_schemas["game_info"] == 47
     assert save_info.game_date == date(2031, 3, 1)
+
+
+def test_unknown_build_warning_from_a_direct_call_points_at_the_caller(tmp_path: Path) -> None:
+    sections = sections_with(
+        save_game_summary=save_summary_body(version="26.4.0+2400000"),
+        game_info=game_info_body(build_numbers=(2400000, 2400000, 2400000)),
+    )
+    index = build_index(tmp_path, sections)
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        read_save_info(index)
+    build_warnings = unknown_build_warnings(caught_warnings)
+    assert len(build_warnings) == 1
+    assert build_warnings[0].filename == __file__
+
+
+def test_save_info_survives_pickle_and_deepcopy(tmp_path: Path) -> None:
+    save_info = read_save_info(build_index(tmp_path))
+    for copied_info in (pickle.loads(pickle.dumps(save_info)), copy.deepcopy(save_info)):
+        assert copied_info == save_info
+        assert copied_info.section_schemas == dict(save_info.section_schemas)
+        assert copied_info.sections[0].unknown == {"tail0": 0, "tail1": 0}
+
+
+def test_save_info_repr_hides_folder_save_name_and_sections(tmp_path: Path) -> None:
+    fragment_path = build_container_fragment(save_name="Example Career").write(
+        tmp_path / "privatefolder" / "fragment.bin"
+    )
+    description = repr(read_save_info(read_index(fragment_path)))
+    assert "privatefolder" not in description
+    assert "Example Career" not in description
+    assert "SectionInfo" not in description
 
 
 def test_save_info_is_immutable(tmp_path: Path) -> None:

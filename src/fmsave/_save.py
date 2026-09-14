@@ -13,7 +13,7 @@ from fmsave.models.meta import SaveInfo
 
 
 class Save:
-    """An open Football Manager 26 save.
+    """A Football Manager 26 save opened for reading.
 
     Opening reads only the header, the directory and the save metadata; the file is
     not kept open. Each reader reopens the file, checks that it has not changed since
@@ -37,6 +37,7 @@ class Save:
 
     @property
     def closed(self) -> bool:
+        """Whether the save has been closed. Readers raise SaveClosedError once it is."""
         return self._closed
 
     def close(self) -> None:

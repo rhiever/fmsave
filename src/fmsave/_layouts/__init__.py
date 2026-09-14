@@ -66,7 +66,7 @@ def known_builds() -> frozenset[str]:
     return frozenset(entry.build for entry in registered_layouts())
 
 
-def find_layout[LayoutT: GameInfoLayout | SaveSummaryLayout](
+def find_layout[LayoutT: Layout](
     layout_type: type[LayoutT], region: str, schema: int | None, build: str
 ) -> LayoutMatch[LayoutT]:
     candidates = [
