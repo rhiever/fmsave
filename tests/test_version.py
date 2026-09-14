@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -23,6 +24,8 @@ from tests.fixtures.container import (
     section_body,
 )
 
+OVERLONG_DB_VERSION = "2" * 65
+
 
 def build_index(
     tmp_path: Path, sections: list[SectionFrame] | None = None, save_name: str = "Example Career"
@@ -40,6 +43,16 @@ def sections_with(**replacement_bodies: bytes) -> list[SectionFrame]:
             section.unlisted_frames_after,
         )
         for section in default_sections()
+    ]
+
+
+def unknown_build_warnings(
+    caught_warnings: list[warnings.WarningMessage],
+) -> list[warnings.WarningMessage]:
+    return [
+        caught_warning
+        for caught_warning in caught_warnings
+        if issubclass(caught_warning.category, UnknownBuildWarning)
     ]
 
 
@@ -94,12 +107,32 @@ def test_longer_database_version_shifts_later_fields(tmp_path: Path) -> None:
     assert save_info.time_slot == 3
 
 
+@pytest.mark.parametrize("trailing_length", [14, 47, 48, 57, 58, 304])
+def test_version_is_found_whatever_length_the_next_string_has(
+    tmp_path: Path, trailing_length: int
+) -> None:
+    body = save_summary_body(version="26.3.2+2329565", trailing_strings=("x" * trailing_length,))
+    save_info = read_save_info(build_index(tmp_path, sections_with(save_game_summary=body)))
+    assert save_info.build == "26.3.2+2329565"
+    assert save_info.build_number == 2329565
+
+
 def test_future_game_is_unsupported(tmp_path: Path) -> None:
     body = save_summary_body(version="27.0.1+3000001")
     with pytest.raises(UnsupportedGameError) as error_info:
         read_save_info(build_index(tmp_path, sections_with(save_game_summary=body)))
     assert "FM27" in str(error_info.value)
     assert ISSUES_URL in str(error_info.value)
+
+
+def test_future_game_is_unsupported_even_when_other_section_signatures_differ(
+    tmp_path: Path,
+) -> None:
+    sections = sections_with(
+        save_game_summary=save_summary_body(version="27.0.1+3000001"), memory_pools=bytes(16)
+    )
+    with pytest.raises(UnsupportedGameError, match="FM27"):
+        read_save_info(build_index(tmp_path, sections))
 
 
 def test_missing_version_is_unsupported(tmp_path: Path) -> None:
@@ -114,22 +147,63 @@ def test_version_without_length_prefix_is_ignored(tmp_path: Path) -> None:
         read_save_info(build_index(tmp_path, sections_with(save_game_summary=body)))
 
 
-def test_unknown_fm26_build_warns_and_uses_fallback(tmp_path: Path) -> None:
+def test_unknown_fm26_build_warns_once_and_uses_fallback(tmp_path: Path) -> None:
     sections = sections_with(
         save_game_summary=save_summary_body(version="26.4.0+2400000"),
         game_info=game_info_body(build_numbers=(2400000, 2400000, 2400000)),
     )
     index = build_index(tmp_path, sections)
-    with pytest.warns(UnknownBuildWarning, match="26.4.0"):
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
         save_info = read_save_info(index)
+    build_warnings = unknown_build_warnings(caught_warnings)
+    assert len(build_warnings) == 1
+    assert "26.4.0" in str(build_warnings[0].message)
     assert not save_info.known_build
     assert save_info.build_number == 2400000
     assert save_info.game_date == date(2031, 3, 1)
 
 
+def test_known_build_does_not_warn(tmp_path: Path) -> None:
+    index = build_index(tmp_path)
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        save_info = read_save_info(index)
+    assert unknown_build_warnings(caught_warnings) == []
+    assert save_info.known_build
+
+
 def test_mismatched_build_numbers_fail_checks(tmp_path: Path) -> None:
     body = game_info_body(build_numbers=(2329565, 2329565, 1))
     with pytest.raises(ReaderCheckError):
+        read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+
+
+def test_game_info_decode_failure_on_unknown_build_fails_checks(tmp_path: Path) -> None:
+    sections = sections_with(
+        save_game_summary=save_summary_body(version="26.4.0+2400000"),
+        game_info=game_info_body(
+            db_version=OVERLONG_DB_VERSION, build_numbers=(2400000, 2400000, 2400000)
+        ),
+    )
+    index = build_index(tmp_path, sections)
+    with pytest.warns(UnknownBuildWarning), pytest.raises(ReaderCheckError) as error_info:
+        read_save_info(index)
+    assert ISSUES_URL in str(error_info.value)
+
+
+def test_game_info_decode_failure_with_inexact_layout_fails_checks(tmp_path: Path) -> None:
+    body = game_info_body(db_version=OVERLONG_DB_VERSION, schema=47)
+    with pytest.raises(ReaderCheckError) as error_info:
+        read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+    assert ISSUES_URL in str(error_info.value)
+
+
+def test_game_info_decode_failure_on_known_build_and_exact_layout_is_corrupt(
+    tmp_path: Path,
+) -> None:
+    body = game_info_body(db_version=OVERLONG_DB_VERSION)
+    with pytest.raises(CorruptSaveError):
         read_save_info(build_index(tmp_path, sections_with(game_info=body)))
 
 

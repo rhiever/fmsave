@@ -14,7 +14,7 @@ GAME_INFO = GameInfoLayout(
 )
 
 SAVE_SUMMARY = SaveSummaryLayout(
-    version_pattern=r"(?<![0-9.])([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,4})\+([0-9]{1,10})(?![0-9])",
+    version_pattern=r"([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,4})\+([0-9]{1,10})",
     max_version_bytes=32,
 )
 

@@ -26,7 +26,11 @@ class GameInfoLayout:
 
 @dataclass(frozen=True, slots=True)
 class SaveSummaryLayout:
-    """How to find the `MAJOR.MINOR.PATCH+BUILD` version string in `save_game_summary`."""
+    """How to recognise the `MAJOR.MINOR.PATCH+BUILD` version string in `save_game_summary`.
+
+    `version_pattern` must match a whole length-prefixed string, so it carries no anchors
+    or lookarounds.
+    """
 
     version_pattern: str
     max_version_bytes: int

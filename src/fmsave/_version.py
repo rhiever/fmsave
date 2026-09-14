@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from types import MappingProxyType
@@ -37,8 +38,10 @@ SUPPORTED_GAME_MAJOR = 26
 SECTION_MAGIC_PREFIX = b"\x03\x01"
 SECTION_HEAD_BYTES = 8
 SCHEMA_OFFSET = 6
+LENGTH_PREFIX_BYTES = 4
 GAME_INFO_SECTION = "game_info"
 SAVE_SUMMARY_SECTION = "save_game_summary"
+VERSION_CANDIDATE_START = re.compile(rb"(?<![0-9.])[0-9]{1,3}\.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,21 +72,51 @@ def section_schema(head: bytes, extension: str, section_name: str, file_name: st
 
 
 def find_game_version(summary: bytes, layout: SaveSummaryLayout, file_name: str) -> GameVersion:
+    """The first string whose u32 length prefix spans exactly a full version match."""
     version_pattern = re.compile(layout.version_pattern.encode("ascii"))
-    for match in version_pattern.finditer(summary):
-        version_text = match.group(0)
-        if match.start() < 4 or len(version_text) > layout.max_version_bytes:
+    for candidate in VERSION_CANDIDATE_START.finditer(summary):
+        version_start = candidate.start()
+        if version_start < LENGTH_PREFIX_BYTES:
             continue
-        if read_u32(summary, match.start() - 4) != len(version_text):
+        version_length = read_u32(summary, version_start - LENGTH_PREFIX_BYTES)
+        version_end = version_start + version_length
+        if (
+            version_length == 0
+            or version_length > layout.max_version_bytes
+            or version_end > len(summary)
+        ):
+            continue
+        version_match = version_pattern.fullmatch(summary, version_start, version_end)
+        if version_match is None:
             continue
         return GameVersion(
-            major=int(match.group(1)),
-            build=version_text.decode("ascii"),
-            build_number=int(match.group(4)),
+            major=int(version_match.group(1)),
+            build=version_match.group(0).decode("ascii"),
+            build_number=int(version_match.group(4)),
         )
     raise UnsupportedGameError(
         f"{file_name}: no game version found. fmsave reads Football Manager 26 saves; for other versions see {ISSUES_URL}"
     )
+
+
+def detect_game_version(container_index: ContainerIndex) -> GameVersion:
+    """Read the version from `save_game_summary` alone and reject games other than FM26."""
+    file_name = container_index.file_name
+    summary = read_section(container_index, SAVE_SUMMARY_SECTION)
+    summary_schema = section_schema(
+        summary,
+        container_index.sections[SAVE_SUMMARY_SECTION].extension,
+        SAVE_SUMMARY_SECTION,
+        file_name,
+    )
+    summary_layout = find_layout(SaveSummaryLayout, SAVE_SUMMARY_SECTION, summary_schema, "").layout
+    version = find_game_version(summary, summary_layout, file_name)
+    if version.major != SUPPORTED_GAME_MAJOR:
+        raise UnsupportedGameError(
+            f"{file_name} is an {version.game} save ({version.build}). fmsave {__version__} reads FM26 saves "
+            f"only; {version.game} is not supported yet. See {ISSUES_URL}"
+        )
+    return version
 
 
 def decode_game_info(
@@ -111,26 +144,33 @@ def decode_game_info(
     )
 
 
+def read_game_info_facts(
+    container_index: ContainerIndex,
+    section_schemas: Mapping[str, int],
+    version: GameVersion,
+    known_build: bool,
+) -> GameInfoFacts:
+    """Decode `game_info`; on a fallback layout, damage-shaped failures mean the layout does not fit."""
+    file_name = container_index.file_name
+    layout_match = find_layout(
+        GameInfoLayout, GAME_INFO_SECTION, section_schemas.get(GAME_INFO_SECTION), version.build
+    )
+    game_info = read_section(container_index, GAME_INFO_SECTION)
+    try:
+        return decode_game_info(game_info, layout_match.layout, version, file_name)
+    except CorruptSaveError as error:
+        if known_build and layout_match.exact:
+            raise
+        raise ReaderCheckError(
+            f"{file_name}: game_info does not fit the layout fmsave used for build {version.build}. "
+            f"Please report it at {ISSUES_URL}"
+        ) from error
+
+
 def read_save_info(container_index: ContainerIndex) -> SaveInfo:
     """Detect the game and build and read save metadata. Warns on unknown FM26 builds."""
     file_name = container_index.file_name
-    section_names = list(container_index.sections)
-    heads = read_section_heads(container_index, section_names, SECTION_HEAD_BYTES)
-    section_schemas = {
-        name: section_schema(heads[name], container_index.sections[name].extension, name, file_name)
-        for name in section_names
-    }
-    summary_layout = find_layout(
-        SaveSummaryLayout, SAVE_SUMMARY_SECTION, section_schemas.get(SAVE_SUMMARY_SECTION), ""
-    ).layout
-    version = find_game_version(
-        read_section(container_index, SAVE_SUMMARY_SECTION), summary_layout, file_name
-    )
-    if version.major != SUPPORTED_GAME_MAJOR:
-        raise UnsupportedGameError(
-            f"{file_name} is an {version.game} save ({version.build}). fmsave {__version__} reads FM26 saves "
-            f"only; {version.game} is not supported yet. See {ISSUES_URL}"
-        )
+    version = detect_game_version(container_index)
     known_build = version.build in known_builds()
     if not known_build:
         warnings.warn(
@@ -141,12 +181,13 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
             ),
             stacklevel=3,
         )
-    game_info_layout = find_layout(
-        GameInfoLayout, GAME_INFO_SECTION, section_schemas.get(GAME_INFO_SECTION), version.build
-    ).layout
-    facts = decode_game_info(
-        read_section(container_index, GAME_INFO_SECTION), game_info_layout, version, file_name
-    )
+    section_names = list(container_index.sections)
+    heads = read_section_heads(container_index, section_names, SECTION_HEAD_BYTES)
+    section_schemas = {
+        name: section_schema(heads[name], container_index.sections[name].extension, name, file_name)
+        for name in section_names
+    }
+    facts = read_game_info_facts(container_index, section_schemas, version, known_build)
     sections = tuple(
         SectionInfo(
             name=entry.name,
