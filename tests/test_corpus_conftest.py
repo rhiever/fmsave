@@ -137,3 +137,21 @@ def test_save_that_cannot_open_fails_with_file_name_only(tmp_path: Path) -> None
     assert str(tmp_path) not in failure_message
     assert failure.value.pytrace is False
     assert failure.value.__suppress_context__
+
+
+class CloseFailsSave:
+    """Stands in for a Save whose close raises an error that names a fictional path."""
+
+    def close(self) -> None:
+        raise OSError("/examples/privatefolder/career/example-career.fm")
+
+
+def test_save_that_cannot_close_fails_with_file_name_only() -> None:
+    stand_in_saves = cast("dict[str, Any]", {f"career/{FICTIONAL_SAVE_NAME}": CloseFailsSave()})
+
+    with pytest.raises(pytest.fail.Exception) as failure:
+        corpus_conftest.close_corpus_saves(stand_in_saves)
+
+    assert_quiet_failure(
+        failure, f"corpus files could not be closed: {FICTIONAL_SAVE_NAME} (OSError)"
+    )
