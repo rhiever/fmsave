@@ -1,0 +1,61 @@
+"""Save metadata."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from datetime import date
+
+
+@dataclass(frozen=True, slots=True)
+class SectionInfo:
+    """One named section from the save's own directory.
+
+    Attributes:
+        name: Section name.
+        extension: ".dat" or ".cmt".
+        file_offset: Where the section's compressed frame starts in the file.
+        compressed_size: Size of the compressed frame in bytes.
+        decompressed_size: Size of the section once decompressed.
+        schema: Schema number stored at the start of the section.
+        unknown: Directory values without an identified meaning ("tail0", "tail1").
+    """
+
+    name: str
+    extension: str
+    file_offset: int
+    compressed_size: int
+    decompressed_size: int
+    schema: int
+    unknown: Mapping[str, int] = field(hash=False)
+
+
+@dataclass(frozen=True, slots=True)
+class SaveInfo:
+    """Facts about a save, read when it is opened.
+
+    Attributes:
+        game: Game edition, for example "FM26".
+        build: Version and build that last wrote the save, for example "26.3.2+2329565".
+        build_number: The numeric build.
+        known_build: Whether fmsave has layout tables for this build.
+        db_version: Game database version string stored in the save.
+        game_date: In-game date, or None when it cannot be read.
+        time_slot: Intra-day time slot stored with the in-game date (meaning unconfirmed).
+        save_name: The save's own name. `fmsave info` hides it unless --show-name is passed.
+        sections: Every named section in file order.
+        section_schemas: Schema number of every named section, read-only.
+        file_name: The save's file name, without its folder.
+    """
+
+    game: str
+    build: str
+    build_number: int
+    known_build: bool
+    db_version: str
+    game_date: date | None
+    time_slot: int
+    save_name: str
+    sections: tuple[SectionInfo, ...]
+    section_schemas: Mapping[str, int] = field(hash=False)
+    file_name: str
