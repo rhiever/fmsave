@@ -41,6 +41,8 @@ test = [
     "pytest-timeout>=2.4",
     "hypothesis>=6.168",
     "syrupy>=6.1",
+    "pandas>=2.2",
+    "polars>=1.0",
 ]
 dev = [
     { include-group = "test" },

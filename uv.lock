@@ -184,6 +184,8 @@ polars = [
 [package.dev-dependencies]
 dev = [
     { name = "hypothesis" },
+    { name = "pandas" },
+    { name = "polars" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -193,6 +195,8 @@ dev = [
 ]
 test = [
     { name = "hypothesis" },
+    { name = "pandas" },
+    { name = "polars" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-timeout" },
@@ -210,6 +214,8 @@ provides-extras = ["pandas", "polars"]
 [package.metadata.requires-dev]
 dev = [
     { name = "hypothesis", specifier = ">=6.168" },
+    { name = "pandas", specifier = ">=2.2" },
+    { name = "polars", specifier = ">=1.0" },
     { name = "pyright", specifier = ">=1.1.414" },
     { name = "pytest", specifier = ">=9.1" },
     { name = "pytest-cov", specifier = ">=7.1" },
@@ -219,6 +225,8 @@ dev = [
 ]
 test = [
     { name = "hypothesis", specifier = ">=6.168" },
+    { name = "pandas", specifier = ">=2.2" },
+    { name = "polars", specifier = ">=1.0" },
     { name = "pytest", specifier = ">=9.1" },
     { name = "pytest-cov", specifier = ">=7.1" },
     { name = "pytest-timeout", specifier = ">=2.4" },
