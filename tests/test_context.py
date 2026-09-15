@@ -39,6 +39,17 @@ def test_save_owns_a_context(fragment_path: Path) -> None:
         assert not career_save._context.closed
 
 
+def test_save_closed_state_comes_from_its_context(fragment_path: Path) -> None:
+    career_save = fmsave.open(fragment_path)
+    career_save._context.close()
+    assert career_save.closed
+    assert "closed" in repr(career_save)
+    with pytest.raises(fmsave.SaveClosedError):
+        career_save._read_section("humans")
+    career_save.close()
+    assert career_save.closed
+
+
 def test_nested_section_entries_share_one_read(
     fragment_path: Path, section_reads: list[str]
 ) -> None:
@@ -77,13 +88,33 @@ def test_section_bytes_are_released_when_the_body_raises(
     assert section_reads == ["humans", "humans"]
 
 
-def test_failed_section_read_leaves_nothing_behind(fragment_path: Path) -> None:
+def test_failed_section_read_leaves_nothing_behind(
+    monkeypatch: pytest.MonkeyPatch, fragment_path: Path, section_reads: list[str]
+) -> None:
+    counting_read_section = context_module.read_section
+    remaining_failures = ["humans"]
+
+    def read_section_failing_once(container_index: ContainerIndex, name: str) -> bytes:
+        section_bytes = counting_read_section(container_index, name)
+        if name in remaining_failures:
+            remaining_failures.remove(name)
+            raise fmsave.CorruptSaveError("fictional damage")
+        return section_bytes
+
+    monkeypatch.setattr(context_module, "read_section", read_section_failing_once)
     with fmsave.open(fragment_path) as career_save:
         context = career_save._context
-        with pytest.raises(fmsave.CorruptSaveError):
-            context.section("no_such_section").__enter__()
-        with context.section("humans") as humans:
-            assert humans == HUMANS_BODY
+        with (
+            pytest.raises(fmsave.CorruptSaveError, match="fictional damage"),
+            context.section("humans"),
+        ):
+            pytest.fail("the body must not run when the section read fails")
+        for _ in range(2):
+            with context.section("humans") as humans:
+                assert humans == HUMANS_BODY
+        assert context._loan_counts == {}
+        assert context._loaned_sections == {}
+    assert section_reads == ["humans", "humans", "humans"]
 
 
 def test_cached_builds_once_and_returns_the_same_object(fragment_path: Path) -> None:

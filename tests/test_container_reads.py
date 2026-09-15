@@ -217,11 +217,28 @@ def test_file_shrinking_after_verification_raises_save_changed(
     assert str(tmp_path) not in str(error_info.value)
 
 
-def test_file_deleted_during_a_verified_read_raises_save_changed(fragment_path: Path) -> None:
+def make_path_stat_fail(patcher: pytest.MonkeyPatch, path: Path, stat_error: type[OSError]) -> None:
+    """Make stat on the save's path fail, as it does once the file is deleted or unreadable.
+
+    Simulated because Windows refuses to delete a file that is still open.
+    """
+
+    def raise_stat_error(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:
+        raise stat_error("fictional stat failure")
+
+    patcher.setattr(type(path), "stat", raise_stat_error)
+
+
+@pytest.mark.parametrize("stat_error", [FileNotFoundError, PermissionError, OSError])
+def test_unreadable_path_during_a_verified_read_raises_save_changed(
+    fragment_path: Path, stat_error: type[OSError]
+) -> None:
     container_index = read_index(fragment_path)
-    with pytest.raises(SaveChangedError), open_verified(container_index):
-        fragment_path.unlink()
-        raise CorruptSaveError("fictional short read")
+    with pytest.MonkeyPatch.context() as patcher:
+        make_path_stat_fail(patcher, fragment_path, stat_error)
+        with pytest.raises(SaveChangedError) as error_info, open_verified(container_index):
+            raise CorruptSaveError("fictional short read")
+    assert isinstance(error_info.value.__cause__, CorruptSaveError)
 
 
 def test_corrupt_error_on_an_unchanged_file_propagates(fragment_path: Path) -> None:
@@ -236,9 +253,13 @@ def test_corrupt_error_on_an_unchanged_file_propagates(fragment_path: Path) -> N
 
 def test_other_errors_on_a_changed_file_are_untouched(fragment_path: Path) -> None:
     container_index = read_index(fragment_path)
-    with pytest.raises(LookupError, match="fictional failure"), open_verified(container_index):
-        fragment_path.write_bytes(b"")
-        raise LookupError("fictional failure")
+    with pytest.MonkeyPatch.context() as patcher:
+        make_path_stat_fail(patcher, fragment_path, FileNotFoundError)
+        with (
+            pytest.raises(LookupError, match="fictional failure"),
+            open_verified(container_index),
+        ):
+            raise LookupError("fictional failure")
 
 
 def test_deleted_file_raises_save_changed(fragment_path: Path) -> None:

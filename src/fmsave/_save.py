@@ -23,12 +23,11 @@ class Save:
     are immutable, safe to share, and keep working after the Save is closed.
     """
 
-    __slots__ = ("_closed", "_container_index", "_context", "_info")
+    __slots__ = ("_container_index", "_context", "_info")
 
     def __init__(self, container_index: ContainerIndex, info: SaveInfo) -> None:
         self._container_index = container_index
         self._info = info
-        self._closed = False
         self._context = SaveContext(container_index, info)
 
     @property
@@ -39,14 +38,13 @@ class Save:
     @property
     def closed(self) -> bool:
         """Whether the save has been closed. Readers raise SaveClosedError once it is."""
-        return self._closed
+        return self._context.closed
 
     def close(self) -> None:
         """Close the save and release its cached results.
 
         Calling a reader afterwards raises SaveClosedError; tables already returned keep working.
         """
-        self._closed = True
         self._context.close()
 
     def __enter__(self) -> Self:
@@ -61,15 +59,19 @@ class Save:
         self.close()
 
     def __repr__(self) -> str:
-        state = "closed" if self._closed else "open"
+        state = "closed" if self.closed else "open"
         return f"<fmsave.Save {self._info.game} {self._info.build} {state}>"
 
     def _require_open(self) -> ContainerIndex:
-        if self._closed:
+        if self.closed:
             raise closed_save_error()
         return self._container_index
 
     def _read_section(self, name: str) -> bytes:
+        """Read one whole section; readers borrow sections through SaveContext.section instead.
+
+        Meant for the small sections read when the save is opened.
+        """
         return read_section(self._require_open(), name)
 
 
