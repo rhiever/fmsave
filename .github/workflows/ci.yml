@@ -80,6 +80,17 @@ jobs:
         env:
           COVERAGE_ARGS: ${{ matrix.coverage-args }}
         run: uv run pytest -m "not corpus" $COVERAGE_ARGS
+      - name: Build distributions
+        if: matrix.python-version == '3.12'
+        run: uv build
+      - name: Check distributions
+        if: matrix.python-version == '3.12'
+        run: uv run python scripts/check_dist.py dist
+      - name: Smoke test the wheel in an isolated environment
+        if: matrix.python-version == '3.12'
+        run: |
+          uv run --isolated --no-project --with dist/*.whl fmsave --version
+          uv run --isolated --no-project --with dist/*.whl python -c "import fmsave; assert fmsave.__version__"
 
   test-windows:
     name: Tests (Windows, Python 3.14)
