@@ -552,7 +552,21 @@ PLAYER_A_UID = 900001
 PLAYER_B_UID = 900002
 HANDLING_INDEX = 11
 FINISHING_INDEX = 2
+# The attributes next to handling and throwing, the edges of the goalkeeping block.
+GOALKEEPER_BLOCK_NEIGHBOUR_INDEXES = (10, 12, 13, 14, 15, 17)
 SUMMARY_SCHEMA = 29
+
+
+def goalkeeper_block_bytes_between_low_edges() -> list[int]:
+    """Raw attributes at 50, except one above it next to handling and throwing.
+
+    A goalkeeper-block count that reads a neighbour of either attribute then sees 51, above the
+    low maximum the counted tests use.
+    """
+    raw_attributes = [50] * 54
+    for index in GOALKEEPER_BLOCK_NEIGHBOUR_INDEXES:
+        raw_attributes[index] = 51
+    return raw_attributes
 
 
 def counted_clubs_region() -> bytes:
@@ -642,7 +656,7 @@ def player_a_contract_records() -> bytes:
 
 
 def player_a_bytes() -> bytes:
-    raw_attributes = [50] * 54
+    raw_attributes = goalkeeper_block_bytes_between_low_edges()
     raw_attributes[HANDLING_INDEX] = 60
     raw_attributes[FINISHING_INDEX] = 50
     ratings = [10] * 15
@@ -695,7 +709,7 @@ def player_b_bytes() -> bytes:
         world_reputation=6000,
         team_id=UNREGISTERED_TEAM_ID,
         ratings=[10] * 15,
-        raw_attributes=[50] * 54,
+        raw_attributes=goalkeeper_block_bytes_between_low_edges(),
         transfer_value_raw=0xFFFFFFFF,
         join_date=packed_date(0, 2029),
         sharpness=7000,
