@@ -15,7 +15,13 @@ from fmsave import Table
 from fmsave._container import ContainerIndex
 from fmsave._context import CLUB_INDEX_CACHE_KEY
 from fmsave._errors import CorruptSaveError, ReaderCheckError
-from fmsave._layouts import NamePoolLayout, PersonBlockLayout, PlayerRecordLayout, find_layout
+from fmsave._layouts import (
+    ContractLayout,
+    NamePoolLayout,
+    PersonBlockLayout,
+    PlayerRecordLayout,
+    find_layout,
+)
 from fmsave._save import PLAYERS_TABLE_CACHE_KEY
 from fmsave.models.common import TransferValueState
 from fmsave.models.players import Attributes, Personality, Player
@@ -240,6 +246,10 @@ def registered_person_layout() -> PersonBlockLayout:
     return find_layout(PersonBlockLayout, "game_db", GAME_DB_SCHEMA, "").layout
 
 
+def registered_contract_layout() -> ContractLayout:
+    return find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout
+
+
 def build_index(game_db: bytes):
     name_pools = locate_name_pools(game_db, registered_name_pool_layout(), FILE_NAME)
     player_records = locate_player_records(
@@ -257,12 +267,19 @@ def decode_all(game_db: bytes) -> list[Player]:
         name_pools,
         CLOCK,
         registered_person_layout(),
+        registered_contract_layout(),
         FILE_NAME,
     )
     record_offsets = player_records.record_offsets
     game_db_length = len(game_db)
+    last_position = len(record_offsets) - 1
     return [
-        decoder.decode(game_db, record_offset, window_end(player_records, position, game_db_length))
+        decoder.decode(
+            game_db,
+            record_offset,
+            window_end(player_records, position, game_db_length),
+            is_last_record=position == last_position,
+        )[0]
         for position, record_offset in enumerate(record_offsets)
     ]
 

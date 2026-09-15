@@ -9,9 +9,10 @@ from typing import Self
 from fmsave._container import ContainerIndex, read_index, read_section
 from fmsave._context import SaveContext, closed_save_error
 from fmsave._errors import ReaderCheckError
-from fmsave._layouts import PersonBlockLayout, find_layout
+from fmsave._layouts import ContractLayout, PersonBlockLayout, find_layout
 from fmsave._version import read_save_info
 from fmsave.models.clubs import Club
+from fmsave.models.contracts import Contract
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
 from fmsave.readers._common import GAME_DB_SECTION
@@ -21,6 +22,7 @@ from fmsave.table import Table
 
 CLUBS_TABLE_CACHE_KEY = "table:clubs"
 PLAYERS_TABLE_CACHE_KEY = "table:players"
+CONTRACTS_TABLE_CACHE_KEY = "table:contracts"
 
 
 class Save:
@@ -87,9 +89,40 @@ class Save:
                 date is unreadable.
         """
         context = self._context
-        return context.cached(PLAYERS_TABLE_CACHE_KEY, self._build_players_table)
+        return context.cached(PLAYERS_TABLE_CACHE_KEY, self._players_table_entry_point)
 
-    def _build_players_table(self) -> Table[Player]:
+    def contracts(self) -> Table[Contract]:
+        """Every player's contract in the save's game database, in player order.
+
+        Only players whose contract is not None appear. The table is read on the first
+        call to either `players()` or `contracts()`, from the same decode pass; later
+        calls to either return the same tables.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written, a player's relation
+                header or entry list runs past its record window, or a legal name is not
+                valid UTF-8.
+            ReaderCheckError: No club record is accepted, a club uid or club index appears
+                in two records, a team id is listed twice (by one club or by two), no player
+                records were found, two player records share a uid, or the save's in-game
+                date is unreadable.
+        """
+        context = self._context
+        return context.cached(CONTRACTS_TABLE_CACHE_KEY, self._contracts_table_entry_point)
+
+    def _players_table_entry_point(self) -> Table[Player]:
+        players_table, contracts_table = self._decode_players_and_contracts()
+        self._context.cached(CONTRACTS_TABLE_CACHE_KEY, lambda: contracts_table)
+        return players_table
+
+    def _contracts_table_entry_point(self) -> Table[Contract]:
+        players_table, contracts_table = self._decode_players_and_contracts()
+        self._context.cached(PLAYERS_TABLE_CACHE_KEY, lambda: players_table)
+        return contracts_table
+
+    def _decode_players_and_contracts(self) -> tuple[Table[Player], Table[Contract]]:
         context = self._context
         save_info = context.info
         clock = save_info.game_date
@@ -108,22 +141,41 @@ class Save:
                 save_info.section_schemas.get(GAME_DB_SECTION),
                 save_info.build,
             ).layout
+            contract_layout = find_layout(
+                ContractLayout,
+                GAME_DB_SECTION,
+                save_info.section_schemas.get(GAME_DB_SECTION),
+                save_info.build,
+            ).layout
             decoder = build_player_decoder(
                 player_records.layout,
                 club_index,
                 name_pools,
                 clock,
                 person_layout,
+                contract_layout,
                 save_info.file_name,
             )
             decoded_players: list[Player] = []
+            decoded_contracts: list[Contract] = []
             append_player = decoded_players.append
+            append_contract = decoded_contracts.append
             record_offsets = player_records.record_offsets
             game_db_length = len(game_db)
+            last_position = len(record_offsets) - 1
             for position, record_offset in enumerate(record_offsets):
                 record_window_end = window_end(player_records, position, game_db_length)
-                append_player(decoder.decode(game_db, record_offset, record_window_end))
-        return Table(tuple(decoded_players), Player)
+                player, contract = decoder.decode(
+                    game_db,
+                    record_offset,
+                    record_window_end,
+                    is_last_record=position == last_position,
+                )
+                append_player(player)
+                if contract is not None:
+                    append_contract(contract)
+        # All records are decoded above; both tables are built and cached only from here on.
+        return Table(tuple(decoded_players), Player), Table(tuple(decoded_contracts), Contract)
 
     def close(self) -> None:
         """Close the save and release its cached results.

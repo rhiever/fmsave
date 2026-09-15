@@ -15,12 +15,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date
 
-from fmsave._layouts import PersonBlockLayout, PlayerRecordLayout
+from fmsave._layouts import ContractLayout, PersonBlockLayout, PlayerRecordLayout
 from fmsave._scan import decode_date
 from fmsave.models.common import TransferValueState
+from fmsave.models.contracts import Contract
 from fmsave.models.players import Ability, Attributes, Player, Positions, Reputation
 from fmsave.readers._common import MISSING_REFERENCE
 from fmsave.readers.clubs import ClubIndex
+from fmsave.readers.contracts import decode_contract
 from fmsave.readers.names import NamePools
 from fmsave.readers.persons import PersonBlockDecoder, build_person_block_decoder
 from fmsave.readers.player_scan import HeaderLayout, build_header_layout, indexed_struct
@@ -143,13 +145,20 @@ class PlayerDecoder:
     attribute_struct: struct.Struct
     scale_table: bytes
     team_fields: Mapping[int, _TeamFields]
+    contract_layout: ContractLayout
+    club_index: ClubIndex
+    clock: date
     date_cache: dict[int, date | None] = field(default_factory=_new_date_cache)
 
-    def decode(self, game_db: bytes, record_offset: int, record_window_end: int) -> Player:
-        """Decode one player record's public fields, including its person block.
+    def decode(
+        self, game_db: bytes, record_offset: int, record_window_end: int, *, is_last_record: bool
+    ) -> tuple[Player, Contract | None]:
+        """Decode one player record's public fields, including its person block and contract.
 
-        `record_window_end` bounds the person-block search: the next record's offset, or
-        `len(game_db)` for the last record (see `player_scan.window_end`).
+        `record_window_end` bounds the person-block and contract-chain search: the next
+        record's offset, or `len(game_db)` for the last record (see `player_scan.window_end`).
+        `is_last_record` tells the contract chain search and fallback reader whether
+        `record_window_end` is that last-record `len(game_db)` case.
         """
         layout = self.layout
         header_layout = self.header_layout
@@ -157,6 +166,7 @@ class PlayerDecoder:
             game_db, record_offset + header_layout.start_offset
         )
         uid: int = header_values[header_layout.uid_index]
+        pindex: int = header_values[header_layout.pindex_index]
         home_reputation: int = header_values[header_layout.home_reputation_index]
         current_reputation: int = header_values[header_layout.current_reputation_index]
         world_reputation: int = header_values[header_layout.world_reputation_index]
@@ -247,8 +257,22 @@ class PlayerDecoder:
             traits,
         ) = _EMPTY_PERSON_TUPLE if person is None else person
 
+        contract, on_loan, loan_parent_club_uid, loan_parent_club_name = decode_contract(
+            game_db,
+            record_offset,
+            record_window_end,
+            is_last_record,
+            pindex,
+            uid,
+            name,
+            team_id,
+            self.club_index,
+            self.clock,
+            self.contract_layout,
+        )
+
         # Positional, matching Player's field order in models/players.py.
-        return Player(
+        player = Player(
             uid,
             name,
             first_name,
@@ -292,7 +316,12 @@ class PlayerDecoder:
             match_sharpness,
             traits,
             trait_bits,
+            on_loan,
+            loan_parent_club_uid,
+            loan_parent_club_name,
+            contract,
         )
+        return player, contract
 
     def _cached_date(self, game_db: bytes, date_offset: int, raw_date: int) -> date | None:
         """The date at date_offset, decoded by fmsave._scan.decode_date on a cache miss."""
@@ -311,6 +340,7 @@ def build_player_decoder(
     name_pools: NamePools,
     clock: date,
     person_layout: PersonBlockLayout,
+    contract_layout: ContractLayout,
     file_name: str,
 ) -> PlayerDecoder:
     """Build the per-save decoder from the save's layout, its ClubIndex, name pools and clock."""
@@ -339,4 +369,7 @@ def build_player_decoder(
         attribute_struct=_attribute_struct_without_feet(layout),
         scale_table=_SCALE_TABLE,
         team_fields=team_fields,
+        contract_layout=contract_layout,
+        club_index=club_index,
+        clock=clock,
     )

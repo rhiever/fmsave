@@ -227,6 +227,88 @@ class PlayerRecordLayout:
     attribute_field_order: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ContractLayout:
+    """How to locate and parse a player's contract chain in `game_db`.
+
+    A chain record for pindex `x` at record start `record_offset` (next record start
+    `next_record_offset`, or the end of `game_db` for the last record) is a hit of `tag`
+    in `[record_offset + chain_window_start_offset, next_record_offset +
+    chain_window_end_offset)` (the end of `game_db` for the last record's window) whose
+    `u32` at `selector_offset` equals `x + 1`. Every other chain, tail, clause and head
+    offset counts from the tag hit `M` (chain fields, `team_id_offset`, `wage_offset`) or
+    from a tail start `E` (`tail_*`) or a clause-table base `base` (`clause_*`, `head_*`).
+
+    The tail is found by trying `E = M - tail_base_offset - tail_step_bytes * event_count`
+    for `event_count` from 0 to `tail_max_event_count`. The clause table is found, once a
+    tail is found, by trying `base = E - clause_step_bytes * count` for `count` from 0 to
+    `clause_max_count`; clause entries start at `base + clause_entries_offset`, each
+    `clause_entry_bytes` apart. The head fields are read only when the `u16` at
+    `base + head_gate_offset` equals `head_gate_value`.
+
+    The fallback reader walks `FF FF FF FF` hits in `[record_offset +
+    fallback_start_from_record, limit)`, where `limit` is `max(record_offset +
+    fallback_start_from_record, next_record_offset - fallback_end_margin)` (`next_record_offset`
+    the end of `game_db` for the last record). For a hit at `i`, `j = i + 8`; when `j +
+    fallback_gate_length <= limit` and the `fallback_nonzero_length` bytes at `j +
+    fallback_nonzero_offset` are not all zero, an end date sits at `j +
+    fallback_end_date_offset` and a start date at `j + fallback_start_date_offset`.
+    """
+
+    tag: bytes
+    chain_window_start_offset: int
+    chain_window_end_offset: int
+    selector_offset: int
+    start_offset: int
+    team_id_offset: int
+    wage_offset: int
+
+    tail_base_offset: int
+    tail_step_bytes: int
+    tail_max_event_count: int
+    tail_e2_offset: int
+    tail_e8_offset: int
+    tail_e12_offset: int
+    tail_e16_offset: int
+    tail_e20_offset: int
+    tail_e24_offset: int
+    tail_end_offset: int
+    tail_squad_status_offset: int
+    tail_e37_offset: int
+    tail_e38_offset: int
+    tail_e39_offset: int
+    tail_event_count_offset: int
+
+    clause_step_bytes: int
+    clause_max_count: int
+    clause_ff_offset: int
+    clause_ff_count: int
+    clause_zero_offset: int
+    clause_zero_count: int
+    clause_count_offset: int
+    clause_entries_offset: int
+    clause_entry_bytes: int
+    clause_value_offset: int
+    clause_parameter_offset: int
+    clause_kind_offset: int
+    clause_terminator_offset: int
+
+    head_gate_offset: int
+    head_gate_value: int
+    head_type_offset: int
+    head_money_a_offset: int
+    head_money_b_offset: int
+    head_money_c_offset: int
+
+    fallback_start_from_record: int
+    fallback_end_margin: int
+    fallback_nonzero_offset: int
+    fallback_nonzero_length: int
+    fallback_end_date_offset: int
+    fallback_start_date_offset: int
+    fallback_gate_length: int
+
+
 type Layout = (
     GameInfoLayout
     | SaveSummaryLayout
@@ -236,6 +318,7 @@ type Layout = (
     | ClubStatusLayout
     | PlayerRecordLayout
     | PersonBlockLayout
+    | ContractLayout
 )
 
 

@@ -14,6 +14,7 @@ from enum import IntEnum
 
 from fmsave._status import register_field_statuses
 from fmsave.models.common import CodedValue, TransferValueState
+from fmsave.models.contracts import Contract
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,6 +319,12 @@ class Player:
         traits: Named player traits; an unnamed bit is Trait.UNKNOWN with raw set to the
             bit number.
         trait_bits: The raw trait bitmask, or None when no person block validates.
+        on_loan: Whether the player is on loan: True or False when both the player's team
+            and the first contract chain record's team resolve to clubs, else None.
+        loan_parent_club_uid: Uid of the loaning-out club when on_loan is True, else None.
+        loan_parent_club_name: Denormalised name of loan_parent_club_uid.
+        contract: The player's assembled contract, or None when no chain record and no
+            fallback dates were found.
     """
 
     uid: int
@@ -363,6 +370,10 @@ class Player:
     match_sharpness: int
     traits: tuple[CodedValue[Trait], ...]
     trait_bits: int | None
+    on_loan: bool | None
+    loan_parent_club_uid: int | None
+    loan_parent_club_name: str | None
+    contract: Contract | None
 
 
 register_field_statuses(Ability, unconfirmed=("current", "potential", "potential_range_code"))
@@ -477,6 +488,9 @@ register_field_statuses(
         "match_sharpness",
         "traits",
         "trait_bits",
+        "on_loan",
+        "loan_parent_club_uid",
+        "loan_parent_club_name",
     ),
     unconfirmed=(
         "uid",

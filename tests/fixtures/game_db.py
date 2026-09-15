@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import struct
 from collections.abc import Sequence
+from typing import cast
 
 from tests.fixtures.container import length_prefixed, packed_date
 
@@ -264,3 +265,121 @@ def player_record_bytes(
     body[121] = height_cm
 
     return bytes(header) + bytes(body) + trailing
+
+
+# Contract chain records: numeric offsets from format-m1.md section 2.5/2.6, written here
+# directly (never imported from fmsave) so a wrong offset inside fmsave has to fail a test
+# built from this module.
+CONTRACT_TAG = bytes.fromhex("01006c07")
+CONTRACT_NULL_DATE = packed_date(1, 1900)
+CONTRACT_PADDING_BYTE = 0x22
+_CONTRACT_M_OFFSET = 4096
+_CONTRACT_BUFFER_BYTES = _CONTRACT_M_OFFSET + 128
+
+_TAIL_BASE_OFFSET = 66
+_TAIL_STEP_BYTES = 29
+_CLAUSE_STEP_BYTES = 8
+_CLAUSE_FF_OFFSET = -16
+_CLAUSE_FF_COUNT = 8
+_CLAUSE_ZERO_OFFSET = -8
+_CLAUSE_ZERO_COUNT = 3
+_CLAUSE_COUNT_OFFSET = -5
+_CLAUSE_ENTRIES_OFFSET = -4
+_CLAUSE_ENTRY_BYTES = 8
+_HEAD_GATE_OFFSET = -35
+_HEAD_GATE_VALUE = 5
+_HEAD_TYPE_OFFSET = -33
+_HEAD_MONEY_A_OFFSET = -32
+_HEAD_MONEY_B_OFFSET = -28
+_HEAD_MONEY_C_OFFSET = -24
+
+
+def contract_bytes(
+    *,
+    selector: int,
+    team_id: int,
+    wage: int,
+    start: bytes,
+    tail: dict[str, object] | None,
+    clauses: Sequence[tuple[int, int, int]] = (),
+    head: dict[str, int] | None = None,
+    events: int = 0,
+    clause_table: bool = True,
+) -> tuple[bytes, int]:
+    """One contract chain record: the blob, and the offset of its tag (`M`) inside it.
+
+    Every byte is `CONTRACT_PADDING_BYTE` unless written below, at the same offsets
+    fmsave's contract reader uses. `tail` keys: `end` (bytes, default the null date),
+    `status`, `e2`, `e8`, `e12`, `e16`, `e20`, `e24`, `e37`, `e38`, `e39` (defaulting to 0
+    except `e2`, which defaults to 0x0300), and `break_tail` (bool; when true, the u32 that
+    the tail locator requires to be 4 is written 5 instead, so no candidate offset parses).
+    `head` keys: `type`, `money_a`, `money_b`, `money_c`. Pass `tail=None` for a record with
+    no tail at all; pass `clause_table=False` to omit the clause table even with a tail.
+    """
+    buffer = bytearray([CONTRACT_PADDING_BYTE]) * _CONTRACT_BUFFER_BYTES
+    tag_offset = _CONTRACT_M_OFFSET
+
+    buffer[tag_offset : tag_offset + 40] = bytes(40)
+    buffer[tag_offset : tag_offset + 4] = CONTRACT_TAG
+    struct.pack_into("<I", buffer, tag_offset + 5, selector)
+    struct.pack_into("<I", buffer, tag_offset + 9, team_id)
+    struct.pack_into("<I", buffer, tag_offset + 17, wage)
+    buffer[tag_offset - 19 : tag_offset - 15] = start
+
+    if tail is not None:
+        tail_offset = tag_offset - _TAIL_BASE_OFFSET - _TAIL_STEP_BYTES * events
+        buffer[tail_offset] = 0
+        buffer[tail_offset + 1] = 0
+        e2_value = tail.get("e2", 0x0300)
+        struct.pack_into("<H", buffer, tail_offset + 2, cast(int, e2_value))
+        buffer[tail_offset + 3] = 3  # the tail locator always finds this byte equal to 3
+        struct.pack_into("<I", buffer, tail_offset + 4, 5 if tail.get("break_tail") else 4)
+        struct.pack_into("<I", buffer, tail_offset + 8, cast(int, tail.get("e8", 0)))
+        struct.pack_into("<I", buffer, tail_offset + 12, cast(int, tail.get("e12", 0)))
+        struct.pack_into("<I", buffer, tail_offset + 16, cast(int, tail.get("e16", 0)))
+        struct.pack_into("<I", buffer, tail_offset + 20, cast(int, tail.get("e20", 0)))
+        struct.pack_into("<I", buffer, tail_offset + 24, cast(int, tail.get("e24", 0)))
+        end_bytes = cast("bytes | None", tail.get("end")) or CONTRACT_NULL_DATE
+        buffer[tail_offset + 28 : tail_offset + 32] = end_bytes
+        buffer[tail_offset + 36] = cast(int, tail.get("status", 0))
+        buffer[tail_offset + 37] = cast(int, tail.get("e37", 0))
+        buffer[tail_offset + 38] = cast(int, tail.get("e38", 0))
+        buffer[tail_offset + 39] = cast(int, tail.get("e39", 0))
+        struct.pack_into("<I", buffer, tail_offset + 42, events)
+
+        if clause_table:
+            clause_count = len(clauses)
+            base_offset = tail_offset - _CLAUSE_STEP_BYTES * clause_count
+            ff_start = base_offset + _CLAUSE_FF_OFFSET
+            buffer[ff_start : ff_start + _CLAUSE_FF_COUNT] = b"\xff" * _CLAUSE_FF_COUNT
+            zero_start = base_offset + _CLAUSE_ZERO_OFFSET
+            buffer[zero_start : zero_start + _CLAUSE_ZERO_COUNT] = bytes(_CLAUSE_ZERO_COUNT)
+            buffer[base_offset + _CLAUSE_COUNT_OFFSET] = clause_count
+            entries_start = base_offset + _CLAUSE_ENTRIES_OFFSET
+            for entry_index, (value, parameter, kind) in enumerate(clauses):
+                entry_start = entries_start + _CLAUSE_ENTRY_BYTES * entry_index
+                struct.pack_into("<I", buffer, entry_start, value & 0xFFFFFFFF)
+                struct.pack_into("<H", buffer, entry_start + 4, parameter & 0xFFFF)
+                struct.pack_into("<H", buffer, entry_start + 6, kind & 0xFFFF)
+            terminator_at = entries_start + _CLAUSE_ENTRY_BYTES * clause_count
+            struct.pack_into("<I", buffer, terminator_at, 0)
+
+            if head is not None:
+                struct.pack_into("<H", buffer, base_offset + _HEAD_GATE_OFFSET, _HEAD_GATE_VALUE)
+                buffer[base_offset + _HEAD_TYPE_OFFSET] = head.get("type", 0)
+                struct.pack_into(
+                    "<I", buffer, base_offset + _HEAD_MONEY_A_OFFSET, head.get("money_a", 0)
+                )
+                struct.pack_into(
+                    "<I", buffer, base_offset + _HEAD_MONEY_B_OFFSET, head.get("money_b", 0)
+                )
+                struct.pack_into(
+                    "<I", buffer, base_offset + _HEAD_MONEY_C_OFFSET, head.get("money_c", 0)
+                )
+
+    return bytes(buffer), tag_offset
+
+
+def fallback_contract_bytes(*, end: bytes, start: bytes) -> bytes:
+    """FF FF FF FF, 4 zero bytes, an end date4, a start date4, then 8 bytes of 0x33."""
+    return b"\xff\xff\xff\xff" + bytes(4) + end + start + bytes([0x33]) * 8

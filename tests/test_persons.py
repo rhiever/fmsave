@@ -11,7 +11,13 @@ import pytest
 
 import fmsave
 from fmsave._errors import CorruptSaveError, ReaderCheckError
-from fmsave._layouts import NamePoolLayout, PersonBlockLayout, PlayerRecordLayout, find_layout
+from fmsave._layouts import (
+    ContractLayout,
+    NamePoolLayout,
+    PersonBlockLayout,
+    PlayerRecordLayout,
+    find_layout,
+)
 from fmsave.models.common import CodedValue
 from fmsave.models.players import Personality, Trait
 from fmsave.readers.clubs import find_club_layouts, read_club_index
@@ -632,11 +638,14 @@ def test_full_player_decode_merges_person_fields_and_round_trips() -> None:
         name_pools,
         CLOCK,
         registered_person_layout(),
+        find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout,
         FILE_NAME,
     )
     record_offset = player_records.record_offsets[0]
     record_window_end = window_end(player_records, 0, len(game_db))
-    player = decoder.decode(game_db, record_offset, record_window_end)
+    player, _contract = decoder.decode(
+        game_db, record_offset, record_window_end, is_last_record=True
+    )
 
     assert player.name == "Pim"
     assert player.first_name == "Alex"

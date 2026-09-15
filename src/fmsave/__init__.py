@@ -16,7 +16,15 @@ from fmsave._save import Save
 from fmsave._save import open_save as open
 from fmsave._status import field_status
 from fmsave.models.clubs import Club, Team
-from fmsave.models.common import CodedValue
+from fmsave.models.common import CodedValue, ContractEndSource
+from fmsave.models.contracts import (
+    Clause,
+    ClauseKind,
+    Contract,
+    ContractChainEntry,
+    ContractType,
+    SquadStatus,
+)
 from fmsave.models.meta import SaveInfo, SectionInfo
 from fmsave.models.players import (
     Ability,
@@ -36,8 +44,14 @@ __all__ = [
     "Ability",
     "AmbiguousNameError",
     "Attributes",
+    "Clause",
+    "ClauseKind",
     "Club",
     "CodedValue",
+    "Contract",
+    "ContractChainEntry",
+    "ContractEndSource",
+    "ContractType",
     "CorruptSaveError",
     "FmsaveError",
     "NotAFmSaveError",
@@ -51,6 +65,7 @@ __all__ = [
     "SaveClosedError",
     "SaveInfo",
     "SectionInfo",
+    "SquadStatus",
     "Table",
     "Team",
     "Trait",

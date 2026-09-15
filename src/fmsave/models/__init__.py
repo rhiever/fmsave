@@ -2,6 +2,14 @@
 
 from fmsave.models.clubs import Club, Team
 from fmsave.models.common import CodedValue, ContractEndSource, TransferValueState
+from fmsave.models.contracts import (
+    Clause,
+    ClauseKind,
+    Contract,
+    ContractChainEntry,
+    ContractType,
+    SquadStatus,
+)
 from fmsave.models.meta import SaveInfo, SectionInfo
 from fmsave.models.players import (
     Ability,
@@ -16,15 +24,21 @@ from fmsave.models.players import (
 __all__ = [
     "Ability",
     "Attributes",
+    "Clause",
+    "ClauseKind",
     "Club",
     "CodedValue",
+    "Contract",
+    "ContractChainEntry",
     "ContractEndSource",
+    "ContractType",
     "Personality",
     "Player",
     "Positions",
     "Reputation",
     "SaveInfo",
     "SectionInfo",
+    "SquadStatus",
     "Team",
     "Trait",
     "TransferValueState",
