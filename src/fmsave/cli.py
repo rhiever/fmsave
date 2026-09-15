@@ -679,8 +679,10 @@ def run_guarded(arguments: argparse.Namespace) -> tuple[int, str | None]:
             sys.stdout.flush()
         return exit_code, None
     except OutputWriteError as error:
-        if error.to_standard_output and is_closed_pipe_error(error.write_error):
+        if error.to_standard_output:
+            # Standard output still holds unwritten text, which would fail again at exit.
             silence_standard_output()
+        if is_closed_pipe_error(error.write_error):
             return EXIT_UNEXPECTED, None
         return EXIT_UNEXPECTED, f"cannot write the output: {error}"
     except CommandUsageError as error:

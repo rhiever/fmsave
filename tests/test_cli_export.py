@@ -4,6 +4,7 @@ import csv
 import errno
 import io
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -562,12 +563,25 @@ def test_a_failed_standard_output_write_is_reported_as_a_write_failure(
     assert error_text == f"fmsave: error: cannot write the output: {write_error.strerror}\n"
 
 
+def export_to_a_failing_output_file(
+    save_path: Path, monkeypatch: pytest.MonkeyPatch, write_error: OSError, platform_name: str
+) -> int:
+    def failing_write_records(*arguments: object) -> None:
+        raise write_error
+
+    monkeypatch.setattr(cli, "write_records", failing_write_records)
+    monkeypatch.setattr(sys, "platform", platform_name)
+    output_path = save_path.parent / "out.csv"
+    exit_code = cli.main(["export", str(save_path), "players", "--all", "-o", str(output_path)])
+    monkeypatch.undo()
+    return exit_code
+
+
 @pytest.mark.parametrize(
     ("write_error", "platform_name"),
     [
         pytest.param(OSError(errno.ENOSPC, "No space left on device"), "linux", id="enospc"),
-        pytest.param(OSError(errno.EINVAL, "Invalid argument"), "win32", id="windows-einval"),
-        pytest.param(BrokenPipeError(errno.EPIPE, "Broken pipe"), "linux", id="broken-pipe"),
+        pytest.param(OSError(errno.EINVAL, "Invalid argument"), "linux", id="einval"),
     ],
 )
 def test_a_failed_output_file_write_is_reported_as_a_write_failure(
@@ -577,20 +591,35 @@ def test_a_failed_output_file_write_is_reported_as_a_write_failure(
     write_error: OSError,
     platform_name: str,
 ) -> None:
-    def failing_write_records(*arguments: object) -> None:
-        raise write_error
-
-    monkeypatch.setattr(cli, "write_records", failing_write_records)
-    monkeypatch.setattr(sys, "platform", platform_name)
-    output_path = save_path.parent / "out.csv"
-    exit_code = cli.main(["export", str(save_path), "players", "--all", "-o", str(output_path)])
-    monkeypatch.undo()
+    exit_code = export_to_a_failing_output_file(save_path, monkeypatch, write_error, platform_name)
     assert exit_code == cli.EXIT_UNEXPECTED
     captured_output = capsys.readouterr()
     assert captured_output.out == ""
     assert captured_output.err == (
         f"fmsave: error: cannot write the output: {write_error.strerror}\n"
     )
+
+
+@pytest.mark.parametrize(
+    ("write_error", "platform_name"),
+    [
+        pytest.param(BrokenPipeError(errno.EPIPE, "Broken pipe"), "linux", id="broken-pipe"),
+        pytest.param(OSError(errno.EPIPE, "Broken pipe"), "darwin", id="epipe"),
+        pytest.param(OSError(errno.EINVAL, "Invalid argument"), "win32", id="windows-einval"),
+    ],
+)
+def test_an_output_file_that_is_a_closed_pipe_exits_quietly(
+    save_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    write_error: OSError,
+    platform_name: str,
+) -> None:
+    exit_code = export_to_a_failing_output_file(save_path, monkeypatch, write_error, platform_name)
+    assert exit_code == cli.EXIT_UNEXPECTED
+    captured_output = capsys.readouterr()
+    assert captured_output.out == ""
+    assert captured_output.err == ""
 
 
 def test_an_output_file_that_cannot_be_opened_is_a_write_failure(
@@ -617,6 +646,41 @@ def test_a_closed_pipe_exits_quietly_from_a_real_process(save_path: Path) -> Non
     _, error_bytes = export_process.communicate(timeout=60)
     assert export_process.returncode in (cli.EXIT_OK, cli.EXIT_UNEXPECTED)
     assert error_bytes == b""
+
+
+def forbid_file_growth() -> None:
+    """Limit the child process to files of zero bytes, so writes to a file fail with EFBIG."""
+    import resource
+
+    resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="file size limits need POSIX resource limits")
+@pytest.mark.parametrize(
+    "command_tokens",
+    [
+        pytest.param(["export", "{save}", "players", "--all"], id="export"),
+        pytest.param(["validate", "{save}"], id="validate"),
+        pytest.param(["info", "{save}", "--json"], id="info"),
+    ],
+)
+def test_a_standard_output_file_that_cannot_grow_gives_one_write_message(
+    save_path: Path, tmp_path: Path, command_tokens: list[str]
+) -> None:
+    redirected_output_path = tmp_path / "redirected output.txt"
+    with redirected_output_path.open("wb") as redirected_output:
+        completed_process = subprocess.run(
+            [sys.executable, "-m", "fmsave", *filled_command(command_tokens, save_path)],
+            stdout=redirected_output,
+            stderr=subprocess.PIPE,
+            preexec_fn=forbid_file_growth,
+            check=False,
+            timeout=60,
+        )
+    error_text = completed_process.stderr.decode("utf-8")
+    assert "Exception ignored" not in error_text
+    assert error_text == f"fmsave: error: cannot write the output: {os.strerror(errno.EFBIG)}\n"
+    assert completed_process.returncode == cli.EXIT_UNEXPECTED
 
 
 @pytest.mark.parametrize(
