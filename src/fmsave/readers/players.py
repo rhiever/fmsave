@@ -22,7 +22,7 @@ from fmsave.models.contracts import Contract
 from fmsave.models.players import Ability, Attributes, Player, Positions, Reputation
 from fmsave.readers._common import MISSING_REFERENCE
 from fmsave.readers.clubs import ClubIndex
-from fmsave.readers.contracts import decode_contract
+from fmsave.readers.contracts import ContractDecoder, build_contract_decoder
 from fmsave.readers.names import NamePools
 from fmsave.readers.persons import PersonBlockDecoder, build_person_block_decoder
 from fmsave.readers.player_scan import HeaderLayout, build_header_layout, indexed_struct
@@ -145,10 +145,7 @@ class PlayerDecoder:
     attribute_struct: struct.Struct
     scale_table: bytes
     team_fields: Mapping[int, _TeamFields]
-    contract_layout: ContractLayout
-    club_index: ClubIndex
-    clock: date
-    file_name: str
+    contract_decoder: ContractDecoder
     date_cache: dict[int, date | None] = field(default_factory=_new_date_cache)
 
     def decode(
@@ -258,19 +255,17 @@ class PlayerDecoder:
             traits,
         ) = _EMPTY_PERSON_TUPLE if person is None else person
 
-        contract, on_loan, loan_parent_club_uid, loan_parent_club_name = decode_contract(
-            game_db,
-            record_offset,
-            record_window_end,
-            is_last_record,
-            pindex,
-            uid,
-            name,
-            team_id,
-            self.club_index,
-            self.clock,
-            self.contract_layout,
-            self.file_name,
+        contract, on_loan, loan_parent_club_uid, loan_parent_club_name = (
+            self.contract_decoder.decode(
+                game_db,
+                record_offset,
+                record_window_end,
+                is_last_record,
+                pindex,
+                uid,
+                name,
+                team_id,
+            )
         )
 
         # Positional, matching Player's field order in models/players.py.
@@ -371,8 +366,5 @@ def build_player_decoder(
         attribute_struct=_attribute_struct_without_feet(layout),
         scale_table=_SCALE_TABLE,
         team_fields=team_fields,
-        contract_layout=contract_layout,
-        club_index=club_index,
-        clock=clock,
-        file_name=file_name,
+        contract_decoder=build_contract_decoder(contract_layout, club_index, clock, file_name),
     )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import pickle
+import random
 import struct
 from datetime import date
 from pathlib import Path
@@ -31,7 +32,7 @@ from fmsave.models.contracts import (
 )
 from fmsave.models.players import Player
 from fmsave.readers.clubs import ClubIndex, find_club_layouts, read_club_index
-from fmsave.readers.contracts import _find_fallback_dates, decode_contract
+from fmsave.readers.contracts import ContractDecoder, build_contract_decoder
 from fmsave.readers.names import locate_name_pools
 from fmsave.readers.player_scan import locate_player_records, window_end
 from fmsave.readers.players import build_player_decoder
@@ -516,8 +517,13 @@ def test_head_null_date_tag_is_not_mistaken_for_a_second_chain_record() -> None:
     assert contract.chain[0].wage == 4000
 
 
+def _test_contract_decoder(layout: ContractLayout) -> ContractDecoder:
+    return build_contract_decoder(layout, EMPTY_CLUB_INDEX, date(2031, 1, 1), FILE_NAME)
+
+
 def test_fallback_gate_accepts_j_plus_16_at_limit_and_rejects_one_byte_further() -> None:
     layout = find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout
+    decoder = _test_contract_decoder(layout)
     hit = layout.fallback_start_from_record
     dates_offset = hit + 8  # "j" in ContractLayout's docstring
     end_bytes = packed_date(1, 2032)
@@ -526,42 +532,31 @@ def test_fallback_gate_accepts_j_plus_16_at_limit_and_rejects_one_byte_further()
     game_db = bytes(hit) + pattern + bytes(200)
 
     accepted_window_end = (dates_offset + layout.fallback_gate_length) + layout.fallback_end_margin
-    start, end = _find_fallback_dates(game_db, 0, accepted_window_end, False, layout)
+    start, end = decoder._find_fallback_dates(game_db, 0, accepted_window_end)
     assert start == date(2027, 1, 1)
     assert end == date(2032, 1, 1)
 
     rejected_window_end = accepted_window_end - 1
-    start, end = _find_fallback_dates(game_db, 0, rejected_window_end, False, layout)
+    start, end = decoder._find_fallback_dates(game_db, 0, rejected_window_end)
     assert start is None
     assert end is None
 
 
 def test_truncated_chain_record_raises_corrupt_save_error_with_file_context() -> None:
     layout = find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout
+    decoder = _test_contract_decoder(layout)
     tag_offset = 10
     needed_end = tag_offset + max(layout.team_id_offset, layout.wage_offset) + 4
     game_db = bytearray(needed_end - 1)  # one byte short of what the record needs
     game_db[tag_offset : tag_offset + 4] = CONTRACT_TAG
     struct.pack_into("<I", game_db, tag_offset + layout.selector_offset, 8)  # pindex 7 + 1
     with pytest.raises(CorruptSaveError, match=FILE_NAME):
-        decode_contract(
-            bytes(game_db),
-            0,
-            len(game_db),
-            True,
-            7,
-            1,
-            None,
-            None,
-            EMPTY_CLUB_INDEX,
-            date(2031, 1, 1),
-            layout,
-            FILE_NAME,
-        )
+        decoder.decode(bytes(game_db), 0, len(game_db), True, 7, 1, None, None)
 
 
 def test_last_record_chain_window_reaches_the_end_of_game_db_not_end_minus_30() -> None:
     layout = find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout
+    decoder = _test_contract_decoder(layout)
     game_db_length = 100
     tag_offset = 75  # inside the final 30 bytes: a `next_record - 30` window would miss it
     game_db = bytearray(game_db_length)
@@ -569,19 +564,8 @@ def test_last_record_chain_window_reaches_the_end_of_game_db_not_end_minus_30() 
     struct.pack_into("<I", game_db, tag_offset + layout.selector_offset, 8)
     struct.pack_into("<I", game_db, tag_offset + layout.team_id_offset, 12345)
     struct.pack_into("<I", game_db, tag_offset + layout.wage_offset, 999)
-    contract, _on_loan, _loan_uid, _loan_name = decode_contract(
-        bytes(game_db),
-        0,
-        game_db_length,
-        True,
-        7,
-        1,
-        None,
-        None,
-        EMPTY_CLUB_INDEX,
-        date(2031, 1, 1),
-        layout,
-        FILE_NAME,
+    contract, _on_loan, _loan_uid, _loan_name = decoder.decode(
+        bytes(game_db), 0, game_db_length, True, 7, 1, None, None
     )
     assert contract is not None
     assert contract.wage == 999
@@ -589,6 +573,7 @@ def test_last_record_chain_window_reaches_the_end_of_game_db_not_end_minus_30() 
 
 def test_negative_chain_search_start_is_clamped_to_zero() -> None:
     layout = find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout
+    decoder = _test_contract_decoder(layout)
     record_offset = 5  # record_offset + chain_window_start_offset (-30) is negative
     tag_offset = 2
     game_db_length = 100
@@ -597,22 +582,85 @@ def test_negative_chain_search_start_is_clamped_to_zero() -> None:
     struct.pack_into("<I", game_db, tag_offset + layout.selector_offset, 8)
     struct.pack_into("<I", game_db, tag_offset + layout.team_id_offset, 54321)
     struct.pack_into("<I", game_db, tag_offset + layout.wage_offset, 111)
-    contract, _on_loan, _loan_uid, _loan_name = decode_contract(
-        bytes(game_db),
-        record_offset,
-        game_db_length,
-        True,
-        7,
-        1,
-        None,
-        None,
-        EMPTY_CLUB_INDEX,
-        date(2031, 1, 1),
-        layout,
-        FILE_NAME,
+    contract, _on_loan, _loan_uid, _loan_name = decoder.decode(
+        bytes(game_db), record_offset, game_db_length, True, 7, 1, None, None
     )
     assert contract is not None
     assert contract.wage == 111
+
+
+def _reference_locate_tail(
+    game_db: bytes, chain_tag_offset: int, layout: ContractLayout
+) -> int | None:
+    """A straightforward, un-optimized port of the tail locator: try every event count from
+    0 up, forward, checking each byte directly. Kept only as a reference for the
+    differential test below; the shipped `ContractDecoder._locate_tail` must agree with it
+    on every candidate.
+    """
+    game_db_length = len(game_db)
+    for event_count in range(layout.tail_max_event_count + 1):
+        candidate = (
+            chain_tag_offset - layout.tail_base_offset - layout.tail_step_bytes * event_count
+        )
+        if candidate < 0:
+            return None
+        if candidate + 46 > game_db_length:
+            continue
+        if game_db[candidate] != 0:
+            continue
+        if game_db[candidate + 1] != 0:
+            continue
+        if game_db[candidate + 3] != 3:
+            continue
+        four_field = int.from_bytes(game_db[candidate + 4 : candidate + 8], "little")
+        if four_field != 4:
+            continue
+        stored_event_count = int.from_bytes(
+            game_db[
+                candidate + layout.tail_event_count_offset : candidate
+                + layout.tail_event_count_offset
+                + 4
+            ],
+            "little",
+        )
+        if stored_event_count != event_count:
+            continue
+        return candidate
+    return None
+
+
+def test_tail_locator_matches_the_reference_loop_on_seeded_synthetic_buffers() -> None:
+    """Differential test: the fast rfind-based locator must find exactly what the original
+    forward, 201-step loop finds, for many random buffers and tag positions.
+    """
+    layout = find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout
+    decoder = _test_contract_decoder(layout)
+    random_generator = random.Random(20260915)
+    for _trial in range(500):
+        buffer_length = random_generator.randint(200, 6000)
+        game_db = bytearray(random_generator.randbytes(buffer_length))
+        chain_tag_offset = random_generator.randint(0, buffer_length - 1)
+
+        # Bias roughly a third of trials toward a real, well-formed tail somewhere in
+        # range, so the differential test also covers true positives, not only noise.
+        if random_generator.random() < 0.34:
+            event_count = random_generator.randint(0, min(20, layout.tail_max_event_count))
+            candidate = (
+                chain_tag_offset - layout.tail_base_offset - layout.tail_step_bytes * event_count
+            )
+            if 0 <= candidate and candidate + 46 <= buffer_length:
+                game_db[candidate] = 0
+                game_db[candidate + 1] = 0
+                game_db[candidate + 3] = 3
+                struct.pack_into("<I", game_db, candidate + 4, 4)
+                struct.pack_into(
+                    "<I", game_db, candidate + layout.tail_event_count_offset, event_count
+                )
+
+        frozen_game_db = bytes(game_db)
+        fast_result = decoder._locate_tail(frozen_game_db, chain_tag_offset)
+        reference_result = _reference_locate_tail(frozen_game_db, chain_tag_offset, layout)
+        assert fast_result == reference_result, (chain_tag_offset, buffer_length)
 
 
 def test_field_status_resolves_contract_wage_through_contract_class() -> None:
