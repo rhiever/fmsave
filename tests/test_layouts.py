@@ -8,8 +8,10 @@ from syrupy.assertion import SnapshotAssertion
 import fmsave._layouts as layouts_module
 from fmsave._layouts import (
     FALLBACK_BUILD,
+    FULL_SAVE_MINIMUM_GAME_DB_BYTES,
     GameInfoLayout,
     LayoutEntry,
+    NamePoolLayout,
     SaveSummaryLayout,
     find_layout,
     known_builds,
@@ -32,6 +34,12 @@ def test_exact_schema_match() -> None:
     match = find_layout(GameInfoLayout, "game_info", 46, "")
     assert match.exact
     assert isinstance(match.layout, GameInfoLayout)
+
+
+def test_name_pool_layout_is_registered_for_game_db() -> None:
+    match = find_layout(NamePoolLayout, "game_db", 4000, "")
+    assert match.exact
+    assert match.layout.minimum_applies_from_bytes == FULL_SAVE_MINIMUM_GAME_DB_BYTES
 
 
 def test_unknown_schema_falls_back_to_build_then_fallback_build() -> None:

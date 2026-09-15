@@ -348,13 +348,25 @@ def changed_on_disk_error(file_name: str) -> SaveChangedError:
     )
 
 
-def verify_unchanged(container_index: ContainerIndex, save_file: BinaryIO) -> None:
-    fingerprint = container_index.fingerprint
-    file_status = os.fstat(save_file.fileno())
-    if (
+def status_differs(file_status: os.stat_result, fingerprint: Fingerprint) -> bool:
+    return (
         file_status.st_size != fingerprint.file_size
         or file_status.st_mtime_ns != fingerprint.mtime_ns
-    ):
+    )
+
+
+def changed_since_index(container_index: ContainerIndex) -> bool:
+    """Whether the save's path can no longer be read or no longer has its recorded size and mtime."""
+    try:
+        file_status = container_index.path.stat()
+    except OSError:
+        return True
+    return status_differs(file_status, container_index.fingerprint)
+
+
+def verify_unchanged(container_index: ContainerIndex, save_file: BinaryIO) -> None:
+    fingerprint = container_index.fingerprint
+    if status_differs(os.fstat(save_file.fileno()), fingerprint):
         raise changed_on_disk_error(container_index.file_name)
     # Plain bounded reads: a file that shrank after fstat reads short and fails the digest check.
     save_file.seek(0)
@@ -367,13 +379,23 @@ def verify_unchanged(container_index: ContainerIndex, save_file: BinaryIO) -> No
 
 @contextmanager
 def open_verified(container_index: ContainerIndex) -> Generator[BinaryIO]:
+    """Open the save and check its fingerprint.
+
+    A CorruptSaveError raised while the file is open (such as a short read because the file
+    shrank after the check) becomes SaveChangedError when the file on disk has changed.
+    """
     try:
         save_file = container_index.path.open("rb")
     except FileNotFoundError as error:
         raise changed_on_disk_error(container_index.file_name) from error
     with save_file:
         verify_unchanged(container_index, save_file)
-        yield save_file
+        try:
+            yield save_file
+        except CorruptSaveError as error:
+            if changed_since_index(container_index):
+                raise changed_on_disk_error(container_index.file_name) from error
+            raise
 
 
 def section_entry(container_index: ContainerIndex, name: str) -> DirectoryEntry:

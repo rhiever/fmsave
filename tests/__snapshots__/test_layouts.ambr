@@ -25,5 +25,16 @@
       'region': 'save_game_summary',
       'schema': 29,
     }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
+        'max_name_bytes': 64,
+        'minimum_applies_from_bytes': 16777216,
+        'minimum_entries_per_pool': 50000,
+        'signature': b'U\xb5\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x01\x00\x00\x00\x08\x00\x00\x00\x00\x00\x00',
+      }),
+      'region': 'game_db',
+      'schema': 4000,
+    }),
   ])
 # ---

@@ -7,6 +7,7 @@ import random
 import struct
 import sys
 import tracemalloc
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import BinaryIO
@@ -15,7 +16,9 @@ import pytest
 
 import fmsave._container as container_module
 from fmsave._container import (
+    ContainerIndex,
     ContainerLimits,
+    open_verified,
     read_index,
     read_region_frames,
     read_section,
@@ -188,6 +191,54 @@ def test_truncated_file_raises_save_changed(fragment_path: Path) -> None:
     fragment_path.write_bytes(fragment_path.read_bytes()[:100])
     with pytest.raises(SaveChangedError):
         read_section(container_index, "humans")
+
+
+def verify_then_change(monkeypatch: pytest.MonkeyPatch, change_file: Callable[[], None]) -> None:
+    """Pass the fingerprint check, then change the file before any frame is read."""
+    original_verify = container_module.verify_unchanged
+
+    def verify_and_change(container_index: ContainerIndex, save_file: BinaryIO) -> None:
+        original_verify(container_index, save_file)
+        change_file()
+
+    monkeypatch.setattr(container_module, "verify_unchanged", verify_and_change)
+
+
+def test_file_shrinking_after_verification_raises_save_changed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fragment_path: Path
+) -> None:
+    container_index = read_index(fragment_path)
+    shrunk_size = container_index.sections["humans"].frame_offset + 1
+    verify_then_change(monkeypatch, lambda: os.truncate(fragment_path, shrunk_size))
+    with pytest.raises(SaveChangedError) as error_info:
+        read_section(container_index, "humans")
+    assert isinstance(error_info.value.__cause__, CorruptSaveError)
+    assert "fragment.bin" in str(error_info.value)
+    assert str(tmp_path) not in str(error_info.value)
+
+
+def test_file_deleted_during_a_verified_read_raises_save_changed(fragment_path: Path) -> None:
+    container_index = read_index(fragment_path)
+    with pytest.raises(SaveChangedError), open_verified(container_index):
+        fragment_path.unlink()
+        raise CorruptSaveError("fictional short read")
+
+
+def test_corrupt_error_on_an_unchanged_file_propagates(fragment_path: Path) -> None:
+    container_index = read_index(fragment_path)
+    with (
+        pytest.raises(CorruptSaveError, match="fictional damage") as error_info,
+        open_verified(container_index),
+    ):
+        raise CorruptSaveError("fictional damage")
+    assert not isinstance(error_info.value, SaveChangedError)
+
+
+def test_other_errors_on_a_changed_file_are_untouched(fragment_path: Path) -> None:
+    container_index = read_index(fragment_path)
+    with pytest.raises(LookupError, match="fictional failure"), open_verified(container_index):
+        fragment_path.write_bytes(b"")
+        raise LookupError("fictional failure")
 
 
 def test_deleted_file_raises_save_changed(fragment_path: Path) -> None:

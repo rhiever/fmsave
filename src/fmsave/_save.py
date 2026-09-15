@@ -7,7 +7,7 @@ from types import TracebackType
 from typing import Self
 
 from fmsave._container import ContainerIndex, read_index, read_section
-from fmsave._errors import SaveClosedError
+from fmsave._context import SaveContext, closed_save_error
 from fmsave._version import read_save_info
 from fmsave.models.meta import SaveInfo
 
@@ -23,12 +23,13 @@ class Save:
     are immutable, safe to share, and keep working after the Save is closed.
     """
 
-    __slots__ = ("_closed", "_container_index", "_info")
+    __slots__ = ("_closed", "_container_index", "_context", "_info")
 
     def __init__(self, container_index: ContainerIndex, info: SaveInfo) -> None:
         self._container_index = container_index
         self._info = info
         self._closed = False
+        self._context = SaveContext(container_index, info)
 
     @property
     def info(self) -> SaveInfo:
@@ -41,8 +42,12 @@ class Save:
         return self._closed
 
     def close(self) -> None:
-        """Close the save. Calling a reader afterwards raises SaveClosedError."""
+        """Close the save and release its cached results.
+
+        Calling a reader afterwards raises SaveClosedError; tables already returned keep working.
+        """
         self._closed = True
+        self._context.close()
 
     def __enter__(self) -> Self:
         return self
@@ -61,7 +66,7 @@ class Save:
 
     def _require_open(self) -> ContainerIndex:
         if self._closed:
-            raise SaveClosedError("this save is closed; open it again with fmsave.open()")
+            raise closed_save_error()
         return self._container_index
 
     def _read_section(self, name: str) -> bytes:

@@ -36,7 +36,27 @@ class SaveSummaryLayout:
     max_version_bytes: int
 
 
-type Layout = GameInfoLayout | SaveSummaryLayout
+# Count checks (such as the name pool minimum) apply only to a decompressed `game_db` at
+# least this large; smaller sections come from fragments that cannot meet full-save counts.
+FULL_SAVE_MINIMUM_GAME_DB_BYTES = 16 * 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class NamePoolLayout:
+    """How to find and check the three name pools in `game_db`.
+
+    `signature` sits immediately before the first pool's entry count. The pool minimum
+    applies only when `game_db` is at least `minimum_applies_from_bytes` long; the other
+    checks always apply.
+    """
+
+    signature: bytes
+    max_name_bytes: int
+    minimum_entries_per_pool: int
+    minimum_applies_from_bytes: int
+
+
+type Layout = GameInfoLayout | SaveSummaryLayout | NamePoolLayout
 
 
 @dataclass(frozen=True, slots=True)

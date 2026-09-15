@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from fmsave._layouts import GameInfoLayout, LayoutEntry, SaveSummaryLayout
+import struct
+
+from fmsave._layouts import (
+    FULL_SAVE_MINIMUM_GAME_DB_BYTES,
+    GameInfoLayout,
+    LayoutEntry,
+    NamePoolLayout,
+    SaveSummaryLayout,
+)
 
 BUILD = "26.3.2+2329565"
 
@@ -18,7 +26,15 @@ SAVE_SUMMARY = SaveSummaryLayout(
     max_version_bytes=32,
 )
 
+NAME_POOLS = NamePoolLayout(
+    signature=struct.pack("<6I", 46421, 0, 1024, 256, 2048, 0),
+    max_name_bytes=64,
+    minimum_entries_per_pool=50_000,
+    minimum_applies_from_bytes=FULL_SAVE_MINIMUM_GAME_DB_BYTES,
+)
+
 LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_info", schema=46, build=BUILD, layout=GAME_INFO),
     LayoutEntry(region="save_game_summary", schema=29, build=BUILD, layout=SAVE_SUMMARY),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=NAME_POOLS),
 )
