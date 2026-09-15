@@ -3,8 +3,9 @@
 
 Blocks content that must never be committed or published: files under the private
 folder, save files and save bytes, binary files, oversized files, notebooks with
-outputs, text copied from the private folder, and locally denylisted names, uids
-and terms in file contents, file paths and messages.
+outputs, symbolic links, long unbroken hex or base64 runs, text copied from the
+private folder, and locally denylisted names, uids and terms in file contents, file
+paths and messages.
 
 Usage:
     python scripts/guard.py --staged              # pre-commit hook
@@ -35,6 +36,11 @@ from pathlib import Path, PurePosixPath
 
 MAX_FILE_BYTES = 1_000_000
 SAVE_MAGIC = bytes.fromhex("0201666d662e")
+SYMBOLIC_LINK_MODE = "120000"
+HEX_RUN_MINIMUM = 512
+BASE64_RUN_MINIMUM = 1024
+HEX_RUN_PATTERN = re.compile(rf"(?<![0-9A-Fa-f])[0-9A-Fa-f]{{{HEX_RUN_MINIMUM},}}")
+BASE64_RUN_PATTERN = re.compile(rf"(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/=_-]{{{BASE64_RUN_MINIMUM},}}")
 PRIVATE_FOLDER_NAME = ".local"
 GUARD_CONFIG_NAME = "guard.json"
 GUARD_CONFIG_KEYS = ("overlap_exempt_code_fences", "denied_terms")
@@ -57,11 +63,12 @@ UID_REASON_INDEX, NAME_REASON_INDEX, TERM_REASON_INDEX = range(len(MATCH_REASONS
 
 @dataclass(frozen=True, slots=True)
 class Blob:
-    """One file version to check; `location` is what findings print."""
+    """One file version to check; `location` is what findings print, `mode` is the git mode."""
 
     path: str
     location: str
     object_id: str
+    mode: str
     content: bytes
 
 
@@ -397,6 +404,32 @@ def notebook_has_outputs(text: str) -> bool:
     return False
 
 
+def encoded_run_findings(location: str, text: str) -> list[Finding]:
+    """Unbroken hex or base64 runs long enough to carry smuggled bytes; only kind and length print.
+
+    A run made only of hex characters is reported once, as hex. Line breaks never belong
+    to a run, so scanning line by line finds the same runs.
+    """
+    if HEX_RUN_PATTERN.search(text) is None and BASE64_RUN_PATTERN.search(text) is None:
+        return []
+    findings: list[Finding] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        runs = [("hex", match.group(0)) for match in HEX_RUN_PATTERN.finditer(line)]
+        runs.extend(
+            ("base64", match.group(0))
+            for match in BASE64_RUN_PATTERN.finditer(line)
+            if HEX_RUN_PATTERN.fullmatch(match.group(0)) is None
+        )
+        findings.extend(
+            Finding(
+                f"{location}:{line_number}",
+                f"contains a long encoded run ({kind}, {len(run_text)} characters)",
+            )
+            for kind, run_text in runs
+        )
+    return findings
+
+
 def check_blob(blob: Blob, references: PrivateReferences | None) -> list[Finding]:
     findings: list[Finding] = []
     location = blob.location
@@ -410,6 +443,8 @@ def check_blob(blob: Blob, references: PrivateReferences | None) -> list[Finding
         findings.append(Finding(location, "is inside the private folder"))
     if normalize_text(blob_path.name).endswith(".fm"):
         findings.append(Finding(location, "is a save file (*.fm)"))
+    if blob.mode == SYMBOLIC_LINK_MODE:
+        findings.append(Finding(location, "is a symbolic link"))
     if len(blob.content) > MAX_FILE_BYTES:
         findings.append(Finding(location, f"is larger than {MAX_FILE_BYTES} bytes"))
     if SAVE_MAGIC in blob.content:
@@ -420,6 +455,7 @@ def check_blob(blob: Blob, references: PrivateReferences | None) -> list[Finding
         return findings
     if normalize_text(blob_path.suffix) == ".ipynb" and notebook_has_outputs(text):
         findings.append(Finding(location, "is a notebook with outputs"))
+    findings.extend(encoded_run_findings(location, text))
     if references is not None:
         findings.extend(overlap_findings(location, text, references))
         findings.extend(text_findings(location, text, references))
@@ -439,32 +475,34 @@ def split_null_terminated(raw_output: bytes) -> list[str]:
     return [item.decode("utf-8", "surrogateescape") for item in raw_output.split(b"\x00") if item]
 
 
-def index_object_ids(repository_root: Path) -> dict[str, str]:
-    """Object id of every index entry, by path."""
-    object_ids: dict[str, str] = {}
+def index_entries(repository_root: Path) -> dict[str, tuple[str, str]]:
+    """Mode and object id of every index entry, by path."""
+    entries: dict[str, tuple[str, str]] = {}
     for entry in split_null_terminated(run_git(repository_root, ["ls-files", "--stage", "-z"])):
         metadata, _, path = entry.partition("\t")
-        _mode, object_id, stage_number = metadata.split(" ")
+        mode, object_id, stage_number = metadata.split(" ")
         if stage_number != "0":
             raise SystemExit("guard: the index has unmerged entries; resolve them first")
-        object_ids[path] = object_id
-    return object_ids
+        entries[path] = (mode, object_id)
+    return entries
 
 
-def index_blob(repository_root: Path, path: str, object_id: str) -> Blob:
-    return Blob(path, path, object_id, run_git(repository_root, ["cat-file", "blob", object_id]))
+def index_blob(repository_root: Path, path: str, mode: str, object_id: str) -> Blob:
+    content = run_git(repository_root, ["cat-file", "blob", object_id])
+    return Blob(path, path, object_id, mode, content)
 
 
 def staged_blobs(repository_root: Path) -> Iterator[Blob]:
     listing = run_git(repository_root, ["diff", "--cached", "--name-only", "-z", "--diff-filter=d"])
-    object_ids = index_object_ids(repository_root)
+    entries = index_entries(repository_root)
     for path in split_null_terminated(listing):
-        yield index_blob(repository_root, path, object_ids[path])
+        mode, object_id = entries[path]
+        yield index_blob(repository_root, path, mode, object_id)
 
 
 def tracked_blobs(repository_root: Path) -> Iterator[Blob]:
-    for path, object_id in index_object_ids(repository_root).items():
-        yield index_blob(repository_root, path, object_id)
+    for path, (mode, object_id) in index_entries(repository_root).items():
+        yield index_blob(repository_root, path, mode, object_id)
 
 
 def add_object_path(object_paths: dict[str, list[str]], object_id: str, path: str) -> None:
@@ -473,9 +511,23 @@ def add_object_path(object_paths: dict[str, list[str]], object_id: str, path: st
         paths.append(path)
 
 
+def add_blob_entry(
+    blob_entries: dict[str, list[tuple[str, str]]], object_id: str, path: str, mode: str
+) -> None:
+    entries = blob_entries.setdefault(object_id, [])
+    if (path, mode) not in entries:
+        entries.append((path, mode))
+
+
 def history_blobs(repository_root: Path) -> Iterator[Blob]:
-    """Every (blob, path) pair reachable from any ref; each blob is read once."""
+    """Every (blob, path, mode) entry reachable from any ref; each blob is read once.
+
+    Entries come from the root tree of every commit and every tagged tree, which carry the
+    modes. A blob path that `rev-list --objects` names but no tree listing covers is still
+    checked, with an empty mode.
+    """
     object_paths: dict[str, list[str]] = {}
+    root_names: list[str] = []
     listing = run_git(repository_root, ["rev-list", "--objects", "--all"]).decode(
         "utf-8", "surrogateescape"
     )
@@ -483,27 +535,44 @@ def history_blobs(repository_root: Path) -> Iterator[Blob]:
         object_id, _, path = line.partition(" ")
         if path:
             add_object_path(object_paths, object_id, path)
-    blob_paths: dict[str, list[str]] = {}
-    if object_paths:
-        batch_input = ("\n".join(object_paths) + "\n").encode("ascii")
-        type_listing = run_git(
+        else:
+            root_names.append(f"{object_id}^{{tree}}")
+    batch_names = [*object_paths, *root_names]
+    if not batch_names:
+        return
+    batch_input = ("\n".join(batch_names) + "\n").encode("ascii")
+    type_lines = (
+        run_git(
             repository_root, ["cat-file", "--batch-check=%(objectname) %(objecttype)"], batch_input
-        ).decode("ascii")
-        for type_line in type_listing.splitlines():
-            object_id, _, object_type = type_line.partition(" ")
+        )
+        .decode("ascii")
+        .splitlines()
+    )
+    named_blob_ids: list[str] = []
+    root_tree_ids: dict[str, None] = {}
+    for line_index, type_line in enumerate(type_lines):
+        object_id, _, object_type = type_line.partition(" ")
+        if line_index < len(object_paths):
             if object_type == "blob":
-                blob_paths[object_id] = object_paths[object_id]
-    for commit_id in run_git(repository_root, ["rev-list", "--all"]).decode("ascii").split():
-        tree_listing = run_git(repository_root, ["ls-tree", "-r", "-z", "--full-tree", commit_id])
+                named_blob_ids.append(object_id)
+        elif object_type == "tree":
+            root_tree_ids[object_id] = None
+    blob_entries: dict[str, list[tuple[str, str]]] = {}
+    for tree_id in root_tree_ids:
+        tree_listing = run_git(repository_root, ["ls-tree", "-r", "-z", "--full-tree", tree_id])
         for entry in split_null_terminated(tree_listing):
             metadata, _, path = entry.partition("\t")
-            _mode, object_type, object_id = metadata.split(" ")
+            mode, object_type, object_id = metadata.split(" ")
             if object_type == "blob":
-                add_object_path(blob_paths, object_id, path)
-    for object_id, paths in blob_paths.items():
+                add_blob_entry(blob_entries, object_id, path, mode)
+    for object_id in named_blob_ids:
+        entries = blob_entries.setdefault(object_id, [])
+        listed_paths = {path for path, _ in entries}
+        entries.extend((path, "") for path in object_paths[object_id] if path not in listed_paths)
+    for object_id, entries in blob_entries.items():
         content = run_git(repository_root, ["cat-file", "blob", object_id])
-        for path in paths:
-            yield Blob(path, f"{path}@{object_id[:12]}", object_id, content)
+        for path, mode in entries:
+            yield Blob(path, f"{path}@{object_id[:12]}", object_id, mode, content)
 
 
 def history_message_findings(repository_root: Path, references: PrivateReferences) -> list[Finding]:

@@ -64,6 +64,24 @@ def stage(repository: Path, relative_path: str, content: bytes | str) -> None:
     run_git(repository, "add", "-f", relative_path)
 
 
+def stage_symbolic_link_entry(repository: Path, relative_path: str, target: str) -> None:
+    """Stage a symbolic link entry through the index alone, so no platform link support is needed."""
+    object_id = (
+        subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"],
+            cwd=repository,
+            input=target.encode("utf-8"),
+            check=True,
+            capture_output=True,
+        )
+        .stdout.decode("ascii")
+        .strip()
+    )
+    run_git(
+        repository, "update-index", "--add", "--cacheinfo", f"120000,{object_id},{relative_path}"
+    )
+
+
 def run_guard(repository: Path, *arguments: str) -> int:
     return guard.main([*arguments, "--root", str(repository)])
 
@@ -155,6 +173,172 @@ def test_clean_nbformat_3_notebook_passes(repository: Path) -> None:
         json.dumps({"nbformat": 3, "worksheets": [{"cells": [clean_cell]}]}),
     )
     assert run_guard(repository, "--staged") == 0
+
+
+# Symbolic links
+
+SYMBOLIC_LINK_REASON = "is a symbolic link"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="creating symbolic links needs extra rights")
+def test_staged_symbolic_link_is_blocked(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    link_path = repository / "docs" / "data"
+    link_path.parent.mkdir()
+    link_path.symlink_to("../elsewhere/corpus")
+    run_git(repository, "add", "docs/data")
+    assert run_guard(repository, "--staged") == 1
+    assert f"docs/data: {SYMBOLIC_LINK_REASON}" in capsys.readouterr().err
+
+
+def test_staged_symbolic_link_entry_is_blocked(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stage_symbolic_link_entry(repository, "docs/data", "../elsewhere/corpus")
+    assert run_guard(repository, "--staged") == 1
+    assert f"docs/data: {SYMBOLIC_LINK_REASON}" in capsys.readouterr().err
+
+
+def test_tracked_symbolic_link_is_blocked(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stage(repository, "ok.txt", "fine\n")
+    stage_symbolic_link_entry(repository, "docs/data", "../elsewhere/corpus")
+    run_git(repository, "commit", "-q", "-m", "add link")
+    stage(repository, "more.txt", "fine\n")
+    assert run_guard(repository, "--staged") == 0
+    assert run_guard(repository, "--tracked") == 1
+    assert f"docs/data: {SYMBOLIC_LINK_REASON}" in capsys.readouterr().err
+
+
+def test_symbolic_link_in_history_is_blocked(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stage_symbolic_link_entry(repository, "docs/data", "../elsewhere/corpus")
+    run_git(repository, "commit", "-q", "-m", "add link")
+    run_git(repository, "rm", "-q", "--cached", "docs/data")
+    stage(repository, "ok.txt", "fine\n")
+    run_git(repository, "commit", "-q", "-m", "remove link")
+    assert run_guard(repository, "--tracked") == 0
+    capsys.readouterr()
+    assert run_guard(repository, "--history") == 1
+    assert SYMBOLIC_LINK_REASON in capsys.readouterr().err
+
+
+def test_symbolic_link_with_the_content_of_a_history_file_is_blocked(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stage(repository, "target.txt", "shared text")
+    stage_symbolic_link_entry(repository, "docs/link", "shared text")
+    run_git(repository, "commit", "-q", "-m", "add file and link")
+    assert run_guard(repository, "--history") == 1
+    error_output = capsys.readouterr().err
+    assert SYMBOLIC_LINK_REASON in error_output
+    assert error_output.count(SYMBOLIC_LINK_REASON) == 1
+    assert "target.txt" not in error_output
+
+
+def test_symbolic_link_reachable_only_from_a_tag_is_blocked_in_history(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stage(repository, "ok.txt", "fine\n")
+    run_git(repository, "commit", "-q", "-m", "add file")
+    stage_symbolic_link_entry(repository, "docs/data", "../elsewhere/corpus")
+    tree_id = (
+        subprocess.run(["git", "write-tree"], cwd=repository, check=True, capture_output=True)
+        .stdout.decode("ascii")
+        .strip()
+    )
+    run_git(repository, "tag", "tree-only", tree_id)
+    run_git(repository, "rm", "-q", "--cached", "docs/data")
+    assert run_guard(repository, "--tracked") == 0
+    capsys.readouterr()
+    assert run_guard(repository, "--history") == 1
+    assert SYMBOLIC_LINK_REASON in capsys.readouterr().err
+
+
+def test_regular_and_executable_files_are_not_symbolic_links(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stage(repository, "docs/data", "../elsewhere/corpus")
+    stage(repository, "scripts/run.sh", "echo ok\n")
+    run_git(repository, "update-index", "--chmod=+x", "scripts/run.sh")
+    assert run_guard(repository, "--staged") == 0
+    run_git(repository, "commit", "-q", "-m", "add files")
+    assert run_guard(repository, "--tracked") == 0
+    assert run_guard(repository, "--history") == 0
+    assert SYMBOLIC_LINK_REASON not in capsys.readouterr().err
+
+
+# Long encoded runs
+
+HEX_ALPHABET = "0123456789abcdefABCDEF"
+BASE64_ALPHABET = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo+/_-="
+
+
+def encoded_run(alphabet: str, length: int) -> str:
+    return (alphabet * (length // len(alphabet) + 1))[:length]
+
+
+@pytest.mark.parametrize(
+    ("alphabet", "length", "kind", "expected_exit"),
+    [
+        (HEX_ALPHABET, 512, "hex", 1),
+        (HEX_ALPHABET, 511, "hex", 0),
+        (BASE64_ALPHABET, 1024, "base64", 1),
+        (BASE64_ALPHABET, 1023, "base64", 0),
+    ],
+    ids=["hex-512", "hex-511", "base64-1024", "base64-1023"],
+)
+def test_long_encoded_run_is_blocked_at_its_threshold(
+    repository: Path,
+    capsys: pytest.CaptureFixture[str],
+    alphabet: str,
+    length: int,
+    kind: str,
+    expected_exit: int,
+) -> None:
+    run_text = encoded_run(alphabet, length)
+    stage(repository, "data/payload.txt", f"first line\npayload = '{run_text}'\nlast line\n")
+    assert run_guard(repository, "--staged") == expected_exit
+    error_output = capsys.readouterr().err
+    reason = f"contains a long encoded run ({kind}, {length} characters)"
+    if expected_exit:
+        assert f"data/payload.txt:2: {reason}" in error_output
+    else:
+        assert "long encoded run" not in error_output
+    assert run_text[:24] not in error_output
+
+
+def test_long_hex_run_is_reported_once_as_hex(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run_text = encoded_run(HEX_ALPHABET, 2048)
+    stage(repository, "data/payload.txt", run_text + "\n")
+    assert run_guard(repository, "--staged") == 1
+    error_output = capsys.readouterr().err
+    assert error_output.count("long encoded run") == 1
+    assert "contains a long encoded run (hex, 2048 characters)" in error_output
+    assert run_text[:24] not in error_output
+
+
+def test_lock_file_with_many_hashes_passes(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hashes = [f"{index:064x}"[::-1] for index in range(1, 301)]
+    wheel_lines = [
+        f'    {{ url = "https://files.example.org/packages/{sha[:2]}/{sha[2:4]}/{sha[4:]}'
+        f'/example_package-1.{index}.0-py3-none-any.whl", hash = "sha256:{sha}", size = 1024 }},'
+        for index, sha in enumerate(hashes)
+    ]
+    joined_hashes = '","'.join(f"sha256:{sha}" for sha in hashes)
+    lock_text = "\n".join(
+        ["version = 1", "[[package]]", 'name = "example-package"', "wheels = [", *wheel_lines, "]"]
+    )
+    stage(repository, "uv.lock", f'{lock_text}\nhashes = ["{joined_hashes}"]\n')
+    assert run_guard(repository, "--staged") == 0
+    assert "long encoded run" not in capsys.readouterr().err
 
 
 # Staged changes
