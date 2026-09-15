@@ -9,6 +9,7 @@ import json
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 
@@ -146,6 +147,17 @@ def test_save_magic_and_binary_are_blocked(
 def test_oversized_file_is_blocked(repository: Path) -> None:
     stage(repository, "data/large.txt", "a" * 1_000_001)
     assert run_guard(repository, "--staged") == 1
+
+
+def test_oversized_file_is_not_scanned_for_encoded_runs(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stage(repository, "data/large.txt", encoded_run(HEX_ALPHABET, 1_000_001))
+    assert run_guard(repository, "--staged") == 1
+    assert capsys.readouterr().err.splitlines() == [
+        "guard: data/large.txt: is larger than 1000000 bytes",
+        blocked_line(1),
+    ]
 
 
 def test_notebook_outputs_are_blocked(repository: Path) -> None:
@@ -659,6 +671,148 @@ def test_escaped_bytes_are_blocked_from_32_escapes(
     assert capsys.readouterr().err.splitlines() == expected_lines
 
 
+def printable_column(row: bytes) -> str:
+    return "".join(chr(value) if 32 <= value < 127 else "." for value in row)
+
+
+def xxd_dump(data: bytes, group_bytes: int = 2) -> str:
+    """The layout of `xxd` (two-byte groups) or `xxd -g1` (single bytes)."""
+    width = 32 + 16 // group_bytes - 1
+    lines: list[str] = []
+    for offset in range(0, len(data), 16):
+        row = data[offset : offset + 16]
+        groups = " ".join(
+            row[start : start + group_bytes].hex() for start in range(0, 16, group_bytes)
+        )
+        lines.append(f"{offset:08x}: {groups:<{width}}  {printable_column(row)}")
+    return "\n".join(lines)
+
+
+def hexdump_canonical_row(offset: int, row: bytes) -> str:
+    """One row of `hexdump -C`."""
+    pairs = [f"{value:02x}" for value in row]
+    hex_column = f"{' '.join(pairs[:8]):<23}  {' '.join(pairs[8:]):<23}"
+    return f"{offset:08x}  {hex_column}  |{printable_column(row)}|"
+
+
+def bsd_od_row(offset: int, row: bytes) -> str:
+    """One row of BSD `od -Ax -tx1`."""
+    return f"{offset:07x}  " + "".join(f"  {value:02x}" for value in row)
+
+
+def gnu_od_row(offset: int, row: bytes) -> str:
+    """One row of GNU `od -Ax -tx1`."""
+    return f"{offset:06x}" + "".join(f" {value:02x}" for value in row)
+
+
+def collapsed_dump(data: bytes, format_row: Callable[[int, bytes], str], offset_width: int) -> str:
+    """Rows as `hexdump` and `od` print them: repeated rows become one `*`, then the length."""
+    lines: list[str] = []
+    previous_row: bytes | None = None
+    for offset in range(0, len(data), 16):
+        row = data[offset : offset + 16]
+        if row == previous_row:
+            if lines[-1] != "*":
+                lines.append("*")
+            continue
+        previous_row = row
+        lines.append(format_row(offset, row))
+    lines.append(f"{len(data):0{offset_width}x}")
+    return "\n".join(lines)
+
+
+DUMP_DATA = sample_bytes(256)
+REPEATED_ROW_DUMP_DATA = sample_bytes(64) + bytes(48) + sample_bytes(32, seed=1)
+DECIMAL_DIGIT_DUMP_DATA = bytes(
+    value for value in range(256) if value >> 4 < 10 and value & 15 < 10
+)[:96]
+HEX_DUMP_CASES = {
+    "xxd": (xxd_dump(DUMP_DATA), ("hex dump", 512)),
+    "xxd-single-bytes": (xxd_dump(DUMP_DATA, group_bytes=1), ("hex dump", 512)),
+    "xxd-64-bytes": (xxd_dump(DUMP_DATA[:64]), ("hex dump", 128)),
+    "xxd-48-bytes": (xxd_dump(DUMP_DATA[:48]), None),
+    "hexdump-canonical": (collapsed_dump(DUMP_DATA, hexdump_canonical_row, 8), ("hex dump", 512)),
+    "hexdump-canonical-with-repeated-rows": (
+        collapsed_dump(REPEATED_ROW_DUMP_DATA, hexdump_canonical_row, 8),
+        ("hex dump", 224),
+    ),
+    "bsd-od": (collapsed_dump(DUMP_DATA, bsd_od_row, 7), ("hex dump", 512)),
+    "gnu-od": (collapsed_dump(DUMP_DATA, gnu_od_row, 6), ("hex dump", 512)),
+    "four-byte-groups-without-offsets": (
+        "\n".join(DUMP_DATA[offset : offset + 16].hex(" ", 4) for offset in range(0, 256, 16)),
+        ("hex dump", 512),
+    ),
+    "byte-pairs-without-offsets": (
+        "\n".join(" " + DUMP_DATA[offset : offset + 16].hex(" ") for offset in range(0, 256, 16)),
+        ("hex byte pairs", 16 * 47 + 15 * 2),
+    ),
+    "decimal-digits-only": (
+        collapsed_dump(DECIMAL_DIGIT_DUMP_DATA, hexdump_canonical_row, 8),
+        None,
+    ),
+    "three-groups-per-line": (
+        "\n".join(
+            f"{offset:08x}: " + DUMP_DATA[offset : offset + 6].hex(" ", 2)
+            for offset in range(0, 240, 6)
+        ),
+        None,
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("dump_text", "expected"), HEX_DUMP_CASES.values(), ids=HEX_DUMP_CASES.keys()
+)
+def test_hex_dumps_are_blocked_from_64_bytes(
+    repository: Path,
+    capsys: pytest.CaptureFixture[str],
+    dump_text: str,
+    expected: tuple[str, int] | None,
+) -> None:
+    stage(repository, "data/payload.txt", f"first line\n{dump_text}\nlast line\n")
+    if expected is None:
+        assert run_guard(repository, "--staged") == 0
+        assert capsys.readouterr().err.splitlines() == [STRUCTURAL_OK_LINE]
+        return
+    kind, length = expected
+    assert run_guard(repository, "--staged") == 1
+    assert capsys.readouterr().err.splitlines() == [
+        encoded_run_line(2, kind, length),
+        blocked_line(1),
+    ]
+
+
+LONG_LINE_CASES = {
+    "four-digit-groups": ("a1b2 " * 20_000, [("hex dump", 80_000)]),
+    "eight-digit-groups": ("a1b2c3d4 " * 11_112, [("hex dump", 88_896)]),
+    "pairs-then-a-word": ("ab " * 33_334 + "x", [("hex byte pairs", 100_001)]),
+    "offset-pairs-and-text-column": (
+        "00000000: " + "ab " * 33_330 + "|x|",
+        [("hex byte pairs", 99_989)],
+    ),
+    "nine-digit-tokens": ("a1b2c3d4e " * 10_000, []),
+    "odd-three-digit-groups": ("a1b " * 25_000, []),
+    "single-hex-digits": ("a " * 50_000, []),
+    "decimal-digit-groups": ("1234 " * 20_000, []),
+    "offset-long-blanks-then-four-groups": (
+        "00000000:" + " " * 100_000 + "a1b2 c3d4 e5f6 a7b8",
+        [],
+    ),
+}
+
+
+@pytest.mark.parametrize(("line", "expected"), LONG_LINE_CASES.values(), ids=LONG_LINE_CASES.keys())
+def test_hundred_thousand_character_lines_are_scanned_exactly(
+    line: str, expected: list[tuple[str, int]]
+) -> None:
+    assert len(line) >= 100_000
+    findings = guard.encoded_run_findings("data/payload.txt", line)
+    assert [(finding.location, finding.reason) for finding in findings] == [
+        ("data/payload.txt:1", f"contains a long encoded run ({kind}, {length} characters)")
+        for kind, length in expected
+    ]
+
+
 def test_repeated_runs_just_under_every_threshold_are_not_reported() -> None:
     near_miss_blocks = [
         encoded_run(HEX_ALPHABET, 511) + "g",
@@ -666,6 +820,7 @@ def test_repeated_runs_just_under_every_threshold_are_not_reported() -> None:
         "\n".join(wrap_columns(standard_base64(171), 76)),
         " ".join(hex_pairs(63)) + " .",
         escaped_bytes(31) + ".",
+        xxd_dump(DUMP_DATA[:48]),
     ]
     text = ("\n--\n".join(near_miss_blocks) + "\n--\n") * 50
     assert guard.encoded_run_findings("data/payload.txt", text) == []

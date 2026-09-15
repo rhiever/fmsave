@@ -47,6 +47,13 @@ WRAPPED_BASE64_OTHER_CHARACTERS = 8
 URLSAFE_BASE64_CHARACTERS_PER_SEPARATOR = 8
 HEX_PAIR_MINIMUM = 64
 ESCAPED_BYTE_MINIMUM = 32
+HEX_DUMP_MINIMUM_GROUPS = 4
+HEX_DUMP_MINIMUM_BYTES = 64
+HEX_DUMP_GROUP_LENGTHS = frozenset({2, 4, 6, 8})
+HEX_DUMP_OFFSET_MINIMUM_DIGITS = 4
+HEX_DUMP_OFFSET_MAXIMUM_DIGITS = 16
+HEX_DUMP_REPEATED_ROWS_MARKER = "*"
+HEX_DIGIT_CHARACTERS = "0123456789abcdefABCDEF"
 # The lookbehind lets a match start only at the start of a run, which keeps the scan linear.
 HEX_RUN_PATTERN = re.compile(rf"(?<![0-9A-Fa-f])[0-9A-Fa-f]{{{HEX_RUN_MINIMUM},}}")
 BASE64_RUN_PATTERN = re.compile(rf"(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/=_-]{{{BASE64_RUN_MINIMUM},}}")
@@ -554,24 +561,82 @@ def hex_pair_runs(text: str) -> Iterator[tuple[int, int]]:
             yield start, end - start
 
 
+def hex_dump_line_digits(line: str) -> tuple[int, bool] | None:
+    """(hex digits, holds an a-f digit) of a hex dump line, or None when `line` is not one.
+
+    A single pass over the whitespace-separated tokens. An offset may come first: 4 to 16
+    hex digits, known by a 0x prefix, a trailing colon, or a digit count unlike the next
+    token's; it is not counted. Groups of 2, 4, 6 or 8 hex digits follow, up to the first
+    other token, so a text column after them is ignored. A dump line has 4 or more groups.
+    """
+    tokens = line.split()
+    group_start = 0
+    if len(tokens) >= 2:
+        offset_token = tokens[0]
+        has_prefix = offset_token.startswith(("0x", "0X"))
+        has_colon = offset_token.endswith(":")
+        offset_digits = offset_token[2 if has_prefix else 0 : len(offset_token) - int(has_colon)]
+        if (
+            HEX_DUMP_OFFSET_MINIMUM_DIGITS <= len(offset_digits) <= HEX_DUMP_OFFSET_MAXIMUM_DIGITS
+            and not offset_digits.strip(HEX_DIGIT_CHARACTERS)
+            and (has_prefix or has_colon or len(offset_digits) != len(tokens[1]))
+        ):
+            group_start = 1
+    group_count = 0
+    digit_count = 0
+    has_letter = False
+    for token in itertools.islice(tokens, group_start, None):
+        if len(token) not in HEX_DUMP_GROUP_LENGTHS or token.strip(HEX_DIGIT_CHARACTERS):
+            break
+        group_count += 1
+        digit_count += len(token)
+        has_letter = has_letter or not token.isdigit()
+    if group_count < HEX_DUMP_MINIMUM_GROUPS:
+        return None
+    return digit_count, has_letter
+
+
+def hex_dump_runs(lines: Sequence[str]) -> Iterator[tuple[int, int]]:
+    """(first line number, hex digits) of each hex dump of 64+ bytes that holds an a-f digit.
+
+    A dump is a stretch of consecutive lines that `hex_dump_line_digits` accepts, as printed
+    by `xxd`, `hexdump -C` and `od -tx1`. A `*` line, which those tools print in place of
+    repeated rows, neither counts nor ends a dump.
+    """
+    streak_start = 0
+    streak_digits = 0
+    streak_has_letter = False
+    for line_number, line in enumerate(itertools.chain(lines, [""]), start=1):
+        if streak_digits and line.strip() == HEX_DUMP_REPEATED_ROWS_MARKER:
+            continue
+        dump_line = hex_dump_line_digits(line)
+        if dump_line is not None:
+            digit_count, has_letter = dump_line
+            if not streak_digits:
+                streak_start = line_number
+                streak_has_letter = False
+            streak_digits += digit_count
+            streak_has_letter = streak_has_letter or has_letter
+            continue
+        if streak_digits >= 2 * HEX_DUMP_MINIMUM_BYTES and streak_has_letter:
+            yield streak_start, streak_digits
+        streak_digits = 0
+
+
 def encoded_run_findings(location: str, text: str) -> list[Finding]:
     """Encoded data long enough to carry smuggled bytes; only its kind and length print.
 
-    Covers unbroken hex and base64 runs, base64 wrapped over consecutive lines, hex byte
-    pairs between whitespace, commas or colons, and runs of backslash-x escapes. Each
-    finding sits at the line where its data starts.
+    Covers unbroken hex and base64 runs, base64 or hex wrapped over consecutive lines, hex
+    dumps, hex byte pairs between whitespace, commas or colons, and runs of backslash-x
+    escapes. Each finding sits at the line where its data starts; a hex dump that starts on
+    the same line as a reported hex byte pair sequence is the same data and is not repeated.
     """
     runs: list[tuple[int, str, int]] = []
-    has_unbroken_run = HEX_RUN_PATTERN.search(text) or BASE64_RUN_PATTERN.search(text)
-    has_wrapped_line = WRAPPED_BASE64_LINE_PATTERN.search(
-        text
-    ) or URLSAFE_BASE64_LINE_PATTERN.search(text)
-    if has_unbroken_run or has_wrapped_line:
-        lines = text.splitlines()
-        if has_unbroken_run:
-            runs.extend(unbroken_runs(lines))
-        if has_wrapped_line:
-            runs.extend(wrapped_base64_runs(lines))
+    lines = text.splitlines()
+    if HEX_RUN_PATTERN.search(text) or BASE64_RUN_PATTERN.search(text):
+        runs.extend(unbroken_runs(lines))
+    if WRAPPED_BASE64_LINE_PATTERN.search(text) or URLSAFE_BASE64_LINE_PATTERN.search(text):
+        runs.extend(wrapped_base64_runs(lines))
     offset_runs = [(offset, "hex byte pairs", length) for offset, length in hex_pair_runs(text)]
     offset_runs.extend(
         (match.start(), "escaped bytes", match.end() - match.start())
@@ -583,6 +648,12 @@ def encoded_run_findings(location: str, text: str) -> list[Finding]:
             (bisect.bisect_right(line_ends, offset) + 1, kind, length)
             for offset, kind, length in offset_runs
         )
+    pair_lines = {line_number for line_number, kind, _ in runs if kind == "hex byte pairs"}
+    runs.extend(
+        (line_number, "hex dump", length)
+        for line_number, length in hex_dump_runs(lines)
+        if line_number not in pair_lines
+    )
     runs.sort(key=lambda run: run[0])
     return [
         Finding(
@@ -611,7 +682,8 @@ def check_blob(blob: Blob, references: PrivateReferences | None) -> list[Finding
     if blob.mode == SUBMODULE_MODE:
         findings.append(Finding(location, "is a submodule"))
         return findings
-    if len(blob.content) > MAX_FILE_BYTES:
+    is_oversized = len(blob.content) > MAX_FILE_BYTES
+    if is_oversized:
         findings.append(Finding(location, f"is larger than {MAX_FILE_BYTES} bytes"))
     if SAVE_MAGIC in blob.content:
         findings.append(Finding(location, "contains save file magic bytes"))
@@ -621,7 +693,8 @@ def check_blob(blob: Blob, references: PrivateReferences | None) -> list[Finding
         return findings
     if normalize_text(blob_path.suffix) == ".ipynb" and notebook_has_outputs(text):
         findings.append(Finding(location, "is a notebook with outputs"))
-    findings.extend(encoded_run_findings(location, text))
+    if not is_oversized:
+        findings.extend(encoded_run_findings(location, text))
     if references is not None:
         findings.extend(overlap_findings(location, text, references))
         findings.extend(text_findings(location, text, references))
