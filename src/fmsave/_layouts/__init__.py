@@ -155,6 +155,11 @@ class ClubStatusLayout:
     Until the first hit is accepted a search runs to the end of `game_db`, and when the first
     `maximum_leading_misses` clubs all miss, the walk stops with no status for any club. After
     that, a club's hit must start at most `search_window_bytes` past the cursor.
+
+    A normal status record is confirmed, for the club checks only, when the u32 at
+    `confirmation_offset` (from the hit, so negative) holds the club's stored index (the public
+    index minus 1) and the `confirmation_zero_bytes` bytes after it are zero. The confirmation
+    never decides which record is accepted.
     """
 
     ordinal_offset: int
@@ -166,6 +171,8 @@ class ClubStatusLayout:
     reputation_offset: int
     reputation_range: tuple[int, int]
     search_window_bytes: int
+    confirmation_offset: int
+    confirmation_zero_bytes: int
     maximum_leading_misses: int = 16
 
 
@@ -180,6 +187,13 @@ class PersonBlockLayout:
     `_from_birth` count from the birth date position `p`; offsets suffixed `_from_block_start`
     count from the block start `q`, found by walking backwards from `p`. `relation_pairs`
     maps a `(kind, role)` pair to the person field it fills.
+
+    Inside each `relation_entry_bytes`-byte relation entry, the u32 referenced id sits at the
+    entry start and the kind and role bytes at entry offsets 10 and 11; the qualifier byte sits
+    at `relation_qualifier_offset_in_entry` and the sentinel byte at
+    `relation_sentinel_offset_in_entry`. The person checks count second-nation entries whose
+    qualifier is one of `second_nation_qualifiers` and entries whose sentinel byte equals
+    `relation_sentinel_value`.
     """
 
     window_start_offset: int
@@ -205,6 +219,10 @@ class PersonBlockLayout:
     second_nation_pair: tuple[int, int]
     home_grown_nation_pair: tuple[int, int]
     home_grown_club_pair: tuple[int, int]
+    relation_qualifier_offset_in_entry: int
+    relation_sentinel_offset_in_entry: int
+    second_nation_qualifiers: tuple[int, ...]
+    relation_sentinel_value: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,32 +400,42 @@ type BoundPair = tuple[float | None, float | None]
 class GateBounds:
     """Loose bounds for the reader checks on what the `game_db` readers decode.
 
-    Each bound is an inclusive `(minimum, maximum)` pair; None leaves that side open. Rates
-    are shares from 0 to 1, and the other bounds are counts or medians. The checks apply only
-    when `game_db` is at least `minimum_applies_from_bytes` long, because smaller sections
+    Each `BoundPair` is an inclusive `(minimum, maximum)` pair; None leaves that side open.
+    Rates are shares from 0 to 1, and the other bounds are counts or medians. The checks apply
+    only when `game_db` is at least `minimum_applies_from_bytes` long, because smaller sections
     come from fragments that cannot meet full-save counts.
+
+    The readers count values inside these inclusive ranges: `height_range_cm` (heights),
+    `age_range_years` (known ages), `home_reputation_window` (the largest difference between
+    home and current reputation counted as near) and `condition_sharpness_maximum` (the
+    largest condition and match sharpness on their stored scale).
 
     Players: `players_minimum` (records), `person_blocks` (records with a person block),
     `names_resolved` (of person blocks), `relation_sentinel` (relation entries ending in the
     sentinel byte), `second_nation_qualifier` (second-nation entries with a known qualifier),
-    `handling_above_finishing` (all records), `with_natural_position`, `height_in_150_210`,
-    `height_median`, `age_median`, `aged_14_to_45` (of known ages),
+    `handling_above_finishing` (all records), `with_natural_position`, `height_in_range`,
+    `height_median`, `age_median`, `aged_in_range` (of known ages),
     `condition_sharpness_in_range`, `join_date_valid`, `world_not_above_current`,
-    `home_within_1000_of_current`, `team_resolved` (of players with a team) and
+    `home_near_current`, `team_resolved` (of players with a team) and
     `home_grown_club_refs_resolved` (of home-grown club references).
 
     Contracts: `players_with_chain` (of players), `tails_parsed` (of chain records),
     `clause_terminator` and `contract_head` (of clause tables), `past_dated_tail_ends` (of
-    parsed tails) and `chain_teams_resolved` (of chain records).
+    parsed tails with an end date) and `chain_teams_resolved` (of chain records).
 
     Clubs: `clubs_minimum` (records), `team_lists_found` and `status_normal` (of clubs), and
     `status_confirmation` (of normal status records).
 
-    Suspensions: `suspension_share_of_players` (players with an entry, of players) and
-    `issued_after_clock` (entries).
+    Suspensions: `suspension_share_of_players` (players with an entry, of players; not applied
+    without players) and `issued_after_clock` (entries issued after the in-game date, of
+    entries; not applied without entries).
     """
 
     minimum_applies_from_bytes: int
+    height_range_cm: tuple[int, int]
+    age_range_years: tuple[int, int]
+    home_reputation_window: int
+    condition_sharpness_maximum: int
     players_minimum: BoundPair
     person_blocks: BoundPair
     names_resolved: BoundPair
@@ -415,14 +443,14 @@ class GateBounds:
     second_nation_qualifier: BoundPair
     handling_above_finishing: BoundPair
     with_natural_position: BoundPair
-    height_in_150_210: BoundPair
+    height_in_range: BoundPair
     height_median: BoundPair
     age_median: BoundPair
-    aged_14_to_45: BoundPair
+    aged_in_range: BoundPair
     condition_sharpness_in_range: BoundPair
     join_date_valid: BoundPair
     world_not_above_current: BoundPair
-    home_within_1000_of_current: BoundPair
+    home_near_current: BoundPair
     team_resolved: BoundPair
     home_grown_club_refs_resolved: BoundPair
     players_with_chain: BoundPair

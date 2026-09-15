@@ -25,8 +25,8 @@ from typing import cast
 from fmsave._errors import CorruptSaveError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import ContractLayout
+from fmsave._reader_stats import ContractStats
 from fmsave._scan import decode_date
-from fmsave.checks import ContractStats
 from fmsave.models.common import CodedValue, ContractEndSource
 from fmsave.models.contracts import (
     Clause,
@@ -376,6 +376,7 @@ class ContractDecoder:
     chain_record_count: int = 0
     chain_teams_resolved_count: int = 0
     tails_parsed_count: int = 0
+    tail_ends_count: int = 0
     tail_ends_past_count: int = 0
     clause_table_count: int = 0
     clause_terminator_ok_count: int = 0
@@ -392,6 +393,7 @@ class ContractDecoder:
             clause_tables=self.clause_table_count,
             clause_terminator_ok=self.clause_terminator_ok_count,
             head_ok=self.head_ok_count,
+            tail_ends=self.tail_ends_count,
             tail_ends_past=self.tail_ends_past_count,
             chain_teams_resolved=self.chain_teams_resolved_count,
         )
@@ -611,8 +613,10 @@ class ContractDecoder:
         ) = self.tail_struct.unpack_from(game_db, tail_offset)
         end = self._cached_date(game_db, raw_end, tail_offset + self.tail_end_offset)
         self.tails_parsed_count += 1
-        if end is not None and end < self.clock:
-            self.tail_ends_past_count += 1
+        if end is not None:
+            self.tail_ends_count += 1
+            if end < self.clock:
+                self.tail_ends_past_count += 1
         unknown: dict[str, int] = {
             "e2": e2,
             "e8": e8,

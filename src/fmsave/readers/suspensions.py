@@ -21,8 +21,8 @@ from datetime import date
 
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import SuspensionLayout
+from fmsave._reader_stats import SuspensionStats
 from fmsave._scan import decode_date
-from fmsave.checks import SuspensionStats
 from fmsave.models.players import Player
 from fmsave.models.suspensions import PlayerSuspension, Suspension
 from fmsave.readers._common import build_gap_padded_struct

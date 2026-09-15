@@ -243,7 +243,7 @@ class Table[RecordT](Sequence[RecordT]):
             coverage = FrozenMapping(
                 {
                     column_name: (
-                        sum(value is not None for value in column_values) / record_count
+                        (len(column_values) - column_values.count(None)) / record_count
                         if record_count
                         else 0.0
                     )

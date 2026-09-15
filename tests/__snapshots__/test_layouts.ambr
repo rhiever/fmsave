@@ -101,6 +101,8 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'confirmation_offset': -18,
+        'confirmation_zero_bytes': 10,
         'kind_offset': 8,
         'maximum_leading_misses': 16,
         'normal_kind': 10,
@@ -272,9 +274,16 @@
         'relation_entries_offset_from_birth': 39,
         'relation_entry_bytes': 16,
         'relation_present_offset_from_birth': 37,
+        'relation_qualifier_offset_in_entry': 12,
+        'relation_sentinel_offset_in_entry': 15,
+        'relation_sentinel_value': 255,
         'second_nation_pair': tuple(
           8,
           9,
+        ),
+        'second_nation_qualifiers': tuple(
+          15,
+          100,
         ),
         'surname_id_offset_from_block_start': 5,
         'trait_bits_offset_from_block_start': -8,
@@ -398,7 +407,11 @@
           20,
           30,
         ),
-        'aged_14_to_45': tuple(
+        'age_range_years': tuple(
+          14,
+          45,
+        ),
+        'aged_in_range': tuple(
           0.995,
           None,
         ),
@@ -418,15 +431,16 @@
           0.999,
           None,
         ),
+        'condition_sharpness_maximum': 10000,
         'contract_head': tuple(
-          0.8,
+          0.65,
           None,
         ),
         'handling_above_finishing': tuple(
           0.15,
           0.35,
         ),
-        'height_in_150_210': tuple(
+        'height_in_range': tuple(
           0.999,
           None,
         ),
@@ -434,21 +448,26 @@
           170,
           190,
         ),
+        'height_range_cm': tuple(
+          150,
+          210,
+        ),
         'home_grown_club_refs_resolved': tuple(
           0.98,
           None,
         ),
-        'home_within_1000_of_current': tuple(
+        'home_near_current': tuple(
           0.95,
           None,
         ),
+        'home_reputation_window': 1000,
         'issued_after_clock': tuple(
-          0,
-          0,
+          None,
+          0.01,
         ),
         'join_date_valid': tuple(
-          0.35,
-          0.7,
+          0.05,
+          0.95,
         ),
         'minimum_applies_from_bytes': 16777216,
         'names_resolved': tuple(
@@ -457,18 +476,18 @@
         ),
         'past_dated_tail_ends': tuple(
           None,
-          0.01,
+          0.05,
         ),
         'person_blocks': tuple(
           0.99,
           None,
         ),
         'players_minimum': tuple(
-          10000,
+          5000,
           None,
         ),
         'players_with_chain': tuple(
-          0.85,
+          0.7,
           None,
         ),
         'relation_sentinel': tuple(
@@ -488,11 +507,11 @@
           None,
         ),
         'suspension_share_of_players': tuple(
-          0.0005,
-          0.03,
+          None,
+          0.1,
         ),
         'tails_parsed': tuple(
-          0.85,
+          0.7,
           None,
         ),
         'team_lists_found': tuple(

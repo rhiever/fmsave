@@ -13,6 +13,7 @@ allocates only the `Personality` it builds and the tuples it returns.
 
 from __future__ import annotations
 
+import functools
 import struct
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -57,16 +58,15 @@ _UINT16_STRUCT = struct.Struct("<H")
 # q-8 (trait bits), then the first-name, surname and common-name ids, each followed by its
 # required zero byte: q+0/q+4, q+5/q+9, q+10/q+14.
 _NAME_BLOCK_STRUCT = struct.Struct("<QIBIBIB")
-# referenced value, then kind and role read together as one little-endian u16 (kind is the
-# low byte, role the high byte), then the qualifier byte and the sentinel byte, which only the
-# person checks read.
-_RELATION_ENTRY_FORMAT = "I6xHB2xB"
-_RELATION_VALUES_PER_ENTRY = 4
-_RELATION_SENTINEL_INDEX = 3
-_RELATION_SENTINEL = 0xFF
-# The qualifiers a second-nation entry carries: 100 when the player holds the nationality, 15
-# when the player is eligible for it.
-_SECOND_NATION_QUALIFIERS = (15, 100)
+# A relation entry unpacks as the referenced value (a u32 at the entry start), then kind and role
+# read together as one little-endian u16 (kind is the low byte, role the high byte), then the
+# qualifier byte and the sentinel byte, which only the person checks read. The qualifier and
+# sentinel positions come from the layout.
+_RELATION_REFERENCED_OFFSET = 0
+_RELATION_KIND_ROLE_OFFSET = 10
+_RELATION_FIELD_ORDER = ("referenced", "kind_role", "qualifier", "sentinel")
+_RELATION_VALUES_PER_ENTRY = len(_RELATION_FIELD_ORDER)
+_RELATION_SENTINEL_INDEX = _RELATION_FIELD_ORDER.index("sentinel")
 _TRAIT_BIT_COUNT = 64
 _NAME_CACHE_MISS = object()
 
@@ -129,11 +129,45 @@ def _trait_codes() -> tuple[CodedValue[Trait], ...]:
     return tuple(CodedValue.from_raw(Trait, bit) for bit in range(_TRAIT_BIT_COUNT))
 
 
-# A tuple of one struct per possible relation-entry count (0..255, the full range of a
-# stored byte), built once at import and indexed directly by count.
-_RELATION_STRUCTS_BY_COUNT: tuple[struct.Struct, ...] = tuple(
-    struct.Struct("<" + _RELATION_ENTRY_FORMAT * count) for count in range(256)
-)
+def _build_relation_entry_format(layout: PersonBlockLayout) -> str:
+    """One relation entry's struct format body (no byte-order prefix), padded to the entry size.
+
+    Raises:
+        ValueError: Two relation entry fields overlap, the layout places the qualifier and
+            sentinel so the fields are not in the order they are unpacked (referenced value,
+            kind and role, qualifier, sentinel), or the fields run past `relation_entry_bytes`.
+    """
+    fields = [
+        (_RELATION_REFERENCED_OFFSET, "I", "referenced"),
+        (_RELATION_KIND_ROLE_OFFSET, "H", "kind_role"),
+        (layout.relation_qualifier_offset_in_entry, "B", "qualifier"),
+        (layout.relation_sentinel_offset_in_entry, "B", "sentinel"),
+    ]
+    struct_object, _start_offset, index_by_name = build_gap_padded_struct(fields, start_offset=0)
+    layout_order = tuple(sorted(index_by_name, key=index_by_name.__getitem__))
+    if layout_order != _RELATION_FIELD_ORDER:
+        raise ValueError(
+            "the relation entry fields must be laid out in the order they are unpacked "
+            f"({', '.join(_RELATION_FIELD_ORDER)}), but the layout orders them "
+            f"{', '.join(layout_order)}"
+        )
+    padding_bytes = layout.relation_entry_bytes - struct_object.size
+    if padding_bytes < 0:
+        raise ValueError(
+            f"the relation entry fields need {struct_object.size} bytes, more than "
+            f"relation_entry_bytes ({layout.relation_entry_bytes})"
+        )
+    entry_format = struct_object.format
+    if isinstance(entry_format, bytes):
+        entry_format = entry_format.decode("ascii")
+    entry_body = entry_format.removeprefix("<")
+    return entry_body + (f"{padding_bytes}x" if padding_bytes else "")
+
+
+@functools.cache
+def _relation_structs_by_count(entry_format: str) -> tuple[struct.Struct, ...]:
+    """One struct per possible relation-entry count (0..255, the full range of a stored byte)."""
+    return tuple(struct.Struct("<" + entry_format * count) for count in range(256))
 
 
 def _build_birth_offset_struct(layout: PersonBlockLayout) -> struct.Struct:
@@ -198,6 +232,8 @@ class PersonBlockDecoder:
 
     # Relations.
     relation_structs_by_count: tuple[struct.Struct, ...]
+    second_nation_qualifiers: tuple[int, ...]
+    relation_sentinel_value: int
     second_nation_key: int
     home_grown_nation_key: int
     home_grown_club_key: int
@@ -497,6 +533,7 @@ class PersonBlockDecoder:
         home_grown_club_key = self.home_grown_club_key
         club_index = self.club_index
 
+        second_nation_qualifiers = self.second_nation_qualifiers
         second_nation_entry_count = 0
         second_nation_qualifier_ok_count = 0
         values_iterator = iter(flat_values)
@@ -505,7 +542,7 @@ class PersonBlockDecoder:
         ):
             if pair_key == second_nation_key:
                 second_nation_entry_count += 1
-                if qualifier in _SECOND_NATION_QUALIFIERS:
+                if qualifier in second_nation_qualifiers:
                     second_nation_qualifier_ok_count += 1
                 if referenced not in second_nation_ids:
                     second_nation_ids.append(referenced)
@@ -524,7 +561,7 @@ class PersonBlockDecoder:
         self.relation_entry_count += relation_count
         self.relation_sentinel_ok_count += flat_values[
             _RELATION_SENTINEL_INDEX::_RELATION_VALUES_PER_ENTRY
-        ].count(_RELATION_SENTINEL)
+        ].count(self.relation_sentinel_value)
         if second_nation_entry_count:
             self.second_nation_entry_count += second_nation_entry_count
             self.second_nation_qualifier_ok_count += second_nation_qualifier_ok_count
@@ -549,7 +586,12 @@ def build_person_block_decoder(
     clock: date,
     file_name: str,
 ) -> PersonBlockDecoder:
-    """Build the per-save person-block decoder from the save's layout, indexes and clock."""
+    """Build the per-save person-block decoder from the save's layout, indexes and clock.
+
+    Raises:
+        ValueError: The layout's relation entry positions are inconsistent (see
+            `_build_relation_entry_format`).
+    """
     second_nation_key = (layout.second_nation_pair[1] << 8) | layout.second_nation_pair[0]
     home_grown_nation_key = (layout.home_grown_nation_pair[1] << 8) | layout.home_grown_nation_pair[
         0
@@ -584,7 +626,9 @@ def build_person_block_decoder(
         relation_entry_bytes=layout.relation_entry_bytes,
         p_struct=p_struct,
         p_struct_size=p_struct.size,
-        relation_structs_by_count=_RELATION_STRUCTS_BY_COUNT,
+        relation_structs_by_count=_relation_structs_by_count(_build_relation_entry_format(layout)),
+        second_nation_qualifiers=layout.second_nation_qualifiers,
+        relation_sentinel_value=layout.relation_sentinel_value,
         second_nation_key=second_nation_key,
         home_grown_nation_key=home_grown_nation_key,
         home_grown_club_key=home_grown_club_key,

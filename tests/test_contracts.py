@@ -20,9 +20,9 @@ from fmsave._layouts import (
     PlayerRecordLayout,
     find_layout,
 )
+from fmsave._reader_stats import ClubStats
 from fmsave._save import CONTRACTS_TABLE_CACHE_KEY, PLAYERS_TABLE_CACHE_KEY
 from fmsave._status import field_status
-from fmsave.checks import ClubStats
 from fmsave.models.common import ContractEndSource
 from fmsave.models.contracts import (
     Clause,

@@ -1,7 +1,7 @@
 """Reader checks, and the validation report built from them.
 
-While a reader decodes, it counts what it sees into a stats record (`PlayerStats`,
-`ContractStats`, `ClubStats`, `SuspensionStats` or `ManagedStats`). The `evaluate_*` functions
+While a reader decodes, it counts what it sees into a stats record from `fmsave._reader_stats`
+(`PlayerStats`, `ContractStats`, `ClubStats`, `SuspensionStats` or `ManagedStats`). The `evaluate_*` functions
 compare those counts with the loose `GateBounds` registered for the save's layout and return one
 `GateResult` per check, and `enforce` raises `ReaderCheckError` when an applied check failed,
 before the reader caches its table. The checks apply only to a `game_db` of at least
@@ -11,23 +11,31 @@ meet full-save counts.
 `validate_save` runs every reader and returns a `ValidationReport`, which holds only structural
 facts, counts and rates: never names, uids or other values from the save.
 
-Only the names in `__all__` are public. The stats records, `ReaderCheck`, `GateCheckError` and
+Only the names in `__all__` are public. `ReaderCheck`, `GateCheckError`, `_gates_disabled` and
 the `evaluate_*`, `check_*` and `enforce*` functions are internal to fmsave.
 """
 
 from __future__ import annotations
 
 import platform
-from array import array
-from collections.abc import Mapping, Sequence
+from collections.abc import Generator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from statistics import median_low
 from typing import TYPE_CHECKING, Literal
 
+from fmsave._context import closed_save_error
 from fmsave._errors import ISSUES_URL, FmsaveError, ReaderCheckError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import BoundPair, GateBounds
 from fmsave._package import __version__
+from fmsave._reader_stats import (
+    ClubStats,
+    ContractStats,
+    ManagedStats,
+    PlayerStats,
+    SuspensionStats,
+)
 from fmsave._status import registered_statuses
 
 if TYPE_CHECKING:
@@ -36,7 +44,20 @@ if TYPE_CHECKING:
 __all__ = ["GateResult", "ReaderValidation", "ValidationReport", "validate_save"]
 
 # Internal switch: when False, failed checks are still evaluated and reported but never raised.
-_GATES_ENABLED = True
+_gates_enabled = True
+
+
+@contextmanager
+def _gates_disabled() -> Generator[None]:
+    """Evaluate and report checks without raising inside the block, then restore the switch."""
+    global _gates_enabled
+    previous_setting = _gates_enabled
+    _gates_enabled = False
+    try:
+        yield
+    finally:
+        _gates_enabled = previous_setting
+
 
 CLUBS_READER = "clubs"
 PLAYERS_READER = "players"
@@ -50,84 +71,6 @@ _PLAYER_PASS_READERS = frozenset({PLAYERS_READER, CONTRACTS_READER, SUSPENSIONS_
 _REPORT_REQUEST = f"Please report it at {ISSUES_URL} with the output of fmsave validate."
 _NO_ANOMALIES: FrozenMapping[str, int] = FrozenMapping({})
 _NO_COVERAGE: FrozenMapping[str, float] = FrozenMapping({})
-
-
-@dataclass(frozen=True, slots=True)
-class PlayerStats:
-    """What one decode pass counted over the player records.
-
-    `ages` holds every known age, for the median; `heights_median` is the low median of every
-    record's height. Relation counts cover every entry of every validated person block.
-    """
-
-    records: int
-    markerless: int
-    with_person_block: int
-    with_resolved_name: int
-    relation_entries: int
-    relation_sentinel_ok: int
-    second_nation_entries: int
-    second_nation_qualifier_ok: int
-    handling_above_finishing: int
-    with_natural_position: int
-    height_in_150_210: int
-    condition_sharpness_in_range: int
-    with_valid_join_date: int
-    world_not_above_current: int
-    home_within_1000_of_current: int
-    with_team: int
-    team_resolved: int
-    aged_14_to_45: int
-    home_grown_club_refs: int
-    home_grown_club_refs_resolved: int
-    ages: array[int]
-    heights_median: int | None
-
-
-@dataclass(frozen=True, slots=True)
-class ContractStats:
-    """What one decode pass counted over the players' contract chain records."""
-
-    players: int
-    contracts: int
-    players_with_chain: int
-    chain_records: int
-    tails_parsed: int
-    clause_tables: int
-    clause_terminator_ok: int
-    head_ok: int
-    tail_ends_past: int
-    chain_teams_resolved: int
-
-
-@dataclass(frozen=True, slots=True)
-class ClubStats:
-    """What the club pass counted: records, team lists and normal status records."""
-
-    records: int
-    team_lists_found: int
-    status_normal: int
-    status_confirmed_a18: int
-
-
-@dataclass(frozen=True, slots=True)
-class SuspensionStats:
-    """What the suspension search counted over the player region."""
-
-    players: int
-    entries: int
-    players_with_entries: int
-    issued_after_clock: int
-
-
-@dataclass(frozen=True, slots=True)
-class ManagedStats:
-    """What the managed-club reader found: human managers, resolved routes (0 or 1) and rows."""
-
-    human_count: int
-    route_one_resolved: int
-    route_two_resolved: int
-    rows: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,15 +193,15 @@ def evaluate_players(
             applied,
         ),
         _gate(
-            "height_in_150_210",
-            _rate(stats.height_in_150_210, records),
-            bounds.height_in_150_210,
+            "height_in_range",
+            _rate(stats.height_in_range, records),
+            bounds.height_in_range,
             applied,
         ),
         _gate("height_median", stats.heights_median, bounds.height_median, applied),
         _gate("age_median", age_median, bounds.age_median, applied),
         _gate(
-            "aged_14_to_45", _rate(stats.aged_14_to_45, len(ages)), bounds.aged_14_to_45, applied
+            "aged_in_range", _rate(stats.aged_in_range, len(ages)), bounds.aged_in_range, applied
         ),
         _gate(
             "condition_sharpness_in_range",
@@ -279,9 +222,9 @@ def evaluate_players(
             applied,
         ),
         _gate(
-            "home_within_1000_of_current",
-            _rate(stats.home_within_1000_of_current, records),
-            bounds.home_within_1000_of_current,
+            "home_near_current",
+            _rate(stats.home_near_current, records),
+            bounds.home_near_current,
             applied,
         ),
         _gate(
@@ -331,7 +274,7 @@ def evaluate_contracts(
         ),
         _gate(
             "past_dated_tail_ends",
-            _rate(stats.tail_ends_past, stats.tails_parsed),
+            _rate(stats.tail_ends_past, stats.tail_ends),
             bounds.past_dated_tail_ends,
             applied,
         ),
@@ -371,7 +314,11 @@ def evaluate_clubs(
 def evaluate_suspensions(
     stats: SuspensionStats, bounds: GateBounds, game_db_bytes: int
 ) -> tuple[GateResult, ...]:
-    """The suspension reader's checks; the share of players is not applied without players."""
+    """The suspension reader's checks.
+
+    The share of players with an entry is not applied without players, and the share of entries
+    issued after the in-game date is not applied without entries.
+    """
     applied = _applies(bounds, game_db_bytes)
     return (
         _gate(
@@ -380,7 +327,12 @@ def evaluate_suspensions(
             bounds.suspension_share_of_players,
             applied and stats.players > 0,
         ),
-        _gate("issued_after_clock", stats.issued_after_clock, bounds.issued_after_clock, applied),
+        _gate(
+            "issued_after_clock",
+            _rate(stats.issued_after_clock, stats.entries),
+            bounds.issued_after_clock,
+            applied and stats.entries > 0,
+        ),
     )
 
 
@@ -491,7 +443,7 @@ def enforce(reader_name: str, results: Sequence[GateResult]) -> None:
         ReaderCheckError: An applied check failed.
     """
     summary = _failure_summary(reader_name, results)
-    if summary is not None and _GATES_ENABLED:
+    if summary is not None and _gates_enabled:
         raise GateCheckError(f"{summary}. {_REPORT_REQUEST}")
 
 
@@ -508,7 +460,7 @@ def enforce_checks(reader_checks: Sequence[ReaderCheck]) -> None:
         for reader_check in reader_checks
         if (summary := _failure_summary(reader_check.reader, reader_check.gates)) is not None
     ]
-    if summaries and _GATES_ENABLED:
+    if summaries and _gates_enabled:
         raise GateCheckError(f"{'. '.join(summaries)}. {_REPORT_REQUEST}", tuple(reader_checks))
 
 
@@ -519,8 +471,10 @@ type ReaderStatus = Literal["ok", "failed", "error"]
 class ReaderValidation:
     """How one reader fared in `validate_save`.
 
-    Players, contracts and suspensions are decoded in one pass, so a failed check in any of
-    them fails all three; each reader's gates show which of its own checks failed.
+    Players, contracts and suspensions are decoded in one pass. When a check of any of the three
+    fails, all three are reported "failed" and none of their tables is read, and each of them
+    still lists its own gates: a reader can be "failed" while every one of its own gates
+    passed.
 
     Attributes:
         reader: The reader: "clubs", "players", "contracts", "suspensions" or "managed_clubs".
@@ -619,10 +573,12 @@ def validate_save(career_save: Save) -> ValidationReport:
     error is reported "error" without the error's text; the remaining readers still run. The
     report holds only structural facts, counts and rates, never names, uids or other values
     from the save.
-    """
-    # Imported here because fmsave._save imports this module.
-    from fmsave._save import cached_reader_check
 
+    Raises:
+        SaveClosedError: The save is closed.
+    """
+    if career_save.closed:
+        raise closed_save_error()
     save_info = career_save.info
     reader_tables = (
         (CLUBS_READER, career_save.clubs),
@@ -646,7 +602,7 @@ def validate_save(career_save: Save) -> ValidationReport:
                 player_pass_error = error
             validations.append(_unsuccessful_validation(reader_name, error))
             continue
-        reader_check = cached_reader_check(career_save, reader_name)
+        reader_check = career_save._reader_check(reader_name)  # pyright: ignore[reportPrivateUsage]
         validations.append(
             ReaderValidation(
                 reader_name,

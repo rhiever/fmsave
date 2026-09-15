@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import pickle
 import random
 import re
@@ -217,6 +218,37 @@ def build_decoder(game_db: bytes, *, clock: date = CLOCK):
     return build_person_block_decoder(
         registered_person_layout(), name_pools, club_index, clock, FILE_NAME
     )
+
+
+@pytest.mark.parametrize(
+    ("layout_changes", "message"),
+    [
+        pytest.param(
+            {"relation_qualifier_offset_in_entry": 10},
+            "'qualifier' at offset 10 overlaps an earlier field",
+            id="qualifier-overlaps-kind",
+        ),
+        pytest.param(
+            {"relation_sentinel_offset_in_entry": 16},
+            "relation_entry_bytes",
+            id="sentinel-past-the-entry",
+        ),
+        pytest.param(
+            {"relation_qualifier_offset_in_entry": 15, "relation_sentinel_offset_in_entry": 12},
+            "must be laid out in the order",
+            id="sentinel-before-qualifier",
+        ),
+    ],
+)
+def test_build_person_block_decoder_rejects_inconsistent_relation_entry_positions(
+    layout_changes: dict[str, int], message: str
+) -> None:
+    game_db = game_db_prefix()
+    name_pools = locate_name_pools(game_db, registered_name_pool_layout(), FILE_NAME)
+    club_index = read_club_index(game_db, find_club_layouts(GAME_DB_SCHEMA, ""), FILE_NAME)
+    broken_layout = dataclasses.replace(registered_person_layout(), **layout_changes)
+    with pytest.raises(ValueError, match=message):
+        build_person_block_decoder(broken_layout, name_pools, club_index, CLOCK, FILE_NAME)
 
 
 def decode_block(block: bytes, *, clock: date = CLOCK) -> PersonView | None:

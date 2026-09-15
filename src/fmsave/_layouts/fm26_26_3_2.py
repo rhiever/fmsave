@@ -102,6 +102,8 @@ CLUB_STATUSES = ClubStatusLayout(
     # A power of two at least four times the largest gap between consecutive accepted status
     # records measured on real saves.
     search_window_bytes=256 * 1024,
+    confirmation_offset=-18,
+    confirmation_zero_bytes=10,
     maximum_leading_misses=16,
 )
 
@@ -233,6 +235,11 @@ PERSON_BLOCKS = PersonBlockLayout(
     second_nation_pair=(8, 9),
     home_grown_nation_pair=(8, 70),
     home_grown_club_pair=(1, 72),
+    relation_qualifier_offset_in_entry=12,
+    relation_sentinel_offset_in_entry=15,
+    # 100 when the player holds the second nationality, 15 when the player is eligible for it.
+    second_nation_qualifiers=(15, 100),
+    relation_sentinel_value=0xFF,
 )
 
 CONTRACTS = ContractLayout(
@@ -301,37 +308,43 @@ SUSPENSIONS = SuspensionLayout(
     competition_id_exclusive_range=(0, 60_000),
 )
 
+# Bounds that depend on career stage (join dates, contract chains, bans) are kept wide, since a
+# failed check on the player pass stops players, contracts and suspensions together.
 GATE_BOUNDS = GateBounds(
     minimum_applies_from_bytes=FULL_SAVE_MINIMUM_GAME_DB_BYTES,
-    players_minimum=(10_000, None),
+    height_range_cm=(150, 210),
+    age_range_years=(14, 45),
+    home_reputation_window=1_000,
+    condition_sharpness_maximum=10_000,
+    players_minimum=(5_000, None),
     person_blocks=(0.99, None),
     names_resolved=(0.995, None),
     relation_sentinel=(0.999, None),
     second_nation_qualifier=(0.995, None),
     handling_above_finishing=(0.15, 0.35),
     with_natural_position=(0.97, None),
-    height_in_150_210=(0.999, None),
+    height_in_range=(0.999, None),
     height_median=(170, 190),
     age_median=(20, 30),
-    aged_14_to_45=(0.995, None),
+    aged_in_range=(0.995, None),
     condition_sharpness_in_range=(0.999, None),
-    join_date_valid=(0.35, 0.70),
+    join_date_valid=(0.05, 0.95),
     world_not_above_current=(0.95, None),
-    home_within_1000_of_current=(0.95, None),
+    home_near_current=(0.95, None),
     team_resolved=(0.98, None),
     home_grown_club_refs_resolved=(0.98, None),
-    players_with_chain=(0.85, None),
-    tails_parsed=(0.85, None),
+    players_with_chain=(0.70, None),
+    tails_parsed=(0.70, None),
     clause_terminator=(0.999, None),
-    contract_head=(0.80, None),
-    past_dated_tail_ends=(None, 0.01),
+    contract_head=(0.65, None),
+    past_dated_tail_ends=(None, 0.05),
     chain_teams_resolved=(0.98, None),
     clubs_minimum=(5_000, None),
     team_lists_found=(0.999, None),
     status_normal=(0.98, None),
     status_confirmation=(0.95, None),
-    suspension_share_of_players=(0.0005, 0.03),
-    issued_after_clock=(0, 0),
+    suspension_share_of_players=(None, 0.10),
+    issued_after_clock=(None, 0.01),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (

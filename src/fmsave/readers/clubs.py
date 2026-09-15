@@ -14,7 +14,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from fmsave._layouts import ClubRecordLayout, ClubStatusLayout, TeamListLayout, find_layout
-from fmsave.checks import ClubStats
+from fmsave._reader_stats import ClubStats
 from fmsave.models.clubs import Club, Team
 from fmsave.readers._common import GAME_DB_SECTION, MISSING_REFERENCE, layout_mismatch
 
@@ -22,12 +22,6 @@ _UINT32 = struct.Struct("<I")
 _UINT16 = struct.Struct("<H")
 _UINT32_PAIR = struct.Struct("<II")
 _NO_STATUS: tuple[int | None, int | None] = (None, None)
-
-# A normal status record is confirmed, for the club checks only, when the u32 this many bytes
-# before its doubled uid holds the club's stored index (the public index minus 1) and the
-# bytes after that u32 are zero. The confirmation never decides which record is accepted.
-_STATUS_CONFIRMATION_OFFSET = -18
-_STATUS_CONFIRMATION_ZERO_BYTES = bytes(10)
 
 
 @functools.cache
@@ -365,6 +359,8 @@ def _read_statuses(
     accepted_kinds = (normal_kind, layout.stub_kind)
     window_span = layout.search_window_bytes + _UINT32_PAIR.size
     startswith = game_db.startswith
+    confirmation_offset = layout.confirmation_offset
+    confirmation_zero_bytes = bytes(layout.confirmation_zero_bytes)
     statuses: list[tuple[int | None, int | None]] = []
     normal_status_count = 0
     confirmed_status_count = 0
@@ -396,13 +392,11 @@ def _read_statuses(
                     if kind == normal_kind:
                         status = _normal_status(game_db, status_hit, layout)
                         normal_status_count += 1
-                        confirmation_at = status_hit + _STATUS_CONFIRMATION_OFFSET
+                        confirmation_at = status_hit + confirmation_offset
                         if (
                             confirmation_at >= 0
                             and read_uint32(game_db, confirmation_at)[0] == record.club_index - 1
-                            and startswith(
-                                _STATUS_CONFIRMATION_ZERO_BYTES, confirmation_at + _UINT32.size
-                            )
+                            and startswith(confirmation_zero_bytes, confirmation_at + _UINT32.size)
                         ):
                             confirmed_status_count += 1
                     break

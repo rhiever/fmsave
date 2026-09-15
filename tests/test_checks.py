@@ -14,7 +14,19 @@ import pytest
 import fmsave
 from fmsave import checks
 from fmsave._errors import ISSUES_URL
-from fmsave._layouts import FULL_SAVE_MINIMUM_GAME_DB_BYTES, GateBounds, find_layout
+from fmsave._layouts import (
+    FULL_SAVE_MINIMUM_GAME_DB_BYTES,
+    ClubStatusLayout,
+    GateBounds,
+    find_layout,
+)
+from fmsave._reader_stats import (
+    ClubStats,
+    ContractStats,
+    ManagedStats,
+    PlayerStats,
+    SuspensionStats,
+)
 from fmsave._save import (
     CLUBS_TABLE_CACHE_KEY,
     CONTRACTS_TABLE_CACHE_KEY,
@@ -23,13 +35,9 @@ from fmsave._save import (
 )
 from fmsave._status import registered_statuses
 from fmsave.checks import (
-    ClubStats,
-    ContractStats,
     GateResult,
-    ManagedStats,
-    PlayerStats,
+    ReaderCheck,
     ReaderValidation,
-    SuspensionStats,
     ValidationReport,
     check_managed,
     enforce,
@@ -41,6 +49,7 @@ from fmsave.checks import (
     evaluate_suspensions,
     validate_save,
 )
+from fmsave.readers.clubs import find_club_layouts, read_club_index
 from tests.fixtures.container import (
     SectionFrame,
     build_container_fragment,
@@ -77,14 +86,14 @@ PLAYER_GATE_NAMES = (
     "second_nation_qualifier",
     "handling_above_finishing",
     "with_natural_position",
-    "height_in_150_210",
+    "height_in_range",
     "height_median",
     "age_median",
-    "aged_14_to_45",
+    "aged_in_range",
     "condition_sharpness_in_range",
     "join_date_valid",
     "world_not_above_current",
-    "home_within_1000_of_current",
+    "home_near_current",
     "team_resolved",
     "home_grown_club_refs_resolved",
 )
@@ -136,14 +145,14 @@ def healthy_player_stats(records: int = 20_000) -> PlayerStats:
         second_nation_qualifier_ok=records // 4,
         handling_above_finishing=records // 4,
         with_natural_position=records,
-        height_in_150_210=records,
+        height_in_range=records,
         condition_sharpness_in_range=records,
         with_valid_join_date=records // 2,
         world_not_above_current=records,
-        home_within_1000_of_current=records,
+        home_near_current=records,
         with_team=records // 2,
         team_resolved=records // 2,
-        aged_14_to_45=records,
+        aged_in_range=records,
         home_grown_club_refs=records // 3,
         home_grown_club_refs_resolved=records // 3,
         ages=array("i", [24] * records),
@@ -161,6 +170,7 @@ def healthy_contract_stats() -> ContractStats:
         clause_tables=24_000,
         clause_terminator_ok=24_000,
         head_ok=22_800,
+        tail_ends=18_000,
         tail_ends_past=5,
         chain_teams_resolved=24_950,
     )
@@ -178,12 +188,16 @@ def healthy_suspension_stats() -> SuspensionStats:
     )
 
 
+def failing_gate(name: str) -> GateResult:
+    return GateResult(name, 0.5, 0.9, None, False, True)
+
+
 def failed_gate_names(results: tuple[GateResult, ...]) -> list[str]:
     return [result.name for result in results if result.applied and not result.passed]
 
 
 def test_gate_switch_is_on_by_default() -> None:
-    assert checks._GATES_ENABLED is True
+    assert checks._gates_enabled is True
     shifted_results = evaluate_players(
         dataclasses.replace(healthy_player_stats(), handling_above_finishing=12_200),
         BOUNDS,
@@ -191,6 +205,19 @@ def test_gate_switch_is_on_by_default() -> None:
     )
     with pytest.raises(fmsave.ReaderCheckError):
         enforce("players", shifted_results)
+
+
+def test_disabling_gates_restores_the_switch_after_an_exception() -> None:
+    shifted_results = evaluate_players(
+        dataclasses.replace(healthy_player_stats(), handling_above_finishing=12_200),
+        BOUNDS,
+        FULL_SIZE_GAME_DB_BYTES,
+    )
+    with pytest.raises(RuntimeError, match="fictional failure"), checks._gates_disabled():
+        assert checks._gates_enabled is False
+        enforce("players", shifted_results)
+        raise RuntimeError("fictional failure")
+    assert checks._gates_enabled is True
 
 
 def test_gate_bounds_apply_from_the_full_save_threshold() -> None:
@@ -235,14 +262,36 @@ def test_a_shifted_layout_fails_with_a_message_naming_both_gates() -> None:
 
 
 def test_one_record_short_of_the_minimum_fails_only_the_players_minimum_gate() -> None:
-    results = evaluate_players(healthy_player_stats(9_999), BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert (
+        failed_gate_names(
+            evaluate_players(healthy_player_stats(5_000), BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+        )
+        == []
+    )
+    results = evaluate_players(healthy_player_stats(4_999), BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert failed_gate_names(results) == ["players_minimum"]
-    minimum_result = results[0]
-    assert minimum_result == GateResult("players_minimum", 9_999, 10_000, None, False, True)
+    assert results[0] == GateResult("players_minimum", 4_999, 5_000, None, False, True)
     with pytest.raises(
-        fmsave.ReaderCheckError, match=r"players_minimum=9999 \(expected 10000\.\.\)"
+        fmsave.ReaderCheckError, match=r"players_minimum=4999 \(expected 5000\.\.\)"
     ):
         enforce("players", results)
+
+
+@pytest.mark.parametrize(
+    ("valid_join_dates", "expected_failures"),
+    [
+        pytest.param(1_000, [], id="lower-edge"),
+        pytest.param(19_000, [], id="upper-edge"),
+        pytest.param(990, ["join_date_valid"], id="below"),
+        pytest.param(19_010, ["join_date_valid"], id="above"),
+    ],
+)
+def test_the_join_date_share_is_checked_at_both_edges(
+    valid_join_dates: int, expected_failures: list[str]
+) -> None:
+    stats = dataclasses.replace(healthy_player_stats(), with_valid_join_date=valid_join_dates)
+    results = evaluate_players(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert failed_gate_names(results) == expected_failures
 
 
 def test_player_medians_are_checked_against_their_bounds() -> None:
@@ -275,26 +324,38 @@ def test_healthy_contract_stats_pass() -> None:
     assert all(result.applied and result.passed for result in results)
 
 
-def test_too_few_parsed_tails_fail_the_contract_gates() -> None:
-    stats = dataclasses.replace(
-        healthy_contract_stats(),
-        tails_parsed=21_000,
-        clause_tables=21_000,
-        clause_terminator_ok=21_000,
-        head_ok=19_950,
-    )
+@pytest.mark.parametrize(
+    ("stat_changes", "expected_failures"),
+    [
+        pytest.param({"players_with_chain": 14_000}, [], id="chain-share-at-edge"),
+        pytest.param(
+            {"players_with_chain": 13_990}, ["players_with_chain"], id="chain-share-below"
+        ),
+        pytest.param({"tails_parsed": 17_500}, [], id="tails-at-edge"),
+        pytest.param({"tails_parsed": 17_490}, ["tails_parsed"], id="tails-below"),
+        pytest.param({"head_ok": 15_600}, [], id="head-at-edge"),
+        pytest.param({"head_ok": 15_590}, ["contract_head"], id="head-below"),
+        pytest.param({"tail_ends_past": 900}, [], id="past-dated-at-edge"),
+    ],
+)
+def test_contract_gates_are_checked_at_their_edges(
+    stat_changes: dict[str, int], expected_failures: list[str]
+) -> None:
+    stats = dataclasses.replace(healthy_contract_stats(), **stat_changes)
     results = evaluate_contracts(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
-    assert failed_gate_names(results) == ["tails_parsed"]
-    assert results[CONTRACT_GATE_NAMES.index("tails_parsed")].observed == pytest.approx(0.84)
+    assert failed_gate_names(results) == expected_failures
 
 
-def test_too_many_past_dated_tail_ends_fail_the_contract_gates() -> None:
-    stats = dataclasses.replace(healthy_contract_stats(), tail_ends_past=264)
+def test_past_dated_tail_ends_are_a_share_of_the_tails_with_an_end() -> None:
+    stats = dataclasses.replace(healthy_contract_stats(), tail_ends_past=918)
     results = evaluate_contracts(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert failed_gate_names(results) == ["past_dated_tail_ends"]
+    assert results[CONTRACT_GATE_NAMES.index("past_dated_tail_ends")].observed == pytest.approx(
+        0.051
+    )
     with pytest.raises(
         fmsave.ReaderCheckError,
-        match=re.escape("contracts failed checks: past_dated_tail_ends=0.011 (expected ..0.01)."),
+        match=re.escape("contracts failed checks: past_dated_tail_ends=0.051 (expected ..0.05)."),
     ):
         enforce("contracts", results)
 
@@ -311,25 +372,63 @@ def test_club_gates_pass_healthy_stats_and_fail_below_the_club_minimum() -> None
     ]
 
 
-def test_a_suspension_issued_after_the_clock_fails() -> None:
-    healthy_results = evaluate_suspensions(
-        healthy_suspension_stats(), BOUNDS, FULL_SIZE_GAME_DB_BYTES
+def test_healthy_suspension_stats_pass() -> None:
+    results = evaluate_suspensions(healthy_suspension_stats(), BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert tuple(result.name for result in results) == SUSPENSION_GATE_NAMES
+    assert all(result.applied and result.passed for result in results)
+
+
+@pytest.mark.parametrize(
+    ("entries", "issued_after_clock", "expected_failures"),
+    [
+        pytest.param(1_000, 1, [], id="one-late-entry-in-a-thousand"),
+        pytest.param(1_000, 10, [], id="at-edge"),
+        pytest.param(1_000, 20, ["issued_after_clock"], id="two-percent-late"),
+    ],
+)
+def test_suspensions_issued_after_the_clock_are_a_share_of_the_entries(
+    entries: int, issued_after_clock: int, expected_failures: list[str]
+) -> None:
+    stats = SuspensionStats(
+        players=20_000,
+        entries=entries,
+        players_with_entries=100,
+        issued_after_clock=issued_after_clock,
     )
-    assert tuple(result.name for result in healthy_results) == SUSPENSION_GATE_NAMES
-    assert all(result.applied and result.passed for result in healthy_results)
-    late_stats = dataclasses.replace(healthy_suspension_stats(), issued_after_clock=1)
-    results = evaluate_suspensions(late_stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
-    assert failed_gate_names(results) == ["issued_after_clock"]
-    assert results[1] == GateResult("issued_after_clock", 1, 0, 0, False, True)
+    results = evaluate_suspensions(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert failed_gate_names(results) == expected_failures
+    assert results[1].observed == pytest.approx(issued_after_clock / entries)
 
 
-def test_the_suspension_share_is_not_applied_without_players() -> None:
+@pytest.mark.parametrize(
+    ("players_with_entries", "expected_failures"),
+    [
+        pytest.param(0, [], id="no-bans-yet"),
+        pytest.param(2_000, [], id="at-edge"),
+        pytest.param(2_010, ["suspension_share_of_players"], id="above"),
+    ],
+)
+def test_the_suspension_share_of_players_has_only_an_upper_bound(
+    players_with_entries: int, expected_failures: list[str]
+) -> None:
+    stats = SuspensionStats(
+        players=20_000,
+        entries=players_with_entries,
+        players_with_entries=players_with_entries,
+        issued_after_clock=0,
+    )
+    results = evaluate_suspensions(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert results[0].minimum is None
+    assert results[0].maximum == 0.10
+    assert failed_gate_names(results) == expected_failures
+
+
+def test_suspension_shares_are_not_applied_without_players_or_entries() -> None:
     no_players = SuspensionStats(players=0, entries=0, players_with_entries=0, issued_after_clock=0)
-    share_result, clock_result = evaluate_suspensions(no_players, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
-    assert share_result == GateResult(
-        "suspension_share_of_players", None, 0.0005, 0.03, True, False
+    assert evaluate_suspensions(no_players, BOUNDS, FULL_SIZE_GAME_DB_BYTES) == (
+        GateResult("suspension_share_of_players", None, None, 0.10, True, False),
+        GateResult("issued_after_clock", None, None, 0.01, True, False),
     )
-    assert clock_result.applied and clock_result.passed
 
 
 def test_a_human_manager_without_a_club_is_an_anomaly_not_a_failure() -> None:
@@ -348,6 +447,21 @@ def test_a_human_manager_without_a_club_is_an_anomaly_not_a_failure() -> None:
     assert dict(check_managed(with_club, BOUNDS, FULL_SIZE_GAME_DB_BYTES).anomalies) == {
         "humans_without_club": 0
     }
+
+
+def test_two_failing_readers_of_one_pass_share_one_joined_message() -> None:
+    contract_check = ReaderCheck("contracts", 10, (failing_gate("tails_parsed"),), {})
+    suspension_check = ReaderCheck("suspensions", 3, (failing_gate("issued_after_clock"),), {})
+    passing_check = ReaderCheck("players", 20, (), {})
+    with pytest.raises(fmsave.ReaderCheckError) as error_info:
+        enforce_checks((passing_check, contract_check, suspension_check))
+    assert str(error_info.value) == (
+        "contracts failed checks: tails_parsed=0.5 (expected 0.9..). "
+        "suspensions failed checks: issued_after_clock=0.5 (expected 0.9..). "
+        f"Please report it at {ISSUES_URL} with the output of fmsave validate."
+    )
+    assert isinstance(error_info.value, checks.GateCheckError)
+    assert error_info.value.checks == (passing_check, contract_check, suspension_check)
 
 
 def test_the_enforce_message_holds_no_digits_beyond_rates_and_bounds() -> None:
@@ -660,14 +774,14 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         "second_nation_qualifier": 0.5,
         "handling_above_finishing": 0.5,
         "with_natural_position": 0.5,
-        "height_in_150_210": 0.5,
+        "height_in_range": 0.5,
         "height_median": 140,
         "age_median": 27,
-        "aged_14_to_45": 1.0,
+        "aged_in_range": 1.0,
         "condition_sharpness_in_range": 0.5,
         "join_date_valid": 0.5,
         "world_not_above_current": 0.5,
-        "home_within_1000_of_current": 0.5,
+        "home_near_current": 0.5,
         "team_resolved": 0.5,
         "home_grown_club_refs_resolved": 0.5,
     }
@@ -682,7 +796,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
     }
     assert observed_by_gate(readers["suspensions"]) == {
         "suspension_share_of_players": 0.5,
-        "issued_after_clock": 1,
+        "issued_after_clock": 0.5,
     }
     assert observed_by_gate(readers["managed_clubs"]) == {
         "route_one_resolved": 1,
@@ -740,10 +854,6 @@ def test_the_json_report_holds_no_names_or_uids(counted_fragment_path: Path) -> 
         str(NORTHBRIDGE_UID),
     ):
         assert private_text not in report_text
-
-
-def failing_gate(name: str) -> GateResult:
-    return GateResult(name, 0.5, 0.9, None, False, True)
 
 
 def test_a_failing_reader_is_reported_failed_and_the_others_still_run(
@@ -831,3 +941,112 @@ def test_validation_reports_survive_pickle_and_deepcopy(counted_fragment_path: P
     assert copy.deepcopy(report) == report
     gate_result = report.readers[0].gates[0]
     assert pickle.loads(pickle.dumps(gate_result)) == gate_result
+
+
+def test_validate_save_on_a_closed_save_raises_save_closed_error(
+    counted_fragment_path: Path,
+) -> None:
+    career_save = fmsave.open(counted_fragment_path)
+    career_save.close()
+    with pytest.raises(fmsave.SaveClosedError):
+        validate_save(career_save)
+
+
+def with_bounds(monkeypatch: pytest.MonkeyPatch, bounds: GateBounds) -> None:
+    monkeypatch.setattr(fmsave.Save, "_gate_bounds", lambda career_save: bounds)
+
+
+def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
+    counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with_bounds(monkeypatch, dataclasses.replace(BOUNDS, minimum_applies_from_bytes=0))
+    with fmsave.open(counted_fragment_path) as career_save:
+        readers = reader_by_name(validate_save(career_save))
+    assert all(gate.applied for reader in readers.values() for gate in reader.gates)
+    assert {name: reader.status for name, reader in readers.items()} == {
+        "clubs": "failed",
+        "players": "failed",
+        "contracts": "failed",
+        "suspensions": "failed",
+        "managed_clubs": "ok",
+    }
+    assert {name: failed_gate_names(reader.gates) for name, reader in readers.items()} == {
+        "clubs": ["clubs_minimum", "status_confirmation"],
+        "players": [
+            "players_minimum",
+            "person_blocks",
+            "relation_sentinel",
+            "second_nation_qualifier",
+            "handling_above_finishing",
+            "with_natural_position",
+            "height_in_range",
+            "height_median",
+            "condition_sharpness_in_range",
+            "world_not_above_current",
+            "home_near_current",
+            "team_resolved",
+            "home_grown_club_refs_resolved",
+        ],
+        "contracts": list(CONTRACT_GATE_NAMES),
+        "suspensions": list(SUSPENSION_GATE_NAMES),
+        "managed_clubs": [],
+    }
+
+
+def test_the_counted_ranges_come_from_the_gate_bounds(
+    counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with_bounds(
+        monkeypatch,
+        dataclasses.replace(
+            BOUNDS,
+            height_range_cm=(130, 210),
+            age_range_years=(28, 45),
+            home_reputation_window=2_500,
+            condition_sharpness_maximum=12_000,
+        ),
+    )
+    with fmsave.open(counted_fragment_path) as career_save:
+        observed = observed_by_gate(reader_by_name(validate_save(career_save))["players"])
+    assert observed["height_in_range"] == 1.0
+    assert observed["aged_in_range"] == 0.0
+    assert observed["home_near_current"] == 1.0
+    assert observed["condition_sharpness_in_range"] == 1.0
+
+
+def test_status_confirmation_reads_its_position_from_the_status_layout() -> None:
+    game_db = counted_game_db()
+    layouts = find_club_layouts(GAME_DB_SCHEMA, "")
+    assert read_club_index(game_db, layouts, FILE_NAME).stats.status_confirmed_a18 == 1
+    shifted_statuses: ClubStatusLayout = dataclasses.replace(
+        layouts.statuses, confirmation_offset=layouts.statuses.confirmation_offset + 1
+    )
+    shifted_layouts = dataclasses.replace(layouts, statuses=shifted_statuses)
+    assert read_club_index(game_db, shifted_layouts, FILE_NAME).stats.status_confirmed_a18 == 0
+
+
+def test_two_failing_readers_of_the_player_pass_are_named_in_one_error(
+    counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failing_evaluate_contracts(
+        stats: ContractStats, bounds: GateBounds, game_db_bytes: int
+    ) -> tuple[GateResult, ...]:
+        return (failing_gate("tails_parsed"),)
+
+    def failing_evaluate_suspensions(
+        stats: SuspensionStats, bounds: GateBounds, game_db_bytes: int
+    ) -> tuple[GateResult, ...]:
+        return (failing_gate("issued_after_clock"),)
+
+    monkeypatch.setattr(checks, "evaluate_contracts", failing_evaluate_contracts)
+    monkeypatch.setattr(checks, "evaluate_suspensions", failing_evaluate_suspensions)
+    with (
+        fmsave.open(counted_fragment_path) as career_save,
+        pytest.raises(fmsave.ReaderCheckError) as error_info,
+    ):
+        career_save.players()
+    assert str(error_info.value) == (
+        "contracts failed checks: tails_parsed=0.5 (expected 0.9..). "
+        "suspensions failed checks: issued_after_clock=0.5 (expected 0.9..). "
+        f"Please report it at {ISSUES_URL} with the output of fmsave validate."
+    )

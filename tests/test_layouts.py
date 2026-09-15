@@ -9,6 +9,7 @@ import fmsave._layouts as layouts_module
 from fmsave._layouts import (
     FALLBACK_BUILD,
     FULL_SAVE_MINIMUM_GAME_DB_BYTES,
+    ClubRecordLayout,
     GameInfoLayout,
     GateBounds,
     LayoutEntry,
@@ -47,8 +48,23 @@ def test_gate_bounds_are_registered_for_game_db_with_the_full_save_threshold() -
     match = find_layout(GateBounds, "game_db", 4000, "")
     assert match.exact
     assert match.layout.minimum_applies_from_bytes == FULL_SAVE_MINIMUM_GAME_DB_BYTES
-    assert match.layout.players_minimum == (10_000, None)
-    assert match.layout.past_dated_tail_ends == (None, 0.01)
+    assert match.layout.players_minimum == (5_000, None)
+    assert match.layout.past_dated_tail_ends == (None, 0.05)
+
+
+def test_every_game_db_schema_with_club_records_has_gate_bounds() -> None:
+    club_record_keys = {
+        (entry.schema, entry.build)
+        for entry in registered_layouts()
+        if entry.region == "game_db" and isinstance(entry.layout, ClubRecordLayout)
+    }
+    gate_bounds_keys = {
+        (entry.schema, entry.build)
+        for entry in registered_layouts()
+        if entry.region == "game_db" and isinstance(entry.layout, GateBounds)
+    }
+    assert club_record_keys
+    assert club_record_keys <= gate_bounds_keys
 
 
 def test_unknown_schema_falls_back_to_build_then_fallback_build() -> None:

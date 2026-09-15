@@ -28,8 +28,8 @@ from typing import NamedTuple
 from fmsave._container import damaged_part_error
 from fmsave._errors import CorruptSaveError
 from fmsave._layouts import ContractLayout, HumansLayout, SummaryStringsLayout, find_layout
+from fmsave._reader_stats import ManagedStats
 from fmsave._scan import read_u16, read_u32
-from fmsave.checks import ManagedStats
 from fmsave.models.clubs import Club
 from fmsave.models.managed import ManagedClub
 from fmsave.readers._common import (

@@ -62,15 +62,6 @@ def _returning[ValueT](value: ValueT) -> Callable[[], ValueT]:
     return lambda: value
 
 
-def cached_reader_check(career_save: Save, reader_name: str) -> ReaderCheck | None:
-    """The checks a reader passed when its table was read, or None before it was read."""
-    # The validation report reads the checks through this module, which owns Save's context.
-    stored = career_save._context.cached_value(  # pyright: ignore[reportPrivateUsage]
-        _check_cache_key(reader_name)
-    )
-    return stored if isinstance(stored, ReaderCheck) else None
-
-
 class Save:
     """A Football Manager 26 save opened for reading.
 
@@ -210,6 +201,11 @@ class Save:
         context = self._context
         return context.cached(MANAGED_CLUBS_TABLE_CACHE_KEY, self._read_managed_clubs)
 
+    def _reader_check(self, reader_name: str) -> ReaderCheck | None:
+        """The checks a reader passed when its table was read, or None before it was read."""
+        stored = self._context.cached_value(_check_cache_key(reader_name))
+        return stored if isinstance(stored, ReaderCheck) else None
+
     def _gate_bounds(self) -> GateBounds:
         save_info = self._context.info
         return find_layout(
@@ -226,10 +222,9 @@ class Save:
             context.cached(_check_cache_key(reader_check.reader), _returning(reader_check))
 
     def _read_clubs(self) -> Table[Club]:
+        gate_bounds = self._gate_bounds()
         club_index = self._context.club_index()
-        club_check = checks.check_clubs(
-            club_index.stats, self._gate_bounds(), club_index.game_db_bytes
-        )
+        club_check = checks.check_clubs(club_index.stats, gate_bounds, club_index.game_db_bytes)
         checks.enforce_checks((club_check,))
         self._store_reader_checks((club_check,))
         return Table(club_index.clubs, Club)
@@ -244,6 +239,7 @@ class Save:
                 "chain records cannot be decoded"
             )
         layouts = find_managed_club_layouts(save_info.section_schemas, save_info.build)
+        gate_bounds = self._gate_bounds()
         with (
             context.section(HUMANS_SECTION) as humans,
             context.section(SAVE_SUMMARY_SECTION) as summary,
@@ -254,7 +250,7 @@ class Save:
                 humans, game_db, summary, club_index, clock, layouts, save_info.file_name
             )
             game_db_length = len(game_db)
-        managed_check = checks.check_managed(managed_stats, self._gate_bounds(), game_db_length)
+        managed_check = checks.check_managed(managed_stats, gate_bounds, game_db_length)
         checks.enforce_checks((managed_check,))
         self._store_reader_checks((managed_check,))
         return Table(managed_clubs, ManagedClub)
@@ -293,6 +289,7 @@ class Save:
                 "blocks and ages cannot be decoded"
             )
         game_db_schema = save_info.section_schemas.get(GAME_DB_SECTION)
+        gate_bounds = self._gate_bounds()
         with context.section(GAME_DB_SECTION) as game_db:
             club_index = context.club_index()
             player_records = context.player_records()
@@ -346,11 +343,12 @@ class Save:
                     extend_suspensions(suspension_rows(player, suspension_entries))
         # All records are decoded above. Every check of the pass runs here, before any table is
         # built: when one fails, nothing is cached and the next call decodes and checks again.
-        gate_bounds = self._gate_bounds()
         player_count = len(decoded_players)
         reader_checks = (
             checks.check_players(
-                collect_player_stats(decoded_players, decoder, player_records.markerless_count),
+                collect_player_stats(
+                    decoded_players, decoder, player_records.markerless_count, gate_bounds
+                ),
                 gate_bounds,
                 game_db_length,
             ),
