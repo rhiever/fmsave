@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import importlib.util
 import json
 import re
@@ -405,6 +406,7 @@ def test_long_hex_run_is_reported_once_as_hex(
         "HEX_RUN_PATTERN",
         "BASE64_RUN_PATTERN",
         "WRAPPED_BASE64_LINE_PATTERN",
+        "URLSAFE_BASE64_LINE_PATTERN",
         "ESCAPED_BYTE_RUN_PATTERN",
     ],
 )
@@ -445,10 +447,42 @@ def escaped_bytes(count: int) -> str:
     return "".join(f"\\x{value:02x}" for value in range(count))
 
 
+def sample_bytes(byte_count: int, seed: int = 0) -> bytes:
+    """Deterministic bytes whose hex form holds a-f digits."""
+    blocks = b"".join(
+        hashlib.sha256(f"{seed}:{index}".encode("ascii")).digest()
+        for index in range(byte_count // 32 + 1)
+    )
+    return blocks[:byte_count]
+
+
+def urlsafe_base64_line(width: int, seed: int, padded: bool = False) -> str:
+    """One URL-safe base64 line with `-_-_` in its middle, so no standard base64 run fills it."""
+    byte_count = width * 3 // 4 - int(padded)
+    middle = byte_count // 2 // 3 * 3
+    chunk = bytearray(sample_bytes(byte_count, seed))
+    chunk[middle : middle + 3] = b"\xfb\xff\xbf"
+    return base64.urlsafe_b64encode(bytes(chunk)).decode("ascii")
+
+
+def urlsafe_base64_lines(width: int, template: str = "{line}") -> str:
+    return "\n".join(template.format(line=urlsafe_base64_line(width, seed)) for seed in range(4))
+
+
+def hyphenated_lines(alphabet: str, width: int = 76) -> str:
+    """Four lines cycled from `alphabet`, each with one hyphen in its middle."""
+    line = encoded_run(alphabet, width - 1)
+    return "\n".join([line[: width // 2] + "-" + line[width // 2 :]] * 4)
+
+
+def hex_lines(line_count: int, width: int = 64) -> str:
+    return "\n".join(wrap_columns(sample_bytes(line_count * width // 2).hex(), width))
+
+
 WRAPPED_BASE64_CASES = {
-    "encodebytes-4-lines": (encodebytes_text(228), (2, 304)),
+    "encodebytes-4-lines": (encodebytes_text(228), (2, "wrapped base64", 304)),
     "encodebytes-3-lines": (encodebytes_text(171), None),
-    "encodebytes-short-last-line": (encodebytes_text(520), (2, 684)),
+    "encodebytes-short-last-line": (encodebytes_text(520), (2, "wrapped base64", 684)),
     "pem-64-columns": (
         "\n".join(
             [
@@ -457,30 +491,89 @@ WRAPPED_BASE64_CASES = {
                 "-----END EXAMPLE DATA-----",
             ]
         ),
-        (3, 256),
+        (3, "wrapped base64", 256),
     ),
     "quoted-source-lines": (
         "\n".join(f'    "{line}"' for line in wrap_columns(standard_base64(228), 76)),
-        (2, 304),
+        (2, "wrapped base64", 304),
     ),
     "bytes-literal-lines": (
         "\n".join(f'    b"{line}\\n"' for line in wrap_columns(standard_base64(228), 76)),
-        (2, 304),
+        (2, "wrapped base64", 304),
     ),
     "eight-other-characters": (
         "\n".join(f"(((({line}))))" for line in wrap_columns(standard_base64(228), 76)),
-        (2, 304),
+        (2, "wrapped base64", 304),
     ),
     "nine-other-characters": (
         "\n".join(f"((((({line}))))" for line in wrap_columns(standard_base64(228), 76)),
         None,
     ),
-    "40-column-lines": ("\n".join(wrap_columns(standard_base64(120), 40)), (2, 160)),
+    "40-column-lines": (
+        "\n".join(wrap_columns(standard_base64(120), 40)),
+        (2, "wrapped base64", 160),
+    ),
     "39-column-lines": ("\n".join(wrap_columns(standard_base64(117), 39)), None),
     "keyword-argument-lines": (
         "\n".join(
             ["        example_total_with_a_long_descriptive_name=example_total_with_a_long_name,"]
             * 6
+        ),
+        None,
+    ),
+    "hex-digest-list": (
+        "\n".join(f'    "{sample_bytes(32, seed).hex()}",' for seed in range(6)),
+        None,
+    ),
+    "hex-commit-list": ("\n".join(sample_bytes(20, seed).hex() for seed in range(4)), None),
+    "hex-wrapped-448-characters": (hex_lines(7), None),
+    "hex-wrapped-512-characters": (hex_lines(8), (2, "wrapped hex", 512)),
+    "hex-lines-and-one-base64-line": (
+        "\n".join([hex_lines(3), standard_base64(57)]),
+        (2, "wrapped base64", 268),
+    ),
+    "urlsafe-76-columns": (urlsafe_base64_lines(76), (2, "wrapped base64", 304)),
+    "urlsafe-64-columns": (urlsafe_base64_lines(64), (2, "wrapped base64", 256)),
+    "urlsafe-quoted-76-columns": (
+        urlsafe_base64_lines(76, '    "{line}"'),
+        (2, "wrapped base64", 304),
+    ),
+    "urlsafe-quoted-64-columns": (
+        urlsafe_base64_lines(64, '    "{line}",'),
+        (2, "wrapped base64", 256),
+    ),
+    "urlsafe-bytes-literal-76-columns": (
+        urlsafe_base64_lines(76, '    b"{line}"'),
+        (2, "wrapped base64", 304),
+    ),
+    "urlsafe-bytes-literal-64-columns": (
+        urlsafe_base64_lines(64, '    b"{line}"'),
+        (2, "wrapped base64", 256),
+    ),
+    "urlsafe-padded-last-line": (
+        "\n".join(
+            [
+                *(urlsafe_base64_line(76, seed) for seed in range(3)),
+                urlsafe_base64_line(76, 3, padded=True),
+            ]
+        ),
+        (2, "wrapped base64", 304),
+    ),
+    "urlsafe-eight-other-characters": (
+        urlsafe_base64_lines(76, "(((({line}))))"),
+        (2, "wrapped base64", 304),
+    ),
+    "urlsafe-nine-other-characters": (urlsafe_base64_lines(76, "((((({line}))))"), None),
+    "urlsafe-without-uppercase": (hyphenated_lines("abcdefghijklmnopqrstuvwxyz0123456789"), None),
+    "urlsafe-without-lowercase": (hyphenated_lines("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"), None),
+    "urlsafe-without-digits": (
+        hyphenated_lines("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"),
+        None,
+    ),
+    "snake-case-names-with-digits": (
+        "\n".join(
+            f"    test_reads_Example_contract_clause_bonus_v{index}_layout_bytes_2026,"
+            for index in range(5)
         ),
         None,
     ),
@@ -494,17 +587,17 @@ def test_wrapped_base64_is_blocked_from_four_lines(
     repository: Path,
     capsys: pytest.CaptureFixture[str],
     payload: str,
-    expected: tuple[int, int] | None,
+    expected: tuple[int, str, int] | None,
 ) -> None:
     stage(repository, "data/payload.txt", f"first line\n{payload}\nlast line\n")
     if expected is None:
         assert run_guard(repository, "--staged") == 0
         assert capsys.readouterr().err.splitlines() == [STRUCTURAL_OK_LINE]
         return
-    line_number, length = expected
+    line_number, kind, length = expected
     assert run_guard(repository, "--staged") == 1
     assert capsys.readouterr().err.splitlines() == [
-        encoded_run_line(line_number, "wrapped base64", length),
+        encoded_run_line(line_number, kind, length),
         blocked_line(1),
     ]
 
@@ -521,6 +614,13 @@ HEX_PAIR_CASES = {
             for start in range(0, 64, 16)
         ),
         True,
+    ),
+    "prefixed-decimal-digits-64": (", ".join(f"0x{10 + index}" for index in range(64)), True),
+    "decimal-digits-64": (" ".join(str(10 + index) for index in range(64)), False),
+    "decimal-values-70": (", ".join(str(10 + index % 30) for index in range(70)), False),
+    "timestamps-22": (
+        "\n".join(f"{10 + index % 14}:{10 + index % 50}:{59 - index}" for index in range(22)),
+        False,
     ),
 }
 

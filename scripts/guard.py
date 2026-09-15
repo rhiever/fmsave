@@ -44,6 +44,7 @@ BASE64_RUN_MINIMUM = 1024
 WRAPPED_BASE64_LINE_MINIMUM = 40
 WRAPPED_BASE64_MINIMUM_LINES = 4
 WRAPPED_BASE64_OTHER_CHARACTERS = 8
+URLSAFE_BASE64_CHARACTERS_PER_SEPARATOR = 8
 HEX_PAIR_MINIMUM = 64
 ESCAPED_BYTE_MINIMUM = 32
 # The lookbehind lets a match start only at the start of a run, which keeps the scan linear.
@@ -51,6 +52,9 @@ HEX_RUN_PATTERN = re.compile(rf"(?<![0-9A-Fa-f])[0-9A-Fa-f]{{{HEX_RUN_MINIMUM},}
 BASE64_RUN_PATTERN = re.compile(rf"(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/=_-]{{{BASE64_RUN_MINIMUM},}}")
 WRAPPED_BASE64_LINE_PATTERN = re.compile(
     rf"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/=]{{{WRAPPED_BASE64_LINE_MINIMUM},}}"
+)
+URLSAFE_BASE64_LINE_PATTERN = re.compile(
+    rf"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{{{WRAPPED_BASE64_LINE_MINIMUM},}}"
 )
 ESCAPED_BYTE_RUN_PATTERN = re.compile(
     rf"(?<!\\x[0-9A-Fa-f]{{2}})(?:\\x[0-9A-Fa-f]{{2}}){{{ESCAPED_BYTE_MINIMUM},}}+"
@@ -62,6 +66,12 @@ HEX_PAIR_SEQUENCE_PATTERN = re.compile(
     r"(?:[\s,:]++(?:0[xX])?[0-9A-Fa-f]{2}(?![0-9A-Za-z]))*+"
 )
 HEX_PAIR_SEPARATOR_PATTERN = re.compile(r"[\s,:]+")
+# Inside a hex pair sequence an x can only come from a 0x prefix.
+HEX_LETTER_OR_PREFIX_PATTERN = re.compile(r"[a-fA-FxX]")
+HEX_DIGITS_PATTERN = re.compile(r"[0-9A-Fa-f]+")
+UPPERCASE_PATTERN = re.compile(r"[A-Z]")
+LOWERCASE_PATTERN = re.compile(r"[a-z]")
+DIGIT_PATTERN = re.compile(r"[0-9]")
 PRIVATE_FOLDER_NAME = ".local"
 GUARD_CONFIG_NAME = "guard.json"
 GUARD_CONFIG_KEYS = ("overlap_exempt_code_fences", "denied_terms")
@@ -439,43 +449,109 @@ def unbroken_runs(lines: Sequence[str]) -> Iterator[tuple[int, str, int]]:
                 yield line_number, "base64", match.end() - match.start()
 
 
-def wrapped_base64_runs(lines: Sequence[str]) -> Iterator[tuple[int, int]]:
-    """(first line number, base64 characters) of each stretch of wrapped base64.
+def longest_span(pattern: re.Pattern[str], line: str) -> tuple[int, int]:
+    """(start, end) of the longest match of `pattern` in `line`; (0, 0) when there is none."""
+    longest_start, longest_end = 0, 0
+    for match in pattern.finditer(line):
+        if match.end() - match.start() > longest_end - longest_start:
+            longest_start, longest_end = match.span()
+    return longest_start, longest_end
 
-    A line belongs to a stretch when one standard base64 run of 40+ characters holds all but
-    at most 8 of its non-whitespace characters, as in `base64.encodebytes` output, PEM bodies
-    and quoted source lines. A stretch needs 4 or more consecutive such lines.
+
+def longest_urlsafe_span(line: str) -> tuple[int, int]:
+    """(start, end) of the longest URL-safe base64 run in `line`, with up to two `=` after it."""
+    longest_start, longest_end = 0, 0
+    for match in URLSAFE_BASE64_LINE_PATTERN.finditer(line):
+        padded_end = match.end()
+        if line.startswith("==", padded_end):
+            padded_end += 2
+        elif line.startswith("=", padded_end):
+            padded_end += 1
+        if padded_end - match.start() > longest_end - longest_start:
+            longest_start, longest_end = match.start(), padded_end
+    return longest_start, longest_end
+
+
+def wrapped_line_run(line: str) -> tuple[int, bool] | None:
+    """(length, made only of hex digits) of the run that makes `line` a wrapped line, or None.
+
+    The run must hold all but at most 8 of the line's non-whitespace characters. It is the
+    longest standard base64 run of 40+ characters or, failing that, the longest URL-safe run
+    of 40+ characters plus up to two `=`, which must also hold an upper-case letter, a
+    lower-case letter and a digit, with at most one character in 8 a `-` or `_`.
+    """
+    standard_start, standard_end = longest_span(WRAPPED_BASE64_LINE_PATTERN, line)
+    urlsafe_start, urlsafe_end = longest_urlsafe_span(line)
+    if not standard_end and not urlsafe_end:
+        return None
+    shortest_run = len("".join(line.split())) - WRAPPED_BASE64_OTHER_CHARACTERS
+    if standard_end and standard_end - standard_start >= shortest_run:
+        is_hex = HEX_DIGITS_PATTERN.fullmatch(line, standard_start, standard_end) is not None
+        return standard_end - standard_start, is_hex
+    urlsafe_length = urlsafe_end - urlsafe_start
+    separator_count = line.count("-", urlsafe_start, urlsafe_end) + line.count(
+        "_", urlsafe_start, urlsafe_end
+    )
+    if (
+        urlsafe_end
+        and urlsafe_length >= shortest_run
+        and UPPERCASE_PATTERN.search(line, urlsafe_start, urlsafe_end)
+        and LOWERCASE_PATTERN.search(line, urlsafe_start, urlsafe_end)
+        and DIGIT_PATTERN.search(line, urlsafe_start, urlsafe_end)
+        and separator_count * URLSAFE_BASE64_CHARACTERS_PER_SEPARATOR <= urlsafe_length
+    ):
+        is_hex = HEX_DIGITS_PATTERN.fullmatch(line, urlsafe_start, urlsafe_end) is not None
+        return urlsafe_length, is_hex
+    return None
+
+
+def wrapped_base64_runs(lines: Sequence[str]) -> Iterator[tuple[int, str, int]]:
+    """(first line number, kind, characters) of each stretch of wrapped base64 or hex.
+
+    A stretch is 4 or more consecutive lines that `wrapped_line_run` accepts, as in
+    `base64.encodebytes` output, PEM bodies and quoted source lines; its length is the total
+    of their runs. A stretch made only of hex digits is reported as wrapped hex, and only
+    from 512 characters, so short lists of digests pass.
     """
     streak_start = 0
     streak_lines = 0
     streak_characters = 0
+    streak_is_hex = True
     for line_number, line in enumerate(itertools.chain(lines, [""]), start=1):
-        longest_run = max(
-            (match.end() - match.start() for match in WRAPPED_BASE64_LINE_PATTERN.finditer(line)),
-            default=0,
-        )
-        other_characters = len("".join(line.split())) - longest_run if longest_run else 0
-        if longest_run and other_characters <= WRAPPED_BASE64_OTHER_CHARACTERS:
+        line_run = wrapped_line_run(line)
+        if line_run is not None:
+            run_length, run_is_hex = line_run
             if not streak_lines:
                 streak_start = line_number
+                streak_is_hex = True
             streak_lines += 1
-            streak_characters += longest_run
+            streak_characters += run_length
+            streak_is_hex = streak_is_hex and run_is_hex
             continue
         if streak_lines >= WRAPPED_BASE64_MINIMUM_LINES:
-            yield streak_start, streak_characters
+            if not streak_is_hex:
+                yield streak_start, "wrapped base64", streak_characters
+            elif streak_characters >= HEX_RUN_MINIMUM:
+                yield streak_start, "wrapped hex", streak_characters
         streak_lines = 0
         streak_characters = 0
 
 
 def hex_pair_runs(text: str) -> Iterator[tuple[int, int]]:
-    """(offset, length) of each sequence of 64+ hex byte pairs between whitespace, commas or colons."""
+    """(offset, length) of each sequence of 64+ hex byte pairs between whitespace, commas or colons.
+
+    A sequence counts only when it holds an a-f digit or a 0x prefix, so lists of two-digit
+    decimal numbers and clock times pass.
+    """
     shortest_length = 3 * HEX_PAIR_MINIMUM - 1
     for match in HEX_PAIR_SEQUENCE_PATTERN.finditer(text):
-        length = match.end() - match.start()
-        if length < shortest_length:
+        start, end = match.span()
+        if end - start < shortest_length:
             continue
-        if len(HEX_PAIR_SEPARATOR_PATTERN.findall(match.group(0))) + 1 >= HEX_PAIR_MINIMUM:
-            yield match.start(), length
+        if HEX_LETTER_OR_PREFIX_PATTERN.search(text, start, end) is None:
+            continue
+        if len(HEX_PAIR_SEPARATOR_PATTERN.findall(text, start, end)) + 1 >= HEX_PAIR_MINIMUM:
+            yield start, end - start
 
 
 def encoded_run_findings(location: str, text: str) -> list[Finding]:
@@ -487,16 +563,15 @@ def encoded_run_findings(location: str, text: str) -> list[Finding]:
     """
     runs: list[tuple[int, str, int]] = []
     has_unbroken_run = HEX_RUN_PATTERN.search(text) or BASE64_RUN_PATTERN.search(text)
-    has_wrapped_line = WRAPPED_BASE64_LINE_PATTERN.search(text)
+    has_wrapped_line = WRAPPED_BASE64_LINE_PATTERN.search(
+        text
+    ) or URLSAFE_BASE64_LINE_PATTERN.search(text)
     if has_unbroken_run or has_wrapped_line:
         lines = text.splitlines()
         if has_unbroken_run:
             runs.extend(unbroken_runs(lines))
         if has_wrapped_line:
-            runs.extend(
-                (line_number, "wrapped base64", length)
-                for line_number, length in wrapped_base64_runs(lines)
-            )
+            runs.extend(wrapped_base64_runs(lines))
     offset_runs = [(offset, "hex byte pairs", length) for offset, length in hex_pair_runs(text)]
     offset_runs.extend(
         (match.start(), "escaped bytes", match.end() - match.start())
