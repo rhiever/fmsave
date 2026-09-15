@@ -150,13 +150,15 @@ class Save:
         return context.cached(SUSPENSIONS_TABLE_CACHE_KEY, self._suspensions_table_entry_point)
 
     def managed_clubs(self) -> Table[ManagedClub]:
-        """The club run by the save's first human manager, or an empty table when there is none.
+        """The club run by the save's first human manager.
 
-        The link from a human manager to a club is proven only on saves with a single human
-        manager; on a save with several, only the first is listed. The club comes from the
-        manager's contract and is checked against the save summary, which also stores the
-        manager's name. The table is read on the first call; later calls return the same table.
-        It does not decode players.
+        An empty table means no managed club was found: the save has no human manager, or
+        the manager has no current club, for example while between jobs. The link from a
+        human manager to a club is proven only on saves with a single human manager; on a
+        save with several, only the first is listed. The club comes from the manager's
+        current contract and is checked against the save summary, which also stores the
+        manager's name. The table is read on the first call; later calls return the same
+        table. It does not decode players.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -164,8 +166,9 @@ class Save:
             CorruptSaveError: The save is damaged or was being written.
             ReaderCheckError: No club record is accepted, a club uid or club index appears in
                 two records, a team id is listed twice, the save's in-game date is unreadable,
-                the contract and the save summary link the manager to different clubs, or the
-                save lists a human manager but no club can be linked to them.
+                the contract and the save summary link the manager to different clubs, or,
+                with no current contract, the save summary links the manager to more than
+                one club.
         """
         context = self._context
         return context.cached(MANAGED_CLUBS_TABLE_CACHE_KEY, self._read_managed_clubs)

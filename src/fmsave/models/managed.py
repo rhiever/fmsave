@@ -12,7 +12,8 @@ class ManagedClub:
     """A club run by one of the save's human managers.
 
     The link from a human manager to a club is proven only on saves with a single human
-    manager. On a save with several human managers, only the first one may be listed.
+    manager. On a save with several human managers, only the first one may be listed. A
+    manager with no current club, for example one between jobs, has no row.
 
     Attributes:
         club_uid: Uid of the managed club (unconfirmed).

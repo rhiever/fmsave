@@ -125,6 +125,24 @@ def chain_record(*, selector: int, team_id: int, end: bytes | None) -> bytes:
     return record
 
 
+def null_end_chain_record(*, selector: int, team_id: int) -> bytes:
+    """A chain record with a parsed tail whose end is the null date."""
+    record, _tag_offset = contract_bytes(
+        selector=selector,
+        team_id=team_id,
+        wage=4000,
+        start=packed_date(183, 2029),
+        tail={"end": None, "status": 3},
+        head={"type": 1},
+    )
+    return record
+
+
+# The fragment's in-game date is 2031-03-01 (day 60).
+ENDED_BEFORE_CLOCK = packed_date(59, 2031)
+ENDS_ON_CLOCK = packed_date(60, 2031)
+
+
 def example_game_db(
     *,
     person_headers: tuple[bytes, ...] = (person_header_bytes(499, MANAGER_PERSON_UID),),
@@ -149,6 +167,23 @@ def linked_summary(short_name: str = "Northbridge", club_uid: int = NORTHBRIDGE_
         club_uid_after=(short_name, club_uid),
     )
 
+
+RIVAL_MANAGER_NAME = "Sam Rival"
+
+# "Athletic" linked to its club after a rival manager, then "Northbridge" after the manager.
+TWO_LINK_SUMMARY = section_body(
+    ".dat",
+    SUMMARY_SCHEMA,
+    length_prefixed("Example League")
+    + struct.pack("<I", 7)
+    + length_prefixed(BUILD_STRING)
+    + length_prefixed(RIVAL_MANAGER_NAME)
+    + length_prefixed("Athletic")
+    + struct.pack("<I", ATHLETIC_UID)
+    + length_prefixed(MANAGER_NAME)
+    + length_prefixed("Northbridge")
+    + struct.pack("<I", NORTHBRIDGE_UID),
+)
 
 UNLINKED_SUMMARY = save_summary_body(
     leading_strings=("Example League",),
@@ -260,16 +295,100 @@ def test_route_two_alone_gives_a_row_from_the_summary(tmp_path: Path) -> None:
     assert list(managed_clubs) == [EXPECTED_ROW]
 
 
-def test_neither_route_resolving_raises_reader_check_error(tmp_path: Path) -> None:
+def test_neither_route_resolving_gives_an_empty_table(tmp_path: Path) -> None:
     fragment_path = write_fragment(
         tmp_path, game_db=example_game_db(chain_records=()), summary=UNLINKED_SUMMARY
+    )
+    managed_clubs = read_managed_clubs(fragment_path)
+    assert isinstance(managed_clubs, Table)
+    assert managed_clubs.record_type is ManagedClub
+    assert len(managed_clubs) == 0
+
+
+def test_a_contract_that_ended_before_the_game_date_gives_an_empty_table(tmp_path: Path) -> None:
+    game_db = example_game_db(
+        chain_records=(
+            chain_record(
+                selector=MANAGER_SELECTOR, team_id=NORTHBRIDGE_TEAM_A, end=ENDED_BEFORE_CLOCK
+            ),
+        )
+    )
+    fragment_path = write_fragment(tmp_path, game_db=game_db, summary=UNLINKED_SUMMARY)
+    assert len(read_managed_clubs(fragment_path)) == 0
+
+
+@pytest.mark.parametrize(
+    ("current_record", "current_club_uid"),
+    [
+        pytest.param(
+            chain_record(selector=MANAGER_SELECTOR, team_id=SOUTHPORT_TEAM, end=None),
+            SOUTHPORT_UID,
+            id="current-record-without-a-tail",
+        ),
+        pytest.param(
+            null_end_chain_record(selector=MANAGER_SELECTOR, team_id=SOUTHPORT_TEAM),
+            SOUTHPORT_UID,
+            id="current-record-with-a-null-end",
+        ),
+        pytest.param(
+            chain_record(selector=MANAGER_SELECTOR, team_id=SOUTHPORT_TEAM, end=ENDS_ON_CLOCK),
+            SOUTHPORT_UID,
+            id="current-record-ending-on-the-game-date",
+        ),
+    ],
+)
+def test_an_ended_contract_loses_to_a_current_one(
+    tmp_path: Path, current_record: bytes, current_club_uid: int
+) -> None:
+    game_db = example_game_db(
+        chain_records=(
+            chain_record(selector=MANAGER_SELECTOR, team_id=ATHLETIC_TEAM, end=ENDED_BEFORE_CLOCK),
+            current_record,
+        )
+    )
+    fragment_path = write_fragment(tmp_path, game_db=game_db, summary=UNLINKED_SUMMARY)
+    assert [row.club_uid for row in read_managed_clubs(fragment_path)] == [current_club_uid]
+
+
+def test_a_single_human_linked_to_another_club_as_well_raises(tmp_path: Path) -> None:
+    fragment_path = write_fragment(tmp_path, summary=TWO_LINK_SUMMARY)
+    with pytest.raises(fmsave.ReaderCheckError) as error_info:
+        read_managed_clubs(fragment_path)
+    message = str(error_info.value)
+    assert FILE_NAME in message
+    assert str(NORTHBRIDGE_UID) in message
+    assert str(ATHLETIC_UID) in message
+    for name_text in (MANAGER_NAME, RIVAL_MANAGER_NAME, "Athletic", "Northbridge"):
+        assert name_text not in message
+
+
+def test_two_humans_pass_when_one_link_names_the_contract_club(tmp_path: Path) -> None:
+    fragment_path = write_fragment(
+        tmp_path,
+        humans=humans_body(count=2, selector=MANAGER_SELECTOR),
+        summary=TWO_LINK_SUMMARY,
+    )
+    assert list(read_managed_clubs(fragment_path)) == [EXPECTED_ROW]
+
+
+def test_links_to_two_clubs_without_a_contract_raise(tmp_path: Path) -> None:
+    fragment_path = write_fragment(
+        tmp_path, game_db=example_game_db(chain_records=()), summary=TWO_LINK_SUMMARY
     )
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
         read_managed_clubs(fragment_path)
     message = str(error_info.value)
     assert FILE_NAME in message
     assert "Private Folder" not in message
-    assert MANAGER_NAME not in message
+    for name_text in (MANAGER_NAME, RIVAL_MANAGER_NAME, "Athletic", "Northbridge"):
+        assert name_text not in message
+
+
+def test_selector_zero_leaves_the_summary_to_decide_alone(tmp_path: Path) -> None:
+    fragment_path = write_fragment(tmp_path, humans=humans_body(count=1, selector=0))
+    assert list(read_managed_clubs(fragment_path)) == [
+        ManagedClub(NORTHBRIDGE_UID, "Northbridge FC", "Northbridge", MANAGER_NAME, None)
+    ]
 
 
 def test_no_human_managers_gives_an_empty_table(tmp_path: Path) -> None:

@@ -5,13 +5,16 @@ plus 1. Two independent routes link that manager to a club:
 
 - Route 1 finds the contract chain records in `game_db` that carry the selector, decodes each
   with `ContractDecoder.decode_chain_record`, and takes the club of the best record whose team
-  resolves to a club: one with a parsed tail first, then the latest end.
+  resolves to a club and whose contract has not ended before the in-game date: one with a
+  parsed tail first, then the latest end.
 - Route 2 looks through the strings of `save_game_summary` for a club short name directly
   followed by that club's uid. The string that ends exactly where it starts is the manager
   name.
 
-Route 1 is the primary answer and route 2 checks it. The manager's person uid comes from the
-single person header in `game_db` that stores the person id followed by a doubled uid.
+Route 1 is the primary answer and route 2 checks it. When neither route finds a club, for
+example while the manager is between jobs, no managed club is listed. The manager's person uid
+comes from the single person header in `game_db` that stores the person id followed by a
+doubled uid.
 """
 
 from __future__ import annotations
@@ -160,9 +163,10 @@ def _chain_record_club(
     """Route 1: the club of the best chain record carrying `selector`, or None.
 
     A hit of the selector counts only when the contract tag sits `selector_offset` bytes before
-    it. Records whose team resolves to no club are skipped; of the rest, a record with a parsed
-    tail beats one without, then a later end beats an earlier or missing one, and the first in
-    file order wins a tie.
+    it. Records whose team resolves to no club, and records whose end date is before `clock`,
+    are skipped; a record without a parsed tail or with no end date is kept. Of the rest, a
+    record with a parsed tail beats one without, then a later end beats an earlier or missing
+    one, and the first in file order wins a tie.
 
     Raises:
         CorruptSaveError: A matching chain record runs past the end of game_db.
@@ -184,8 +188,8 @@ def _chain_record_club(
             chain_record = decode_chain_record(game_db, chain_tag_offset)
             club_uid = chain_record[CHAIN_RECORD_CLUB_UID]
             club = club_by_uid.get(club_uid) if club_uid is not None else None
-            if club is not None:
-                record_end = chain_record[CHAIN_RECORD_END]
+            record_end = chain_record[CHAIN_RECORD_END]
+            if club is not None and (record_end is None or record_end >= clock):
                 rank = (chain_record[CHAIN_RECORD_HAS_TAIL], record_end or date.min)
                 if best_rank is None or rank > best_rank:
                     best_club = club
@@ -225,8 +229,8 @@ def _manager_person_uid(game_db: bytes, selector: int, layout: HumansLayout) -> 
     return found_uid
 
 
-def _first_human_selector(humans: bytes, layout: HumansLayout, file_name: str) -> int | None:
-    """The first human manager's selector, or None when the save lists no human manager.
+def _first_human(humans: bytes, layout: HumansLayout, file_name: str) -> tuple[int, int] | None:
+    """(human count, first human manager's selector), or None when the save lists no human.
 
     Raises:
         CorruptSaveError: The section ends before the count or the selector.
@@ -235,7 +239,7 @@ def _first_human_selector(humans: bytes, layout: HumansLayout, file_name: str) -
         human_count = read_u16(humans, layout.human_count_offset)
         if human_count == 0:
             return None
-        return read_u32(humans, layout.first_selector_offset)
+        return human_count, read_u32(humans, layout.first_selector_offset)
     except CorruptSaveError as error:
         raise damaged_part_error(file_name, f"section {HUMANS_SECTION!r}", error) from error
 
@@ -249,21 +253,27 @@ def resolve_managed_clubs(
     layouts: ManagedClubLayouts,
     file_name: str,
 ) -> tuple[ManagedClub, ...]:
-    """The club run by the save's first human manager, or () when the save lists none.
+    """The club run by the save's first human manager, as a one-row tuple, or ().
 
-    Only the first human manager is read, even when the save counts more than one.
+    Only the first human manager is read, even when the save counts more than one. The result
+    is () when the save lists no human manager, or when no managed club is found, for example
+    while the manager is between jobs.
+
+    With one human manager, the summary must not link the manager to any club other than the
+    one route 1 finds. With several, it is enough that one summary link names that club.
 
     Raises:
         CorruptSaveError: The `humans` section ends before the human count or the selector, or
             a chain record carrying the selector runs past the end of game_db.
-        ReaderCheckError: Route 1 finds a club and the summary links the manager only to other
-            clubs; or neither route finds a club; or, without route 1, the summary links the
-            manager to more than one club.
+        ReaderCheckError: Route 1 finds a club and the summary links the manager to another
+            club (to only other clubs, when the save counts several human managers); or,
+            without route 1, the summary links the manager to more than one club.
         ValueError: The layouts are inconsistent.
     """
-    selector = _first_human_selector(humans, layouts.humans, file_name)
-    if selector is None:
+    first_human = _first_human(humans, layouts.humans, file_name)
+    if first_human is None:
         return ()
+    human_count, selector = first_human
     has_person_id = selector not in _NO_PERSON_UIDS
     chain_club = (
         _chain_record_club(game_db, selector, club_index, clock, layouts.contracts, file_name)
@@ -275,7 +285,8 @@ def resolve_managed_clubs(
 
     if chain_club is not None:
         agreeing_links = [link for link in links if link.club.uid == chain_club.uid]
-        if links and not agreeing_links:
+        has_other_links = len(agreeing_links) < len(links)
+        if has_other_links and (human_count == 1 or not agreeing_links):
             raise layout_mismatch(
                 file_name,
                 f"the first human manager's contract names club uid {chain_club.uid}, but the "
@@ -296,12 +307,7 @@ def resolve_managed_clubs(
             HUMANS_SECTION,
         )
     else:
-        raise layout_mismatch(
-            file_name,
-            f"the save lists a human manager, but neither a contract in section "
-            f"{GAME_DB_SECTION!r} nor section {SAVE_SUMMARY_SECTION!r} links the manager to a club",
-            HUMANS_SECTION,
-        )
+        return ()
 
     manager_person_uid = (
         _manager_person_uid(game_db, selector, layouts.humans) if has_person_id else None
