@@ -240,14 +240,11 @@ class Table[RecordT](Sequence[RecordT]):
         coverage = self._coverage
         if coverage is None:
             record_count = len(self._records)
+            present_counts = export.present_counts(self._records, self._record_type)
             coverage = FrozenMapping(
                 {
-                    column_name: (
-                        (len(column_values) - column_values.count(None)) / record_count
-                        if record_count
-                        else 0.0
-                    )
-                    for column_name, column_values in self.to_columns().items()
+                    column_name: present_count / record_count if record_count else 0.0
+                    for column_name, present_count in present_counts.items()
                 }
             )
             object.__setattr__(self, "_coverage", coverage)

@@ -13,6 +13,7 @@ import csv
 import dataclasses
 import functools
 import importlib
+import itertools
 import json
 import operator
 import os
@@ -36,6 +37,10 @@ _UNKNOWN_FIELD_NAME = "unknown"
 _CODE_SUFFIX = "_code"
 _CSV_ITEM_SEPARATOR = ";"
 _MISSING_PAIR: tuple[None, None] = (None, None)
+_NONE_TYPE = type(None)
+_is_present: Callable[[object], bool] = functools.partial(operator.is_not, None)
+_read_label_text = operator.attrgetter("label_text")
+_read_raw = operator.attrgetter("raw")
 
 
 def _read_no_fields(record: object) -> tuple[object, ...]:
@@ -315,9 +320,32 @@ def column_names(record_type: type) -> tuple[str, ...]:
     return _class_plan(record_type).columns
 
 
+def _sequence_type_error(field_plan: _FieldPlan) -> TypeError:
+    return TypeError(f"{field_plan.qualified_name} is not a tuple or None")
+
+
+def _coded_type_error(field_plan: _FieldPlan) -> TypeError:
+    return TypeError(f"{field_plan.qualified_name} is not a CodedValue or None")
+
+
+def _coded_item_error(field_plan: _FieldPlan) -> TypeError:
+    return TypeError(f"{field_plan.qualified_name} holds an item that is not a CodedValue")
+
+
+def _record_item_error(field_plan: _FieldPlan) -> TypeError:
+    return TypeError(
+        f"{field_plan.qualified_name} holds an item that is not an instance of "
+        f"{field_plan.members.record_type.__name__}"
+    )
+
+
+def _mapping_type_error(field_plan: _FieldPlan) -> TypeError:
+    return TypeError(f"{field_plan.qualified_name} is not a mapping")
+
+
 def _sequence_items(field_plan: _FieldPlan, value: object) -> Sequence[object]:
     if not isinstance(value, (tuple, list)):
-        raise TypeError(f"{field_plan.qualified_name} is not a tuple or None")
+        raise _sequence_type_error(field_plan)
     return cast("Sequence[object]", value)
 
 
@@ -325,7 +353,7 @@ def _coded_pair(field_plan: _FieldPlan, value: object) -> tuple[object, object]:
     if value is None:
         return _MISSING_PAIR
     if not isinstance(value, CodedValue):
-        raise TypeError(f"{field_plan.qualified_name} is not a CodedValue or None")
+        raise _coded_type_error(field_plan)
     coded_value = cast("CodedValue[Any]", value)
     return coded_value.label_text, coded_value.raw
 
@@ -350,7 +378,7 @@ def _coded_items(
     codes: list[int] = []
     for item in _sequence_items(field_plan, value):
         if not isinstance(item, CodedValue):
-            raise TypeError(f"{field_plan.qualified_name} holds an item that is not a CodedValue")
+            raise _coded_item_error(field_plan)
         coded_item = cast("CodedValue[Any]", item)
         labels.append(coded_item.label_text)
         codes.append(coded_item.raw)
@@ -366,27 +394,36 @@ def _record_items(field_plan: _FieldPlan, value: object, *, json_ready: bool) ->
     nested_items: list[object] = []
     for item in _sequence_items(field_plan, value):
         if not isinstance(item, members.record_type):
-            raise TypeError(
-                f"{field_plan.qualified_name} holds an item that is not an instance of "
-                f"{members.record_type.__name__}"
-            )
+            raise _record_item_error(field_plan)
         nested_items.append(_nested_record(item, members, json_ready=json_ready))
     return nested_items if json_ready else tuple(nested_items)
+
+
+def _filled_unknown(field_plan: _FieldPlan, value: object) -> dict[object, object]:
+    """Return the declared unknown keys in order, each with the mapping's value or None.
+
+    Raises:
+        TypeError: value is not a mapping.
+        ValueError: The mapping holds a key that UNKNOWN_KEYS does not declare.
+    """
+    if not isinstance(value, Mapping):
+        raise _mapping_type_error(field_plan)
+    unknown_mapping = cast("Mapping[object, object]", value)
+    filled = cast("dict[object, object]", dict.fromkeys(field_plan.unknown_keys))
+    filled.update(unknown_mapping)
+    if len(filled) != len(field_plan.unknown_keys):
+        undeclared_keys = [key for key in unknown_mapping if key not in field_plan.unknown_key_set]
+        raise ValueError(
+            f"{field_plan.qualified_name} has keys missing from UNKNOWN_KEYS: "
+            + ", ".join(repr(key) for key in undeclared_keys)
+        )
+    return filled
 
 
 def _unknown_values(field_plan: _FieldPlan, value: object) -> list[object]:
     if value is None:
         return [None] * len(field_plan.unknown_keys)
-    if not isinstance(value, Mapping):
-        raise TypeError(f"{field_plan.qualified_name} is not a mapping")
-    unknown_mapping = cast("Mapping[object, object]", value)
-    undeclared_keys = [key for key in unknown_mapping if key not in field_plan.unknown_key_set]
-    if undeclared_keys:
-        raise ValueError(
-            f"{field_plan.qualified_name} has keys missing from UNKNOWN_KEYS: "
-            + ", ".join(repr(key) for key in undeclared_keys)
-        )
-    return [unknown_mapping.get(key) for key in field_plan.unknown_keys]
+    return list(_filled_unknown(field_plan, value).values())
 
 
 def _group_type_error(field_plan: _FieldPlan) -> TypeError:
@@ -576,6 +613,140 @@ def to_columns(records: Iterable[object], record_type: type) -> dict[str, list[o
         for append_value, value in zip(column_appenders, flat_values, strict=True):
             append_value(value)
     return columns
+
+
+def _require_types(
+    values: Iterable[object],
+    expected_type: type | tuple[type, ...],
+    type_error: Callable[[], TypeError],
+) -> None:
+    """Raise type_error() unless every value is an instance of expected_type.
+
+    Each distinct type is checked once, so the cost barely grows with the number of values.
+    """
+    for value_type in set(map(type, values)):
+        if not issubclass(value_type, expected_type):
+            raise type_error()
+
+
+def _present_values(values: Sequence[object]) -> list[object]:
+    return list(filter(_is_present, values))
+
+
+def _items_of_present_values(values: Sequence[object]) -> list[object]:
+    return list(itertools.chain.from_iterable(cast("Sequence[Iterable[object]]", values)))
+
+
+def _missing_counts(records: Sequence[object], class_plan: _ClassPlan) -> list[int]:
+    """Count the records whose flat value is None, for each column of class_plan, in order.
+
+    The fields of all records are read at once into one tuple of values per field, and None
+    is counted with tuple.count, so no flat column is built. Values are checked against their
+    field types as to_columns checks them.
+    """
+    record_count = len(records)
+    if records:
+        field_columns = list(zip(*map(class_plan.read_fields, records), strict=True))
+    else:
+        field_columns = [()] * len(class_plan.fields)
+    missing_counts: list[int] = []
+    for field_plan in class_plan.fields:
+        values: tuple[object, ...] = field_columns[field_plan.index]
+        match field_plan.kind:
+            case "value" | "date" | "text_enum":
+                missing_counts.append(values.count(None))
+            case "coded":
+                _require_types(
+                    values,
+                    (CodedValue, _NONE_TYPE),
+                    functools.partial(_coded_type_error, field_plan),
+                )
+                present = _present_values(values)
+                absent_count = record_count - len(present)
+                for read_part in (_read_label_text, _read_raw):
+                    missing_counts.append(absent_count + list(map(read_part, present)).count(None))
+            case "group":
+                members = field_plan.members
+                _require_types(
+                    values,
+                    (members.record_type, _NONE_TYPE),
+                    functools.partial(_group_type_error, field_plan),
+                )
+                present = _present_values(values)
+                absent_count = record_count - len(present)
+                missing_counts.extend(
+                    absent_count + member_missing_count
+                    for member_missing_count in _missing_counts(present, members)
+                )
+            case "values" | "coded_values" | "records":
+                _require_types(
+                    values,
+                    (tuple, list, _NONE_TYPE),
+                    functools.partial(_sequence_type_error, field_plan),
+                )
+                # A present tuple is a present value, even when it is empty.
+                missing_count = values.count(None)
+                if field_plan.kind == "values":
+                    missing_counts.append(missing_count)
+                    continue
+                items = _items_of_present_values(_present_values(values))
+                if field_plan.kind == "coded_values":
+                    _require_types(
+                        items, CodedValue, functools.partial(_coded_item_error, field_plan)
+                    )
+                    missing_counts.extend((missing_count, missing_count))
+                    continue
+                _require_types(
+                    items,
+                    field_plan.members.record_type,
+                    functools.partial(_record_item_error, field_plan),
+                )
+                # Only checks the items' own values; their counts are not columns.
+                _missing_counts(items, field_plan.members)
+                missing_counts.append(missing_count)
+            case "unknown":
+                _require_types(
+                    values,
+                    (Mapping, _NONE_TYPE),
+                    functools.partial(_mapping_type_error, field_plan),
+                )
+                present = _present_values(values)
+                absent_count = record_count - len(present)
+                filled_mappings = [
+                    _filled_unknown(field_plan, unknown_mapping) for unknown_mapping in present
+                ]
+                missing_counts.extend(
+                    absent_count + list(map(operator.itemgetter(key), filled_mappings)).count(None)
+                    for key in field_plan.unknown_keys
+                )
+    return missing_counts
+
+
+def present_counts(records: Iterable[object], record_type: type) -> dict[str, int]:
+    """Count the records whose flat value is not None, for each column of record_type.
+
+    Keys are column_names(record_type). Each count equals len(values) - values.count(None) for
+    that column of to_columns(records, record_type), but no column is built. A present tuple
+    counts as present even when it is empty, and every column of a missing group counts as
+    missing.
+
+    Raises:
+        TypeError: A record is not exactly of record_type, record_type is not supported, or a
+            value does not match its field's type.
+        ValueError: Two fields give the same column name, or a record's unknown mapping holds
+            an undeclared key.
+    """
+    class_plan = _class_plan(record_type)
+    record_list = list(records)
+    if set(map(type, record_list)) - {record_type}:
+        stray_record = next(record for record in record_list if type(record) is not record_type)
+        raise _record_type_error("present_counts", record_type, stray_record)
+    record_count = len(record_list)
+    missing_counts = _missing_counts(record_list, class_plan)
+    return {
+        column_name: record_count - missing_count
+        for column_name, missing_count in zip(class_plan.columns, missing_counts, strict=True)
+    }
 
 
 def flat_rows[RecordT](
