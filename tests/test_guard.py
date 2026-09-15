@@ -972,6 +972,24 @@ def test_history_mode_reports_a_path_once_when_only_its_mode_changes(
     ]
 
 
+def test_history_mode_reports_a_link_that_later_becomes_a_file_with_the_same_content(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run_text = encoded_run(HEX_ALPHABET, 512)
+    object_id = stage_symbolic_link_entry(repository, "docs/data", run_text)
+    run_git(repository, "commit", "-q", "-m", "add link")
+    run_git(repository, "rm", "-q", "--cached", "docs/data")
+    stage(repository, "docs/data", run_text)
+    run_git(repository, "commit", "-q", "-m", "replace link with file")
+    assert run_guard(repository, "--history") == 1
+    location = f"guard: docs/data@{object_id[:12]}"
+    assert capsys.readouterr().err.splitlines() == [
+        f"{location}: {SYMBOLIC_LINK_REASON}",
+        f"{location}:1: contains a long encoded run (hex, 512 characters)",
+        blocked_line(2),
+    ]
+
+
 @pytest.mark.parametrize(
     "tag_options", [[], ["-a", "-m", "tagged payload"]], ids=["lightweight", "annotated"]
 )
