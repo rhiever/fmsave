@@ -15,6 +15,7 @@ from fmsave._layouts import (
     PersonBlockLayout,
     PlayerRecordLayout,
     SaveSummaryLayout,
+    SuspensionLayout,
     TeamListLayout,
 )
 
@@ -272,6 +273,17 @@ CONTRACTS = ContractLayout(
     fallback_gate_length=16,
 )
 
+# A suspension entry is 20 bytes long; its signature bytes pin 5 of them.
+SUSPENSIONS = SuspensionLayout(
+    signature=((4, 0xFF), (5, 0xFF), (13, 0x05), (15, 0xFF), (18, 0xFF)),
+    unknown_e7_offset=7,
+    issued_date_offset=9,
+    unknown_e14_offset=14,
+    competition_id_offset=16,
+    owner_back_offset=30,
+    competition_id_exclusive_range=(0, 60_000),
+)
+
 LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_info", schema=46, build=BUILD, layout=GAME_INFO),
     LayoutEntry(region="save_game_summary", schema=29, build=BUILD, layout=SAVE_SUMMARY),
@@ -282,4 +294,5 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=PLAYER_RECORDS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=PERSON_BLOCKS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CONTRACTS),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=SUSPENSIONS),
 )

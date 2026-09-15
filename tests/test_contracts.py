@@ -741,7 +741,7 @@ def test_last_record_chain_window_reaches_the_end_of_game_db_not_end_minus_30() 
 
 
 def test_last_player_chain_window_integration_through_fmsave_open(tmp_path: Path) -> None:
-    """Pins the `is_last_record` plumbing from `Save._decode_players_and_contracts` through
+    """Pins the `is_last_record` plumbing from `Save._decode_player_tables` through
     `PlayerDecoder.decode` to `ContractDecoder.decode`: the sole (and so last) player's chain
     tag sits in the final bytes of `game_db`, where it fits (21 bytes needed after the tag)
     but is inside the last 30 bytes, so a `record_window_end - 30` window would miss it.

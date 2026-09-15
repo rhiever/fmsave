@@ -4,25 +4,36 @@ from __future__ import annotations
 
 import os
 from types import TracebackType
-from typing import Self
+from typing import NamedTuple, Self
 
 from fmsave._container import ContainerIndex, read_index, read_section
 from fmsave._context import SaveContext, closed_save_error
 from fmsave._errors import ReaderCheckError
-from fmsave._layouts import ContractLayout, PersonBlockLayout, find_layout
+from fmsave._layouts import ContractLayout, PersonBlockLayout, SuspensionLayout, find_layout
 from fmsave._version import read_save_info
 from fmsave.models.clubs import Club
 from fmsave.models.contracts import Contract
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
+from fmsave.models.suspensions import Suspension
 from fmsave.readers._common import GAME_DB_SECTION
 from fmsave.readers.player_scan import window_end
 from fmsave.readers.players import build_player_decoder
+from fmsave.readers.suspensions import SuspensionEntry, locate_suspensions, suspension_rows
 from fmsave.table import Table
 
 CLUBS_TABLE_CACHE_KEY = "table:clubs"
 PLAYERS_TABLE_CACHE_KEY = "table:players"
 CONTRACTS_TABLE_CACHE_KEY = "table:contracts"
+SUSPENSIONS_TABLE_CACHE_KEY = "table:suspensions"
+
+
+class _PlayerTables(NamedTuple):
+    """The three tables one decode pass over the player records builds."""
+
+    players: Table[Player]
+    contracts: Table[Contract]
+    suspensions: Table[Suspension]
 
 
 class Save:
@@ -73,9 +84,10 @@ class Save:
     def players(self) -> Table[Player]:
         """Every player in the save's game database, in record offset order.
 
-        The table is read on the first call; later calls return the same table. Person
-        fields (name, birth date, nationality, personality, traits and the rest) are filled
+        Person fields (name, birth date, nationality, personality, traits and the rest) are filled
         in from each player's person block, or stay None or empty when no block validates.
+        The table is read on the first call to `players()`, `contracts()` or `suspensions()`,
+        from one decode pass; later calls to any of them return the same tables.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -95,8 +107,8 @@ class Save:
         """Every player's contract in the save's game database, in player order.
 
         Only players whose contract is not None appear. The table is read on the first
-        call to either `players()` or `contracts()`, from the same decode pass; later
-        calls to either return the same tables.
+        call to `players()`, `contracts()` or `suspensions()`, from one decode pass; later
+        calls to any of them return the same tables.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -112,17 +124,50 @@ class Save:
         context = self._context
         return context.cached(CONTRACTS_TABLE_CACHE_KEY, self._contracts_table_entry_point)
 
+    def suspensions(self) -> Table[Suspension]:
+        """Every unserved suspension in the save's game database, in player order.
+
+        Each player's suspensions keep the order the save stores them in, and each row
+        carries the player's current club. The table is read on the first call to
+        `players()`, `contracts()` or `suspensions()`, from one decode pass; later calls to
+        any of them return the same tables.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written, a player's relation
+                header or entry list runs past its record window, or a legal name is not
+                valid UTF-8.
+            ReaderCheckError: No club record is accepted, a club uid or club index appears
+                in two records, a team id is listed twice (by one club or by two), no player
+                records were found, two player records share a uid, or the save's in-game
+                date is unreadable.
+        """
+        context = self._context
+        return context.cached(SUSPENSIONS_TABLE_CACHE_KEY, self._suspensions_table_entry_point)
+
     def _players_table_entry_point(self) -> Table[Player]:
-        players_table, contracts_table = self._decode_players_and_contracts()
-        self._context.cached(CONTRACTS_TABLE_CACHE_KEY, lambda: contracts_table)
-        return players_table
+        tables = self._decode_player_tables()
+        context = self._context
+        context.cached(CONTRACTS_TABLE_CACHE_KEY, lambda: tables.contracts)
+        context.cached(SUSPENSIONS_TABLE_CACHE_KEY, lambda: tables.suspensions)
+        return tables.players
 
     def _contracts_table_entry_point(self) -> Table[Contract]:
-        players_table, contracts_table = self._decode_players_and_contracts()
-        self._context.cached(PLAYERS_TABLE_CACHE_KEY, lambda: players_table)
-        return contracts_table
+        tables = self._decode_player_tables()
+        context = self._context
+        context.cached(PLAYERS_TABLE_CACHE_KEY, lambda: tables.players)
+        context.cached(SUSPENSIONS_TABLE_CACHE_KEY, lambda: tables.suspensions)
+        return tables.contracts
 
-    def _decode_players_and_contracts(self) -> tuple[Table[Player], Table[Contract]]:
+    def _suspensions_table_entry_point(self) -> Table[Suspension]:
+        tables = self._decode_player_tables()
+        context = self._context
+        context.cached(PLAYERS_TABLE_CACHE_KEY, lambda: tables.players)
+        context.cached(CONTRACTS_TABLE_CACHE_KEY, lambda: tables.contracts)
+        return tables.suspensions
+
+    def _decode_player_tables(self) -> _PlayerTables:
         context = self._context
         save_info = context.info
         clock = save_info.game_date
@@ -131,21 +176,19 @@ class Save:
                 f"{save_info.file_name}: the save's in-game date is unreadable, so person "
                 "blocks and ages cannot be decoded"
             )
+        game_db_schema = save_info.section_schemas.get(GAME_DB_SECTION)
         with context.section(GAME_DB_SECTION) as game_db:
             club_index = context.club_index()
             player_records = context.player_records()
             name_pools = context.name_pools()
             person_layout = find_layout(
-                PersonBlockLayout,
-                GAME_DB_SECTION,
-                save_info.section_schemas.get(GAME_DB_SECTION),
-                save_info.build,
+                PersonBlockLayout, GAME_DB_SECTION, game_db_schema, save_info.build
             ).layout
             contract_layout = find_layout(
-                ContractLayout,
-                GAME_DB_SECTION,
-                save_info.section_schemas.get(GAME_DB_SECTION),
-                save_info.build,
+                ContractLayout, GAME_DB_SECTION, game_db_schema, save_info.build
+            ).layout
+            suspension_layout = find_layout(
+                SuspensionLayout, GAME_DB_SECTION, game_db_schema, save_info.build
             ).layout
             decoder = build_player_decoder(
                 player_records.layout,
@@ -156,26 +199,42 @@ class Save:
                 contract_layout,
                 save_info.file_name,
             )
+            suspension_entries_by_position = locate_suspensions(
+                game_db, player_records, suspension_layout
+            )
+            no_suspension_entries: tuple[SuspensionEntry, ...] = ()
+            suspension_entries_for = suspension_entries_by_position.get
             decoded_players: list[Player] = []
             decoded_contracts: list[Contract] = []
+            decoded_suspensions: list[Suspension] = []
             append_player = decoded_players.append
             append_contract = decoded_contracts.append
+            extend_suspensions = decoded_suspensions.extend
             record_offsets = player_records.record_offsets
             game_db_length = len(game_db)
             last_position = len(record_offsets) - 1
             for position, record_offset in enumerate(record_offsets):
                 record_window_end = window_end(player_records, position, game_db_length)
+                suspension_entries = suspension_entries_for(position, no_suspension_entries)
                 player, contract = decoder.decode(
                     game_db,
                     record_offset,
                     record_window_end,
                     is_last_record=position == last_position,
+                    suspension_entries=suspension_entries,
                 )
                 append_player(player)
                 if contract is not None:
                     append_contract(contract)
-        # All records are decoded above; both tables are built and cached only from here on.
-        return Table(tuple(decoded_players), Player), Table(tuple(decoded_contracts), Contract)
+                if suspension_entries:
+                    extend_suspensions(suspension_rows(player, suspension_entries))
+        # All records are decoded above; the three tables are built from here on, and cached
+        # only by the entry point that asked for them.
+        return _PlayerTables(
+            Table(tuple(decoded_players), Player),
+            Table(tuple(decoded_contracts), Contract),
+            Table(tuple(decoded_suspensions), Suspension),
+        )
 
     def close(self) -> None:
         """Close the save and release its cached results.

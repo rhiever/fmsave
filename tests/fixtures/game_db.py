@@ -375,3 +375,26 @@ def contract_bytes(
 def fallback_contract_bytes(*, end: bytes, start: bytes) -> bytes:
     """FF FF FF FF, 4 zero bytes, an end date4, a start date4, then 8 bytes of 0x33."""
     return b"\xff\xff\xff\xff" + bytes(4) + end + start + bytes([0x33]) * 8
+
+
+SUSPENSION_ENTRY_BYTES = 20
+
+
+def suspension_entry_bytes(*, competition_id: int, issued: bytes, e7: int, e14: int) -> bytes:
+    """One 20-byte suspension entry, written forward in the order the format lays it out.
+
+    u16 1, u16 1, `FF FF`, a zero byte, u16 `e7`, the 4-byte `issued` date, `05`, u8 `e14`,
+    `FF`, u16 `competition_id`, `FF`, then a zero byte.
+    """
+    output = bytearray(struct.pack("<HH", 1, 1))
+    output.extend(b"\xff\xff")
+    output.append(0)
+    output.extend(struct.pack("<H", e7))
+    output.extend(issued)
+    output.append(0x05)
+    output.append(e14)
+    output.append(0xFF)
+    output.extend(struct.pack("<H", competition_id))
+    output.append(0xFF)
+    output.append(0)
+    return bytes(output)

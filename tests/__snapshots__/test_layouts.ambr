@@ -329,5 +329,43 @@
       'region': 'game_db',
       'schema': 4000,
     }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
+        'competition_id_exclusive_range': tuple(
+          0,
+          60000,
+        ),
+        'competition_id_offset': 16,
+        'issued_date_offset': 9,
+        'owner_back_offset': 30,
+        'signature': tuple(
+          tuple(
+            4,
+            255,
+          ),
+          tuple(
+            5,
+            255,
+          ),
+          tuple(
+            13,
+            5,
+          ),
+          tuple(
+            15,
+            255,
+          ),
+          tuple(
+            18,
+            255,
+          ),
+        ),
+        'unknown_e14_offset': 14,
+        'unknown_e7_offset': 7,
+      }),
+      'region': 'game_db',
+      'schema': 4000,
+    }),
   ])
 # ---

@@ -318,6 +318,30 @@ class ContractLayout:
     fallback_gate_length: int
 
 
+@dataclass(frozen=True, slots=True)
+class SuspensionLayout:
+    """How to find unserved suspension entries in `game_db` and where their fields sit.
+
+    Every offset counts from an entry's start. An entry sits wherever, for each `(offset,
+    value)` pair in `signature`, the byte at that offset equals `value`; the bytes between
+    signature bytes may hold anything. One search runs from `owner_back_offset` bytes before
+    the first player record's start to the end of `game_db`. An entry belongs to the player
+    with the greatest record start `record_offset` for which `record_offset -
+    owner_back_offset` is at or before the entry's start; an entry before the first player's
+    window belongs to no player. An entry is kept only when the date at `issued_date_offset`
+    is a valid game date and the u16 at `competition_id_offset` lies strictly between the
+    (lower, upper) values of `competition_id_exclusive_range`.
+    """
+
+    signature: tuple[tuple[int, int], ...]
+    unknown_e7_offset: int
+    issued_date_offset: int
+    unknown_e14_offset: int
+    competition_id_offset: int
+    owner_back_offset: int
+    competition_id_exclusive_range: tuple[int, int]
+
+
 type Layout = (
     GameInfoLayout
     | SaveSummaryLayout
@@ -328,6 +352,7 @@ type Layout = (
     | PlayerRecordLayout
     | PersonBlockLayout
     | ContractLayout
+    | SuspensionLayout
 )
 
 

@@ -20,6 +20,7 @@ from fmsave.models.players import (
     Reputation,
     Trait,
 )
+from fmsave.models.suspensions import PlayerSuspension, Suspension
 
 __all__ = [
     "Ability",
@@ -34,11 +35,13 @@ __all__ = [
     "ContractType",
     "Personality",
     "Player",
+    "PlayerSuspension",
     "Positions",
     "Reputation",
     "SaveInfo",
     "SectionInfo",
     "SquadStatus",
+    "Suspension",
     "Team",
     "Trait",
     "TransferValueState",

@@ -35,6 +35,7 @@ from fmsave.models.players import (
     Reputation,
     Trait,
 )
+from fmsave.models.suspensions import PlayerSuspension, Suspension
 from fmsave.table import Table
 
 OUTPUT_SCHEMA_VERSION = 1
@@ -57,6 +58,7 @@ __all__ = [
     "NotAFmSaveError",
     "Personality",
     "Player",
+    "PlayerSuspension",
     "Positions",
     "ReaderCheckError",
     "Reputation",
@@ -66,6 +68,7 @@ __all__ = [
     "SaveInfo",
     "SectionInfo",
     "SquadStatus",
+    "Suspension",
     "Table",
     "Team",
     "Trait",

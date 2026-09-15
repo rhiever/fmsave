@@ -15,6 +15,7 @@ from enum import IntEnum
 from fmsave._status import register_field_statuses
 from fmsave.models.common import CodedValue, TransferValueState
 from fmsave.models.contracts import Contract
+from fmsave.models.suspensions import PlayerSuspension
 
 
 @dataclass(frozen=True, slots=True)
@@ -325,6 +326,8 @@ class Player:
         loan_parent_club_name: Denormalised name of loan_parent_club_uid.
         contract: The player's assembled contract, or None when no chain record and no
             fallback dates were found.
+        suspensions: The player's unserved suspensions, in the order the save stores them;
+            () when the player has none.
     """
 
     uid: int
@@ -374,6 +377,7 @@ class Player:
     loan_parent_club_uid: int | None
     loan_parent_club_name: str | None
     contract: Contract | None
+    suspensions: tuple[PlayerSuspension, ...]
 
 
 register_field_statuses(Ability, unconfirmed=("current", "potential", "potential_range_code"))
@@ -491,6 +495,7 @@ register_field_statuses(
         "on_loan",
         "loan_parent_club_uid",
         "loan_parent_club_name",
+        "suspensions",
     ),
     unconfirmed=(
         "uid",

@@ -26,6 +26,7 @@ from fmsave.readers.contracts import ContractDecoder, build_contract_decoder
 from fmsave.readers.names import NamePools
 from fmsave.readers.persons import PersonBlockDecoder, build_person_block_decoder
 from fmsave.readers.player_scan import HeaderLayout, build_header_layout, indexed_struct
+from fmsave.readers.suspensions import SuspensionEntry, player_suspensions
 
 _TeamFields = tuple[
     int, "str | None", "str | None", "int | None", "int | None", "int | None", "int | None", int
@@ -149,14 +150,22 @@ class PlayerDecoder:
     date_cache: dict[int, date | None] = field(default_factory=_new_date_cache)
 
     def decode(
-        self, game_db: bytes, record_offset: int, record_window_end: int, *, is_last_record: bool
+        self,
+        game_db: bytes,
+        record_offset: int,
+        record_window_end: int,
+        *,
+        is_last_record: bool,
+        suspension_entries: tuple[SuspensionEntry, ...] = (),
     ) -> tuple[Player, Contract | None]:
         """Decode one player record's public fields, including its person block and contract.
 
         `record_window_end` bounds the person-block and contract-chain search: the next
         record's offset, or `len(game_db)` for the last record (see `player_scan.window_end`).
         `is_last_record` tells the contract chain search and fallback reader whether
-        `record_window_end` is that last-record `len(game_db)` case.
+        `record_window_end` is that last-record `len(game_db)` case. `suspension_entries` are
+        the record's entries from `readers.suspensions.locate_suspensions`, which fill
+        `Player.suspensions`.
         """
         layout = self.layout
         header_layout = self.header_layout
@@ -268,6 +277,8 @@ class PlayerDecoder:
             )
         )
 
+        suspensions = player_suspensions(suspension_entries) if suspension_entries else ()
+
         # Positional, matching Player's field order in models/players.py.
         player = Player(
             uid,
@@ -317,6 +328,7 @@ class PlayerDecoder:
             loan_parent_club_uid,
             loan_parent_club_name,
             contract,
+            suspensions,
         )
         return player, contract
 
