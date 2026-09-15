@@ -278,6 +278,63 @@ def test_regular_and_executable_files_are_not_symbolic_links(
     assert SYMBOLIC_LINK_REASON not in capsys.readouterr().err
 
 
+# Submodules
+
+SUBMODULE_REASON = "is a submodule"
+SUBMODULE_COMMIT_ID = "1" * 40
+
+
+def stage_submodule_entry(repository: Path, relative_path: str) -> None:
+    """Stage a submodule entry through the index alone; its commit need not exist anywhere."""
+    run_git(
+        repository,
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        f"160000,{SUBMODULE_COMMIT_ID},{relative_path}",
+    )
+
+
+def test_staged_submodule_is_blocked(repository: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    stage(repository, "ok.txt", "fine\n")
+    stage_submodule_entry(repository, "vendor/library")
+    assert run_guard(repository, "--staged") == 1
+    assert capsys.readouterr().err.splitlines() == [
+        f"guard: vendor/library: {SUBMODULE_REASON}",
+        blocked_line(1),
+    ]
+
+
+def test_tracked_submodule_is_blocked(repository: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    stage_submodule_entry(repository, "vendor/library")
+    run_git(repository, "commit", "-q", "-m", "add submodule")
+    stage(repository, "ok.txt", "fine\n")
+    assert run_guard(repository, "--staged") == 0
+    capsys.readouterr()
+    assert run_guard(repository, "--tracked") == 1
+    assert capsys.readouterr().err.splitlines() == [
+        f"guard: vendor/library: {SUBMODULE_REASON}",
+        blocked_line(1),
+    ]
+
+
+def test_submodule_in_history_is_blocked(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stage_submodule_entry(repository, "vendor/library")
+    run_git(repository, "commit", "-q", "-m", "add submodule")
+    run_git(repository, "rm", "-q", "--cached", "vendor/library")
+    stage(repository, "ok.txt", "fine\n")
+    run_git(repository, "commit", "-q", "-m", "remove submodule")
+    assert run_guard(repository, "--tracked") == 0
+    capsys.readouterr()
+    assert run_guard(repository, "--history") == 1
+    assert capsys.readouterr().err.splitlines() == [
+        f"guard: vendor/library@{SUBMODULE_COMMIT_ID[:12]}: {SUBMODULE_REASON}",
+        blocked_line(1),
+    ]
+
+
 # Long encoded runs
 
 HEX_ALPHABET = "0123456789abcdefABCDEF"

@@ -3,7 +3,7 @@
 
 Blocks content that must never be committed or published: files under the private
 folder, save files and save bytes, binary files, oversized files, notebooks with
-outputs, symbolic links, long unbroken hex or base64 runs, text copied from the
+outputs, symbolic links, submodules, long unbroken hex or base64 runs, text copied from the
 private folder, and locally denylisted names, uids and terms in file contents, file
 paths and messages.
 
@@ -37,6 +37,7 @@ from pathlib import Path, PurePosixPath
 MAX_FILE_BYTES = 1_000_000
 SAVE_MAGIC = bytes.fromhex("0201666d662e")
 SYMBOLIC_LINK_MODE = "120000"
+SUBMODULE_MODE = "160000"
 HEX_RUN_MINIMUM = 512
 BASE64_RUN_MINIMUM = 1024
 # The lookbehind lets a match start only at the start of a run, which keeps the scan linear.
@@ -446,6 +447,9 @@ def check_blob(blob: Blob, references: PrivateReferences | None) -> list[Finding
         findings.append(Finding(location, "is a save file (*.fm)"))
     if blob.mode == SYMBOLIC_LINK_MODE:
         findings.append(Finding(location, "is a symbolic link"))
+    if blob.mode == SUBMODULE_MODE:
+        findings.append(Finding(location, "is a submodule"))
+        return findings
     if len(blob.content) > MAX_FILE_BYTES:
         findings.append(Finding(location, f"is larger than {MAX_FILE_BYTES} bytes"))
     if SAVE_MAGIC in blob.content:
@@ -489,6 +493,9 @@ def index_entries(repository_root: Path) -> dict[str, tuple[str, str]]:
 
 
 def index_blob(repository_root: Path, path: str, mode: str, object_id: str) -> Blob:
+    """Read an index entry; a submodule entry names a commit in another repository, so no read."""
+    if mode == SUBMODULE_MODE:
+        return Blob(path, path, object_id, mode, b"")
     content = run_git(repository_root, ["cat-file", "blob", object_id])
     return Blob(path, path, object_id, mode, content)
 
@@ -528,6 +535,7 @@ def history_blobs(repository_root: Path) -> Iterator[Blob]:
     modes. When a path holds the same blob under several modes, a symbolic link mode wins.
     A blob path that `rev-list --objects` names but no tree listing covers is still checked,
     with an empty mode, and a blob that a tag points at directly is checked as a tagged blob.
+    Submodule entries are reported without reading the commit they name.
     """
     object_paths: dict[str, list[str]] = {}
     unnamed_ids: list[str] = []
@@ -571,6 +579,7 @@ def history_blobs(repository_root: Path) -> Iterator[Blob]:
         elif object_type == "tree":
             root_tree_ids[object_id] = None
     blob_modes: dict[str, dict[str, str]] = {}
+    submodule_entries: dict[tuple[str, str], None] = {}
     for tree_id in root_tree_ids:
         tree_listing = run_git(repository_root, ["ls-tree", "-r", "-z", "--full-tree", tree_id])
         for entry in split_null_terminated(tree_listing):
@@ -578,6 +587,8 @@ def history_blobs(repository_root: Path) -> Iterator[Blob]:
             mode, object_type, object_id = metadata.split(" ")
             if object_type == "blob":
                 add_blob_mode(blob_modes, object_id, path, mode)
+            elif mode == SUBMODULE_MODE:
+                submodule_entries[(object_id, path)] = None
     for object_id in named_blob_ids:
         path_modes = blob_modes.setdefault(object_id, {})
         for path in object_paths[object_id]:
@@ -586,6 +597,8 @@ def history_blobs(repository_root: Path) -> Iterator[Blob]:
         content = run_git(repository_root, ["cat-file", "blob", object_id])
         for path, mode in path_modes.items():
             yield Blob(path, f"{path}@{object_id[:12]}", object_id, mode, content)
+    for object_id, path in submodule_entries:
+        yield Blob(path, f"{path}@{object_id[:12]}", object_id, SUBMODULE_MODE, b"")
     for object_id in tagged_blob_ids:
         if object_id not in blob_modes:
             content = run_git(repository_root, ["cat-file", "blob", object_id])
