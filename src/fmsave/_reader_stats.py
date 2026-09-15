@@ -16,6 +16,9 @@ class PlayerStats:
     `ages` holds every known age, for the median; `heights_median` is the low median of every
     record's height. Relation counts cover every entry of every validated person block. The
     `*_in_range` and `home_near_current` counts use the ranges in `GateBounds`.
+    `outfield_players` counts records rated below `GateBounds.natural_goalkeeper_rating` in
+    goal, and `outfield_goalkeeper_block_low` those of them whose raw handling and raw throwing
+    are both at most `GateBounds.goalkeeper_block_low_maximum`.
     """
 
     records: int
@@ -27,6 +30,8 @@ class PlayerStats:
     second_nation_entries: int
     second_nation_qualifier_ok: int
     handling_above_finishing: int
+    outfield_players: int
+    outfield_goalkeeper_block_low: int
     with_natural_position: int
     height_in_range: int
     condition_sharpness_in_range: int

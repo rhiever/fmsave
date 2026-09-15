@@ -438,6 +438,7 @@
           0.65,
           None,
         ),
+        'goalkeeper_block_low_maximum': 30,
         'handling_above_finishing': tuple(
           0.2,
           0.3,
@@ -474,6 +475,11 @@
         'minimum_applies_from_bytes': 16777216,
         'names_resolved': tuple(
           0.995,
+          None,
+        ),
+        'natural_goalkeeper_rating': 18,
+        'outfield_goalkeeper_block_low': tuple(
+          0.9,
           None,
         ),
         'past_dated_tail_ends': tuple(

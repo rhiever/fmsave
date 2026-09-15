@@ -187,6 +187,12 @@ def evaluate_players(
             applied,
         ),
         _gate(
+            "outfield_goalkeeper_block_low",
+            _rate(stats.outfield_goalkeeper_block_low, stats.outfield_players),
+            bounds.outfield_goalkeeper_block_low,
+            applied,
+        ),
+        _gate(
             "with_natural_position",
             _rate(stats.with_natural_position, records),
             bounds.with_natural_position,

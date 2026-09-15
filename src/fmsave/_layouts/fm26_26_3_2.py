@@ -318,14 +318,20 @@ GATE_BOUNDS = GateBounds(
     age_range_years=(14, 45),
     home_reputation_window=1_000,
     condition_sharpness_maximum=10_000,
+    natural_goalkeeper_rating=18,
+    goalkeeper_block_low_maximum=30,
     players_minimum=(5_000, None),
     person_blocks=(0.99, None),
     names_resolved=(0.995, None),
     relation_sentinel=(0.999, None),
     second_nation_qualifier=(0.995, None),
-    # Reading the attribute bytes one position early or late moves this share below or above
-    # the bound, so it stays narrow.
+    # Reading the attribute bytes one position late moves this share below the bound, and one
+    # position early moves it above, so the bound stays narrow.
     handling_above_finishing=(0.20, 0.30),
+    # Handling and throwing are the first and last of six adjacent goalkeeping attributes, which
+    # outfield players rate low. Reading the attribute bytes one position early or late puts an
+    # outfield attribute in one of the two, so this share falls far below the bound.
+    outfield_goalkeeper_block_low=(0.90, None),
     with_natural_position=(0.97, None),
     height_in_range=(0.999, None),
     height_median=(170, 190),

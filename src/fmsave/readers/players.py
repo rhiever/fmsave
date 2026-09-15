@@ -357,6 +357,8 @@ def collect_player_stats(
     with_person_block = 0
     with_resolved_name = 0
     handling_above_finishing = 0
+    outfield_players = 0
+    outfield_goalkeeper_block_low = 0
     with_natural_position = 0
     condition_sharpness_in_range = 0
     with_valid_join_date = 0
@@ -373,6 +375,8 @@ def collect_player_stats(
     lowest_age, highest_age = bounds.age_range_years
     home_reputation_window = bounds.home_reputation_window
     condition_sharpness_maximum = bounds.condition_sharpness_maximum
+    natural_goalkeeper_rating = bounds.natural_goalkeeper_rating
+    goalkeeper_block_low_maximum = bounds.goalkeeper_block_low_maximum
     for player in players:
         if player.personality is not None:
             with_person_block += 1
@@ -381,6 +385,13 @@ def collect_player_stats(
         raw_attributes = player.raw_attributes
         if raw_attributes.handling > raw_attributes.finishing:
             handling_above_finishing += 1
+        if player.positions.gk < natural_goalkeeper_rating:
+            outfield_players += 1
+            if (
+                raw_attributes.handling <= goalkeeper_block_low_maximum
+                and raw_attributes.throwing <= goalkeeper_block_low_maximum
+            ):
+                outfield_goalkeeper_block_low += 1
         if player.natural_positions:
             with_natural_position += 1
         height_counts[player.height_cm] += 1
@@ -423,6 +434,8 @@ def collect_player_stats(
         second_nation_entries=person_decoder.second_nation_entry_count,
         second_nation_qualifier_ok=person_decoder.second_nation_qualifier_ok_count,
         handling_above_finishing=handling_above_finishing,
+        outfield_players=outfield_players,
+        outfield_goalkeeper_block_low=outfield_goalkeeper_block_low,
         with_natural_position=with_natural_position,
         height_in_range=sum(height_counts[lowest_height : highest_height + 1]),
         condition_sharpness_in_range=condition_sharpness_in_range,

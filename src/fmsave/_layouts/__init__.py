@@ -410,13 +410,18 @@ class GateBounds:
 
     The readers count values inside these inclusive ranges: `height_range_cm` (heights),
     `age_range_years` (known ages), `home_reputation_window` (the largest difference between
-    home and current reputation counted as near) and `condition_sharpness_maximum` (the
-    largest condition and match sharpness on their stored scale).
+    home and current reputation counted as near), `condition_sharpness_maximum` (the
+    largest condition and match sharpness on their stored scale), `natural_goalkeeper_rating`
+    (the lowest goalkeeper rating that marks a natural goalkeeper, left out of the outfield
+    count) and `goalkeeper_block_low_maximum` (the highest raw handling and raw throwing counted
+    as low).
 
     Players: `players_minimum` (records), `person_blocks` (records with a person block),
     `names_resolved` (of person blocks), `relation_sentinel` (relation entries ending in the
     sentinel byte), `second_nation_qualifier` (second-nation entries with a known qualifier),
-    `handling_above_finishing` (all records), `with_natural_position`, `height_in_range`,
+    `handling_above_finishing` (all records), `outfield_goalkeeper_block_low` (outfield
+    players whose raw handling and raw throwing are both low, of outfield players),
+    `with_natural_position`, `height_in_range`,
     `height_median`, `age_median`, `aged_in_range` (of known ages),
     `condition_sharpness_in_range`, `join_date_valid`, `world_not_above_current`,
     `home_near_current`, `team_resolved` (of players with a team) and
@@ -439,12 +444,15 @@ class GateBounds:
     age_range_years: tuple[int, int]
     home_reputation_window: int
     condition_sharpness_maximum: int
+    natural_goalkeeper_rating: int
+    goalkeeper_block_low_maximum: int
     players_minimum: BoundPair
     person_blocks: BoundPair
     names_resolved: BoundPair
     relation_sentinel: BoundPair
     second_nation_qualifier: BoundPair
     handling_above_finishing: BoundPair
+    outfield_goalkeeper_block_low: BoundPair
     with_natural_position: BoundPair
     height_in_range: BoundPair
     height_median: BoundPair

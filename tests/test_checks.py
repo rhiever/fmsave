@@ -85,6 +85,7 @@ PLAYER_GATE_NAMES = (
     "relation_sentinel",
     "second_nation_qualifier",
     "handling_above_finishing",
+    "outfield_goalkeeper_block_low",
     "with_natural_position",
     "height_in_range",
     "height_median",
@@ -144,6 +145,8 @@ def healthy_player_stats(records: int = 20_000) -> PlayerStats:
         second_nation_entries=records // 4,
         second_nation_qualifier_ok=records // 4,
         handling_above_finishing=records // 4,
+        outfield_players=records * 9 // 10,
+        outfield_goalkeeper_block_low=records * 9 // 10,
         with_natural_position=records,
         height_in_range=records,
         condition_sharpness_in_range=records,
@@ -476,7 +479,7 @@ def test_the_enforce_message_holds_no_digits_beyond_rates_and_bounds() -> None:
     for gate_name in ("handling_above_finishing", "with_natural_position"):
         assert gate_name in remainder
         remainder = remainder.replace(gate_name, "")
-    for number_text in ("0.6172", "0.2", "0.3", "0.89", "0.97"):
+    for number_text in ("0.6172", "0.2..0.3", "0.89", "0.97"):
         assert number_text in remainder
         remainder = remainder.replace(number_text, "")
     assert re.search(r"\d", remainder) is None
@@ -485,18 +488,57 @@ def test_the_enforce_message_holds_no_digits_beyond_rates_and_bounds() -> None:
 
 
 @pytest.mark.parametrize(
-    "handling_above_finishing",
+    ("handling_above_finishing", "outfield_goalkeeper_block_low"),
     [
-        pytest.param(3_600, id="attribute bytes read one position late"),
-        pytest.param(12_200, id="attribute bytes read one position early"),
+        pytest.param(3_600, 3_600, id="attribute bytes read one position late"),
+        pytest.param(12_200, 6_300, id="attribute bytes read one position early"),
     ],
 )
-def test_a_one_byte_attribute_shift_fails_the_handling_gate(handling_above_finishing: int) -> None:
+def test_a_one_byte_attribute_shift_fails_both_attribute_gates(
+    handling_above_finishing: int, outfield_goalkeeper_block_low: int
+) -> None:
     shifted_stats = dataclasses.replace(
-        healthy_player_stats(), handling_above_finishing=handling_above_finishing
+        healthy_player_stats(),
+        handling_above_finishing=handling_above_finishing,
+        outfield_goalkeeper_block_low=outfield_goalkeeper_block_low,
     )
     results = evaluate_players(shifted_stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
-    assert failed_gate_names(results) == ["handling_above_finishing"]
+    assert failed_gate_names(results) == [
+        "handling_above_finishing",
+        "outfield_goalkeeper_block_low",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("outfield_goalkeeper_block_low", "passes"),
+    [
+        pytest.param(18_000, True, id="every outfield player low"),
+        pytest.param(16_200, True, id="exactly at the lower edge"),
+        pytest.param(16_199, False, id="just below the lower edge"),
+        pytest.param(0, False, id="no outfield player low"),
+    ],
+)
+def test_the_goalkeeper_block_gate_needs_a_high_share_of_low_outfield_players(
+    outfield_goalkeeper_block_low: int, passes: bool
+) -> None:
+    stats = dataclasses.replace(
+        healthy_player_stats(), outfield_goalkeeper_block_low=outfield_goalkeeper_block_low
+    )
+    assert stats.outfield_players == 18_000
+    assert BOUNDS.outfield_goalkeeper_block_low == (0.90, None)
+    results = evaluate_players(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    expected_failures = [] if passes else ["outfield_goalkeeper_block_low"]
+    assert failed_gate_names(results) == expected_failures
+
+
+def test_the_goalkeeper_block_gate_has_no_rate_without_outfield_players() -> None:
+    stats = dataclasses.replace(
+        healthy_player_stats(), outfield_players=0, outfield_goalkeeper_block_low=0
+    )
+    results = evaluate_players(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    gate = next(result for result in results if result.name == "outfield_goalkeeper_block_low")
+    assert gate.observed is None
+    assert not gate.passed
 
 
 # A fragment whose readers see known counts: two clubs, two players, a human manager.
@@ -759,6 +801,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         "relation_sentinel": 0.75,
         "second_nation_qualifier": 0.5,
         "handling_above_finishing": 0.5,
+        "outfield_goalkeeper_block_low": 0.0,
         "with_natural_position": 0.5,
         "height_in_range": 0.5,
         "height_median": 140,
@@ -964,6 +1007,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
             "relation_sentinel",
             "second_nation_qualifier",
             "handling_above_finishing",
+            "outfield_goalkeeper_block_low",
             "with_natural_position",
             "height_in_range",
             "height_median",
@@ -990,6 +1034,7 @@ def test_the_counted_ranges_come_from_the_gate_bounds(
             age_range_years=(28, 45),
             home_reputation_window=2_500,
             condition_sharpness_maximum=12_000,
+            goalkeeper_block_low_maximum=50,
         ),
     )
     with fmsave.open(counted_fragment_path) as career_save:
@@ -998,6 +1043,22 @@ def test_the_counted_ranges_come_from_the_gate_bounds(
     assert observed["aged_in_range"] == 0.0
     assert observed["home_near_current"] == 1.0
     assert observed["condition_sharpness_in_range"] == 1.0
+    # Only the outfield player counts: both of his goalkeeper-block bytes are at the maximum.
+    assert observed["outfield_goalkeeper_block_low"] == 1.0
+
+
+def test_the_goalkeeper_block_gate_leaves_out_players_rated_as_natural_goalkeepers(
+    counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Player A is rated 18 in goal with raw handling above 50; raising the natural rating to 19
+    # counts him as an outfield player whose goalkeeper block is not low.
+    with_bounds(
+        monkeypatch,
+        dataclasses.replace(BOUNDS, goalkeeper_block_low_maximum=50, natural_goalkeeper_rating=19),
+    )
+    with fmsave.open(counted_fragment_path) as career_save:
+        observed = observed_by_gate(reader_by_name(validate_save(career_save))["players"])
+    assert observed["outfield_goalkeeper_block_low"] == 0.5
 
 
 def test_status_confirmation_reads_its_position_from_the_status_layout() -> None:
