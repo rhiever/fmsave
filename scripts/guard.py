@@ -39,6 +39,7 @@ SAVE_MAGIC = bytes.fromhex("0201666d662e")
 SYMBOLIC_LINK_MODE = "120000"
 HEX_RUN_MINIMUM = 512
 BASE64_RUN_MINIMUM = 1024
+# The lookbehind lets a match start only at the start of a run, which keeps the scan linear.
 HEX_RUN_PATTERN = re.compile(rf"(?<![0-9A-Fa-f])[0-9A-Fa-f]{{{HEX_RUN_MINIMUM},}}")
 BASE64_RUN_PATTERN = re.compile(rf"(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/=_-]{{{BASE64_RUN_MINIMUM},}}")
 PRIVATE_FOLDER_NAME = ".local"

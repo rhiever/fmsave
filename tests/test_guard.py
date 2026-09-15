@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -275,10 +276,17 @@ def test_regular_and_executable_files_are_not_symbolic_links(
 
 HEX_ALPHABET = "0123456789abcdefABCDEF"
 BASE64_ALPHABET = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo+/_-="
+STRUCTURAL_OK_LINE = "guard: ok (structural checks only)"
+# A lookbehind for the repeated unit, then that unit (bare or in a group) repeated at least N times.
+LOOKBEHIND_RUN_SHAPE = re.compile(r"\(\?<!(?P<unit>.+)\)(?:(?P=unit)|\(\?:(?P=unit)\))\{\d+,\}\+?")
 
 
 def encoded_run(alphabet: str, length: int) -> str:
     return (alphabet * (length // len(alphabet) + 1))[:length]
+
+
+def blocked_line(problem_count: int) -> str:
+    return f"guard: {problem_count} problem(s) found; blocked"
 
 
 @pytest.mark.parametrize(
@@ -302,13 +310,12 @@ def test_long_encoded_run_is_blocked_at_its_threshold(
     run_text = encoded_run(alphabet, length)
     stage(repository, "data/payload.txt", f"first line\npayload = '{run_text}'\nlast line\n")
     assert run_guard(repository, "--staged") == expected_exit
-    error_output = capsys.readouterr().err
+    error_lines = capsys.readouterr().err.splitlines()
     reason = f"contains a long encoded run ({kind}, {length} characters)"
     if expected_exit:
-        assert f"data/payload.txt:2: {reason}" in error_output
+        assert error_lines == [f"guard: data/payload.txt:2: {reason}", blocked_line(1)]
     else:
-        assert "long encoded run" not in error_output
-    assert run_text[:24] not in error_output
+        assert error_lines == [STRUCTURAL_OK_LINE]
 
 
 def test_long_hex_run_is_reported_once_as_hex(
@@ -317,10 +324,17 @@ def test_long_hex_run_is_reported_once_as_hex(
     run_text = encoded_run(HEX_ALPHABET, 2048)
     stage(repository, "data/payload.txt", run_text + "\n")
     assert run_guard(repository, "--staged") == 1
-    error_output = capsys.readouterr().err
-    assert error_output.count("long encoded run") == 1
-    assert "contains a long encoded run (hex, 2048 characters)" in error_output
-    assert run_text[:24] not in error_output
+    assert capsys.readouterr().err.splitlines() == [
+        "guard: data/payload.txt:1: contains a long encoded run (hex, 2048 characters)",
+        blocked_line(1),
+    ]
+
+
+@pytest.mark.parametrize("pattern_name", ["HEX_RUN_PATTERN", "BASE64_RUN_PATTERN"])
+def test_encoded_run_pattern_starts_only_where_no_run_character_precedes(pattern_name: str) -> None:
+    """Without the leading lookbehind, every position inside a short run would be rescanned."""
+    pattern_text = getattr(guard, pattern_name).pattern
+    assert LOOKBEHIND_RUN_SHAPE.fullmatch(pattern_text) is not None, pattern_text
 
 
 def test_lock_file_with_many_hashes_passes(
