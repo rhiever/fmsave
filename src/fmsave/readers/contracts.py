@@ -40,7 +40,6 @@ from fmsave.readers.clubs import ClubIndex
 
 _U32 = struct.Struct("<I")
 _FOUR_FF = b"\xff\xff\xff\xff"
-_ZERO8 = bytes(8)
 _MISSING_U32 = 0xFFFFFFFF
 _MISSING_U16 = 0xFFFF
 _DATE_CACHE_MISS = object()
@@ -48,9 +47,11 @@ _DATE_CACHE_MISS = object()
 # One decoded chain record, before assembly, in this fixed field order: the first 7 fields
 # match ContractChainEntry's own field order exactly (club_uid, club_name, team_id, wage,
 # start, end, has_tail), so a ContractChainEntry can be built positionally straight from a
-# record's first 7 items. squad_status_raw, event_count, clauses and contract_type_raw are
-# None (and unknown is None, clauses is ()), when has_tail is False; contract_type_raw stays
-# None either way when the record's head was not found.
+# record's first 7 items. When has_tail is False, squad_status_raw, event_count,
+# contract_type_raw and unknown are None and clauses is (). When has_tail is True,
+# squad_status_raw and event_count are ints and unknown is a dict of the tail's unknown
+# fields; clauses is () unless a clause table was found, and contract_type_raw is None and
+# unknown has no money_* keys unless the record's head was found.
 type _ChainRecordTuple = tuple[
     "int | None",
     "str | None",
@@ -67,12 +68,42 @@ type _ChainRecordTuple = tuple[
 ]
 
 
+def _build_unpack_ordered_struct(
+    struct_description: str,
+    fields: list[tuple[int, str, str]],
+    *,
+    start_offset: int | None = None,
+) -> tuple[struct.Struct, int]:
+    """(struct, start_offset) for `fields`, which are listed in the order the decoder unpacks
+    them into fixed names.
+
+    Raises:
+        ValueError: Two fields overlap, or the layout's offsets place the fields in a
+            different order from the one listed, so a fixed-name unpack would misassign them.
+    """
+    struct_object, struct_start_offset, index_by_name = build_gap_padded_struct(
+        fields, start_offset=start_offset
+    )
+    unpack_order = [field_name for _offset, _format_code, field_name in fields]
+    layout_order = sorted(index_by_name, key=index_by_name.__getitem__)
+    if layout_order != unpack_order:
+        raise ValueError(
+            f"the {struct_description} fields must be laid out in the order they are "
+            f"unpacked ({', '.join(unpack_order)}), but the layout orders them "
+            f"{', '.join(layout_order)}"
+        )
+    return struct_object, struct_start_offset
+
+
 def _build_tail_struct(layout: ContractLayout) -> struct.Struct:
     """One struct spanning the whole tail block, from `E` (offset 0) through event_count.
 
     Reads e2, e8, e12, e16, e20, e24, the end date's raw u32 (kept raw for the date cache),
     squad status, e37, e38, e39 and event_count; skips the sentinel bytes the locator
     already checked and the excluded printed-start date at `tail_end_offset + 4`.
+
+    Raises:
+        ValueError: The tail fields overlap or are not laid out in unpack order.
     """
     fields = [
         (layout.tail_e2_offset, "H", "e2"),
@@ -88,14 +119,16 @@ def _build_tail_struct(layout: ContractLayout) -> struct.Struct:
         (layout.tail_e39_offset, "B", "e39"),
         (layout.tail_event_count_offset, "I", "event_count"),
     ]
-    struct_object, start_offset, _index_by_name = build_gap_padded_struct(fields, start_offset=0)
-    if start_offset != 0:
-        raise ValueError("the tail struct must start at E (offset 0)")
+    struct_object, _start_offset = _build_unpack_ordered_struct("tail", fields, start_offset=0)
     return struct_object
 
 
 def _build_head_struct(layout: ContractLayout) -> tuple[struct.Struct, int]:
-    """(struct, start_offset): one struct spanning the head gate through money_c."""
+    """(struct, start_offset): one struct spanning the head gate through money_c.
+
+    Raises:
+        ValueError: The head fields overlap or are not laid out in unpack order.
+    """
     fields = [
         (layout.head_gate_offset, "H", "gate"),
         (layout.head_type_offset, "B", "type"),
@@ -103,32 +136,37 @@ def _build_head_struct(layout: ContractLayout) -> tuple[struct.Struct, int]:
         (layout.head_money_b_offset, "I", "money_b"),
         (layout.head_money_c_offset, "I", "money_c"),
     ]
-    struct_object, start_offset, _index_by_name = build_gap_padded_struct(fields)
-    return struct_object, start_offset
+    return _build_unpack_ordered_struct("head", fields)
 
 
 def _build_team_wage_struct(layout: ContractLayout) -> tuple[struct.Struct, int]:
-    """(struct, start_offset): one struct reading team_id and wage together."""
+    """(struct, start_offset): one struct reading team_id and wage together.
+
+    Raises:
+        ValueError: The two fields overlap or wage is laid out before team_id.
+    """
     fields = [
         (layout.team_id_offset, "I", "team_id"),
         (layout.wage_offset, "I", "wage"),
     ]
-    struct_object, start_offset, _index_by_name = build_gap_padded_struct(fields)
-    return struct_object, start_offset
+    return _build_unpack_ordered_struct("team and wage", fields)
 
 
 def _build_clause_entry_struct(layout: ContractLayout) -> struct.Struct:
     """One clause entry's struct (value, parameter, kind), starting at offset 0.
 
     Raises:
-        ValueError: The entry's fields do not fit exactly in `clause_entry_bytes`.
+        ValueError: The entry's fields overlap, are not laid out in unpack order, or do
+            not fit exactly in `clause_entry_bytes`.
     """
     fields = [
         (layout.clause_value_offset, "I", "value"),
         (layout.clause_parameter_offset, "H", "parameter"),
         (layout.clause_kind_offset, "H", "kind"),
     ]
-    struct_object, _start_offset, _index_by_name = build_gap_padded_struct(fields, start_offset=0)
+    struct_object, _start_offset = _build_unpack_ordered_struct(
+        "clause entry", fields, start_offset=0
+    )
     if struct_object.size != layout.clause_entry_bytes:
         raise ValueError(
             f"a clause entry struct is {struct_object.size} bytes, not clause_entry_bytes "
@@ -151,7 +189,26 @@ def _build_clause_structs(
 
 
 def _build_clause_prefixes(layout: ContractLayout) -> tuple[bytes, ...]:
-    """`FF` x `clause_ff_count`, `00` x `clause_zero_count`, then the count byte, per count."""
+    """`FF` x `clause_ff_count`, `00` x `clause_zero_count`, then the count byte, per count.
+
+    Each needle is matched from `clause_ff_offset` as one contiguous run.
+
+    Raises:
+        ValueError: The zero run does not start right after the `FF` run, or the count byte
+            does not sit right after the zero run.
+    """
+    zero_run_offset = layout.clause_ff_offset + layout.clause_ff_count
+    if layout.clause_zero_offset != zero_run_offset:
+        raise ValueError(
+            f"clause_zero_offset ({layout.clause_zero_offset}) must immediately follow the FF "
+            f"run (clause_ff_offset + clause_ff_count = {zero_run_offset})"
+        )
+    count_byte_offset = layout.clause_zero_offset + layout.clause_zero_count
+    if layout.clause_count_offset != count_byte_offset:
+        raise ValueError(
+            f"clause_count_offset ({layout.clause_count_offset}) must immediately follow the "
+            f"zero run (clause_zero_offset + clause_zero_count = {count_byte_offset})"
+        )
     return tuple(
         b"\xff" * layout.clause_ff_count + b"\x00" * layout.clause_zero_count + bytes([count])
         for count in range(layout.clause_max_count + 1)
@@ -177,6 +234,20 @@ def _build_tail_signature(layout: ContractLayout) -> tuple[bytes, int]:
     return signature, byte_offset
 
 
+def _build_fallback_zero_needle(layout: ContractLayout) -> bytes:
+    """`fallback_nonzero_length` zero bytes: a pair is rejected when the bytes at
+    `j + fallback_nonzero_offset` start with this needle.
+
+    Raises:
+        ValueError: `fallback_nonzero_length` is below 1, which would reject every pair.
+    """
+    if layout.fallback_nonzero_length < 1:
+        raise ValueError(
+            f"fallback_nonzero_length ({layout.fallback_nonzero_length}) must be at least 1"
+        )
+    return bytes(layout.fallback_nonzero_length)
+
+
 def _new_date_cache() -> dict[int, date | None]:
     return {}
 
@@ -197,11 +268,16 @@ def _new_contract_type_cache() -> dict[int, CodedValue[ContractType]]:
 class ContractDecoder:
     """Decodes contract chains for one save; built once per `players()`/`contracts()` call.
 
-    Every offset, size, sentinel, Struct and needle the hot path (`decode`,
-    `decode_chain_record` and the methods they call) uses is bound here as a plain field,
-    computed once from `ContractLayout` at build time by `build_contract_decoder`: no method
-    below loads a `ContractLayout` attribute, and the decoder keeps no reference to the
-    layout itself. The per-save caches (dates by their raw stored u32, and `CodedValue`
+    `build_contract_decoder` binds, as plain fields computed once: every `ContractLayout`
+    offset, count and value the hot path (`decode`, `decode_chain_record` and the methods
+    they call) reads; the Structs, the tail signature, the clause prefixes and the fallback
+    zero needle derived from them; the team-to-club lookup; the save clock and file name.
+    No method below loads a `ContractLayout` attribute, and the decoder keeps no reference
+    to the layout itself. The module constants and literals that remain in the methods
+    describe things `ContractLayout` does not, for example the u32 width of the selector
+    and of each date, the `E+0`/`E+1` zero bytes the tail locator checks, the fallback
+    reader's `FF FF FF FF` needle and its `j = i + 8`, and the `FFFFFFFF` and `FFFF` values
+    that mean a clause value or parameter is absent. The per-save caches (dates by their raw stored u32, and `CodedValue`
     labels by raw code) are keyed by values shared across many players; `CodedValue` objects
     are never cached process-globally, since a cache tied to this decoder is dropped with
     the save.
@@ -252,6 +328,7 @@ class ContractDecoder:
     fallback_gate_length: int
     fallback_nonzero_offset: int
     fallback_nonzero_length: int
+    fallback_zero_needle: bytes
     fallback_end_date_offset: int
     fallback_start_date_offset: int
 
@@ -301,11 +378,17 @@ class ContractDecoder:
     def _locate_tail(self, game_db: bytes, chain_tag_offset: int) -> int | None:
         """The tail start offset E, or None when no candidate's checks all pass.
 
+        A candidate E is a tail only when the bytes at `E+0` and `E+1` are both zero, the
+        tail signature (the sentinel byte and word) sits at `E + tail_signature_offset`, the
+        whole tail struct fits inside game_db, and the stored event count equals the
+        candidate's event count.
+
         Tries `event_count = 0` (`E = chain_tag_offset - tail_base_offset`) directly first.
-        Failing that, it searches right to left for the tail signature with `rfind`, so
-        candidates come back in ascending `event_count` order; a hit is a real tail only
-        when its distance from the `event_count = 0` position is a multiple of
-        `tail_step_bytes` and its own stored event count matches that multiple.
+        Failing that, it searches right to left for the tail signature with `rfind`, down to
+        `event_count = tail_max_event_count`, so candidates come back in ascending
+        `event_count` order; a hit is considered only when its distance from the
+        `event_count = 0` position is a multiple of `tail_step_bytes`, and is accepted when
+        the checks above pass for that multiple.
         """
         first_candidate = chain_tag_offset - self.tail_base_offset
         if first_candidate < 0:
@@ -576,6 +659,7 @@ class ContractDecoder:
         gate_length = self.fallback_gate_length
         nonzero_offset = self.fallback_nonzero_offset
         nonzero_length = self.fallback_nonzero_length
+        zero_needle = self.fallback_zero_needle
         end_date_offset = self.fallback_end_date_offset
         start_date_offset = self.fallback_start_date_offset
         find = game_db.find
@@ -589,7 +673,7 @@ class ContractDecoder:
             if (
                 dates_offset + gate_length <= limit
                 and nonzero_start + nonzero_length <= game_db_length
-                and not startswith(_ZERO8, nonzero_start)
+                and not startswith(zero_needle, nonzero_start)
             ):
                 raw_end: int = _U32.unpack_from(game_db, dates_offset + end_date_offset)[0]
                 end_date = self._cached_date(game_db, raw_end, dates_offset + end_date_offset)
@@ -801,9 +885,11 @@ def build_contract_decoder(
     """Build the per-save contract decoder from the save's layout, its ClubIndex and clock.
 
     Raises:
-        ValueError: A layout-derived Struct or needle would be inconsistent (overlapping
-            fields, a clause entry whose size does not match clause_entry_bytes, or a tail
-            sentinel word that does not immediately follow the sentinel byte).
+        ValueError: A layout-derived Struct or needle would be inconsistent: overlapping
+            fields, fields not laid out in the order they are unpacked, a clause entry
+            whose size does not match clause_entry_bytes, a clause FF run, zero run and
+            count byte that are not contiguous, a tail sentinel word that does not
+            immediately follow the sentinel byte, or a fallback_nonzero_length below 1.
     """
     club_by_team_id: dict[int, tuple[int | None, str | None]] = {}
     for team_id, (club_uid, _slot) in club_index.team_to_club.items():
@@ -849,6 +935,7 @@ def build_contract_decoder(
         fallback_gate_length=layout.fallback_gate_length,
         fallback_nonzero_offset=layout.fallback_nonzero_offset,
         fallback_nonzero_length=layout.fallback_nonzero_length,
+        fallback_zero_needle=_build_fallback_zero_needle(layout),
         fallback_end_date_offset=layout.fallback_end_date_offset,
         fallback_start_date_offset=layout.fallback_start_date_offset,
         empty_unknown=FrozenMapping({}),

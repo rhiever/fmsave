@@ -385,6 +385,67 @@ def test_player_d_broken_tail_and_stale_fallback() -> None:
     assert contract.clauses == ()
 
 
+UNREGISTERED_TEAM_ID = 79999  # no club in the fixture fields this team
+
+
+@pytest.mark.parametrize(
+    ("player_team_id", "chain_record_team_id", "player_club_uid", "chain_club_uids"),
+    [
+        pytest.param(
+            UNREGISTERED_TEAM_ID,
+            NORTHBRIDGE_TEAM_A,
+            None,
+            (NORTHBRIDGE_CLUB_UID,),
+            id="player-team-unresolved",
+        ),
+        pytest.param(
+            SOUTHPORT_TEAM_ID,
+            UNREGISTERED_TEAM_ID,
+            SOUTHPORT_CLUB_UID,
+            (None,),
+            id="first-record-team-unresolved",
+        ),
+    ],
+)
+def test_on_loan_is_none_unless_both_the_player_and_first_record_teams_resolve(
+    player_team_id: int,
+    chain_record_team_id: int,
+    player_club_uid: int | None,
+    chain_club_uids: tuple[int | None, ...],
+) -> None:
+    record, _ = contract_bytes(
+        selector=71,
+        team_id=chain_record_team_id,
+        wage=2500,
+        start=packed_date(1, 2029),
+        tail={"end": packed_date(1, 2032), "status": 4},
+        head={"type": 1},
+        clauses=(),
+    )
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body(
+            [NORTHBRIDGE_CLUB, SOUTHPORT_CLUB],
+            [NORTHBRIDGE_STATUS, SOUTHPORT_STATUS],
+            gap_bytes=2000,
+        )
+        + _player_bytes(pindex=70, uid=900030, team_id=player_team_id, trailing=record)
+    )
+    game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
+    decoded = decode_all(game_db)
+    player, contract = by_uid(decoded, 900030)
+    assert contract is not None
+    # The other side of the pair does resolve, so only the unresolved side decides.
+    assert player.club_uid == player_club_uid
+    assert contract.chain_club_uids == chain_club_uids
+    assert contract.on_loan is None
+    assert contract.loan_parent_club_uid is None
+    assert contract.loan_parent_club_name is None
+    assert player.on_loan is None
+    assert player.loan_parent_club_uid is None
+    assert player.loan_parent_club_name is None
+
+
 def test_no_record_and_no_fallback_gives_no_contract() -> None:
     payload = (
         name_pools_bytes([], [], [])
@@ -533,8 +594,100 @@ def test_build_contract_decoder_rejects_a_non_adjacent_tail_sentinel() -> None:
 def test_build_contract_decoder_rejects_an_overlapping_clause_entry() -> None:
     layout = find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout
     broken_layout = dataclasses.replace(layout, clause_parameter_offset=1)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="'parameter' at offset 1 overlaps an earlier field"):
         build_contract_decoder(broken_layout, EMPTY_CLUB_INDEX, date(2031, 1, 1), FILE_NAME)
+
+
+@pytest.mark.parametrize(
+    ("layout_changes", "struct_description"),
+    [
+        pytest.param(
+            {"clause_kind_offset": 0, "clause_parameter_offset": 2, "clause_value_offset": 4},
+            "clause entry",
+            id="clause-entry",
+        ),
+        pytest.param({"tail_e37_offset": 38, "tail_e38_offset": 37}, "tail", id="tail"),
+        pytest.param({"head_money_a_offset": -28, "head_money_b_offset": -32}, "head", id="head"),
+        pytest.param({"team_id_offset": 17, "wage_offset": 9}, "team and wage", id="team-wage"),
+    ],
+)
+def test_build_contract_decoder_rejects_fields_not_laid_out_in_unpack_order(
+    layout_changes: dict[str, int], struct_description: str
+) -> None:
+    """Each struct is unpacked into fixed names in one order, so a layout whose offsets
+    reorder those fields, without overlapping them, must fail at build time instead of
+    silently swapping values.
+    """
+    broken_layout = dataclasses.replace(registered_contract_layout(), **layout_changes)
+    with pytest.raises(
+        ValueError,
+        match=f"the {struct_description} fields must be laid out in the order they are unpacked",
+    ):
+        _test_contract_decoder(broken_layout)
+
+
+@pytest.mark.parametrize(
+    ("layout_changes", "message"),
+    [
+        pytest.param(
+            {"clause_zero_offset": -7},
+            "clause_zero_offset .* must immediately follow the FF run",
+            id="gap-after-ff-run",
+        ),
+        pytest.param(
+            {"clause_ff_count": 7},
+            "clause_zero_offset .* must immediately follow the FF run",
+            id="short-ff-run",
+        ),
+        pytest.param(
+            {"clause_count_offset": -4},
+            "clause_count_offset .* must immediately follow the zero run",
+            id="gap-after-zero-run",
+        ),
+    ],
+)
+def test_build_contract_decoder_rejects_a_non_contiguous_clause_prefix(
+    layout_changes: dict[str, int], message: str
+) -> None:
+    broken_layout = dataclasses.replace(registered_contract_layout(), **layout_changes)
+    with pytest.raises(ValueError, match=message):
+        _test_contract_decoder(broken_layout)
+
+
+def test_build_contract_decoder_rejects_a_zero_fallback_nonzero_length() -> None:
+    broken_layout = dataclasses.replace(registered_contract_layout(), fallback_nonzero_length=0)
+    with pytest.raises(ValueError, match="fallback_nonzero_length .* must be at least 1"):
+        _test_contract_decoder(broken_layout)
+
+
+def test_fallback_all_zero_check_spans_fallback_nonzero_length_bytes() -> None:
+    """Four zero bytes then four nonzero bytes at `j + fallback_nonzero_offset`: an 8-byte
+    all-zero check accepts the pair, and a 4-byte one rejects it.
+    """
+    layout = registered_contract_layout()
+    assert layout.fallback_nonzero_length == 8
+    hit = layout.fallback_start_from_record
+    pattern = (
+        b"\xff\xff\xff\xff"
+        + bytes(4)
+        + packed_date(1, 2032)
+        + packed_date(1, 2027)
+        + bytes(4)
+        + bytes([0x33] * 4)
+    )
+    game_db = bytes(hit) + pattern + bytes(200)
+    record_window_end = len(game_db)
+
+    eight_byte_decoder = _test_contract_decoder(layout)
+    assert eight_byte_decoder._find_fallback_dates(game_db, 0, record_window_end) == (
+        date(2027, 1, 1),
+        date(2032, 1, 1),
+    )
+
+    four_byte_decoder = _test_contract_decoder(
+        dataclasses.replace(layout, fallback_nonzero_length=4)
+    )
+    assert four_byte_decoder._find_fallback_dates(game_db, 0, record_window_end) == (None, None)
 
 
 def test_fallback_gate_accepts_j_plus_16_at_limit_and_rejects_one_byte_further() -> None:
@@ -727,8 +880,12 @@ def test_tail_locator_matches_the_reference_loop_on_seeded_synthetic_buffers() -
     random_generator = random.Random(20260915)
     small_alphabet = bytes(range(6))
     step_bytes = layout.tail_step_bytes
+    boundary_event_counts = range(195, 206)
+    planted_boundary_event_counts: set[int] = set()
 
     for _trial in range(1000):
+        boundary_event_count: int | None = None
+        boundary_candidate: int | None = None
         scenario = random_generator.random()
         if scenario < 0.12:
             # A genuine tail near the event-count boundary (195-205; tail_max_event_count
@@ -736,8 +893,9 @@ def test_tail_locator_matches_the_reference_loop_on_seeded_synthetic_buffers() -
             buffer_length = random_generator.randint(6200, 7200)
             chain_tag_offset = random_generator.randint(6100, buffer_length - 1)
         elif scenario < 0.30:
-            # Tag offsets below 87: the rfind bounds can go negative here (tail_base_offset
-            # is 66, tail_step_bytes is 29; 66 + 29 - 66 + 3 + 5 crosses zero below 87).
+            # Tag offsets near and below 87: the rfind end is chain_tag_offset - 66 - 29 +
+            # 3 + 5 = chain_tag_offset - 87 (tail_base_offset 66, tail_step_bytes 29, a
+            # 5-byte signature at E+3), so it is zero or negative for offsets up to 87.
             buffer_length = random_generator.randint(120, 400)
             chain_tag_offset = random_generator.randint(0, 90)
         else:
@@ -747,10 +905,16 @@ def test_tail_locator_matches_the_reference_loop_on_seeded_synthetic_buffers() -
         game_db = bytearray(random_generator.choice(small_alphabet) for _ in range(buffer_length))
 
         if scenario < 0.12:
-            event_count = random_generator.randint(195, 205)
-            _plant_tail_candidate(
-                game_db, chain_tag_offset, min(event_count, layout.tail_max_event_count), layout
+            # Planted at the drawn count as is, including counts past tail_max_event_count,
+            # which neither locator may accept.
+            boundary_event_count = random_generator.randint(
+                boundary_event_counts.start, boundary_event_counts.stop - 1
             )
+            boundary_candidate = _plant_tail_candidate(
+                game_db, chain_tag_offset, boundary_event_count, layout
+            )
+            assert boundary_candidate is not None
+            planted_boundary_event_counts.add(boundary_event_count)
         elif scenario < 0.42:
             # Two valid tails: the nearer one (lower event_count) must win.
             near_count = random_generator.randint(0, 5)
@@ -799,7 +963,19 @@ def test_tail_locator_matches_the_reference_loop_on_seeded_synthetic_buffers() -
         frozen_game_db = bytes(game_db)
         fast_result = decoder._locate_tail(frozen_game_db, chain_tag_offset)
         reference_result = _reference_locate_tail(frozen_game_db, chain_tag_offset, layout)
+        if boundary_event_count is not None:
+            expected_reference_result = (
+                None if boundary_event_count > layout.tail_max_event_count else boundary_candidate
+            )
+            assert reference_result == expected_reference_result, (
+                chain_tag_offset,
+                buffer_length,
+                boundary_event_count,
+            )
         assert fast_result == reference_result, (chain_tag_offset, buffer_length, scenario)
+
+    # Every count on both sides of tail_max_event_count was really planted.
+    assert planted_boundary_event_counts == set(boundary_event_counts)
 
 
 def test_field_status_resolves_contract_wage_through_contract_class() -> None:
