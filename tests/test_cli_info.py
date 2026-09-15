@@ -4,11 +4,14 @@ import json
 import subprocess
 import sys
 import time
+import warnings
 from pathlib import Path
 
 import pytest
 
+import fmsave
 from fmsave import cli
+from tests.fixtures.career import career_fragment
 from tests.fixtures.container import (
     SectionFrame,
     build_container_fragment,
@@ -83,20 +86,26 @@ def test_info_json(fragment_path: Path, capsys: pytest.CaptureFixture[str]) -> N
 SUMMARY_TEXTS = ("Alex Manager", "Northbridge", "Example League")
 
 
-@pytest.mark.parametrize("show_name", [False, True], ids=["hidden", "show-name"])
-@pytest.mark.parametrize("json_output", [False, True], ids=["text", "json"])
-def test_info_never_prints_summary_strings(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], show_name: bool, json_output: bool
-) -> None:
+def summary_fragment_path(tmp_path: Path) -> Path:
     summary = save_summary_body(
         leading_strings=("Example League",),
         trailing_strings=("Alex Manager",),
         club_uid_after=("Northbridge", 5001),
     )
-    file_path = build_container_fragment(replaced_sections(save_game_summary=summary)).write(
+    return build_container_fragment(replaced_sections(save_game_summary=summary)).write(
         tmp_path / "career.bin"
     )
-    arguments = ["info", str(file_path)]
+
+
+@pytest.mark.parametrize(
+    ("json_output", "show_name"),
+    [(False, False), (False, True), (True, False)],
+    ids=["text", "text-show-name", "json"],
+)
+def test_info_prints_summary_strings_only_as_json_with_show_name(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], show_name: bool, json_output: bool
+) -> None:
+    arguments = ["info", str(summary_fragment_path(tmp_path))]
     if json_output:
         arguments.append("--json")
     if show_name:
@@ -106,6 +115,58 @@ def test_info_never_prints_summary_strings(
     assert "26.3.2+2329565" in output
     for summary_text in SUMMARY_TEXTS:
         assert summary_text not in output
+    if json_output:
+        assert "summary_strings" not in json.loads(output)
+
+
+def test_info_json_with_show_name_includes_the_summary_strings(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    arguments = ["info", str(summary_fragment_path(tmp_path)), "--json", "--show-name"]
+    assert cli.main(arguments) == cli.EXIT_OK
+    record = json.loads(capsys.readouterr().out)
+    assert list(record)[-2:] == ["save_name", "summary_strings"]
+    assert record["summary_strings"] == [
+        "Example League",
+        "26.3.2+2329565",
+        "Alex Manager",
+        "Northbridge",
+    ]
+
+
+def test_info_on_a_whole_career_shows_summary_strings_only_on_request(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    career_path = career_fragment().write(tmp_path / "Ünïcode folder" / "career.fm")
+    assert cli.main(["info", str(career_path), "--json"]) == cli.EXIT_OK
+    assert "summary_strings" not in json.loads(capsys.readouterr().out)
+    assert cli.main(["info", str(career_path), "--json", "--show-name"]) == cli.EXIT_OK
+    assert "Alex Manager" in json.loads(capsys.readouterr().out)["summary_strings"]
+
+
+def test_fmsave_warnings_print_as_fmsave_warnings(
+    fragment_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def warn_and_succeed(arguments: object) -> int:
+        warnings.warn(fmsave.FmsaveWarning("an example caution"), stacklevel=1)
+        return cli.EXIT_OK
+
+    monkeypatch.setattr(cli, "run_info", warn_and_succeed)
+    assert cli.main(["info", str(fragment_path)]) == cli.EXIT_OK
+    assert "fmsave: warning: an example caution" in capsys.readouterr().err
+
+
+def test_other_warnings_are_emitted_as_python_warnings(
+    fragment_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def warn_and_succeed(arguments: object) -> int:
+        warnings.warn("a library caution", DeprecationWarning, stacklevel=1)
+        return cli.EXIT_OK
+
+    monkeypatch.setattr(cli, "run_info", warn_and_succeed)
+    with pytest.warns(DeprecationWarning, match="a library caution"):
+        assert cli.main(["info", str(fragment_path)]) == cli.EXIT_OK
+    assert "fmsave: warning" not in capsys.readouterr().err
 
 
 def test_info_json_with_non_ascii_name(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

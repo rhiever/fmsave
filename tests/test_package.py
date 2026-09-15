@@ -41,6 +41,12 @@ def test_unknown_build_warning_is_a_user_warning() -> None:
     assert issubclass(fmsave.UnknownBuildWarning, UserWarning)
 
 
+def test_warnings_share_a_base() -> None:
+    assert "FmsaveWarning" in fmsave.__all__
+    assert issubclass(fmsave.FmsaveWarning, UserWarning)
+    assert issubclass(fmsave.UnknownBuildWarning, fmsave.FmsaveWarning)
+
+
 def test_all_names_exist() -> None:
     for exported_name in fmsave.__all__:
         assert hasattr(fmsave, exported_name), exported_name

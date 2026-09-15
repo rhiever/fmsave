@@ -35,5 +35,9 @@ class AmbiguousNameError(FmsaveError):
     """A name matched more than one record where exactly one was needed."""
 
 
-class UnknownBuildWarning(UserWarning):
+class FmsaveWarning(UserWarning):
+    """Base class for every warning fmsave issues on purpose."""
+
+
+class UnknownBuildWarning(FmsaveWarning):
     """The save comes from an FM26 build fmsave has no layout tables for."""
