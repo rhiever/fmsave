@@ -152,12 +152,16 @@ class OutputWriteError(Exception):
     Attributes:
         write_error: The OSError the output raised.
         to_standard_output: Whether the output was standard output rather than a file.
+        while_opening: Whether the output file failed to open, before anything was written.
     """
 
-    def __init__(self, write_error: OSError, *, to_standard_output: bool) -> None:
+    def __init__(
+        self, write_error: OSError, *, to_standard_output: bool, while_opening: bool = False
+    ) -> None:
         super().__init__(write_error.strerror or type(write_error).__name__)
         self.write_error = write_error
         self.to_standard_output = to_standard_output
+        self.while_opening = while_opening
 
 
 class CommandLineParser(argparse.ArgumentParser):
@@ -509,7 +513,7 @@ def check_output_path(output_path: Path, save_path: Path) -> None:
 
 @contextlib.contextmanager
 def output_write_errors(*, to_standard_output: bool) -> Generator[None]:
-    """Raise an OSError from opening, writing or flushing output as an OutputWriteError.
+    """Raise an OSError from writing, flushing or closing output as an OutputWriteError.
 
     Only output is written inside the block, so a failure there is never a failure to read the
     save.
@@ -532,14 +536,23 @@ def is_closed_pipe_error(write_error: OSError) -> bool:
 
 @contextlib.contextmanager
 def output_stream(output_path: Path | None) -> Generator[TextIO]:
-    """Yield the output file opened as UTF-8, or standard output reconfigured to UTF-8."""
+    """Yield the output file opened as UTF-8, or standard output reconfigured to UTF-8.
+
+    Raises:
+        OutputWriteError: The output file cannot be opened. Failures while writing to it or
+            closing it are raised as they are.
+    """
     if output_path is None:
         standard_output = sys.stdout
         if isinstance(standard_output, io.TextIOWrapper):
             standard_output.reconfigure(encoding="utf-8", newline="")
         yield standard_output
         return
-    with open(output_path, "w", encoding="utf-8", newline="") as file_stream:
+    try:
+        file_stream = open(output_path, "w", encoding="utf-8", newline="")  # noqa: SIM115
+    except OSError as error:
+        raise OutputWriteError(error, to_standard_output=False, while_opening=True) from error
+    with file_stream:
         yield file_stream
 
 
@@ -652,10 +665,10 @@ def run_command(arguments: argparse.Namespace) -> int:
 
 
 def silence_standard_output() -> None:
-    """Point the process's standard output at the null device after its reader has gone away.
+    """Point the process's standard output at the null device after a write to it failed.
 
-    Without this, flushing standard output at exit fails again and prints an error. A replaced
-    sys.stdout, such as a test capture, is left alone.
+    Text that could not be written stays buffered, and flushing it again at exit would fail and
+    print an error. A replaced sys.stdout, such as a test capture, is left alone.
     """
     process_output = sys.__stdout__
     if process_output is None or sys.stdout is not process_output:
@@ -682,7 +695,7 @@ def run_guarded(arguments: argparse.Namespace) -> tuple[int, str | None]:
         if error.to_standard_output:
             # Standard output still holds unwritten text, which would fail again at exit.
             silence_standard_output()
-        if is_closed_pipe_error(error.write_error):
+        if not error.while_opening and is_closed_pipe_error(error.write_error):
             return EXIT_UNEXPECTED, None
         return EXIT_UNEXPECTED, f"cannot write the output: {error}"
     except CommandUsageError as error:

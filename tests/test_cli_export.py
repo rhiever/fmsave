@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import csv
 import errno
+import functools
 import io
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 
@@ -622,6 +624,34 @@ def test_an_output_file_that_is_a_closed_pipe_exits_quietly(
     assert captured_output.err == ""
 
 
+@pytest.mark.parametrize(
+    ("open_error", "platform_name"),
+    [
+        pytest.param(OSError(errno.EINVAL, "Invalid argument"), "win32", id="windows-einval"),
+        pytest.param(BrokenPipeError(errno.EPIPE, "Broken pipe"), "linux", id="broken-pipe"),
+    ],
+)
+def test_an_output_file_that_fails_to_open_is_never_quiet(
+    save_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    open_error: OSError,
+    platform_name: str,
+) -> None:
+    def failing_open(*arguments: object, **keyword_arguments: object) -> NoReturn:
+        raise open_error
+
+    monkeypatch.setattr(cli, "open", failing_open, raising=False)
+    monkeypatch.setattr(sys, "platform", platform_name)
+    output_path = save_path.parent / "bad?.csv"
+    exit_code = cli.main(["export", str(save_path), "players", "--all", "-o", str(output_path)])
+    monkeypatch.undo()
+    assert exit_code == cli.EXIT_UNEXPECTED
+    captured_output = capsys.readouterr()
+    assert captured_output.out == ""
+    assert captured_output.err == f"fmsave: error: cannot write the output: {open_error.strerror}\n"
+
+
 def test_an_output_file_that_cannot_be_opened_is_a_write_failure(
     save_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -648,13 +678,6 @@ def test_a_closed_pipe_exits_quietly_from_a_real_process(save_path: Path) -> Non
     assert error_bytes == b""
 
 
-def forbid_file_growth() -> None:
-    """Limit the child process to files of zero bytes, so writes to a file fail with EFBIG."""
-    import resource
-
-    resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
-
-
 @pytest.mark.skipif(sys.platform == "win32", reason="file size limits need POSIX resource limits")
 @pytest.mark.parametrize(
     "command_tokens",
@@ -667,6 +690,10 @@ def forbid_file_growth() -> None:
 def test_a_standard_output_file_that_cannot_grow_gives_one_write_message(
     save_path: Path, tmp_path: Path, command_tokens: list[str]
 ) -> None:
+    import resource
+
+    # The child may create files of zero bytes only, so its writes to the file fail with EFBIG.
+    forbid_file_growth = functools.partial(resource.setrlimit, resource.RLIMIT_FSIZE, (0, 0))
     redirected_output_path = tmp_path / "redirected output.txt"
     with redirected_output_path.open("wb") as redirected_output:
         completed_process = subprocess.run(
