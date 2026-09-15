@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import pickle
+import random
+import re
 from datetime import date
 from typing import NamedTuple
 
@@ -14,7 +16,13 @@ from fmsave.models.common import CodedValue
 from fmsave.models.players import Personality, Trait
 from fmsave.readers.clubs import find_club_layouts, read_club_index
 from fmsave.readers.names import locate_name_pools
-from fmsave.readers.persons import PersonTuple, build_person_block_decoder
+from fmsave.readers.persons import (
+    PersonTuple,
+    _build_marker_needle,
+    _build_marker_table,
+    build_person_block_decoder,
+    iter_marker_run_starts,
+)
 from fmsave.readers.player_scan import locate_player_records, window_end
 from fmsave.readers.players import build_player_decoder
 from tests.fixtures.container import (
@@ -326,17 +334,27 @@ def test_relation_list_overrun_raises_corrupt_save_error() -> None:
 def test_relation_count_byte_overrun_raises_corrupt_save_error() -> None:
     # present (p+37) is 1 on PLAYER_A_BLOCK; truncate the window right at the count byte
     # (p+38), so the present byte itself still fits but the count byte does not.
+    #
+    # PLAYER_A_BLOCK's real relation entries also extend past this same truncated window, so
+    # a CorruptSaveError is raised either way: from this count-byte bound, or (if that bound
+    # were missing) from the unrelated entries-list bound once a bogus count is read from
+    # beyond the window. Asserting the exact count-byte offset in the message, rather than
+    # just "an error was raised", is what pins this specific bound: removing it changes the
+    # offset the message names (to the entries list's, much larger, end offset) even though
+    # a CorruptSaveError still comes out. See the mutation evidence in the task report.
     prefix = game_db_prefix()
     game_db = prefix + PLAYER_A_BLOCK
     layout = registered_person_layout()
     birth_absolute = len(prefix) + person_block_birth_offset(None)
     count_absolute = birth_absolute + layout.relation_count_offset_from_birth
+    count_header_end = count_absolute + 1
     decoder = build_decoder(game_db)
     with pytest.raises(CorruptSaveError) as error_info:
         decoder.decode(game_db, len(prefix), count_absolute)
     message = str(error_info.value)
     assert FILE_NAME in message
     assert "game_db" in message
+    assert str(count_header_end) in message
 
 
 def test_relation_present_zero_gives_empty_relations_even_with_a_nonzero_count() -> None:
@@ -464,6 +482,58 @@ def test_in_window_false_personality_run_that_fails_validation_is_skipped() -> N
     person = decode_block(combined_block)
     assert person is not None
     assert person.nation_id == 44
+
+
+_DIFFERENTIAL_PERSONALITY_RANGE = (1, 20)
+_DIFFERENTIAL_PERSONALITY_COUNT = 8
+_DIFFERENTIAL_REFERENCE_PATTERN = re.compile(rb"\x00[\x01-\x14]{8}")
+_DIFFERENTIAL_DECOY_BYTES = (0, 1, 5, 15, 20, 21, 33, 100, 255)
+
+
+def _reference_run_starts(buffer: bytes, start: int, end: int) -> list[int]:
+    return [match.start() for match in _DIFFERENTIAL_REFERENCE_PATTERN.finditer(buffer, start, end)]
+
+
+def _chunked_run_starts(buffer: bytes, start: int, end: int) -> list[int]:
+    marker_table = _build_marker_table(_DIFFERENTIAL_PERSONALITY_RANGE)
+    marker_needle = _build_marker_needle(_DIFFERENTIAL_PERSONALITY_COUNT)
+    return list(iter_marker_run_starts(buffer, start, end, marker_table, marker_needle))
+
+
+def test_chunked_search_matches_regex_on_many_seeded_synthetic_windows() -> None:
+    random_generator = random.Random(20260915)
+    trial_count = 300
+    for _trial in range(trial_count):
+        length = random_generator.randint(0, 3000)
+        buffer = bytes(random_generator.choice(_DIFFERENTIAL_DECOY_BYTES) for _ in range(length))
+        start = random_generator.randint(0, length)
+        end = random_generator.randint(start, length)
+        assert _chunked_run_starts(buffer, start, end) == _reference_run_starts(buffer, start, end)
+
+
+def test_chunked_search_matches_regex_for_a_match_straddling_a_chunk_boundary() -> None:
+    # _CHUNK_BYTES is 1024 and chunks overlap by 8 (personality_count) bytes, so a chunk's
+    # "owned" zone is bytes [0, 1016) relative to its own start. Put a real 9-byte run (one
+    # zero byte then 8 in-range bytes) so it starts a few bytes inside that boundary, straddling
+    # into the next chunk, with random filler everywhere else.
+    random_generator = random.Random(4242)
+    run = bytes([0]) + bytes([7] * _DIFFERENTIAL_PERSONALITY_COUNT)
+    for straddle_offset in range(-3, 4):
+        run_start = 1016 + straddle_offset
+        buffer = bytearray(random_generator.choice(_DIFFERENTIAL_DECOY_BYTES) for _ in range(2200))
+        buffer[run_start : run_start + len(run)] = run
+        frozen_buffer = bytes(buffer)
+        assert _chunked_run_starts(frozen_buffer, 0, len(frozen_buffer)) == _reference_run_starts(
+            frozen_buffer, 0, len(frozen_buffer)
+        )
+
+
+def test_chunked_search_matches_regex_on_a_window_shorter_than_one_chunk() -> None:
+    random_generator = random.Random(777)
+    for _trial in range(50):
+        length = random_generator.randint(0, 500)  # well under _CHUNK_BYTES (1024)
+        buffer = bytes(random_generator.choice(_DIFFERENTIAL_DECOY_BYTES) for _ in range(length))
+        assert _chunked_run_starts(buffer, 0, length) == _reference_run_starts(buffer, 0, length)
 
 
 def test_non_ascii_legal_name_round_trips() -> None:

@@ -137,6 +137,7 @@ class PlayerDecoder:
 
     layout: PlayerRecordLayout
     person_decoder: PersonBlockDecoder
+    person_window_start_offset: int
     header_layout: HeaderLayout
     tail_layout: _TailLayout
     attribute_struct: struct.Struct
@@ -225,7 +226,7 @@ class PlayerDecoder:
             game_db, record_offset + layout.club_join_date_offset, club_join_date_raw
         )
 
-        person_window_start = record_offset + self.person_decoder.layout.window_start_offset
+        person_window_start = record_offset + self.person_window_start_offset
         person = self.person_decoder.decode(game_db, person_window_start, record_window_end)
         (
             name,
@@ -332,6 +333,7 @@ def build_player_decoder(
     return PlayerDecoder(
         layout=layout,
         person_decoder=person_decoder,
+        person_window_start_offset=person_layout.window_start_offset,
         header_layout=build_header_layout(layout),
         tail_layout=_tail_layout(layout),
         attribute_struct=_attribute_struct_without_feet(layout),

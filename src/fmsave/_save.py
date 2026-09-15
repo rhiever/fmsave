@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import gc
 import os
 from types import TracebackType
 from typing import Self
@@ -99,43 +98,31 @@ class Save:
                 f"{save_info.file_name}: the save's in-game date is unreadable, so person "
                 "blocks and ages cannot be decoded"
             )
-        # Every record type this method builds, directly or through the club/player-record/
-        # name-pool readers it calls, is an immutable, frozen, slotted dataclass with no back
-        # references, so none of them can ever take part in a reference cycle; the
-        # generational collector's cycle passes over this large batch of short-lived
-        # allocations are pure overhead. gc state is restored in `finally` even if a reader
-        # raises.
-        garbage_collection_was_enabled = gc.isenabled()
-        gc.disable()
-        try:
-            with context.section(GAME_DB_SECTION) as game_db:
-                club_index = context.club_index()
-                player_records = context.player_records()
-                name_pools = context.name_pools()
-                person_layout = find_layout(
-                    PersonBlockLayout,
-                    GAME_DB_SECTION,
-                    save_info.section_schemas.get(GAME_DB_SECTION),
-                    save_info.build,
-                ).layout
-                decoder = build_player_decoder(
-                    player_records.layout,
-                    club_index,
-                    name_pools,
-                    clock,
-                    person_layout,
-                    save_info.file_name,
-                )
-                decoded_players: list[Player] = []
-                append_player = decoded_players.append
-                record_offsets = player_records.record_offsets
-                game_db_length = len(game_db)
-                for position, record_offset in enumerate(record_offsets):
-                    record_window_end = window_end(player_records, position, game_db_length)
-                    append_player(decoder.decode(game_db, record_offset, record_window_end))
-        finally:
-            if garbage_collection_was_enabled:
-                gc.enable()
+        with context.section(GAME_DB_SECTION) as game_db:
+            club_index = context.club_index()
+            player_records = context.player_records()
+            name_pools = context.name_pools()
+            person_layout = find_layout(
+                PersonBlockLayout,
+                GAME_DB_SECTION,
+                save_info.section_schemas.get(GAME_DB_SECTION),
+                save_info.build,
+            ).layout
+            decoder = build_player_decoder(
+                player_records.layout,
+                club_index,
+                name_pools,
+                clock,
+                person_layout,
+                save_info.file_name,
+            )
+            decoded_players: list[Player] = []
+            append_player = decoded_players.append
+            record_offsets = player_records.record_offsets
+            game_db_length = len(game_db)
+            for position, record_offset in enumerate(record_offsets):
+                record_window_end = window_end(player_records, position, game_db_length)
+                append_player(decoder.decode(game_db, record_offset, record_window_end))
         return Table(tuple(decoded_players), Player)
 
     def close(self) -> None:

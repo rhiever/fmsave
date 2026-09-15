@@ -1,10 +1,9 @@
 """Player records: identity, ability, reputation, club, positions, attributes and traits.
 
-Person fields (name, birth date, nationality, home-grown ids, personality and traits) are
-filled by a later reader pass; this module's Player carries them from the start so later
-tasks only need to fill values in, never change the field list. Adjusted and raw attributes
-share one coverage row per attribute, so one Attributes class serves both `attributes` (the
-1 to 20 display scale) and `raw_attributes` (the 1 to 100 raw scale).
+Person fields (name, birth date, nationality, home-grown ids, personality and traits) come
+from each player's person block; they stay None or empty when no block validates. Adjusted
+and raw attributes share one coverage row per attribute, so one Attributes class serves both
+`attributes` (the 1 to 20 display scale) and `raw_attributes` (the 1 to 100 raw scale).
 """
 
 from __future__ import annotations
@@ -269,7 +268,8 @@ class Player:
         last_name: Last name (unconfirmed).
         common_name: Common (nickname) name, when the save stores one (unconfirmed).
         full_name: First name plus last name, or None when either is missing (unconfirmed).
-        legal_name: Legal name, when it differs from the display name (unconfirmed).
+        legal_name: The save's stored legal name, or None when the save stores none
+            (unconfirmed).
         birth_date: Date of birth (unconfirmed).
         age: Age at the save's in-game clock date, or None when birth_date or the clock
             date is unreadable (unconfirmed).
