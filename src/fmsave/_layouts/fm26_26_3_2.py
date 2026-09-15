@@ -235,6 +235,8 @@ PERSON_BLOCKS = PersonBlockLayout(
     second_nation_pair=(8, 9),
     home_grown_nation_pair=(8, 70),
     home_grown_club_pair=(1, 72),
+    relation_referenced_offset_in_entry=0,
+    relation_kind_role_offset_in_entry=10,
     relation_qualifier_offset_in_entry=12,
     relation_sentinel_offset_in_entry=15,
     # 100 when the player holds the second nationality, 15 when the player is eligible for it.

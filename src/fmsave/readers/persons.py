@@ -58,12 +58,9 @@ _UINT16_STRUCT = struct.Struct("<H")
 # q-8 (trait bits), then the first-name, surname and common-name ids, each followed by its
 # required zero byte: q+0/q+4, q+5/q+9, q+10/q+14.
 _NAME_BLOCK_STRUCT = struct.Struct("<QIBIBIB")
-# A relation entry unpacks as the referenced value (a u32 at the entry start), then kind and role
-# read together as one little-endian u16 (kind is the low byte, role the high byte), then the
-# qualifier byte and the sentinel byte, which only the person checks read. The qualifier and
-# sentinel positions come from the layout.
-_RELATION_REFERENCED_OFFSET = 0
-_RELATION_KIND_ROLE_OFFSET = 10
+# A relation entry unpacks as the referenced value (a u32), then kind and role read together as
+# one little-endian u16 (kind is the low byte, role the high byte), then the qualifier byte and
+# the sentinel byte, which only the person checks read. Every position comes from the layout.
 _RELATION_FIELD_ORDER = ("referenced", "kind_role", "qualifier", "sentinel")
 _RELATION_VALUES_PER_ENTRY = len(_RELATION_FIELD_ORDER)
 _RELATION_SENTINEL_INDEX = _RELATION_FIELD_ORDER.index("sentinel")
@@ -133,16 +130,23 @@ def _build_relation_entry_format(layout: PersonBlockLayout) -> str:
     """One relation entry's struct format body (no byte-order prefix), padded to the entry size.
 
     Raises:
-        ValueError: Two relation entry fields overlap, the layout places the qualifier and
-            sentinel so the fields are not in the order they are unpacked (referenced value,
-            kind and role, qualifier, sentinel), or the fields run past `relation_entry_bytes`.
+        ValueError: Two relation entry fields overlap, a field starts before the entry start,
+            the layout's positions put the fields out of the order they are unpacked (referenced
+            value, kind and role, qualifier, sentinel), or the fields run past
+            `relation_entry_bytes`.
     """
     fields = [
-        (_RELATION_REFERENCED_OFFSET, "I", "referenced"),
-        (_RELATION_KIND_ROLE_OFFSET, "H", "kind_role"),
+        (layout.relation_referenced_offset_in_entry, "I", "referenced"),
+        (layout.relation_kind_role_offset_in_entry, "H", "kind_role"),
         (layout.relation_qualifier_offset_in_entry, "B", "qualifier"),
         (layout.relation_sentinel_offset_in_entry, "B", "sentinel"),
     ]
+    for offset, _format_code, field_name in fields:
+        if offset < 0:
+            raise ValueError(
+                f"relation entry field {field_name!r} at offset {offset} starts before the entry "
+                "start"
+            )
     struct_object, _start_offset, index_by_name = build_gap_padded_struct(fields, start_offset=0)
     layout_order = tuple(sorted(index_by_name, key=index_by_name.__getitem__))
     if layout_order != _RELATION_FIELD_ORDER:

@@ -70,7 +70,7 @@ class ClubStats:
     records: int
     team_lists_found: int
     status_normal: int
-    status_confirmed_a18: int
+    status_confirmed: int
 
 
 @dataclass(frozen=True, slots=True)

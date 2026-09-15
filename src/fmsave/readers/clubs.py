@@ -135,7 +135,7 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         records=len(records),
         team_lists_found=sum(1 for teams in teams_by_record if teams),
         status_normal=normal_status_count,
-        status_confirmed_a18=confirmed_status_count,
+        status_confirmed=confirmed_status_count,
     )
     return ClubIndex(
         clubs=tuple(clubs),

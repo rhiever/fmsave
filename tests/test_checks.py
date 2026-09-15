@@ -178,7 +178,7 @@ def healthy_contract_stats() -> ContractStats:
 
 def healthy_club_stats() -> ClubStats:
     return ClubStats(
-        records=50_000, team_lists_found=50_000, status_normal=49_950, status_confirmed_a18=49_500
+        records=50_000, team_lists_found=50_000, status_normal=49_950, status_confirmed=49_500
     )
 
 
@@ -365,7 +365,7 @@ def test_club_gates_pass_healthy_stats_and_fail_below_the_club_minimum() -> None
     assert tuple(result.name for result in results) == CLUB_GATE_NAMES
     assert all(result.applied and result.passed for result in results)
     few_clubs = ClubStats(
-        records=4_999, team_lists_found=4_999, status_normal=4_990, status_confirmed_a18=4_950
+        records=4_999, team_lists_found=4_999, status_normal=4_990, status_confirmed=4_950
     )
     assert failed_gate_names(evaluate_clubs(few_clubs, BOUNDS, FULL_SIZE_GAME_DB_BYTES)) == [
         "clubs_minimum"
@@ -1017,12 +1017,12 @@ def test_the_counted_ranges_come_from_the_gate_bounds(
 def test_status_confirmation_reads_its_position_from_the_status_layout() -> None:
     game_db = counted_game_db()
     layouts = find_club_layouts(GAME_DB_SCHEMA, "")
-    assert read_club_index(game_db, layouts, FILE_NAME).stats.status_confirmed_a18 == 1
+    assert read_club_index(game_db, layouts, FILE_NAME).stats.status_confirmed == 1
     shifted_statuses: ClubStatusLayout = dataclasses.replace(
         layouts.statuses, confirmation_offset=layouts.statuses.confirmation_offset + 1
     )
     shifted_layouts = dataclasses.replace(layouts, statuses=shifted_statuses)
-    assert read_club_index(game_db, shifted_layouts, FILE_NAME).stats.status_confirmed_a18 == 0
+    assert read_club_index(game_db, shifted_layouts, FILE_NAME).stats.status_confirmed == 0
 
 
 def test_two_failing_readers_of_the_player_pass_are_named_in_one_error(

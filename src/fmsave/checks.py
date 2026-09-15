@@ -1,12 +1,12 @@
 """Reader checks, and the validation report built from them.
 
 While a reader decodes, it counts what it sees into a stats record from `fmsave._reader_stats`
-(`PlayerStats`, `ContractStats`, `ClubStats`, `SuspensionStats` or `ManagedStats`). The `evaluate_*` functions
-compare those counts with the loose `GateBounds` registered for the save's layout and return one
-`GateResult` per check, and `enforce` raises `ReaderCheckError` when an applied check failed,
-before the reader caches its table. The checks apply only to a `game_db` of at least
-`GateBounds.minimum_applies_from_bytes`, since smaller sections come from fragments that cannot
-meet full-save counts.
+(`PlayerStats`, `ContractStats`, `ClubStats`, `SuspensionStats` or `ManagedStats`). The
+`evaluate_*` functions compare those counts with the loose `GateBounds` registered for the
+save's layout and return one `GateResult` per check, and `enforce` raises `ReaderCheckError`
+when an applied check failed, before the reader caches its table. The checks apply only to a
+`game_db` of at least `GateBounds.minimum_applies_from_bytes`, since smaller sections come from
+fragments that cannot meet full-save counts.
 
 `validate_save` runs every reader and returns a `ValidationReport`, which holds only structural
 facts, counts and rates: never names, uids or other values from the save.
@@ -304,7 +304,7 @@ def evaluate_clubs(
         _gate("status_normal", _rate(stats.status_normal, records), bounds.status_normal, applied),
         _gate(
             "status_confirmation",
-            _rate(stats.status_confirmed_a18, stats.status_normal),
+            _rate(stats.status_confirmed, stats.status_normal),
             bounds.status_confirmation,
             applied,
         ),

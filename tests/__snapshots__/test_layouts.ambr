@@ -273,8 +273,10 @@
         'relation_count_offset_from_birth': 38,
         'relation_entries_offset_from_birth': 39,
         'relation_entry_bytes': 16,
+        'relation_kind_role_offset_in_entry': 10,
         'relation_present_offset_from_birth': 37,
         'relation_qualifier_offset_in_entry': 12,
+        'relation_referenced_offset_in_entry': 0,
         'relation_sentinel_offset_in_entry': 15,
         'relation_sentinel_value': 255,
         'second_nation_pair': tuple(

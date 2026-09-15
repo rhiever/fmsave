@@ -188,8 +188,9 @@ class PersonBlockLayout:
     count from the block start `q`, found by walking backwards from `p`. `relation_pairs`
     maps a `(kind, role)` pair to the person field it fills.
 
-    Inside each `relation_entry_bytes`-byte relation entry, the u32 referenced id sits at the
-    entry start and the kind and role bytes at entry offsets 10 and 11; the qualifier byte sits
+    Every position inside a `relation_entry_bytes`-byte relation entry comes from this layout,
+    counted from the entry start: the u32 referenced id at `relation_referenced_offset_in_entry`,
+    the kind byte then the role byte at `relation_kind_role_offset_in_entry`, the qualifier byte
     at `relation_qualifier_offset_in_entry` and the sentinel byte at
     `relation_sentinel_offset_in_entry`. The person checks count second-nation entries whose
     qualifier is one of `second_nation_qualifiers` and entries whose sentinel byte equals
@@ -219,6 +220,8 @@ class PersonBlockLayout:
     second_nation_pair: tuple[int, int]
     home_grown_nation_pair: tuple[int, int]
     home_grown_club_pair: tuple[int, int]
+    relation_referenced_offset_in_entry: int
+    relation_kind_role_offset_in_entry: int
     relation_qualifier_offset_in_entry: int
     relation_sentinel_offset_in_entry: int
     second_nation_qualifiers: tuple[int, ...]

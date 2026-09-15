@@ -34,7 +34,12 @@ from fmsave.models.contracts import (
 )
 from fmsave.models.players import Player
 from fmsave.readers.clubs import ClubIndex, find_club_layouts, read_club_index
-from fmsave.readers.contracts import ContractDecoder, build_contract_decoder
+from fmsave.readers.contracts import (
+    CHAIN_RECORD_END,
+    CHAIN_RECORD_HAS_TAIL,
+    ContractDecoder,
+    build_contract_decoder,
+)
 from fmsave.readers.names import locate_name_pools
 from fmsave.readers.player_scan import locate_player_records, window_end
 from fmsave.readers.players import build_player_decoder
@@ -63,7 +68,7 @@ EMPTY_CLUB_INDEX = ClubIndex(
     uid_by_club_index={},
     club_by_uid={},
     team_to_club={},
-    stats=ClubStats(records=0, team_lists_found=0, status_normal=0, status_confirmed_a18=0),
+    stats=ClubStats(records=0, team_lists_found=0, status_normal=0, status_confirmed=0),
     game_db_bytes=0,
 )
 
@@ -733,6 +738,37 @@ def test_fallback_gate_accepts_j_plus_16_at_limit_and_rejects_one_byte_further()
     start, end = decoder._find_fallback_dates(game_db, 0, rejected_window_end)
     assert start is None
     assert end is None
+
+
+def test_only_parsed_tails_with_an_end_date_count_toward_the_past_dated_share() -> None:
+    open_ended_record, open_ended_tag_offset = contract_bytes(
+        selector=12,
+        team_id=NORTHBRIDGE_TEAM_A,
+        wage=2000,
+        start=packed_date(1, 2027),
+        tail={"end": None, "status": 5},
+        head={"type": 2},
+    )
+    past_record, past_tag_offset = contract_bytes(
+        selector=12,
+        team_id=NORTHBRIDGE_TEAM_A,
+        wage=3000,
+        start=packed_date(1, 2028),
+        tail={"end": packed_date(181, 2030), "status": 3},  # 2030-06-30, before the clock
+        head={"type": 1},
+    )
+    game_db = open_ended_record + past_record + bytes(64)
+    decoder = _test_contract_decoder(registered_contract_layout())
+
+    open_ended = decoder.decode_chain_record(game_db, open_ended_tag_offset)
+    past = decoder.decode_chain_record(game_db, len(open_ended_record) + past_tag_offset)
+
+    assert open_ended[CHAIN_RECORD_HAS_TAIL] and open_ended[CHAIN_RECORD_END] is None
+    assert past[CHAIN_RECORD_HAS_TAIL] and past[CHAIN_RECORD_END] == date(2030, 6, 30)
+    stats = decoder.stats(player_count=1, contract_count=1)
+    assert stats.tails_parsed == 2
+    assert stats.tail_ends == 1
+    assert stats.tail_ends_past == 1
 
 
 def test_truncated_chain_record_raises_corrupt_save_error_with_file_context() -> None:

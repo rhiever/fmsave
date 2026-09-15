@@ -238,6 +238,21 @@ def build_decoder(game_db: bytes, *, clock: date = CLOCK):
             "must be laid out in the order",
             id="sentinel-before-qualifier",
         ),
+        pytest.param(
+            {"relation_kind_role_offset_in_entry": 2},
+            "'kind_role' at offset 2 overlaps an earlier field",
+            id="kind-role-overlaps-referenced",
+        ),
+        pytest.param(
+            {"relation_referenced_offset_in_entry": 4, "relation_kind_role_offset_in_entry": 0},
+            "must be laid out in the order",
+            id="kind-role-before-referenced",
+        ),
+        pytest.param(
+            {"relation_referenced_offset_in_entry": -1},
+            "before the entry start",
+            id="referenced-before-entry-start",
+        ),
     ],
 )
 def test_build_person_block_decoder_rejects_inconsistent_relation_entry_positions(
