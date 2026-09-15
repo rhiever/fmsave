@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import importlib.util
 import json
 import re
@@ -352,6 +353,11 @@ def blocked_line(problem_count: int) -> str:
     return f"guard: {problem_count} problem(s) found; blocked"
 
 
+def encoded_run_line(line_number: int, kind: str, length: int) -> str:
+    reason = f"contains a long encoded run ({kind}, {length} characters)"
+    return f"guard: data/payload.txt:{line_number}: {reason}"
+
+
 @pytest.mark.parametrize(
     ("alphabet", "length", "kind", "expected_exit"),
     [
@@ -393,11 +399,176 @@ def test_long_hex_run_is_reported_once_as_hex(
     ]
 
 
-@pytest.mark.parametrize("pattern_name", ["HEX_RUN_PATTERN", "BASE64_RUN_PATTERN"])
+@pytest.mark.parametrize(
+    "pattern_name",
+    [
+        "HEX_RUN_PATTERN",
+        "BASE64_RUN_PATTERN",
+        "WRAPPED_BASE64_LINE_PATTERN",
+        "ESCAPED_BYTE_RUN_PATTERN",
+    ],
+)
 def test_encoded_run_pattern_starts_only_where_no_run_character_precedes(pattern_name: str) -> None:
     """Without the leading lookbehind, every position inside a short run would be rescanned."""
     pattern_text = getattr(guard, pattern_name).pattern
     assert LOOKBEHIND_RUN_SHAPE.fullmatch(pattern_text) is not None, pattern_text
+
+
+def test_hex_pair_pattern_repeats_possessively_without_a_minimum_count() -> None:
+    """Each sequence is matched once, whole, and its pairs are counted afterwards."""
+    pattern_text = guard.HEX_PAIR_SEQUENCE_PATTERN.pattern
+    assert pattern_text.startswith("(?<![0-9A-Za-z])"), pattern_text
+    assert pattern_text.endswith(")*+"), pattern_text
+    assert "[\\s,:]++" in pattern_text, pattern_text
+    assert re.search(r"\{\d*,?\d*\}", pattern_text.replace("{2}", "")) is None, pattern_text
+
+
+def wrap_columns(text: str, width: int) -> list[str]:
+    return [text[start : start + width] for start in range(0, len(text), width)]
+
+
+def standard_base64(byte_count: int) -> str:
+    return base64.b64encode(bytes(value % 256 for value in range(byte_count))).decode("ascii")
+
+
+def encodebytes_text(byte_count: int) -> str:
+    """Output of `base64.encodebytes`: 76-column lines."""
+    encoded = base64.encodebytes(bytes(value % 256 for value in range(byte_count)))
+    return encoded.decode("ascii").rstrip("\n")
+
+
+def hex_pairs(count: int) -> list[str]:
+    return [f"{value:02x}" for value in range(count)]
+
+
+def escaped_bytes(count: int) -> str:
+    return "".join(f"\\x{value:02x}" for value in range(count))
+
+
+WRAPPED_BASE64_CASES = {
+    "encodebytes-4-lines": (encodebytes_text(228), (2, 304)),
+    "encodebytes-3-lines": (encodebytes_text(171), None),
+    "encodebytes-short-last-line": (encodebytes_text(520), (2, 684)),
+    "pem-64-columns": (
+        "\n".join(
+            [
+                "-----BEGIN EXAMPLE DATA-----",
+                *wrap_columns(standard_base64(192), 64),
+                "-----END EXAMPLE DATA-----",
+            ]
+        ),
+        (3, 256),
+    ),
+    "quoted-source-lines": (
+        "\n".join(f'    "{line}"' for line in wrap_columns(standard_base64(228), 76)),
+        (2, 304),
+    ),
+    "bytes-literal-lines": (
+        "\n".join(f'    b"{line}\\n"' for line in wrap_columns(standard_base64(228), 76)),
+        (2, 304),
+    ),
+    "eight-other-characters": (
+        "\n".join(f"(((({line}))))" for line in wrap_columns(standard_base64(228), 76)),
+        (2, 304),
+    ),
+    "nine-other-characters": (
+        "\n".join(f"((((({line}))))" for line in wrap_columns(standard_base64(228), 76)),
+        None,
+    ),
+    "40-column-lines": ("\n".join(wrap_columns(standard_base64(120), 40)), (2, 160)),
+    "39-column-lines": ("\n".join(wrap_columns(standard_base64(117), 39)), None),
+    "keyword-argument-lines": (
+        "\n".join(
+            ["        example_total_with_a_long_descriptive_name=example_total_with_a_long_name,"]
+            * 6
+        ),
+        None,
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"), WRAPPED_BASE64_CASES.values(), ids=WRAPPED_BASE64_CASES.keys()
+)
+def test_wrapped_base64_is_blocked_from_four_lines(
+    repository: Path,
+    capsys: pytest.CaptureFixture[str],
+    payload: str,
+    expected: tuple[int, int] | None,
+) -> None:
+    stage(repository, "data/payload.txt", f"first line\n{payload}\nlast line\n")
+    if expected is None:
+        assert run_guard(repository, "--staged") == 0
+        assert capsys.readouterr().err.splitlines() == [STRUCTURAL_OK_LINE]
+        return
+    line_number, length = expected
+    assert run_guard(repository, "--staged") == 1
+    assert capsys.readouterr().err.splitlines() == [
+        encoded_run_line(line_number, "wrapped base64", length),
+        blocked_line(1),
+    ]
+
+
+HEX_PAIR_CASES = {
+    "spaces-64": (" ".join(hex_pairs(64)), True),
+    "spaces-63": (" ".join(hex_pairs(63)), False),
+    "prefixed-commas-64": (", ".join(f"0x{pair.upper()}" for pair in hex_pairs(64)), True),
+    "prefixed-commas-63": (", ".join(f"0x{pair}" for pair in hex_pairs(63)), False),
+    "colons-64": (":".join(hex_pairs(64)), True),
+    "wrapped-16-per-line": (
+        ",\n    ".join(
+            ", ".join(f"0x{pair}" for pair in hex_pairs(64)[start : start + 16])
+            for start in range(0, 64, 16)
+        ),
+        True,
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("pairs_text", "reported"), HEX_PAIR_CASES.values(), ids=HEX_PAIR_CASES.keys()
+)
+def test_separated_hex_byte_pairs_are_blocked_from_64_pairs(
+    repository: Path, capsys: pytest.CaptureFixture[str], pairs_text: str, reported: bool
+) -> None:
+    stage(repository, "data/payload.txt", f"first line\npayload = [{pairs_text}]\nlast line\n")
+    assert run_guard(repository, "--staged") == int(reported)
+    expected_lines = (
+        [encoded_run_line(2, "hex byte pairs", len(pairs_text)), blocked_line(1)]
+        if reported
+        else [STRUCTURAL_OK_LINE]
+    )
+    assert capsys.readouterr().err.splitlines() == expected_lines
+
+
+@pytest.mark.parametrize(("escape_count", "reported"), [(32, True), (31, False)])
+def test_escaped_bytes_are_blocked_from_32_escapes(
+    repository: Path, capsys: pytest.CaptureFixture[str], escape_count: int, reported: bool
+) -> None:
+    stage(
+        repository,
+        "data/payload.txt",
+        f'first line\npayload = b"{escaped_bytes(escape_count)}"\nlast line\n',
+    )
+    assert run_guard(repository, "--staged") == int(reported)
+    expected_lines = (
+        [encoded_run_line(2, "escaped bytes", 4 * escape_count), blocked_line(1)]
+        if reported
+        else [STRUCTURAL_OK_LINE]
+    )
+    assert capsys.readouterr().err.splitlines() == expected_lines
+
+
+def test_repeated_runs_just_under_every_threshold_are_not_reported() -> None:
+    near_miss_blocks = [
+        encoded_run(HEX_ALPHABET, 511) + "g",
+        encoded_run(BASE64_ALPHABET, 1023) + ".",
+        "\n".join(wrap_columns(standard_base64(171), 76)),
+        " ".join(hex_pairs(63)) + " .",
+        escaped_bytes(31) + ".",
+    ]
+    text = ("\n--\n".join(near_miss_blocks) + "\n--\n") * 50
+    assert guard.encoded_run_findings("data/payload.txt", text) == []
 
 
 def test_lock_file_with_many_hashes_passes(

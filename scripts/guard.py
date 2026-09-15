@@ -3,9 +3,9 @@
 
 Blocks content that must never be committed or published: files under the private
 folder, save files and save bytes, binary files, oversized files, notebooks with
-outputs, symbolic links, submodules, long unbroken hex or base64 runs, text copied from the
-private folder, and locally denylisted names, uids and terms in file contents, file
-paths and messages.
+outputs, symbolic links, submodules, long hex or base64 data (unbroken, wrapped over
+lines, split into byte pairs or escaped), text copied from the private folder, and
+locally denylisted names, uids and terms in file contents, file paths and messages.
 
 Usage:
     python scripts/guard.py --staged              # pre-commit hook
@@ -25,6 +25,7 @@ import argparse
 import bisect
 import fnmatch
 import hashlib
+import itertools
 import json
 import re
 import subprocess
@@ -40,9 +41,27 @@ SYMBOLIC_LINK_MODE = "120000"
 SUBMODULE_MODE = "160000"
 HEX_RUN_MINIMUM = 512
 BASE64_RUN_MINIMUM = 1024
+WRAPPED_BASE64_LINE_MINIMUM = 40
+WRAPPED_BASE64_MINIMUM_LINES = 4
+WRAPPED_BASE64_OTHER_CHARACTERS = 8
+HEX_PAIR_MINIMUM = 64
+ESCAPED_BYTE_MINIMUM = 32
 # The lookbehind lets a match start only at the start of a run, which keeps the scan linear.
 HEX_RUN_PATTERN = re.compile(rf"(?<![0-9A-Fa-f])[0-9A-Fa-f]{{{HEX_RUN_MINIMUM},}}")
 BASE64_RUN_PATTERN = re.compile(rf"(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/=_-]{{{BASE64_RUN_MINIMUM},}}")
+WRAPPED_BASE64_LINE_PATTERN = re.compile(
+    rf"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/=]{{{WRAPPED_BASE64_LINE_MINIMUM},}}"
+)
+ESCAPED_BYTE_RUN_PATTERN = re.compile(
+    rf"(?<!\\x[0-9A-Fa-f]{{2}})(?:\\x[0-9A-Fa-f]{{2}}){{{ESCAPED_BYTE_MINIMUM},}}+"
+)
+# No minimum count and only possessive repeats: each sequence is matched once, whole, and its
+# pairs are counted afterwards, which keeps the scan linear.
+HEX_PAIR_SEQUENCE_PATTERN = re.compile(
+    r"(?<![0-9A-Za-z])(?:0[xX])?[0-9A-Fa-f]{2}(?![0-9A-Za-z])"
+    r"(?:[\s,:]++(?:0[xX])?[0-9A-Fa-f]{2}(?![0-9A-Za-z]))*+"
+)
+HEX_PAIR_SEPARATOR_PATTERN = re.compile(r"[\s,:]+")
 PRIVATE_FOLDER_NAME = ".local"
 GUARD_CONFIG_NAME = "guard.json"
 GUARD_CONFIG_KEYS = ("overlap_exempt_code_fences", "denied_terms")
@@ -406,30 +425,97 @@ def notebook_has_outputs(text: str) -> bool:
     return False
 
 
-def encoded_run_findings(location: str, text: str) -> list[Finding]:
-    """Unbroken hex or base64 runs long enough to carry smuggled bytes; only kind and length print.
+def unbroken_runs(lines: Sequence[str]) -> Iterator[tuple[int, str, int]]:
+    """(line number, kind, length) of each unbroken hex or base64 run.
 
     A run made only of hex characters is reported once, as hex. Line breaks never belong
     to a run, so scanning line by line finds the same runs.
     """
-    if HEX_RUN_PATTERN.search(text) is None and BASE64_RUN_PATTERN.search(text) is None:
-        return []
-    findings: list[Finding] = []
-    for line_number, line in enumerate(text.splitlines(), start=1):
-        runs = [("hex", match.group(0)) for match in HEX_RUN_PATTERN.finditer(line)]
-        runs.extend(
-            ("base64", match.group(0))
-            for match in BASE64_RUN_PATTERN.finditer(line)
-            if HEX_RUN_PATTERN.fullmatch(match.group(0)) is None
+    for line_number, line in enumerate(lines, start=1):
+        for match in HEX_RUN_PATTERN.finditer(line):
+            yield line_number, "hex", match.end() - match.start()
+        for match in BASE64_RUN_PATTERN.finditer(line):
+            if HEX_RUN_PATTERN.fullmatch(match.group(0)) is None:
+                yield line_number, "base64", match.end() - match.start()
+
+
+def wrapped_base64_runs(lines: Sequence[str]) -> Iterator[tuple[int, int]]:
+    """(first line number, base64 characters) of each stretch of wrapped base64.
+
+    A line belongs to a stretch when one standard base64 run of 40+ characters holds all but
+    at most 8 of its non-whitespace characters, as in `base64.encodebytes` output, PEM bodies
+    and quoted source lines. A stretch needs 4 or more consecutive such lines.
+    """
+    streak_start = 0
+    streak_lines = 0
+    streak_characters = 0
+    for line_number, line in enumerate(itertools.chain(lines, [""]), start=1):
+        longest_run = max(
+            (match.end() - match.start() for match in WRAPPED_BASE64_LINE_PATTERN.finditer(line)),
+            default=0,
         )
-        findings.extend(
-            Finding(
-                f"{location}:{line_number}",
-                f"contains a long encoded run ({kind}, {len(run_text)} characters)",
+        other_characters = len("".join(line.split())) - longest_run if longest_run else 0
+        if longest_run and other_characters <= WRAPPED_BASE64_OTHER_CHARACTERS:
+            if not streak_lines:
+                streak_start = line_number
+            streak_lines += 1
+            streak_characters += longest_run
+            continue
+        if streak_lines >= WRAPPED_BASE64_MINIMUM_LINES:
+            yield streak_start, streak_characters
+        streak_lines = 0
+        streak_characters = 0
+
+
+def hex_pair_runs(text: str) -> Iterator[tuple[int, int]]:
+    """(offset, length) of each sequence of 64+ hex byte pairs between whitespace, commas or colons."""
+    shortest_length = 3 * HEX_PAIR_MINIMUM - 1
+    for match in HEX_PAIR_SEQUENCE_PATTERN.finditer(text):
+        length = match.end() - match.start()
+        if length < shortest_length:
+            continue
+        if len(HEX_PAIR_SEPARATOR_PATTERN.findall(match.group(0))) + 1 >= HEX_PAIR_MINIMUM:
+            yield match.start(), length
+
+
+def encoded_run_findings(location: str, text: str) -> list[Finding]:
+    """Encoded data long enough to carry smuggled bytes; only its kind and length print.
+
+    Covers unbroken hex and base64 runs, base64 wrapped over consecutive lines, hex byte
+    pairs between whitespace, commas or colons, and runs of backslash-x escapes. Each
+    finding sits at the line where its data starts.
+    """
+    runs: list[tuple[int, str, int]] = []
+    has_unbroken_run = HEX_RUN_PATTERN.search(text) or BASE64_RUN_PATTERN.search(text)
+    has_wrapped_line = WRAPPED_BASE64_LINE_PATTERN.search(text)
+    if has_unbroken_run or has_wrapped_line:
+        lines = text.splitlines()
+        if has_unbroken_run:
+            runs.extend(unbroken_runs(lines))
+        if has_wrapped_line:
+            runs.extend(
+                (line_number, "wrapped base64", length)
+                for line_number, length in wrapped_base64_runs(lines)
             )
-            for kind, run_text in runs
+    offset_runs = [(offset, "hex byte pairs", length) for offset, length in hex_pair_runs(text)]
+    offset_runs.extend(
+        (match.start(), "escaped bytes", match.end() - match.start())
+        for match in ESCAPED_BYTE_RUN_PATTERN.finditer(text)
+    )
+    if offset_runs:
+        line_ends = list(itertools.accumulate(map(len, text.splitlines(keepends=True))))
+        runs.extend(
+            (bisect.bisect_right(line_ends, offset) + 1, kind, length)
+            for offset, kind, length in offset_runs
         )
-    return findings
+    runs.sort(key=lambda run: run[0])
+    return [
+        Finding(
+            f"{location}:{line_number}",
+            f"contains a long encoded run ({kind}, {length} characters)",
+        )
+        for line_number, kind, length in runs
+    ]
 
 
 def check_blob(blob: Blob, references: PrivateReferences | None) -> list[Finding]:
