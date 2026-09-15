@@ -3,9 +3,23 @@
 
 Blocks content that must never be committed or published: files under the private
 folder, save files and save bytes, binary files, oversized files, notebooks with
-outputs, symbolic links, submodules, long hex or base64 data (unbroken, wrapped over
-lines, split into byte pairs or escaped), text copied from the private folder, and
-locally denylisted names, uids and terms in file contents, file paths and messages.
+outputs, symbolic links, submodules, long encoded data, text copied from the private
+folder, and locally denylisted names, uids and terms in file contents, file paths and
+messages.
+
+Long encoded data is looked for in text files up to the size limit. It is any of:
+- an unbroken run of 512+ hex digits, or of 1,024+ characters from the standard and
+  URL-safe base64 alphabets;
+- 4+ consecutive lines on which one run of 40+ base64 characters holds all but at most 8
+  of the non-whitespace characters. The run is standard base64, or URL-safe base64 with up
+  to two `=` after it that holds upper case, lower case and digits and has at most one
+  `-` or `_` in 8 characters. When every such run is hex digits, 512+ characters in all;
+- a hex dump of 64+ bytes with an a-f digit: consecutive lines of 4+ groups of 2, 4, 6 or
+  8 hex digits, after an optional offset and before any text column, where a `*` line
+  for repeated rows does not end the dump;
+- 64+ two-digit hex byte pairs, each with an optional 0x prefix, separated by whitespace,
+  commas or colons, with an a-f digit or a 0x prefix among them;
+- 32+ consecutive backslash-x escapes.
 
 Usage:
     python scripts/guard.py --staged              # pre-commit hook
