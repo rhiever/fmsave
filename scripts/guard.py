@@ -7,16 +7,18 @@ outputs, symbolic links, submodules, long encoded data, text copied from the pri
 folder, and locally denylisted names, uids and terms in file contents, file paths and
 messages.
 
-Long encoded data is looked for in text files up to the size limit. It is any of:
+Long encoded data is looked for in text files up to the size limit, and in commit and
+annotated tag messages. It is any of:
 - an unbroken run of 512+ hex digits, or of 1,024+ characters from the standard and
   URL-safe base64 alphabets;
 - 4+ consecutive lines on which one run of 40+ base64 characters holds all but at most 8
   of the non-whitespace characters. The run is standard base64, or URL-safe base64 with up
   to two `=` after it that holds upper case, lower case and digits and has at most one
-  `-` or `_` in 8 characters. When every such run is hex digits, 512+ characters in all;
+  `-` or `_` in 8 characters. When every such run is hex digits, 512+ characters in all
+  with an a-f digit among them;
 - a hex dump of 64+ bytes with an a-f digit: consecutive lines of 4+ groups of 2, 4, 6 or
-  8 hex digits, after an optional offset and before any text column, where a `*` line
-  for repeated rows does not end the dump;
+  8 hex digits, after up to 2 leading tokens and an optional offset, and before any text
+  column, where a `*` line for repeated rows does not end the dump;
 - 64+ two-digit hex byte pairs, each with an optional 0x prefix, separated by whitespace,
   commas or colons, with an a-f digit or a 0x prefix among them;
 - 32+ consecutive backslash-x escapes.
@@ -67,7 +69,9 @@ HEX_DUMP_GROUP_LENGTHS = frozenset({2, 4, 6, 8})
 HEX_DUMP_OFFSET_MINIMUM_DIGITS = 4
 HEX_DUMP_OFFSET_MAXIMUM_DIGITS = 16
 HEX_DUMP_REPEATED_ROWS_MARKER = "*"
+HEX_DUMP_MAXIMUM_PREFIX_TOKENS = 2
 HEX_DIGIT_CHARACTERS = "0123456789abcdefABCDEF"
+HEX_LETTER_PATTERN = re.compile(r"[a-fA-F]")
 # The lookbehind lets a match start only at the start of a run, which keeps the scan linear.
 HEX_RUN_PATTERN = re.compile(rf"(?<![0-9A-Fa-f])[0-9A-Fa-f]{{{HEX_RUN_MINIMUM},}}")
 BASE64_RUN_PATTERN = re.compile(rf"(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/=_-]{{{BASE64_RUN_MINIMUM},}}")
@@ -493,13 +497,21 @@ def longest_urlsafe_span(line: str) -> tuple[int, int]:
     return longest_start, longest_end
 
 
-def wrapped_line_run(line: str) -> tuple[int, bool] | None:
-    """(length, made only of hex digits) of the run that makes `line` a wrapped line, or None.
+def hex_run_state(line: str, start: int, end: int) -> tuple[bool, bool]:
+    """(made only of hex digits, holds an a-f digit) for the run `line[start:end]`."""
+    if HEX_DIGITS_PATTERN.fullmatch(line, start, end) is None:
+        return False, False
+    return True, HEX_LETTER_PATTERN.search(line, start, end) is not None
 
-    The run must hold all but at most 8 of the line's non-whitespace characters. It is the
-    longest standard base64 run of 40+ characters or, failing that, the longest URL-safe run
-    of 40+ characters plus up to two `=`, which must also hold an upper-case letter, a
-    lower-case letter and a digit, with at most one character in 8 a `-` or `_`.
+
+def wrapped_line_run(line: str) -> tuple[int, bool, bool] | None:
+    """(length, all hex digits, holds an a-f digit) of the run that makes `line` a wrapped line.
+
+    None when no run qualifies. The run must hold all but at most 8 of the line's
+    non-whitespace characters. It is the longest standard base64 run of 40+ characters or,
+    failing that, the longest URL-safe run of 40+ characters plus up to two `=`, which must
+    also hold an upper-case letter, a lower-case letter and a digit, with at most one
+    character in 8 a `-` or `_`.
     """
     standard_start, standard_end = longest_span(WRAPPED_BASE64_LINE_PATTERN, line)
     urlsafe_start, urlsafe_end = longest_urlsafe_span(line)
@@ -507,8 +519,8 @@ def wrapped_line_run(line: str) -> tuple[int, bool] | None:
         return None
     shortest_run = len("".join(line.split())) - WRAPPED_BASE64_OTHER_CHARACTERS
     if standard_end and standard_end - standard_start >= shortest_run:
-        is_hex = HEX_DIGITS_PATTERN.fullmatch(line, standard_start, standard_end) is not None
-        return standard_end - standard_start, is_hex
+        is_hex, has_hex_letter = hex_run_state(line, standard_start, standard_end)
+        return standard_end - standard_start, is_hex, has_hex_letter
     urlsafe_length = urlsafe_end - urlsafe_start
     separator_count = line.count("-", urlsafe_start, urlsafe_end) + line.count(
         "_", urlsafe_start, urlsafe_end
@@ -521,8 +533,8 @@ def wrapped_line_run(line: str) -> tuple[int, bool] | None:
         and DIGIT_PATTERN.search(line, urlsafe_start, urlsafe_end)
         and separator_count * URLSAFE_BASE64_CHARACTERS_PER_SEPARATOR <= urlsafe_length
     ):
-        is_hex = HEX_DIGITS_PATTERN.fullmatch(line, urlsafe_start, urlsafe_end) is not None
-        return urlsafe_length, is_hex
+        is_hex, has_hex_letter = hex_run_state(line, urlsafe_start, urlsafe_end)
+        return urlsafe_length, is_hex, has_hex_letter
     return None
 
 
@@ -532,27 +544,31 @@ def wrapped_base64_runs(lines: Sequence[str]) -> Iterator[tuple[int, str, int]]:
     A stretch is 4 or more consecutive lines that `wrapped_line_run` accepts, as in
     `base64.encodebytes` output, PEM bodies and quoted source lines; its length is the total
     of their runs. A stretch made only of hex digits is reported as wrapped hex, and only
-    from 512 characters, so short lists of digests pass.
+    from 512 characters and with an a-f digit among them, so lists of digests and blocks of
+    decimal literals pass.
     """
     streak_start = 0
     streak_lines = 0
     streak_characters = 0
     streak_is_hex = True
+    streak_has_hex_letter = False
     for line_number, line in enumerate(itertools.chain(lines, [""]), start=1):
         line_run = wrapped_line_run(line)
         if line_run is not None:
-            run_length, run_is_hex = line_run
+            run_length, run_is_hex, run_has_hex_letter = line_run
             if not streak_lines:
                 streak_start = line_number
                 streak_is_hex = True
+                streak_has_hex_letter = False
             streak_lines += 1
             streak_characters += run_length
             streak_is_hex = streak_is_hex and run_is_hex
+            streak_has_hex_letter = streak_has_hex_letter or run_has_hex_letter
             continue
         if streak_lines >= WRAPPED_BASE64_MINIMUM_LINES:
             if not streak_is_hex:
                 yield streak_start, "wrapped base64", streak_characters
-            elif streak_characters >= HEX_RUN_MINIMUM:
+            elif streak_characters >= HEX_RUN_MINIMUM and streak_has_hex_letter:
                 yield streak_start, "wrapped hex", streak_characters
         streak_lines = 0
         streak_characters = 0
@@ -575,27 +591,26 @@ def hex_pair_runs(text: str) -> Iterator[tuple[int, int]]:
             yield start, end - start
 
 
-def hex_dump_line_digits(line: str) -> tuple[int, bool] | None:
-    """(hex digits, holds an a-f digit) of a hex dump line, or None when `line` is not one.
+def hex_dump_tokens_digits(tokens: Sequence[str], first: int) -> tuple[int, bool] | None:
+    """(hex digits, holds an a-f digit) of dump `tokens` from `first` on, or None when not a dump.
 
-    A single pass over the whitespace-separated tokens. An offset may come first: 4 to 16
-    hex digits, known by a 0x prefix, a trailing colon, or a digit count unlike the next
-    token's; it is not counted. Groups of 2, 4, 6 or 8 hex digits follow, up to the first
-    other token, so a text column after them is ignored. A dump line has 4 or more groups.
+    An offset may come first: 4 to 16 hex digits, known by a 0x prefix, a trailing colon, or
+    a digit count unlike the next token's; it is not counted. Groups of 2, 4, 6 or 8 hex
+    digits follow, up to the first other token, so a text column after them is ignored. A
+    dump line has 4 or more groups.
     """
-    tokens = line.split()
-    group_start = 0
-    if len(tokens) >= 2:
-        offset_token = tokens[0]
+    group_start = first
+    if len(tokens) - first >= 2:
+        offset_token = tokens[first]
         has_prefix = offset_token.startswith(("0x", "0X"))
         has_colon = offset_token.endswith(":")
         offset_digits = offset_token[2 if has_prefix else 0 : len(offset_token) - int(has_colon)]
         if (
             HEX_DUMP_OFFSET_MINIMUM_DIGITS <= len(offset_digits) <= HEX_DUMP_OFFSET_MAXIMUM_DIGITS
             and not offset_digits.strip(HEX_DIGIT_CHARACTERS)
-            and (has_prefix or has_colon or len(offset_digits) != len(tokens[1]))
+            and (has_prefix or has_colon or len(offset_digits) != len(tokens[first + 1]))
         ):
-            group_start = 1
+            group_start = first + 1
     group_count = 0
     digit_count = 0
     has_letter = False
@@ -608,6 +623,21 @@ def hex_dump_line_digits(line: str) -> tuple[int, bool] | None:
     if group_count < HEX_DUMP_MINIMUM_GROUPS:
         return None
     return digit_count, has_letter
+
+
+def hex_dump_line_digits(line: str) -> tuple[int, bool] | None:
+    """(hex digits, holds an a-f digit) of a hex dump line, or None when `line` is not one.
+
+    The whitespace-separated tokens are read once, and again with 1 and with 2 leading
+    tokens dropped, taking the first reading that is a dump line. That way a dump quoted
+    behind a comment marker, a blockquote or a short prose lead-in still counts.
+    """
+    tokens = line.split()
+    for first in range(HEX_DUMP_MAXIMUM_PREFIX_TOKENS + 1):
+        dump_tokens = hex_dump_tokens_digits(tokens, first)
+        if dump_tokens is not None:
+            return dump_tokens
+    return None
 
 
 def hex_dump_runs(lines: Sequence[str]) -> Iterator[tuple[int, int]]:
@@ -853,8 +883,20 @@ def history_blobs(repository_root: Path) -> Iterator[Blob]:
             yield Blob("", f"tagged blob {object_id[:12]}", object_id, "", content)
 
 
-def history_message_findings(repository_root: Path, references: PrivateReferences) -> list[Finding]:
-    """Private text findings for every commit message and annotated tag message."""
+def message_findings(
+    location: str, message: str, references: PrivateReferences | None
+) -> list[Finding]:
+    """Findings for one message: encoded runs always, private text when references exist."""
+    findings = encoded_run_findings(location, message)
+    if references is not None:
+        findings.extend(text_findings(location, message, references))
+    return findings
+
+
+def history_message_findings(
+    repository_root: Path, references: PrivateReferences | None
+) -> list[Finding]:
+    """Findings for every commit message and annotated tag message in history."""
     findings: list[Finding] = []
     raw_log = run_git(repository_root, ["log", "--all", "--format=%H%x00%B%x1e"]).decode(
         "utf-8", "replace"
@@ -862,7 +904,8 @@ def history_message_findings(repository_root: Path, references: PrivateReference
     for record in raw_log.split("\x1e"):
         commit_id, _, message = record.strip("\n").partition("\x00")
         if commit_id:
-            findings.extend(text_findings(f"commit {commit_id[:12]} message", message, references))
+            location = f"commit {commit_id[:12]} message"
+            findings.extend(message_findings(location, message, references))
     raw_tags = run_git(
         repository_root,
         ["for-each-ref", "--format=%(objecttype)%00%(objectname)%00%(contents)%1e", "refs/tags"],
@@ -871,7 +914,7 @@ def history_message_findings(repository_root: Path, references: PrivateReference
         object_type, _, remainder = record.strip("\n").partition("\x00")
         tag_id, _, message = remainder.partition("\x00")
         if object_type == "tag":
-            findings.extend(text_findings(f"tag {tag_id[:12]} message", message, references))
+            findings.extend(message_findings(f"tag {tag_id[:12]} message", message, references))
     return findings
 
 
@@ -914,9 +957,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     findings: list[Finding] = []
     message_path: str | None = arguments.commit_msg
     if message_path is not None:
-        if references is not None:
-            message_text = Path(message_path).read_text(encoding="utf-8", errors="replace")
-            findings.extend(text_findings("message", message_text, references))
+        message_text = Path(message_path).read_text(encoding="utf-8", errors="replace")
+        findings.extend(message_findings("message", message_text, references))
     else:
         if arguments.staged:
             blobs = staged_blobs(repository_root)
@@ -926,7 +968,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             blobs = history_blobs(repository_root)
         for blob in blobs:
             findings.extend(check_blob(blob, references))
-        if arguments.history and references is not None:
+        if arguments.history:
             findings.extend(history_message_findings(repository_root, references))
     for finding in findings:
         print(f"guard: {finding.location}: {finding.reason}", file=sys.stderr)

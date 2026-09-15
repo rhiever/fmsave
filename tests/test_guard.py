@@ -468,9 +468,9 @@ def sample_bytes(byte_count: int, seed: int = 0) -> bytes:
     return blocks[:byte_count]
 
 
-def urlsafe_base64_line(width: int, seed: int, padded: bool = False) -> str:
+def urlsafe_base64_line(width: int, seed: int, padding: int = 0) -> str:
     """One URL-safe base64 line with `-_-_` in its middle, so no standard base64 run fills it."""
-    byte_count = width * 3 // 4 - int(padded)
+    byte_count = width * 3 // 4 - padding
     middle = byte_count // 2 // 3 * 3
     chunk = bytearray(sample_bytes(byte_count, seed))
     chunk[middle : middle + 3] = b"\xfb\xff\xbf"
@@ -544,6 +544,13 @@ WRAPPED_BASE64_CASES = {
         "\n".join([hex_lines(3), standard_base64(57)]),
         (2, "wrapped base64", 268),
     ),
+    "quoted-decimal-literal-lines": (
+        "\n".join(
+            '    "' + "".join(str((index * 80 + position) % 10) for position in range(80)) + '",'
+            for index in range(8)
+        ),
+        None,
+    ),
     "urlsafe-76-columns": (urlsafe_base64_lines(76), (2, "wrapped base64", 304)),
     "urlsafe-64-columns": (urlsafe_base64_lines(64), (2, "wrapped base64", 256)),
     "urlsafe-quoted-76-columns": (
@@ -566,7 +573,16 @@ WRAPPED_BASE64_CASES = {
         "\n".join(
             [
                 *(urlsafe_base64_line(76, seed) for seed in range(3)),
-                urlsafe_base64_line(76, 3, padded=True),
+                urlsafe_base64_line(76, 3, padding=1),
+            ]
+        ),
+        (2, "wrapped base64", 304),
+    ),
+    "urlsafe-double-padded-last-line": (
+        "\n".join(
+            [
+                *(urlsafe_base64_line(76, seed) for seed in range(3)),
+                urlsafe_base64_line(76, 3, padding=2),
             ]
         ),
         (2, "wrapped base64", 304),
@@ -721,13 +737,36 @@ def collapsed_dump(data: bytes, format_row: Callable[[int, bytes], str], offset_
     return "\n".join(lines)
 
 
+def prefixed_lines(text: str, prefix: str) -> str:
+    """Every line of `text` behind `prefix`, as a dump quoted in a comment or a message."""
+    return "\n".join(prefix + line for line in text.splitlines())
+
+
 DUMP_DATA = sample_bytes(256)
 REPEATED_ROW_DUMP_DATA = sample_bytes(64) + bytes(48) + sample_bytes(32, seed=1)
 DECIMAL_DIGIT_DUMP_DATA = bytes(
     value for value in range(256) if value >> 4 < 10 and value & 15 < 10
 )[:96]
+PROSE_LINE = "the quick brown fox jumps over the lazy dog"
 HEX_DUMP_CASES = {
     "xxd": (xxd_dump(DUMP_DATA), ("hex dump", 512)),
+    "comment-prefixed": (prefixed_lines(xxd_dump(DUMP_DATA), "# "), ("hex dump", 512)),
+    "indented-comment-prefixed": (
+        prefixed_lines(xxd_dump(DUMP_DATA), "    # "),
+        ("hex dump", 512),
+    ),
+    "quote-prefixed": (prefixed_lines(xxd_dump(DUMP_DATA), "> "), ("hex dump", 512)),
+    "word-prefixed": (prefixed_lines(xxd_dump(DUMP_DATA), "docs: "), ("hex dump", 512)),
+    "two-token-prefixed": (prefixed_lines(xxd_dump(DUMP_DATA), "> # "), ("hex dump", 512)),
+    "three-token-prefixed": (prefixed_lines(xxd_dump(DUMP_DATA), "> > # "), None),
+    "prose-lines": ("\n".join([PROSE_LINE] * 20), None),
+    "text-column-with-hex-tokens": (
+        "\n".join(
+            f"{offset:08x}: " + DUMP_DATA[offset : offset + 16].hex(" ", 2) + "  .. ab cd ef"
+            for offset in range(0, 64, 16)
+        ),
+        ("hex dump", 128),
+    ),
     "xxd-single-bytes": (xxd_dump(DUMP_DATA, group_bytes=1), ("hex dump", 512)),
     "xxd-64-bytes": (xxd_dump(DUMP_DATA[:64]), ("hex dump", 128)),
     "xxd-48-bytes": (xxd_dump(DUMP_DATA[:48]), None),
@@ -1113,6 +1152,63 @@ def test_commit_message_passes_without_private_folder(
     message_path.write_text("Add example for Alex Example\n", encoding="utf-8")
     assert run_guard(repository, "--commit-msg", str(message_path)) == 0
     assert "structural checks only" in capsys.readouterr().err
+
+
+def git_output(repository: Path, *arguments: str) -> str:
+    """Standard output of a git command, stripped."""
+    completed = subprocess.run(["git", *arguments], cwd=repository, check=True, capture_output=True)
+    return completed.stdout.decode("utf-8").strip()
+
+
+HEX_RUN_REASON = "contains a long encoded run (hex, 512 characters)"
+
+
+def test_commit_message_with_an_encoded_run_is_blocked(
+    repository: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    message_path = tmp_path / "message.txt"
+    message_path.write_text(f"Add a reader\n\n{encoded_run(HEX_ALPHABET, 512)}\n", encoding="utf-8")
+    assert run_guard(repository, "--commit-msg", str(message_path)) == 1
+    assert capsys.readouterr().err.splitlines() == [
+        f"guard: message:3: {HEX_RUN_REASON}",
+        blocked_line(1),
+    ]
+
+
+def test_commit_message_with_a_short_hash_and_a_version_passes(
+    repository: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    message_path = tmp_path / "message.txt"
+    message_path.write_text("Fix the reader for version 1.2.3 (see 9c50124)\n", encoding="utf-8")
+    assert run_guard(repository, "--commit-msg", str(message_path)) == 0
+    assert capsys.readouterr().err.splitlines() == [STRUCTURAL_OK_LINE]
+
+
+def test_history_mode_checks_commit_messages_for_encoded_runs(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stage(repository, "ok.txt", "fine\n")
+    run_git(repository, "commit", "-q", "-m", encoded_run(HEX_ALPHABET, 512))
+    commit_id = git_output(repository, "rev-parse", "HEAD")
+    assert run_guard(repository, "--history") == 1
+    assert capsys.readouterr().err.splitlines() == [
+        f"guard: commit {commit_id[:12]} message:1: {HEX_RUN_REASON}",
+        blocked_line(1),
+    ]
+
+
+def test_history_mode_checks_tag_messages_for_encoded_runs(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stage(repository, "ok.txt", "fine\n")
+    run_git(repository, "commit", "-q", "-m", "add file")
+    run_git(repository, "tag", "-a", "-m", encoded_run(HEX_ALPHABET, 512), "v0.0.1")
+    tag_id = git_output(repository, "rev-parse", "v0.0.1")
+    assert run_guard(repository, "--history") == 1
+    assert capsys.readouterr().err.splitlines() == [
+        f"guard: tag {tag_id[:12]} message:1: {HEX_RUN_REASON}",
+        blocked_line(1),
+    ]
 
 
 # Private configuration files
