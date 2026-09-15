@@ -11,6 +11,7 @@ from fmsave._layouts import (
     GameInfoLayout,
     LayoutEntry,
     NamePoolLayout,
+    PersonBlockLayout,
     PlayerRecordLayout,
     SaveSummaryLayout,
     TeamListLayout,
@@ -189,6 +190,32 @@ PLAYER_RECORDS = PlayerRecordLayout(
     ),
 )
 
+PERSON_BLOCKS = PersonBlockLayout(
+    window_start_offset=100,
+    personality_offset_from_birth=21,
+    personality_count=8,
+    personality_range=(1, 20),
+    date_zero_bytes_offset_from_birth=14,
+    date_zero_bytes_count=7,
+    legal_name_length_min=2,
+    legal_name_length_max=80,
+    name_id_limit=2**23,
+    first_name_id_offset_from_block_start=0,
+    surname_id_offset_from_block_start=5,
+    common_name_id_offset_from_block_start=10,
+    legal_name_length_offset_from_block_start=15,
+    legal_name_offset_from_block_start=19,
+    trait_bits_offset_from_block_start=-8,
+    nation_id_offset_from_birth=13,
+    relation_present_offset_from_birth=37,
+    relation_count_offset_from_birth=38,
+    relation_entries_offset_from_birth=39,
+    relation_entry_bytes=16,
+    second_nation_pair=(8, 9),
+    home_grown_nation_pair=(8, 70),
+    home_grown_club_pair=(1, 72),
+)
+
 LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_info", schema=46, build=BUILD, layout=GAME_INFO),
     LayoutEntry(region="save_game_summary", schema=29, build=BUILD, layout=SAVE_SUMMARY),
@@ -197,4 +224,5 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TEAM_LISTS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CLUB_STATUSES),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=PLAYER_RECORDS),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=PERSON_BLOCKS),
 )

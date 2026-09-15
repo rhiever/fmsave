@@ -138,6 +138,44 @@ class ClubStatusLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class PersonBlockLayout:
+    """How to locate and parse a player's person block inside its record window.
+
+    The block is found by searching the window `[record_offset + window_start_offset,
+    record_window_end)` for `personality_count` consecutive bytes in `personality_range`
+    (the personality profile) starting at `r`; the birth date sits at
+    `birth_date_offset_from_run = r - personality_offset_from_birth`. Offsets suffixed
+    `_from_birth` count from the birth date position `p`; offsets suffixed `_from_block_start`
+    count from the block start `q`, found by walking backwards from `p`. `relation_pairs`
+    maps a `(kind, role)` pair to the person field it fills.
+    """
+
+    window_start_offset: int
+    personality_offset_from_birth: int
+    personality_count: int
+    personality_range: tuple[int, int]
+    date_zero_bytes_offset_from_birth: int
+    date_zero_bytes_count: int
+    legal_name_length_min: int
+    legal_name_length_max: int
+    name_id_limit: int
+    first_name_id_offset_from_block_start: int
+    surname_id_offset_from_block_start: int
+    common_name_id_offset_from_block_start: int
+    legal_name_length_offset_from_block_start: int
+    legal_name_offset_from_block_start: int
+    trait_bits_offset_from_block_start: int
+    nation_id_offset_from_birth: int
+    relation_present_offset_from_birth: int
+    relation_count_offset_from_birth: int
+    relation_entries_offset_from_birth: int
+    relation_entry_bytes: int
+    second_nation_pair: tuple[int, int]
+    home_grown_nation_pair: tuple[int, int]
+    home_grown_club_pair: tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
 class PlayerRecordLayout:
     """How to recognise player records in `game_db` and where their fields sit.
 
@@ -197,6 +235,7 @@ type Layout = (
     | TeamListLayout
     | ClubStatusLayout
     | PlayerRecordLayout
+    | PersonBlockLayout
 )
 
 

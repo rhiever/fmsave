@@ -228,5 +228,47 @@
       'region': 'game_db',
       'schema': 4000,
     }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
+        'common_name_id_offset_from_block_start': 10,
+        'date_zero_bytes_count': 7,
+        'date_zero_bytes_offset_from_birth': 14,
+        'first_name_id_offset_from_block_start': 0,
+        'home_grown_club_pair': tuple(
+          1,
+          72,
+        ),
+        'home_grown_nation_pair': tuple(
+          8,
+          70,
+        ),
+        'legal_name_length_max': 80,
+        'legal_name_length_min': 2,
+        'legal_name_length_offset_from_block_start': 15,
+        'legal_name_offset_from_block_start': 19,
+        'name_id_limit': 8388608,
+        'nation_id_offset_from_birth': 13,
+        'personality_count': 8,
+        'personality_offset_from_birth': 21,
+        'personality_range': tuple(
+          1,
+          20,
+        ),
+        'relation_count_offset_from_birth': 38,
+        'relation_entries_offset_from_birth': 39,
+        'relation_entry_bytes': 16,
+        'relation_present_offset_from_birth': 37,
+        'second_nation_pair': tuple(
+          8,
+          9,
+        ),
+        'surname_id_offset_from_block_start': 5,
+        'trait_bits_offset_from_block_start': -8,
+        'window_start_offset': 100,
+      }),
+      'region': 'game_db',
+      'schema': 4000,
+    }),
   ])
 # ---

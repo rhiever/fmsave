@@ -8,11 +8,14 @@ from typing import Self
 
 from fmsave._container import ContainerIndex, read_index, read_section
 from fmsave._context import SaveContext, closed_save_error
+from fmsave._errors import ReaderCheckError
+from fmsave._layouts import PersonBlockLayout, find_layout
 from fmsave._version import read_save_info
 from fmsave.models.clubs import Club
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
 from fmsave.readers._common import GAME_DB_SECTION
+from fmsave.readers.player_scan import window_end
 from fmsave.readers.players import build_player_decoder
 from fmsave.table import Table
 
@@ -69,32 +72,56 @@ class Save:
         """Every player in the save's game database, in record offset order.
 
         The table is read on the first call; later calls return the same table. Person
-        fields (name, birth date, nationality, personality, traits and the rest) are None
-        or empty for now.
+        fields (name, birth date, nationality, personality, traits and the rest) are filled
+        in from each player's person block, or stay None or empty when no block validates.
 
         Raises:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
-            CorruptSaveError: The save is damaged or was being written.
+            CorruptSaveError: The save is damaged or was being written, or a player's
+                relation list runs past its record window.
             ReaderCheckError: No club record is accepted, a club uid or club index appears
                 in two records, a team id is listed twice (by one club or by two), no player
-                records were found, or two player records share a uid.
+                records were found, two player records share a uid, or the save's in-game
+                date is unreadable.
         """
         context = self._context
         return context.cached(PLAYERS_TABLE_CACHE_KEY, self._build_players_table)
 
     def _build_players_table(self) -> Table[Player]:
         context = self._context
+        save_info = context.info
+        clock = save_info.game_date
+        if clock is None:
+            raise ReaderCheckError(
+                "the save's in-game date is unreadable, so person blocks and ages cannot be decoded"
+            )
         with context.section(GAME_DB_SECTION) as game_db:
             club_index = context.club_index()
             player_records = context.player_records()
-            decoder = build_player_decoder(player_records.layout, club_index)
+            name_pools = context.name_pools()
+            person_layout = find_layout(
+                PersonBlockLayout,
+                GAME_DB_SECTION,
+                save_info.section_schemas.get(GAME_DB_SECTION),
+                save_info.build,
+            ).layout
+            decoder = build_player_decoder(
+                player_records.layout,
+                club_index,
+                name_pools,
+                clock,
+                person_layout,
+                save_info.file_name,
+                game_db,
+            )
             decoded_players: list[Player] = []
             append_player = decoded_players.append
-            # Positions are not used yet, but enumerate keeps window_end(records, position,
-            # len) available for a later task without restructuring this loop.
-            for _position, record_offset in enumerate(player_records.record_offsets):
-                append_player(decoder.decode(game_db, record_offset))
+            record_offsets = player_records.record_offsets
+            game_db_length = len(game_db)
+            for position, record_offset in enumerate(record_offsets):
+                record_window_end = window_end(player_records, position, game_db_length)
+                append_player(decoder.decode(game_db, record_offset, record_window_end))
         return Table(tuple(decoded_players), Player)
 
     def close(self) -> None:

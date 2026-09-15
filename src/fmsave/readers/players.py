@@ -15,12 +15,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date
 
-from fmsave._layouts import PlayerRecordLayout
+from fmsave._layouts import PersonBlockLayout, PlayerRecordLayout
 from fmsave._scan import decode_date
 from fmsave.models.common import TransferValueState
 from fmsave.models.players import Ability, Attributes, Player, Positions, Reputation
 from fmsave.readers._common import MISSING_REFERENCE
 from fmsave.readers.clubs import ClubIndex
+from fmsave.readers.names import NamePools
+from fmsave.readers.persons import PersonBlockDecoder, build_person_block_decoder
 from fmsave.readers.player_scan import HeaderLayout, build_header_layout, indexed_struct
 
 _TeamFields = tuple[
@@ -114,6 +116,8 @@ class PlayerDecoder:
     """
 
     layout: PlayerRecordLayout
+    person_layout: PersonBlockLayout
+    person_decoder: PersonBlockDecoder
     header_layout: HeaderLayout
     tail_layout: _TailLayout
     attribute_struct: struct.Struct
@@ -121,9 +125,11 @@ class PlayerDecoder:
     team_fields: Mapping[int, _TeamFields]
     date_cache: dict[int, date | None] = field(default_factory=_new_date_cache)
 
-    def decode(self, game_db: bytes, record_offset: int) -> Player:
-        """Decode one player record's public fields; person fields stay empty until a later
-        task.
+    def decode(self, game_db: bytes, record_offset: int, record_window_end: int) -> Player:
+        """Decode one player record's public fields, including its person block.
+
+        `record_window_end` bounds the person-block search: the next record's offset, or
+        `len(game_db)` for the last record (see `player_scan.window_end`).
         """
         layout = self.layout
         header_layout = self.header_layout
@@ -200,23 +206,25 @@ class PlayerDecoder:
             game_db, record_offset + layout.club_join_date_offset, club_join_date_raw
         )
 
-        # Positional, matching Player's field order in models/players.py. Person fields
-        # (name..nation_id, their tuples, personality and traits) stay empty until Task 7.
+        person_window_start = record_offset + self.person_layout.window_start_offset
+        person_fields = self.person_decoder.decode(game_db, person_window_start, record_window_end)
+
+        # Positional, matching Player's field order in models/players.py.
         return Player(
             uid,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            (),
-            (),
-            (),
-            (),
+            None if person_fields is None else person_fields.name,
+            None if person_fields is None else person_fields.first_name,
+            None if person_fields is None else person_fields.last_name,
+            None if person_fields is None else person_fields.common_name,
+            None if person_fields is None else person_fields.full_name,
+            None if person_fields is None else person_fields.legal_name,
+            None if person_fields is None else person_fields.birth_date,
+            None if person_fields is None else person_fields.age,
+            None if person_fields is None else person_fields.nation_id,
+            () if person_fields is None else person_fields.second_nation_ids,
+            () if person_fields is None else person_fields.home_grown_nation_ids,
+            () if person_fields is None else person_fields.home_grown_club_uids,
+            () if person_fields is None else person_fields.home_grown_club_names,
             height_cm,
             ability,
             reputation,
@@ -232,7 +240,7 @@ class PlayerDecoder:
             club_join_date,
             natural_positions,
             accomplished_positions,
-            None,
+            None if person_fields is None else person_fields.personality,
             attributes,
             raw_attributes,
             left_foot,
@@ -244,8 +252,8 @@ class PlayerDecoder:
             transfer_value_state,
             condition,
             match_sharpness,
-            (),
-            None,
+            () if person_fields is None else person_fields.traits,
+            None if person_fields is None else person_fields.trait_bits,
         )
 
     def _cached_date(self, game_db: bytes, date_offset: int, raw_date: int) -> date | None:
@@ -259,8 +267,20 @@ class PlayerDecoder:
         return decoded
 
 
-def build_player_decoder(layout: PlayerRecordLayout, club_index: ClubIndex) -> PlayerDecoder:
-    """Build the per-save decoder from the save's layout and its ClubIndex."""
+def build_player_decoder(
+    layout: PlayerRecordLayout,
+    club_index: ClubIndex,
+    name_pools: NamePools,
+    clock: date,
+    person_layout: PersonBlockLayout,
+    file_name: str,
+    game_db: bytes,
+) -> PlayerDecoder:
+    """Build the per-save decoder from the save's layout, its ClubIndex, name pools and clock.
+
+    `game_db` is used only to build the person decoder's save-wide personality search index
+    (see `build_person_block_decoder`); the returned `PlayerDecoder` keeps no reference to it.
+    """
     team_fields: dict[int, _TeamFields] = {}
     for team_id, (club_uid, team_slot) in club_index.team_to_club.items():
         club = club_index.club_by_uid[club_uid]
@@ -274,8 +294,13 @@ def build_player_decoder(layout: PlayerRecordLayout, club_index: ClubIndex) -> P
             club.last_league_position,
             team_slot,
         )
+    person_decoder = build_person_block_decoder(
+        person_layout, name_pools, club_index, clock, file_name, game_db
+    )
     return PlayerDecoder(
         layout=layout,
+        person_layout=person_layout,
+        person_decoder=person_decoder,
         header_layout=build_header_layout(layout),
         tail_layout=_tail_layout(layout),
         attribute_struct=_attribute_struct_without_feet(layout),

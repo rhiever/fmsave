@@ -15,7 +15,7 @@ from fmsave import Table
 from fmsave._container import ContainerIndex
 from fmsave._context import CLUB_INDEX_CACHE_KEY
 from fmsave._errors import CorruptSaveError, ReaderCheckError
-from fmsave._layouts import NamePoolLayout, PlayerRecordLayout, find_layout
+from fmsave._layouts import NamePoolLayout, PersonBlockLayout, PlayerRecordLayout, find_layout
 from fmsave._save import PLAYERS_TABLE_CACHE_KEY
 from fmsave.models.common import TransferValueState
 from fmsave.models.players import Attributes, Personality, Player
@@ -225,12 +225,19 @@ def example_game_db(*, leading_payload: bytes = b"") -> bytes:
     return section_body(".dat", GAME_DB_SCHEMA, payload)
 
 
+CLOCK = date(2031, 3, 1)
+
+
 def registered_player_layout() -> PlayerRecordLayout:
     return find_layout(PlayerRecordLayout, "game_db", GAME_DB_SCHEMA, "").layout
 
 
 def registered_name_pool_layout() -> NamePoolLayout:
     return find_layout(NamePoolLayout, "game_db", GAME_DB_SCHEMA, "").layout
+
+
+def registered_person_layout() -> PersonBlockLayout:
+    return find_layout(PersonBlockLayout, "game_db", GAME_DB_SCHEMA, "").layout
 
 
 def build_index(game_db: bytes):
@@ -243,10 +250,21 @@ def build_index(game_db: bytes):
 
 
 def decode_all(game_db: bytes) -> list[Player]:
-    _, player_records, club_index = build_index(game_db)
-    decoder = build_player_decoder(player_records.layout, club_index)
+    name_pools, player_records, club_index = build_index(game_db)
+    decoder = build_player_decoder(
+        player_records.layout,
+        club_index,
+        name_pools,
+        CLOCK,
+        registered_person_layout(),
+        FILE_NAME,
+        game_db,
+    )
+    record_offsets = player_records.record_offsets
+    game_db_length = len(game_db)
     return [
-        decoder.decode(game_db, record_offset) for record_offset in player_records.record_offsets
+        decoder.decode(game_db, record_offset, window_end(player_records, position, game_db_length))
+        for position, record_offset in enumerate(record_offsets)
     ]
 
 
@@ -536,7 +554,7 @@ def test_player_d_has_a_zero_transfer_value() -> None:
     assert player_d.transfer_value_state == TransferValueState.ZERO
 
 
-def test_person_fields_are_empty_in_this_task() -> None:
+def test_person_fields_stay_empty_when_no_block_validates() -> None:
     players = decode_all(example_game_db())
     player_a = by_uid(players, 900001)
     assert player_a.name is None

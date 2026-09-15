@@ -140,6 +140,64 @@ PLAYER_RECORD_MARKER = bytes.fromhex("01006c07")
 PLAYER_RECORD_BODY_BYTES = 300
 
 
+PERSON_BLOCK_UNIDENTIFIED_DATE = packed_date(1, 1900)
+PERSON_BLOCK_FILLER_BYTE = 0x21
+
+
+def relation_entry_bytes(referenced: int, kind: int, role: int, qualifier: int = 100) -> bytes:
+    """One 16-byte relation entry: referenced value, kind, role, qualifier, then 0xFF."""
+    output = bytearray(16)
+    struct.pack_into("<I", output, 0, referenced)
+    output[10] = kind
+    output[11] = role
+    output[12] = qualifier
+    output[15] = 0xFF
+    return bytes(output)
+
+
+def person_block_bytes(
+    *,
+    first_name_id: int,
+    surname_id: int,
+    common_name_id: int,
+    legal_name: str | None,
+    birth: bytes,
+    nation_id: int,
+    personality: Sequence[int],
+    trait_bits: int,
+    relations: Sequence[bytes],
+    clutter: bytes = b"\x00" * 120,
+) -> bytes:
+    """A person block, in the order fmsave's reader expects: clutter, then trait bits, name
+    ids, legal name, birth date, filler, nation id, personality, city filler, and the
+    relation list. The 120 zero bytes of clutter keep the block after rec+100.
+    """
+    encoded_legal_name = b"" if legal_name is None else legal_name.encode("utf-8")
+    legal_name_length = len(encoded_legal_name)
+
+    output = bytearray(clutter)
+    output.extend(PERSON_BLOCK_UNIDENTIFIED_DATE)
+    output.append(0)
+    output.extend(struct.pack("<Q", trait_bits))
+    for name_id in (first_name_id, surname_id, common_name_id):
+        output.extend(struct.pack("<I", name_id))
+        output.append(0)
+    output.extend(struct.pack("<I", legal_name_length))
+    output.extend(encoded_legal_name)
+    output.extend(birth)
+    output.extend(bytes([PERSON_BLOCK_FILLER_BYTE]) * 9)
+    output.extend(struct.pack("<H", nation_id))
+    output.extend(bytes(6))
+    output.extend(bytes(personality))
+    output.extend(struct.pack("<H", 0))
+    output.extend(bytes(6))
+    output.append(1 if relations else 0)
+    output.append(len(relations))
+    for relation in relations:
+        output.extend(relation)
+    return bytes(output)
+
+
 def player_record_bytes(
     *,
     pindex: int,
