@@ -6,7 +6,8 @@ A player's contract is assembled from a chain of registration records (the tag
 status, contract type and event count), its clauses, and its head (contract type and
 three money fields). It is callable on its own, without a player window, from just the
 tag's offset. `decode_contract` finds every chain record for one player, decodes each,
-then assembles the public `Contract` by the rules in `format-m1.md` section 2.5.
+then assembles the public `Contract` by the assembly rules documented on `ContractLayout`
+and on the `Contract` and `ContractChainEntry` models.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import struct
 from dataclasses import dataclass
 from datetime import date
 
+from fmsave._errors import CorruptSaveError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import ContractLayout
 from fmsave._scan import decode_date
@@ -28,6 +30,7 @@ from fmsave.models.contracts import (
     ContractType,
     SquadStatus,
 )
+from fmsave.readers._common import section_label
 from fmsave.readers.clubs import ClubIndex
 
 _U16 = struct.Struct("<H")
@@ -217,7 +220,7 @@ def _read_head(game_db: bytes, base: int, layout: ContractLayout) -> _HeadFields
     money_a_offset = base + layout.head_money_a_offset
     money_b_offset = base + layout.head_money_b_offset
     money_c_offset = base + layout.head_money_c_offset
-    if type_offset < 0 or money_a_offset + 4 > len(game_db):
+    if type_offset < 0 or money_c_offset + 4 > len(game_db):
         return None
     contract_type_raw = game_db[type_offset]
     money_a: int = _U32.unpack_from(game_db, money_a_offset)[0]
@@ -229,13 +232,22 @@ def _read_head(game_db: bytes, base: int, layout: ContractLayout) -> _HeadFields
 
 
 def _decode_chain_record(
-    game_db: bytes, chain_tag_offset: int, layout: ContractLayout
+    game_db: bytes, chain_tag_offset: int, layout: ContractLayout, file_name: str
 ) -> _ChainRecord:
     """Decode one chain record's tail, clauses and head from its tag offset alone.
 
     Callable without a player window: every offset it reads counts from chain_tag_offset,
     or from a tail or clause-table offset found relative to it.
+
+    Raises:
+        CorruptSaveError: The record's team id or wage runs past the end of game_db.
     """
+    fixed_fields_end = chain_tag_offset + max(layout.team_id_offset, layout.wage_offset) + 4
+    if fixed_fields_end > len(game_db):
+        raise CorruptSaveError(
+            f"{section_label(file_name)}: a contract chain record at offset {chain_tag_offset} "
+            f"needs bytes up to offset {fixed_fields_end}, past the end of the section"
+        )
     team_id: int = _U32.unpack_from(game_db, chain_tag_offset + layout.team_id_offset)[0]
     wage: int = _U32.unpack_from(game_db, chain_tag_offset + layout.wage_offset)[0]
     start_offset = chain_tag_offset + layout.start_offset
@@ -300,6 +312,7 @@ def _find_chain_records(
     is_last_record: bool,
     pindex: int,
     layout: ContractLayout,
+    file_name: str,
 ) -> list[_ChainRecord]:
     search_start = max(0, record_offset + layout.chain_window_start_offset)
     search_end = (
@@ -316,7 +329,7 @@ def _find_chain_records(
         stored_selector: int = _U32.unpack_from(game_db, selector_offset)[0]
         if stored_selector != selector:
             continue
-        records.append(_decode_chain_record(game_db, chain_tag_offset, layout))
+        records.append(_decode_chain_record(game_db, chain_tag_offset, layout, file_name))
     return records
 
 
@@ -341,15 +354,16 @@ def _find_fallback_dates(
         hit = find(needle, position, min(limit, game_db_length))
         if hit < 0:
             break
-        nonzero_start = hit + 8 + layout.fallback_nonzero_offset
+        dates_offset = hit + 8  # "j" in the layout docstring: the FF run is 8 bytes long
+        nonzero_start = dates_offset + layout.fallback_nonzero_offset
         if (
-            hit + layout.fallback_gate_length <= limit
+            dates_offset + layout.fallback_gate_length <= limit
             and nonzero_start + layout.fallback_nonzero_length <= game_db_length
         ):
             nonzero_region = game_db[nonzero_start : nonzero_start + layout.fallback_nonzero_length]
             if nonzero_region != bytes(layout.fallback_nonzero_length):
-                end_date = decode_date(game_db, hit + 8 + layout.fallback_end_date_offset)
-                start_date = decode_date(game_db, hit + 8 + layout.fallback_start_date_offset)
+                end_date = decode_date(game_db, dates_offset + layout.fallback_end_date_offset)
+                start_date = decode_date(game_db, dates_offset + layout.fallback_start_date_offset)
                 if (
                     end_date is not None
                     and start_date is not None
@@ -416,15 +430,19 @@ def decode_contract(
     club_index: ClubIndex,
     clock: date,
     layout: ContractLayout,
+    file_name: str,
 ) -> tuple[Contract | None, bool | None, int | None, str | None]:
     """Assemble one player's contract from their chain records and, when needed, the
     fallback reader.
 
     Returns (contract, on_loan, loan_parent_club_uid, loan_parent_club_name); the last
     three are also carried inside contract when it is not None.
+
+    Raises:
+        CorruptSaveError: A chain record's team id or wage runs past the end of game_db.
     """
     chain_records = _find_chain_records(
-        game_db, record_offset, record_window_end, is_last_record, pindex, layout
+        game_db, record_offset, record_window_end, is_last_record, pindex, layout, file_name
     )
 
     any_tail_parsed = any(record.tail is not None for record in chain_records)

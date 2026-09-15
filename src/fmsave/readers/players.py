@@ -148,6 +148,7 @@ class PlayerDecoder:
     contract_layout: ContractLayout
     club_index: ClubIndex
     clock: date
+    file_name: str
     date_cache: dict[int, date | None] = field(default_factory=_new_date_cache)
 
     def decode(
@@ -269,6 +270,7 @@ class PlayerDecoder:
             self.club_index,
             self.clock,
             self.contract_layout,
+            self.file_name,
         )
 
         # Positional, matching Player's field order in models/players.py.
@@ -372,4 +374,5 @@ def build_player_decoder(
         contract_layout=contract_layout,
         club_index=club_index,
         clock=clock,
+        file_name=file_name,
     )

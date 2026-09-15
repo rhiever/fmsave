@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import pickle
+import struct
 from datetime import date
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 
 import fmsave
 from fmsave import Table
+from fmsave._errors import CorruptSaveError
 from fmsave._layouts import (
     ContractLayout,
     NamePoolLayout,
@@ -28,7 +30,8 @@ from fmsave.models.contracts import (
     SquadStatus,
 )
 from fmsave.models.players import Player
-from fmsave.readers.clubs import find_club_layouts, read_club_index
+from fmsave.readers.clubs import ClubIndex, find_club_layouts, read_club_index
+from fmsave.readers.contracts import _find_fallback_dates, decode_contract
 from fmsave.readers.names import locate_name_pools
 from fmsave.readers.player_scan import locate_player_records, window_end
 from fmsave.readers.players import build_player_decoder
@@ -40,6 +43,7 @@ from tests.fixtures.container import (
     section_body,
 )
 from tests.fixtures.game_db import (
+    CONTRACT_TAG,
     STUB_STATUS_KIND,
     club_record_bytes,
     contract_bytes,
@@ -49,6 +53,9 @@ from tests.fixtures.game_db import (
     player_record_bytes,
     status_record_bytes,
 )
+from tests.helpers.export_asserts import assert_matches_json_normalize
+
+EMPTY_CLUB_INDEX = ClubIndex(clubs=(), uid_by_club_index={}, club_by_uid={}, team_to_club={})
 
 FILE_NAME = "career example.fm"
 GAME_DB_SCHEMA = 4000
@@ -129,6 +136,7 @@ PLAYER_A_UID = 900001
 PLAYER_B_UID = 900002
 PLAYER_C_UID = 900003
 PLAYER_D_UID = 900004
+PLAYER_E_UID = 900005  # no chain record and no fallback pair: contract stays None
 
 
 def _player_a_trailing() -> bytes:
@@ -229,6 +237,7 @@ def player_region_bytes() -> bytes:
         + _player_bytes(
             pindex=14, uid=PLAYER_D_UID, team_id=0xFFFFFFFF, trailing=_player_d_trailing()
         )
+        + _player_bytes(pindex=15, uid=PLAYER_E_UID, team_id=0xFFFFFFFF)
     )
 
 
@@ -476,6 +485,136 @@ def test_chain_record_far_past_record_is_included_with_no_cap() -> None:
     assert contract.wage == 5000
 
 
+def test_head_null_date_tag_is_not_mistaken_for_a_second_chain_record() -> None:
+    """A record with a head carries a second `01 00 6C 07` tag inside it (the null date at
+    `base-20`); its selector never matches the player's own, so only one chain record
+    is found.
+    """
+    record, _ = contract_bytes(
+        selector=51,
+        team_id=NORTHBRIDGE_TEAM_A,
+        wage=4000,
+        start=packed_date(1, 2028),
+        tail={"end": packed_date(1, 2030), "status": 3},
+        head={"type": 1, "money_a": 1000},
+        clauses=(),
+    )
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body(
+            [NORTHBRIDGE_CLUB, SOUTHPORT_CLUB],
+            [NORTHBRIDGE_STATUS, SOUTHPORT_STATUS],
+            gap_bytes=2000,
+        )
+        + _player_bytes(pindex=50, uid=900014, team_id=0xFFFFFFFF, trailing=record)
+    )
+    game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
+    decoded = decode_all(game_db)
+    _player, contract = by_uid(decoded, 900014)
+    assert contract is not None
+    assert len(contract.chain) == 1
+    assert contract.chain[0].wage == 4000
+
+
+def test_fallback_gate_accepts_j_plus_16_at_limit_and_rejects_one_byte_further() -> None:
+    layout = find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout
+    hit = layout.fallback_start_from_record
+    dates_offset = hit + 8  # "j" in ContractLayout's docstring
+    end_bytes = packed_date(1, 2032)
+    start_bytes = packed_date(1, 2027)
+    pattern = b"\xff\xff\xff\xff" + bytes(4) + end_bytes + start_bytes + bytes([0x33] * 8)
+    game_db = bytes(hit) + pattern + bytes(200)
+
+    accepted_window_end = (dates_offset + layout.fallback_gate_length) + layout.fallback_end_margin
+    start, end = _find_fallback_dates(game_db, 0, accepted_window_end, False, layout)
+    assert start == date(2027, 1, 1)
+    assert end == date(2032, 1, 1)
+
+    rejected_window_end = accepted_window_end - 1
+    start, end = _find_fallback_dates(game_db, 0, rejected_window_end, False, layout)
+    assert start is None
+    assert end is None
+
+
+def test_truncated_chain_record_raises_corrupt_save_error_with_file_context() -> None:
+    layout = find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout
+    tag_offset = 10
+    needed_end = tag_offset + max(layout.team_id_offset, layout.wage_offset) + 4
+    game_db = bytearray(needed_end - 1)  # one byte short of what the record needs
+    game_db[tag_offset : tag_offset + 4] = CONTRACT_TAG
+    struct.pack_into("<I", game_db, tag_offset + layout.selector_offset, 8)  # pindex 7 + 1
+    with pytest.raises(CorruptSaveError, match=FILE_NAME):
+        decode_contract(
+            bytes(game_db),
+            0,
+            len(game_db),
+            True,
+            7,
+            1,
+            None,
+            None,
+            EMPTY_CLUB_INDEX,
+            date(2031, 1, 1),
+            layout,
+            FILE_NAME,
+        )
+
+
+def test_last_record_chain_window_reaches_the_end_of_game_db_not_end_minus_30() -> None:
+    layout = find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout
+    game_db_length = 100
+    tag_offset = 75  # inside the final 30 bytes: a `next_record - 30` window would miss it
+    game_db = bytearray(game_db_length)
+    game_db[tag_offset : tag_offset + 4] = CONTRACT_TAG
+    struct.pack_into("<I", game_db, tag_offset + layout.selector_offset, 8)
+    struct.pack_into("<I", game_db, tag_offset + layout.team_id_offset, 12345)
+    struct.pack_into("<I", game_db, tag_offset + layout.wage_offset, 999)
+    contract, _on_loan, _loan_uid, _loan_name = decode_contract(
+        bytes(game_db),
+        0,
+        game_db_length,
+        True,
+        7,
+        1,
+        None,
+        None,
+        EMPTY_CLUB_INDEX,
+        date(2031, 1, 1),
+        layout,
+        FILE_NAME,
+    )
+    assert contract is not None
+    assert contract.wage == 999
+
+
+def test_negative_chain_search_start_is_clamped_to_zero() -> None:
+    layout = find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout
+    record_offset = 5  # record_offset + chain_window_start_offset (-30) is negative
+    tag_offset = 2
+    game_db_length = 100
+    game_db = bytearray(game_db_length)
+    game_db[tag_offset : tag_offset + 4] = CONTRACT_TAG
+    struct.pack_into("<I", game_db, tag_offset + layout.selector_offset, 8)
+    struct.pack_into("<I", game_db, tag_offset + layout.team_id_offset, 54321)
+    struct.pack_into("<I", game_db, tag_offset + layout.wage_offset, 111)
+    contract, _on_loan, _loan_uid, _loan_name = decode_contract(
+        bytes(game_db),
+        record_offset,
+        game_db_length,
+        True,
+        7,
+        1,
+        None,
+        None,
+        EMPTY_CLUB_INDEX,
+        date(2031, 1, 1),
+        layout,
+        FILE_NAME,
+    )
+    assert contract is not None
+    assert contract.wage == 111
+
+
 def test_field_status_resolves_contract_wage_through_contract_class() -> None:
     assert field_status(Player, "contract.wage") == "unconfirmed"
     assert field_status(Player, "on_loan") == "verified"
@@ -534,24 +673,52 @@ def test_contracts_returns_uids_in_player_order_and_filters_by_club(
         ]
 
 
+def _counting_player_decode(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Wrap PlayerDecoder.decode with a call counter.
+
+    Returns a one-item list holding the running count, so the test can read it after
+    each Save call without needing a nonlocal or a class. Counting the per-record decode
+    method, rather than a specific contract helper, keeps the test valid regardless of how
+    the contract decode itself is structured.
+    """
+    from fmsave.readers.players import PlayerDecoder
+
+    call_count = [0]
+    original_decode = PlayerDecoder.decode
+
+    def counting_decode(self: PlayerDecoder, *args: object, **kwargs: object) -> object:
+        call_count[0] += 1
+        return original_decode(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(PlayerDecoder, "decode", counting_decode)
+    return call_count
+
+
 def test_contracts_called_first_also_builds_players_from_one_pass(
-    contracts_fragment_path: Path,
+    contracts_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    call_count = _counting_player_decode(monkeypatch)
     with fmsave.open(contracts_fragment_path) as career_save:
         contracts_table = career_save.contracts()
+        assert call_count[0] == 5  # every player is decoded exactly once
         assert career_save._context._cache[PLAYERS_TABLE_CACHE_KEY] is not None
         players_table = career_save.players()
+        assert call_count[0] == 5  # players() does not decode again
         assert players_table is career_save._context._cache[PLAYERS_TABLE_CACHE_KEY]
         assert career_save.contracts() is contracts_table
+        assert call_count[0] == 5
 
 
 def test_players_called_first_also_builds_contracts_from_one_pass(
-    contracts_fragment_path: Path,
+    contracts_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    call_count = _counting_player_decode(monkeypatch)
     with fmsave.open(contracts_fragment_path) as career_save:
         players_table = career_save.players()
+        assert call_count[0] == 5
         assert career_save._context._cache[CONTRACTS_TABLE_CACHE_KEY] is not None
         contracts_table = career_save.contracts()
+        assert call_count[0] == 5  # contracts() does not decode again
         assert contracts_table is career_save._context._cache[CONTRACTS_TABLE_CACHE_KEY]
         assert career_save.players() is players_table
 
@@ -562,26 +729,15 @@ def test_only_players_with_a_contract_appear_in_contracts_table(
     with fmsave.open(contracts_fragment_path) as career_save:
         contracts_table = career_save.contracts()
         players_table = career_save.players()
-        assert len(contracts_table) == len(players_table)
+        assert len(players_table) == 5
+        assert len(contracts_table) == 4
         assert all(contract is not None for contract in contracts_table)
-
-
-def _normalized_cell(pandas: object, cell: object) -> object:
-    import math
-
-    if cell is None:
-        return None
-    if isinstance(cell, float) and math.isnan(cell):
-        return None
-    if cell is getattr(pandas, "NA", object()) or cell is getattr(pandas, "NaT", object()):
-        return None
-    return cell
+        assert PLAYER_E_UID not in [contract.player_uid for contract in contracts_table]
+        excluded_player = players_table.by_uid(PLAYER_E_UID)
+        assert excluded_player.contract is None
 
 
 def test_export_flattens_contract_clauses_and_chain(contracts_fragment_path: Path) -> None:
-    pandas = pytest.importorskip("pandas")
-    from fmsave.export import column_names, flatten_dict, record_to_dict
-
     with fmsave.open(contracts_fragment_path) as career_save:
         contracts_table = career_save.contracts()
 
@@ -591,16 +747,7 @@ def test_export_flattens_contract_clauses_and_chain(contracts_fragment_path: Pat
     assert "chain" in columns
 
     records = list(contracts_table)
-    nested_rows = [record_to_dict(record, json_ready=True) for record in records]
-    frame = pandas.json_normalize(nested_rows, sep="_")
-    expected_columns = column_names(Contract)
-    assert set(frame.columns) == set(expected_columns)
-    for row_index, nested_row in enumerate(nested_rows):
-        expected_row = flatten_dict(nested_row)
-        for column_name in expected_columns:
-            cell = _normalized_cell(pandas, frame.at[row_index, column_name])
-            expected_cell = _normalized_cell(pandas, expected_row[column_name])
-            assert cell == expected_cell, column_name
+    assert_matches_json_normalize(records, Contract)
 
     with_clause_and_chain = next(
         record for record in records if record.clauses and len(record.chain) >= 2

@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import io
 import json
-import math
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -12,8 +11,6 @@ from enum import IntEnum
 from pathlib import Path
 from typing import ClassVar
 
-import numpy
-import pandas
 import pytest
 
 from fmsave._frozen import FrozenMapping
@@ -31,6 +28,7 @@ from fmsave.export import (
     write_jsonl,
 )
 from fmsave.models import CodedValue, ContractEndSource
+from tests.helpers.export_asserts import assert_matches_json_normalize
 
 
 class ExampleStatus(IntEnum):
@@ -233,37 +231,8 @@ def test_flatten_dict_keeps_sequences_whole() -> None:
     }
 
 
-def normalized_cell(cell: object) -> object:
-    if isinstance(cell, (bool, numpy.bool_)):
-        return ("bool", bool(cell))
-    if isinstance(cell, (list, tuple)):
-        return [normalized_cell(item) for item in cell]
-    if cell is None:
-        return None
-    if isinstance(cell, float) and math.isnan(cell):
-        return None
-    if cell is pandas.NA or cell is pandas.NaT:
-        return None
-    return cell
-
-
 def test_flattening_matches_pandas_json_normalize() -> None:
     assert_matches_json_normalize(BOTH_RECORDS, ExampleRecord)
-
-
-def assert_matches_json_normalize(records: Sequence[object], record_type: type) -> None:
-    nested_rows = [record_to_dict(record, json_ready=True) for record in records]
-    frame = pandas.json_normalize(nested_rows, sep="_")
-    expected_columns = column_names(record_type)
-    # json_normalize lists top-level values before flattened groups, so compare names only.
-    assert len(frame.columns) == len(expected_columns)
-    assert set(frame.columns) == set(expected_columns)
-    for row_index, nested_row in enumerate(nested_rows):
-        expected_row = flatten_dict(nested_row)
-        for column_name in expected_columns:
-            assert normalized_cell(frame.at[row_index, column_name]) == normalized_cell(
-                expected_row[column_name]
-            ), column_name
 
 
 def test_csv_writes_header_and_cells(tmp_path: Path) -> None:
