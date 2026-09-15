@@ -24,7 +24,7 @@ from fmsave._layouts import PersonBlockLayout
 from fmsave._scan import DAY_OF_YEAR_MASK, EARLIEST_GAME_YEAR, TIME_SLOT_SHIFT, decode_date
 from fmsave.models.common import CodedValue
 from fmsave.models.players import Personality, Trait
-from fmsave.readers._common import MISSING_REFERENCE, section_label
+from fmsave.readers._common import MISSING_REFERENCE, build_gap_padded_struct, section_label
 from fmsave.readers.clubs import ClubIndex
 from fmsave.readers.names import NamePools, PoolIndex
 
@@ -133,22 +133,14 @@ def _build_birth_offset_struct(layout: PersonBlockLayout) -> struct.Struct:
     """One struct, starting at the birth-date offset `p`, spanning through the relation count
     byte: nation id, personality, relation present and count, gaps padded from the layout.
     """
-    fields: list[tuple[int, str]] = [
-        (layout.nation_id_offset_from_birth, "H"),
-        (layout.personality_offset_from_birth, f"{layout.personality_count}s"),
-        (layout.relation_present_offset_from_birth, "B"),
-        (layout.relation_count_offset_from_birth, "B"),
+    fields: list[tuple[int, str, str]] = [
+        (layout.nation_id_offset_from_birth, "H", "nation_id"),
+        (layout.personality_offset_from_birth, f"{layout.personality_count}s", "personality"),
+        (layout.relation_present_offset_from_birth, "B", "relation_present"),
+        (layout.relation_count_offset_from_birth, "B", "relation_count"),
     ]
-    fields.sort(key=lambda field: field[0])
-    cursor = 0
-    format_codes: list[str] = []
-    for offset, code in fields:
-        gap = offset - cursor
-        if gap:
-            format_codes.append(f"{gap}x")
-        format_codes.append(code)
-        cursor = offset + struct.calcsize(code)
-    return struct.Struct("<" + "".join(format_codes))
+    struct_object, _start_offset, _index_by_name = build_gap_padded_struct(fields, start_offset=0)
+    return struct_object
 
 
 @dataclass(slots=True)

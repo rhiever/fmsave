@@ -18,7 +18,12 @@ from dataclasses import dataclass
 
 from fmsave._errors import CorruptSaveError
 from fmsave._layouts import PlayerRecordLayout
-from fmsave.readers._common import MISSING_REFERENCE, layout_mismatch, section_label
+from fmsave.readers._common import (
+    MISSING_REFERENCE,
+    build_gap_padded_struct,
+    layout_mismatch,
+    section_label,
+)
 
 RECORD_OFFSET_TYPECODE = "Q"
 PINDEX_TYPECODE = "I"
@@ -401,22 +406,8 @@ def indexed_struct(
     layout: PlayerRecordLayout, field_specs: tuple[tuple[str, str], ...]
 ) -> tuple[struct.Struct, int, dict[str, int]]:
     """One struct spanning every named offset in field_specs, gaps padded, offsets ascending."""
-    fields = sorted(
-        ((getattr(layout, attr_name), code, attr_name) for attr_name, code in field_specs),
-        key=lambda described_field: described_field[0],
-    )
-    start_offset = fields[0][0]
-    format_codes: list[str] = []
-    cursor = start_offset
-    index_by_field: dict[str, int] = {}
-    for position, (offset, code, attr_name) in enumerate(fields):
-        gap = offset - cursor
-        if gap:
-            format_codes.append(f"{gap}x")
-        format_codes.append(code)
-        cursor = offset + struct.calcsize(code)
-        index_by_field[attr_name] = position
-    return struct.Struct("<" + "".join(format_codes)), start_offset, index_by_field
+    fields = [(getattr(layout, attr_name), code, attr_name) for attr_name, code in field_specs]
+    return build_gap_padded_struct(fields)
 
 
 @functools.cache

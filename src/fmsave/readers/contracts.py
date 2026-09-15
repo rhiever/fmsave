@@ -4,12 +4,15 @@ A player's contract is assembled from a chain of registration records (the tag
 `01 00 6c 07` plus a matching selector), searched for in the player's own record window.
 `ContractDecoder`, built once per `players()`/`contracts()` call from the save's layout and
 its `ClubIndex`, holds everything a single record's decode needs, the way
-`readers/persons.py`'s `PersonBlockDecoder` does: every offset, Struct and needle is bound as
-a field at build time, so decoding never repeats a layout lookup or a team-to-club join.
-`ContractDecoder.decode_chain_record` decodes a single located chain record (its tail, its
-clauses, and its head) from its tag offset alone, with no player window; `ContractDecoder.decode`
-finds every chain record for one player and assembles the public `Contract` by the assembly
-rules documented on `ContractLayout` and on the `Contract` and `ContractChainEntry` models.
+`readers/persons.py`'s `PersonBlockDecoder` does: every offset, size, sentinel, Struct and
+needle the hot path (`decode`, `decode_chain_record` and the methods they call) uses is bound
+as a plain field at build time, computed once from `ContractLayout`, so decoding never repeats
+a layout lookup, a team-to-club join, or a struct-layout computation. `ContractDecoder` holds
+no reference to the layout itself once built. `ContractDecoder.decode_chain_record` decodes a
+single located chain record (its tail, its clauses, its head, and its resolved club) from its
+tag offset alone, with no player window; `ContractDecoder.decode` finds every chain record for
+one player and assembles the public `Contract` by the assembly rules documented on
+`ContractLayout` and on the `Contract` and `ContractChainEntry` models.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass, field
 from datetime import date
+from typing import cast
 
 from fmsave._errors import CorruptSaveError
 from fmsave._frozen import FrozenMapping
@@ -31,7 +35,7 @@ from fmsave.models.contracts import (
     ContractType,
     SquadStatus,
 )
-from fmsave.readers._common import section_label
+from fmsave.readers._common import build_gap_padded_struct, section_label
 from fmsave.readers.clubs import ClubIndex
 
 _U32 = struct.Struct("<I")
@@ -41,17 +45,15 @@ _MISSING_U32 = 0xFFFFFFFF
 _MISSING_U16 = 0xFFFF
 _DATE_CACHE_MISS = object()
 
-# The tail locator's signature: byte E+3 (always 3) followed by the u32 at E+4 (always 4,
-# stored little-endian), five bytes that a `rfind` can search for directly.
-_TAIL_SIGNATURE = b"\x03\x04\x00\x00\x00"
-_TAIL_SIGNATURE_LENGTH = len(_TAIL_SIGNATURE)
-
-# One decoded chain record, before club resolution, in this fixed field order:
-# (team_id, wage, start, end, has_tail, squad_status_raw, event_count, clauses,
-#  contract_type_raw, unknown). end, squad_status_raw, event_count and contract_type_raw are
-# None, clauses is (), and unknown is None, when has_tail is False (contract_type_raw stays
-# None either way when the head was not found).
+# One decoded chain record, before assembly, in this fixed field order: the first 7 fields
+# match ContractChainEntry's own field order exactly (club_uid, club_name, team_id, wage,
+# start, end, has_tail), so a ContractChainEntry can be built positionally straight from a
+# record's first 7 items. squad_status_raw, event_count, clauses and contract_type_raw are
+# None (and unknown is None, clauses is ()), when has_tail is False; contract_type_raw stays
+# None either way when the record's head was not found.
 type _ChainRecordTuple = tuple[
+    "int | None",
+    "str | None",
     int,
     int,
     "date | None",
@@ -66,56 +68,113 @@ type _ChainRecordTuple = tuple[
 
 
 def _build_tail_struct(layout: ContractLayout) -> struct.Struct:
-    """One struct spanning the whole 46-byte tail block, from `E` to `E+46`.
+    """One struct spanning the whole tail block, from `E` (offset 0) through event_count.
 
-    Reads e2, e8, e12, e16, e20, e24, the end date's raw u32 (for the date cache), squad
-    status, e37, e38, e39 and event_count; skips the sentinel bytes the locator already
-    checked and the excluded printed-start date at E+32.
+    Reads e2, e8, e12, e16, e20, e24, the end date's raw u32 (kept raw for the date cache),
+    squad status, e37, e38, e39 and event_count; skips the sentinel bytes the locator
+    already checked and the excluded printed-start date at `tail_end_offset + 4`.
     """
-    assert layout.tail_e2_offset == 2
-    assert layout.tail_e8_offset == 8
-    assert layout.tail_e12_offset == 12
-    assert layout.tail_e16_offset == 16
-    assert layout.tail_e20_offset == 20
-    assert layout.tail_e24_offset == 24
-    assert layout.tail_end_offset == 28
-    assert layout.tail_squad_status_offset == 36
-    assert layout.tail_e37_offset == 37
-    assert layout.tail_e38_offset == 38
-    assert layout.tail_e39_offset == 39
-    assert layout.tail_event_count_offset == 42
-    return struct.Struct("<2xH4xIIIIII4xBBBB2xI")
+    fields = [
+        (layout.tail_e2_offset, "H", "e2"),
+        (layout.tail_e8_offset, "I", "e8"),
+        (layout.tail_e12_offset, "I", "e12"),
+        (layout.tail_e16_offset, "I", "e16"),
+        (layout.tail_e20_offset, "I", "e20"),
+        (layout.tail_e24_offset, "I", "e24"),
+        (layout.tail_end_offset, "I", "raw_end"),
+        (layout.tail_squad_status_offset, "B", "squad_status"),
+        (layout.tail_e37_offset, "B", "e37"),
+        (layout.tail_e38_offset, "B", "e38"),
+        (layout.tail_e39_offset, "B", "e39"),
+        (layout.tail_event_count_offset, "I", "event_count"),
+    ]
+    struct_object, start_offset, _index_by_name = build_gap_padded_struct(fields, start_offset=0)
+    if start_offset != 0:
+        raise ValueError("the tail struct must start at E (offset 0)")
+    return struct_object
 
 
-def _build_head_struct(layout: ContractLayout) -> struct.Struct:
-    """One struct spanning the head gate through money_c, from `base + head_gate_offset`."""
-    assert layout.head_type_offset - layout.head_gate_offset == 2
-    assert layout.head_money_a_offset - layout.head_gate_offset == 3
-    assert layout.head_money_b_offset - layout.head_money_a_offset == 4
-    assert layout.head_money_c_offset - layout.head_money_b_offset == 4
-    return struct.Struct("<HBIII")
+def _build_head_struct(layout: ContractLayout) -> tuple[struct.Struct, int]:
+    """(struct, start_offset): one struct spanning the head gate through money_c."""
+    fields = [
+        (layout.head_gate_offset, "H", "gate"),
+        (layout.head_type_offset, "B", "type"),
+        (layout.head_money_a_offset, "I", "money_a"),
+        (layout.head_money_b_offset, "I", "money_b"),
+        (layout.head_money_c_offset, "I", "money_c"),
+    ]
+    struct_object, start_offset, _index_by_name = build_gap_padded_struct(fields)
+    return struct_object, start_offset
 
 
-def _build_team_wage_struct(layout: ContractLayout) -> struct.Struct:
-    """One struct reading team_id and wage together, from `chain_tag_offset + team_id_offset`."""
-    assert layout.wage_offset - layout.team_id_offset == 8
-    return struct.Struct("<I4xI")
+def _build_team_wage_struct(layout: ContractLayout) -> tuple[struct.Struct, int]:
+    """(struct, start_offset): one struct reading team_id and wage together."""
+    fields = [
+        (layout.team_id_offset, "I", "team_id"),
+        (layout.wage_offset, "I", "wage"),
+    ]
+    struct_object, start_offset, _index_by_name = build_gap_padded_struct(fields)
+    return struct_object, start_offset
 
 
-def _build_clause_prefixes(layout: ContractLayout) -> tuple[bytes, ...]:
-    """`FF` x 8, `00` x 3, then the count byte, for each possible count, indexed by count."""
-    assert layout.clause_zero_offset - layout.clause_ff_offset == 8
-    assert layout.clause_count_offset - layout.clause_zero_offset == 3
+def _build_clause_entry_struct(layout: ContractLayout) -> struct.Struct:
+    """One clause entry's struct (value, parameter, kind), starting at offset 0.
+
+    Raises:
+        ValueError: The entry's fields do not fit exactly in `clause_entry_bytes`.
+    """
+    fields = [
+        (layout.clause_value_offset, "I", "value"),
+        (layout.clause_parameter_offset, "H", "parameter"),
+        (layout.clause_kind_offset, "H", "kind"),
+    ]
+    struct_object, _start_offset, _index_by_name = build_gap_padded_struct(fields, start_offset=0)
+    if struct_object.size != layout.clause_entry_bytes:
+        raise ValueError(
+            f"a clause entry struct is {struct_object.size} bytes, not clause_entry_bytes "
+            f"({layout.clause_entry_bytes})"
+        )
+    return struct_object
+
+
+def _build_clause_structs(
+    layout: ContractLayout, entry_struct: struct.Struct
+) -> tuple[struct.Struct, ...]:
+    """One struct per possible clause count, each unpacking that many entries in a row."""
+    entry_format = entry_struct.format
+    if isinstance(entry_format, bytes):
+        entry_format = entry_format.decode("ascii")
+    entry_body = entry_format.removeprefix("<").removeprefix("=")
     return tuple(
-        b"\xff" * 8 + b"\x00" * 3 + bytes([count]) for count in range(layout.clause_max_count + 1)
+        struct.Struct("<" + entry_body * count) for count in range(layout.clause_max_count + 1)
     )
 
 
-def _build_clause_structs(layout: ContractLayout) -> tuple[struct.Struct, ...]:
-    """One struct per possible clause count, each unpacking that many (value, parameter,
-    kind) triples starting at `base + clause_entries_offset`.
+def _build_clause_prefixes(layout: ContractLayout) -> tuple[bytes, ...]:
+    """`FF` x `clause_ff_count`, `00` x `clause_zero_count`, then the count byte, per count."""
+    return tuple(
+        b"\xff" * layout.clause_ff_count + b"\x00" * layout.clause_zero_count + bytes([count])
+        for count in range(layout.clause_max_count + 1)
+    )
+
+
+def _build_tail_signature(layout: ContractLayout) -> tuple[bytes, int]:
+    """(signature_bytes, offset_from_E): the sentinel byte and word, laid out contiguously,
+    so `bytes.rfind` can search for both sentinels as one needle.
+
+    Raises:
+        ValueError: The sentinel word does not immediately follow the sentinel byte.
     """
-    return tuple(struct.Struct("<" + "IHH" * count) for count in range(layout.clause_max_count + 1))
+    byte_offset = layout.tail_sentinel_byte_offset
+    word_offset = layout.tail_sentinel_word_offset
+    if word_offset != byte_offset + 1:
+        raise ValueError(
+            "tail_sentinel_word_offset must immediately follow tail_sentinel_byte_offset"
+        )
+    signature = bytes([layout.tail_sentinel_byte_value]) + struct.pack(
+        "<I", layout.tail_sentinel_word_value
+    )
+    return signature, byte_offset
 
 
 def _new_date_cache() -> dict[int, date | None]:
@@ -138,24 +197,64 @@ def _new_contract_type_cache() -> dict[int, CodedValue[ContractType]]:
 class ContractDecoder:
     """Decodes contract chains for one save; built once per `players()`/`contracts()` call.
 
-    Every offset the hot path (`decode`, `decode_chain_record` and the methods they call)
-    uses is bound here as a plain field, computed once from the layout at build time: no
-    method below loads a `layout` attribute inside a per-record or per-candidate loop. The
-    per-save caches (dates by their raw stored u32, and `CodedValue` labels by raw code) are
-    keyed by values shared across many players; `CodedValue` objects are never cached
-    process-globally, since a cache tied to this decoder is dropped with the save.
+    Every offset, size, sentinel, Struct and needle the hot path (`decode`,
+    `decode_chain_record` and the methods they call) uses is bound here as a plain field,
+    computed once from `ContractLayout` at build time by `build_contract_decoder`: no method
+    below loads a `ContractLayout` attribute, and the decoder keeps no reference to the
+    layout itself. The per-save caches (dates by their raw stored u32, and `CodedValue`
+    labels by raw code) are keyed by values shared across many players; `CodedValue` objects
+    are never cached process-globally, since a cache tied to this decoder is dropped with
+    the save.
     """
 
-    layout: ContractLayout
     club_by_team_id: dict[int, tuple[int | None, str | None]]
     clock: date
     file_name: str
 
-    tail_struct: struct.Struct
-    head_struct: struct.Struct
+    # Chain search.
+    tag: bytes
+    chain_window_start_offset: int
+    chain_window_end_offset: int
+    selector_offset: int
+
+    # Chain record fixed fields (team id, wage) and the start date.
     team_wage_struct: struct.Struct
+    team_wage_struct_offset: int
+    start_offset: int
+
+    # Tail locator.
+    tail_base_offset: int
+    tail_step_bytes: int
+    tail_max_event_count: int
+    tail_signature: bytes
+    tail_signature_offset: int
+    tail_event_count_offset: int
+    tail_end_offset: int
+    tail_struct: struct.Struct
+
+    # Clause locator and reader.
+    clause_step_bytes: int
+    clause_max_count: int
+    clause_ff_offset: int
+    clause_count_offset: int
+    clause_entries_offset: int
     clause_prefixes: tuple[bytes, ...]
     clause_structs: tuple[struct.Struct, ...]
+
+    # Head reader.
+    head_struct: struct.Struct
+    head_struct_offset: int
+    head_gate_value: int
+
+    # Fallback reader.
+    fallback_start_from_record: int
+    fallback_end_margin: int
+    fallback_gate_length: int
+    fallback_nonzero_offset: int
+    fallback_nonzero_length: int
+    fallback_end_date_offset: int
+    fallback_start_date_offset: int
+
     empty_unknown: FrozenMapping[str, int]
 
     date_cache: dict[int, date | None] = field(default_factory=_new_date_cache)
@@ -173,7 +272,7 @@ class ContractDecoder:
         cache = self.date_cache
         cached = cache.get(raw_value, _DATE_CACHE_MISS)
         if cached is not _DATE_CACHE_MISS:
-            return cached  # type: ignore[return-value]
+            return cast("date | None", cached)
         decoded = decode_date(game_db, date_offset)
         cache[raw_value] = decoded
         return decoded
@@ -203,68 +302,72 @@ class ContractDecoder:
         """The tail start offset E, or None when no candidate's checks all pass.
 
         Tries `event_count = 0` (`E = chain_tag_offset - tail_base_offset`) directly first.
-        Failing that, it searches right to left for the five-byte tail signature with
-        `rfind`, so candidates come back in ascending `event_count` order; a hit is a real
-        tail only when its distance from the `event_count = 0` position is a multiple of
+        Failing that, it searches right to left for the tail signature with `rfind`, so
+        candidates come back in ascending `event_count` order; a hit is a real tail only
+        when its distance from the `event_count = 0` position is a multiple of
         `tail_step_bytes` and its own stored event count matches that multiple.
         """
-        layout = self.layout
-        first_candidate = chain_tag_offset - layout.tail_base_offset
+        first_candidate = chain_tag_offset - self.tail_base_offset
         if first_candidate < 0:
             return None
         game_db_length = len(game_db)
+        tail_struct_size = self.tail_struct.size
+        tail_signature = self.tail_signature
+        signature_offset = self.tail_signature_offset
+        event_count_offset = self.tail_event_count_offset
         if (
-            first_candidate + 46 <= game_db_length
+            first_candidate + tail_struct_size <= game_db_length
             and game_db[first_candidate] == 0
             and game_db[first_candidate + 1] == 0
-            and game_db.startswith(_TAIL_SIGNATURE, first_candidate + 3)
-            and _U32.unpack_from(game_db, first_candidate + layout.tail_event_count_offset)[0] == 0
+            and game_db.startswith(tail_signature, first_candidate + signature_offset)
+            and _U32.unpack_from(game_db, first_candidate + event_count_offset)[0] == 0
         ):
             return first_candidate
 
-        step_bytes = layout.tail_step_bytes
-        lowest_candidate = first_candidate - step_bytes * layout.tail_max_event_count
+        step_bytes = self.tail_step_bytes
+        lowest_candidate = first_candidate - step_bytes * self.tail_max_event_count
         lowest_candidate = max(lowest_candidate, 0)
         # Bounds the search to distances of at least one step, since event_count = 0 was
         # already tried above: the signature for event_count = 1 sits at
-        # first_candidate - step_bytes + 3, and rfind's end is exclusive.
-        search_end = first_candidate - step_bytes + 3 + _TAIL_SIGNATURE_LENGTH
-        signature_start = lowest_candidate + 3
+        # first_candidate - step_bytes + signature_offset, and rfind's end is exclusive.
+        search_end = first_candidate - step_bytes + signature_offset + len(tail_signature)
+        signature_start = lowest_candidate + signature_offset
+        if search_end <= signature_start:
+            return None
         rfind = game_db.rfind
-        signature_hit = rfind(_TAIL_SIGNATURE, signature_start, search_end)
+        signature_hit = rfind(tail_signature, signature_start, search_end)
         while signature_hit >= 0:
-            candidate = signature_hit - 3
+            candidate = signature_hit - signature_offset
             distance = first_candidate - candidate
             if (
                 distance % step_bytes == 0
-                and candidate + 46 <= game_db_length
+                and candidate + tail_struct_size <= game_db_length
                 and game_db[candidate] == 0
                 and game_db[candidate + 1] == 0
             ):
                 event_count = distance // step_bytes
-                stored_event_count: int = _U32.unpack_from(
-                    game_db, candidate + layout.tail_event_count_offset
-                )[0]
+                stored_event_count: int = _U32.unpack_from(game_db, candidate + event_count_offset)[
+                    0
+                ]
                 if stored_event_count == event_count:
                     return candidate
-            signature_hit = rfind(_TAIL_SIGNATURE, signature_start, signature_hit + 4)
+            signature_hit = rfind(tail_signature, signature_start, signature_hit + 4)
         return None
 
     def _locate_clause_base(self, game_db: bytes, tail_offset: int) -> tuple[int, int] | None:
         """(base, count), or None when no candidate count's checks all pass.
 
         Checks the cheap count byte first, then confirms with one `startswith` against a
-        precomputed `FF*8 + 00*3 + count` needle, so a false count byte never allocates a
+        precomputed `FF*n + 00*m + count` needle, so a false count byte never allocates a
         slice to compare.
         """
-        layout = self.layout
         game_db_length = len(game_db)
-        step_bytes = layout.clause_step_bytes
-        ff_offset = layout.clause_ff_offset
-        count_offset = layout.clause_count_offset
+        step_bytes = self.clause_step_bytes
+        ff_offset = self.clause_ff_offset
+        count_offset = self.clause_count_offset
         clause_prefixes = self.clause_prefixes
         startswith = game_db.startswith
-        for count in range(layout.clause_max_count + 1):
+        for count in range(self.clause_max_count + 1):
             base = tail_offset - step_bytes * count
             ff_start = base + ff_offset
             if ff_start < 0:
@@ -281,44 +384,43 @@ class ContractDecoder:
     def _read_clauses(self, game_db: bytes, base: int, count: int) -> tuple[Clause, ...]:
         if count == 0:
             return ()
-        entries_start = base + self.layout.clause_entries_offset
+        entries_start = base + self.clause_entries_offset
         values = self.clause_structs[count].unpack_from(game_db, entries_start)
         clauses: list[Clause] = []
-        for entry_start in range(0, count * 3, 3):
-            raw_value = values[entry_start]
-            raw_parameter = values[entry_start + 1]
-            raw_kind = values[entry_start + 2]
+        for entry_index in range(0, count * 3, 3):
+            raw_value = values[entry_index]
+            raw_parameter = values[entry_index + 1]
+            raw_kind = values[entry_index + 2]
             clauses.append(
                 Clause(
-                    kind=self._cached_clause_kind(raw_kind),
-                    parameter=None if raw_parameter == _MISSING_U16 else raw_parameter,
-                    value=None if raw_value == _MISSING_U32 else raw_value,
+                    self._cached_clause_kind(raw_kind),
+                    None if raw_parameter == _MISSING_U16 else raw_parameter,
+                    None if raw_value == _MISSING_U32 else raw_value,
                 )
             )
         return tuple(clauses)
 
     def _read_head(self, game_db: bytes, base: int) -> tuple[int, int, int, int] | None:
-        layout = self.layout
-        head_offset = base + layout.head_gate_offset
-        if head_offset < 0 or head_offset + self.head_struct.size > len(game_db):
+        head_offset = base + self.head_struct_offset
+        head_struct = self.head_struct
+        if head_offset < 0 or head_offset + head_struct.size > len(game_db):
             return None
-        gate_value, contract_type_raw, money_a, money_b, money_c = self.head_struct.unpack_from(
+        gate_value, contract_type_raw, money_a, money_b, money_c = head_struct.unpack_from(
             game_db, head_offset
         )
-        if gate_value != layout.head_gate_value:
+        if gate_value != self.head_gate_value:
             return None
         return contract_type_raw, money_a, money_b, money_c
 
     def decode_chain_record(self, game_db: bytes, chain_tag_offset: int) -> _ChainRecordTuple:
-        """Decode one chain record's team, wage, dates, tail and clauses from its tag offset
-        alone: callable without a player window.
+        """Decode one chain record's resolved club, team, wage, dates, tail and clauses from
+        its tag offset alone: callable without a player window.
 
         Raises:
             CorruptSaveError: The record's team id or wage runs past the end of game_db.
         """
-        layout = self.layout
         team_wage_struct = self.team_wage_struct
-        team_wage_offset = chain_tag_offset + layout.team_id_offset
+        team_wage_offset = chain_tag_offset + self.team_wage_struct_offset
         fixed_fields_end = team_wage_offset + team_wage_struct.size
         if fixed_fields_end > len(game_db):
             raise CorruptSaveError(
@@ -327,8 +429,9 @@ class ContractDecoder:
                 "end of the section"
             )
         team_id, wage = team_wage_struct.unpack_from(game_db, team_wage_offset)
+        club_uid, club_name = self.club_by_team_id.get(team_id, (None, None))
 
-        start_offset = chain_tag_offset + layout.start_offset
+        start_offset = chain_tag_offset + self.start_offset
         start: date | None = None
         if start_offset >= 0:
             raw_start: int = _U32.unpack_from(game_db, start_offset)[0]
@@ -336,7 +439,20 @@ class ContractDecoder:
 
         tail_offset = self._locate_tail(game_db, chain_tag_offset)
         if tail_offset is None:
-            return (team_id, wage, start, None, False, None, None, (), None, None)
+            return (
+                club_uid,
+                club_name,
+                team_id,
+                wage,
+                start,
+                None,
+                False,
+                None,
+                None,
+                (),
+                None,
+                None,
+            )
 
         (
             e2,
@@ -352,7 +468,7 @@ class ContractDecoder:
             e39,
             event_count,
         ) = self.tail_struct.unpack_from(game_db, tail_offset)
-        end = self._cached_date(game_db, raw_end, tail_offset + layout.tail_end_offset)
+        end = self._cached_date(game_db, raw_end, tail_offset + self.tail_end_offset)
         unknown: dict[str, int] = {
             "e2": e2,
             "e8": e8,
@@ -368,6 +484,8 @@ class ContractDecoder:
         clause_base = self._locate_clause_base(game_db, tail_offset)
         if clause_base is None:
             return (
+                club_uid,
+                club_name,
                 team_id,
                 wage,
                 start,
@@ -389,6 +507,8 @@ class ContractDecoder:
             unknown["money_b"] = money_b
             unknown["money_c"] = money_c
         return (
+            club_uid,
+            club_name,
             team_id,
             wage,
             start,
@@ -413,21 +533,20 @@ class ContractDecoder:
         there is none. Searches the tag inline (no intermediate hit list) and advances past
         each hit by 4 bytes, since the tag cannot overlap itself.
         """
-        layout = self.layout
-        search_start = record_offset + layout.chain_window_start_offset
+        search_start = record_offset + self.chain_window_start_offset
         search_start = max(search_start, 0)
         search_end = (
             record_window_end
             if is_last_record
-            else record_window_end + layout.chain_window_end_offset
+            else record_window_end + self.chain_window_end_offset
         )
         search_end = max(search_end, search_start)
         selector_bytes = _U32.pack(pindex + 1)
-        selector_offset = layout.selector_offset
+        selector_offset = self.selector_offset
         game_db_length = len(game_db)
         find = game_db.find
         startswith = game_db.startswith
-        tag = layout.tag
+        tag = self.tag
         records: list[_ChainRecordTuple] | None = None
         hit = find(tag, search_start, search_end)
         while hit >= 0:
@@ -449,17 +568,16 @@ class ContractDecoder:
         `record_window_end` is already `len(game_db)` for the last player (see
         `player_scan.window_end`), so no separate last-record case is needed here.
         """
-        layout = self.layout
-        search_start = record_offset + layout.fallback_start_from_record
-        limit = record_window_end - layout.fallback_end_margin
+        search_start = record_offset + self.fallback_start_from_record
+        limit = record_window_end - self.fallback_end_margin
         limit = max(limit, search_start)
         game_db_length = len(game_db)
         find_end = min(game_db_length, limit)
-        gate_length = layout.fallback_gate_length
-        nonzero_offset = layout.fallback_nonzero_offset
-        nonzero_length = layout.fallback_nonzero_length
-        end_date_offset = layout.fallback_end_date_offset
-        start_date_offset = layout.fallback_start_date_offset
+        gate_length = self.fallback_gate_length
+        nonzero_offset = self.fallback_nonzero_offset
+        nonzero_length = self.fallback_nonzero_length
+        end_date_offset = self.fallback_end_date_offset
+        start_date_offset = self.fallback_start_date_offset
         find = game_db.find
         startswith = game_db.startswith
         best_start: date | None = None
@@ -495,10 +613,13 @@ class ContractDecoder:
         pindex: int,
         player_uid: int,
         player_name: str | None,
-        player_team_id: int | None,
+        player_club_uid: int | None,
     ) -> tuple[Contract | None, bool | None, int | None, str | None]:
         """Assemble one player's contract from their chain records and, when needed, the
         fallback reader.
+
+        `player_club_uid` is the uid of the club fielding the player's own registered team,
+        already resolved by `PlayerDecoder`, so this method never re-resolves it.
 
         Returns (contract, on_loan, loan_parent_club_uid, loan_parent_club_name); the last
         three are also carried inside contract when it is not None.
@@ -513,7 +634,7 @@ class ContractDecoder:
         any_tail_parsed = False
         if chain_records is not None:
             for candidate_record in chain_records:
-                if candidate_record[4]:
+                if candidate_record[6]:
                     any_tail_parsed = True
                     break
 
@@ -527,7 +648,6 @@ class ContractDecoder:
         if chain_records is None and fallback_start is None and fallback_end is None:
             return None, None, None, None
 
-        club_by_team_id = self.club_by_team_id
         clock = self.clock
 
         if chain_records is None:
@@ -554,8 +674,10 @@ class ContractDecoder:
                 end, end_source = None, ContractEndSource.NONE
         else:
             first_record = chain_records[0]
-            first_team_id, wage, first_start = first_record[0], first_record[1], first_record[2]
-            start = first_start
+            first_club_uid = first_record[0]
+            first_club_name = first_record[1]
+            wage = first_record[3]
+            start = first_record[4]
 
             if len(chain_records) == 1:
                 live_record = chain_records[0]
@@ -563,9 +685,9 @@ class ContractDecoder:
                 live_record = None
                 best_end: date | None = None
                 for candidate_record in chain_records:
-                    candidate_end = candidate_record[3]
+                    candidate_end = candidate_record[5]
                     if (
-                        candidate_record[4]
+                        candidate_record[6]
                         and candidate_end is not None
                         and (best_end is None or candidate_end > best_end)
                     ):
@@ -575,6 +697,8 @@ class ContractDecoder:
                     live_record = chain_records[-1]
 
             (
+                live_club_uid,
+                live_club_name,
                 live_team_id,
                 _live_wage,
                 _live_start,
@@ -586,7 +710,6 @@ class ContractDecoder:
                 live_contract_type_raw,
                 live_unknown,
             ) = live_record
-            live_club_uid, live_club_name = club_by_team_id.get(live_team_id, (None, None))
 
             if live_end is not None:
                 end, end_source = live_end, ContractEndSource.TAIL
@@ -597,8 +720,7 @@ class ContractDecoder:
 
             if live_has_tail:
                 # A tail-bearing record's tail fields are never None; see decode_chain_record.
-                assert live_squad_status_raw is not None
-                squad_status = self._cached_squad_status(live_squad_status_raw)
+                squad_status = self._cached_squad_status(cast(int, live_squad_status_raw))
                 event_count = live_event_count
                 clauses = live_clauses
                 contract_type = (
@@ -617,38 +739,19 @@ class ContractDecoder:
             on_loan = None
             loan_parent_club_uid = None
             loan_parent_club_name = None
-            if player_team_id is not None:
-                player_club_uid, _player_club_name = club_by_team_id.get(
-                    player_team_id, (None, None)
-                )
-                first_club_uid, first_club_name = club_by_team_id.get(first_team_id, (None, None))
-                if player_club_uid is not None and first_club_uid is not None:
-                    on_loan = player_club_uid != first_club_uid
-                    if on_loan:
-                        loan_parent_club_uid = first_club_uid
-                        loan_parent_club_name = first_club_name
+            if player_club_uid is not None and first_club_uid is not None:
+                on_loan = player_club_uid != first_club_uid
+                if on_loan:
+                    loan_parent_club_uid = first_club_uid
+                    loan_parent_club_name = first_club_name
 
             if len(chain_records) == 1:
                 only_record = chain_records[0]
-                record_team_id = only_record[0]
-                record_club_uid, record_club_name = club_by_team_id.get(
-                    record_team_id, (None, None)
-                )
-                chain = (
-                    ContractChainEntry(
-                        club_uid=record_club_uid,
-                        club_name=record_club_name,
-                        team_id=record_team_id,
-                        wage=only_record[1],
-                        start=only_record[2],
-                        end=only_record[3],
-                        has_tail=only_record[4],
-                    ),
-                )
-                chain_club_uids = (record_club_uid,)
-                chain_club_names = (record_club_name,)
+                chain = (ContractChainEntry(*only_record[:7]),)
+                chain_club_uids = (only_record[0],)
+                chain_club_names = (only_record[1],)
                 tailed_chain_club_uids = (
-                    (record_club_uid,) if only_record[4] and record_club_uid is not None else ()
+                    (only_record[0],) if only_record[6] and only_record[0] is not None else ()
                 )
             else:
                 entries: list[ContractChainEntry] = []
@@ -656,52 +759,38 @@ class ContractDecoder:
                 club_names: list[str | None] = []
                 tailed_uids: list[int] = []
                 for record in chain_records:
-                    record_team_id = record[0]
-                    record_club_uid, record_club_name = club_by_team_id.get(
-                        record_team_id, (None, None)
-                    )
-                    club_uids.append(record_club_uid)
-                    club_names.append(record_club_name)
-                    if record[4] and record_club_uid is not None:
-                        tailed_uids.append(record_club_uid)
-                    entries.append(
-                        ContractChainEntry(
-                            club_uid=record_club_uid,
-                            club_name=record_club_name,
-                            team_id=record_team_id,
-                            wage=record[1],
-                            start=record[2],
-                            end=record[3],
-                            has_tail=record[4],
-                        )
-                    )
+                    club_uids.append(record[0])
+                    club_names.append(record[1])
+                    if record[6] and record[0] is not None:
+                        tailed_uids.append(record[0])
+                    entries.append(ContractChainEntry(*record[:7]))
                 chain = tuple(entries)
                 chain_club_uids = tuple(club_uids)
                 chain_club_names = tuple(club_names)
                 tailed_chain_club_uids = tuple(tailed_uids)
 
         contract = Contract(
-            player_uid=player_uid,
-            player_name=player_name,
-            club_uid=live_club_uid,
-            club_name=live_club_name,
-            team_id=live_team_id,
-            wage=wage,
-            start=start,
-            end=end,
-            end_source=end_source,
-            squad_status=squad_status,
-            type=contract_type,
-            clauses=clauses,
-            on_loan=on_loan,
-            loan_parent_club_uid=loan_parent_club_uid,
-            loan_parent_club_name=loan_parent_club_name,
-            event_count=event_count,
-            chain=chain,
-            chain_club_uids=chain_club_uids,
-            chain_club_names=chain_club_names,
-            tailed_chain_club_uids=tailed_chain_club_uids,
-            unknown=unknown,
+            player_uid,
+            player_name,
+            live_club_uid,
+            live_club_name,
+            live_team_id,
+            wage,
+            start,
+            end,
+            end_source,
+            squad_status,
+            contract_type,
+            clauses,
+            on_loan,
+            loan_parent_club_uid,
+            loan_parent_club_name,
+            event_count,
+            chain,
+            chain_club_uids,
+            chain_club_names,
+            tailed_chain_club_uids,
+            unknown,
         )
         return contract, on_loan, loan_parent_club_uid, loan_parent_club_name
 
@@ -709,20 +798,58 @@ class ContractDecoder:
 def build_contract_decoder(
     layout: ContractLayout, club_index: ClubIndex, clock: date, file_name: str
 ) -> ContractDecoder:
-    """Build the per-save contract decoder from the save's layout, its ClubIndex and clock."""
+    """Build the per-save contract decoder from the save's layout, its ClubIndex and clock.
+
+    Raises:
+        ValueError: A layout-derived Struct or needle would be inconsistent (overlapping
+            fields, a clause entry whose size does not match clause_entry_bytes, or a tail
+            sentinel word that does not immediately follow the sentinel byte).
+    """
     club_by_team_id: dict[int, tuple[int | None, str | None]] = {}
     for team_id, (club_uid, _slot) in club_index.team_to_club.items():
         club = club_index.club_by_uid.get(club_uid)
         club_by_team_id[team_id] = (club_uid, club.name if club is not None else None)
+
+    team_wage_struct, team_wage_struct_offset = _build_team_wage_struct(layout)
+    head_struct, head_struct_offset = _build_head_struct(layout)
+    clause_entry_struct = _build_clause_entry_struct(layout)
+    tail_signature, tail_signature_offset = _build_tail_signature(layout)
+
     return ContractDecoder(
-        layout=layout,
         club_by_team_id=club_by_team_id,
         clock=clock,
         file_name=file_name,
+        tag=layout.tag,
+        chain_window_start_offset=layout.chain_window_start_offset,
+        chain_window_end_offset=layout.chain_window_end_offset,
+        selector_offset=layout.selector_offset,
+        team_wage_struct=team_wage_struct,
+        team_wage_struct_offset=team_wage_struct_offset,
+        start_offset=layout.start_offset,
+        tail_base_offset=layout.tail_base_offset,
+        tail_step_bytes=layout.tail_step_bytes,
+        tail_max_event_count=layout.tail_max_event_count,
+        tail_signature=tail_signature,
+        tail_signature_offset=tail_signature_offset,
+        tail_event_count_offset=layout.tail_event_count_offset,
+        tail_end_offset=layout.tail_end_offset,
         tail_struct=_build_tail_struct(layout),
-        head_struct=_build_head_struct(layout),
-        team_wage_struct=_build_team_wage_struct(layout),
+        clause_step_bytes=layout.clause_step_bytes,
+        clause_max_count=layout.clause_max_count,
+        clause_ff_offset=layout.clause_ff_offset,
+        clause_count_offset=layout.clause_count_offset,
+        clause_entries_offset=layout.clause_entries_offset,
         clause_prefixes=_build_clause_prefixes(layout),
-        clause_structs=_build_clause_structs(layout),
+        clause_structs=_build_clause_structs(layout, clause_entry_struct),
+        head_struct=head_struct,
+        head_struct_offset=head_struct_offset,
+        head_gate_value=layout.head_gate_value,
+        fallback_start_from_record=layout.fallback_start_from_record,
+        fallback_end_margin=layout.fallback_end_margin,
+        fallback_gate_length=layout.fallback_gate_length,
+        fallback_nonzero_offset=layout.fallback_nonzero_offset,
+        fallback_nonzero_length=layout.fallback_nonzero_length,
+        fallback_end_date_offset=layout.fallback_end_date_offset,
+        fallback_start_date_offset=layout.fallback_start_date_offset,
         empty_unknown=FrozenMapping({}),
     )

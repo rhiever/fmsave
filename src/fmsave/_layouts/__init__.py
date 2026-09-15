@@ -240,8 +240,13 @@ class ContractLayout:
     from a tail start `E` (`tail_*`) or a clause-table base `base` (`clause_*`, `head_*`).
 
     The tail is found by trying `E = M - tail_base_offset - tail_step_bytes * event_count`
-    for `event_count` from 0 to `tail_max_event_count`. The clause table is found, once a
-    tail is found, by trying `base = E - clause_step_bytes * count` for `count` from 0 to
+    for `event_count` from 0 to `tail_max_event_count`, accepted when the byte at
+    `E + tail_sentinel_byte_offset` equals `tail_sentinel_byte_value` and the `u32` at
+    `E + tail_sentinel_word_offset` equals `tail_sentinel_word_value` (`tail_sentinel_word_offset`
+    is always `tail_sentinel_byte_offset + 1`, so the two sentinels form one contiguous
+    signature) and the stored event count at `tail_event_count_offset` matches. The clause
+    table is found, once a tail is found, by trying `base = E - clause_step_bytes * count`
+    for `count` from 0 to
     `clause_max_count`; clause entries start at `base + clause_entries_offset`, each
     `clause_entry_bytes` apart. The head fields are read only when the `u16` at
     `base + head_gate_offset` equals `head_gate_value`.
@@ -266,6 +271,10 @@ class ContractLayout:
     tail_base_offset: int
     tail_step_bytes: int
     tail_max_event_count: int
+    tail_sentinel_byte_offset: int
+    tail_sentinel_byte_value: int
+    tail_sentinel_word_offset: int
+    tail_sentinel_word_value: int
     tail_e2_offset: int
     tail_e8_offset: int
     tail_e12_offset: int

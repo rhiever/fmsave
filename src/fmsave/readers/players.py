@@ -264,7 +264,7 @@ class PlayerDecoder:
                 pindex,
                 uid,
                 name,
-                team_id,
+                club_uid,
             )
         )
 

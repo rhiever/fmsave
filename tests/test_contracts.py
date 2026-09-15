@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import pickle
 import random
 import struct
@@ -500,6 +501,7 @@ def test_head_null_date_tag_is_not_mistaken_for_a_second_chain_record() -> None:
         head={"type": 1, "money_a": 1000},
         clauses=(),
     )
+    assert record.count(CONTRACT_TAG) == 2  # the chain tag, plus the head's null-date tag
     payload = (
         name_pools_bytes([], [], [])
         + game_db_body(
@@ -519,6 +521,20 @@ def test_head_null_date_tag_is_not_mistaken_for_a_second_chain_record() -> None:
 
 def _test_contract_decoder(layout: ContractLayout) -> ContractDecoder:
     return build_contract_decoder(layout, EMPTY_CLUB_INDEX, date(2031, 1, 1), FILE_NAME)
+
+
+def test_build_contract_decoder_rejects_a_non_adjacent_tail_sentinel() -> None:
+    layout = find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout
+    broken_layout = dataclasses.replace(layout, tail_sentinel_word_offset=99)
+    with pytest.raises(ValueError, match="tail_sentinel_word_offset"):
+        build_contract_decoder(broken_layout, EMPTY_CLUB_INDEX, date(2031, 1, 1), FILE_NAME)
+
+
+def test_build_contract_decoder_rejects_an_overlapping_clause_entry() -> None:
+    layout = find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout
+    broken_layout = dataclasses.replace(layout, clause_parameter_offset=1)
+    with pytest.raises(ValueError):
+        build_contract_decoder(broken_layout, EMPTY_CLUB_INDEX, date(2031, 1, 1), FILE_NAME)
 
 
 def test_fallback_gate_accepts_j_plus_16_at_limit_and_rejects_one_byte_further() -> None:
@@ -569,6 +585,49 @@ def test_last_record_chain_window_reaches_the_end_of_game_db_not_end_minus_30() 
     )
     assert contract is not None
     assert contract.wage == 999
+
+
+def test_last_player_chain_window_integration_through_fmsave_open(tmp_path: Path) -> None:
+    """Pins the `is_last_record` plumbing from `Save._decode_players_and_contracts` through
+    `PlayerDecoder.decode` to `ContractDecoder.decode`: the sole (and so last) player's chain
+    tag sits in the final bytes of `game_db`, where it fits (21 bytes needed after the tag)
+    but is inside the last 30 bytes, so a `record_window_end - 30` window would miss it.
+    """
+    layout = find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout
+    player_bytes = _player_bytes(pindex=60, uid=900020, team_id=0xFFFFFFFF)
+    minimal_chain_record = bytearray(21)
+    minimal_chain_record[0:4] = CONTRACT_TAG
+    struct.pack_into("<I", minimal_chain_record, layout.selector_offset, 61)  # pindex 60 + 1
+    struct.pack_into("<I", minimal_chain_record, layout.team_id_offset, NORTHBRIDGE_TEAM_A)
+    struct.pack_into("<I", minimal_chain_record, layout.wage_offset, 7000)
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body(
+            [NORTHBRIDGE_CLUB, SOUTHPORT_CLUB],
+            [NORTHBRIDGE_STATUS, SOUTHPORT_STATUS],
+            gap_bytes=2000,
+        )
+        + player_bytes
+        + bytes(minimal_chain_record)
+    )
+    game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
+    tag_offset_in_game_db = len(game_db) - len(minimal_chain_record)
+    assert len(game_db) - tag_offset_in_game_db < 30
+
+    sections = [
+        SectionFrame("game_db", game_db) if section.name == "game_db" else section
+        for section in default_sections()
+    ]
+    fragment_path = build_container_fragment(sections).write(
+        tmp_path / "Private Folder" / FILE_NAME
+    )
+    with fmsave.open(fragment_path) as career_save:
+        contracts_table = career_save.contracts()
+        matching_contracts = [
+            contract for contract in contracts_table if contract.player_uid == 900020
+        ]
+        assert len(matching_contracts) == 1
+        assert matching_contracts[0].wage == 7000
 
 
 def test_negative_chain_search_start_is_clamped_to_zero() -> None:
@@ -629,38 +688,118 @@ def _reference_locate_tail(
     return None
 
 
+def _plant_tail_candidate(
+    game_db: bytearray,
+    chain_tag_offset: int,
+    event_count: int,
+    layout: ContractLayout,
+    *,
+    corrupt: str | None = None,
+) -> int | None:
+    """Write a real (or, with `corrupt`, a deliberately broken) tail candidate at
+    `event_count`'s position. `corrupt` is one of "zero0", "zero1" or "count", each
+    breaking exactly the check that name describes. Returns the candidate offset, or None
+    when it does not fit the buffer.
+    """
+    candidate = chain_tag_offset - layout.tail_base_offset - layout.tail_step_bytes * event_count
+    if candidate < 0 or candidate + 46 > len(game_db):
+        return None
+    game_db[candidate] = 1 if corrupt == "zero0" else 0
+    game_db[candidate + 1] = 1 if corrupt == "zero1" else 0
+    game_db[candidate + 3] = 3
+    struct.pack_into("<I", game_db, candidate + 4, 4)
+    stored_event_count = event_count + 1 if corrupt == "count" else event_count
+    struct.pack_into("<I", game_db, candidate + layout.tail_event_count_offset, stored_event_count)
+    return candidate
+
+
 def test_tail_locator_matches_the_reference_loop_on_seeded_synthetic_buffers() -> None:
     """Differential test: the fast rfind-based locator must find exactly what the original
-    forward, 201-step loop finds, for many random buffers and tag positions.
+    forward, 201-step loop finds, for many random buffers, tag positions and planted decoys.
+
+    A tiny byte alphabet (instead of the full 0-255 range) makes structural byte patterns,
+    including whole signatures, recur by chance far more often than real save bytes would,
+    so the fast locator's bounds and rejection checks get exercised on their own, not just
+    on the scenarios this test deliberately plants.
     """
     layout = find_layout(ContractLayout, "game_db", GAME_DB_SCHEMA, "").layout
     decoder = _test_contract_decoder(layout)
     random_generator = random.Random(20260915)
-    for _trial in range(500):
-        buffer_length = random_generator.randint(200, 6000)
-        game_db = bytearray(random_generator.randbytes(buffer_length))
-        chain_tag_offset = random_generator.randint(0, buffer_length - 1)
+    small_alphabet = bytes(range(6))
+    step_bytes = layout.tail_step_bytes
 
-        # Bias roughly a third of trials toward a real, well-formed tail somewhere in
-        # range, so the differential test also covers true positives, not only noise.
-        if random_generator.random() < 0.34:
-            event_count = random_generator.randint(0, min(20, layout.tail_max_event_count))
-            candidate = (
-                chain_tag_offset - layout.tail_base_offset - layout.tail_step_bytes * event_count
+    for _trial in range(1000):
+        scenario = random_generator.random()
+        if scenario < 0.12:
+            # A genuine tail near the event-count boundary (195-205; tail_max_event_count
+            # is 200), which needs a large buffer and a far tag offset to fit.
+            buffer_length = random_generator.randint(6200, 7200)
+            chain_tag_offset = random_generator.randint(6100, buffer_length - 1)
+        elif scenario < 0.30:
+            # Tag offsets below 87: the rfind bounds can go negative here (tail_base_offset
+            # is 66, tail_step_bytes is 29; 66 + 29 - 66 + 3 + 5 crosses zero below 87).
+            buffer_length = random_generator.randint(120, 400)
+            chain_tag_offset = random_generator.randint(0, 90)
+        else:
+            buffer_length = random_generator.randint(120, 3000)
+            chain_tag_offset = random_generator.randint(0, buffer_length - 1)
+
+        game_db = bytearray(random_generator.choice(small_alphabet) for _ in range(buffer_length))
+
+        if scenario < 0.12:
+            event_count = random_generator.randint(195, 205)
+            _plant_tail_candidate(
+                game_db, chain_tag_offset, min(event_count, layout.tail_max_event_count), layout
             )
-            if 0 <= candidate and candidate + 46 <= buffer_length:
-                game_db[candidate] = 0
-                game_db[candidate + 1] = 0
-                game_db[candidate + 3] = 3
-                struct.pack_into("<I", game_db, candidate + 4, 4)
+        elif scenario < 0.42:
+            # Two valid tails: the nearer one (lower event_count) must win.
+            near_count = random_generator.randint(0, 5)
+            far_count = near_count + random_generator.randint(2, 10)
+            _plant_tail_candidate(game_db, chain_tag_offset, near_count, layout)
+            _plant_tail_candidate(game_db, chain_tag_offset, far_count, layout)
+        elif scenario < 0.55:
+            # An off-stride signature: real sentinel bytes, but not a whole number of
+            # tail_step_bytes away from the event_count = 0 position, so it must be
+            # rejected by the "% step_bytes == 0" check. Its stored event count is set to
+            # what a modulo-less floor division would compute (aligned_event_count, since
+            # the extra shift is smaller than one step), so an implementation that drops
+            # the modulo check cannot be saved by the stored-count check alone.
+            aligned_event_count = random_generator.randint(0, 20)
+            aligned_candidate = (
+                chain_tag_offset - layout.tail_base_offset - step_bytes * aligned_event_count
+            )
+            off_stride_candidate = aligned_candidate - random_generator.randint(1, step_bytes - 1)
+            if 0 <= off_stride_candidate and off_stride_candidate + 46 <= buffer_length:
+                game_db[off_stride_candidate] = 0
+                game_db[off_stride_candidate + 1] = 0
+                game_db[off_stride_candidate + 3] = 3
+                struct.pack_into("<I", game_db, off_stride_candidate + 4, 4)
                 struct.pack_into(
-                    "<I", game_db, candidate + layout.tail_event_count_offset, event_count
+                    "<I",
+                    game_db,
+                    off_stride_candidate + layout.tail_event_count_offset,
+                    aligned_event_count,
                 )
+        elif scenario < 0.68:
+            # A genuine, well-formed tail somewhere in range.
+            _plant_tail_candidate(
+                game_db, chain_tag_offset, random_generator.randint(0, 20), layout
+            )
+        elif scenario < 0.85:
+            # An on-stride signature with one check deliberately broken.
+            _plant_tail_candidate(
+                game_db,
+                chain_tag_offset,
+                random_generator.randint(0, 20),
+                layout,
+                corrupt=random_generator.choice(["zero0", "zero1", "count"]),
+            )
+        # The remaining share of trials plants nothing: pure small-alphabet noise.
 
         frozen_game_db = bytes(game_db)
         fast_result = decoder._locate_tail(frozen_game_db, chain_tag_offset)
         reference_result = _reference_locate_tail(frozen_game_db, chain_tag_offset, layout)
-        assert fast_result == reference_result, (chain_tag_offset, buffer_length)
+        assert fast_result == reference_result, (chain_tag_offset, buffer_length, scenario)
 
 
 def test_field_status_resolves_contract_wage_through_contract_class() -> None:
