@@ -156,7 +156,7 @@ class PlayerDecoder:
         record_window_end: int,
         *,
         is_last_record: bool,
-        suspension_entries: tuple[SuspensionEntry, ...] = (),
+        suspension_entries: tuple[SuspensionEntry, ...],
     ) -> tuple[Player, Contract | None]:
         """Decode one player record's public fields, including its person block and contract.
 

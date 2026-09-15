@@ -644,7 +644,7 @@ def test_full_player_decode_merges_person_fields_and_round_trips() -> None:
     record_offset = player_records.record_offsets[0]
     record_window_end = window_end(player_records, 0, len(game_db))
     player, _contract = decoder.decode(
-        game_db, record_offset, record_window_end, is_last_record=True
+        game_db, record_offset, record_window_end, is_last_record=True, suspension_entries=()
     )
 
     assert player.name == "Pim"

@@ -301,6 +301,7 @@ def decode_all(game_db: bytes) -> list[tuple[Player, Contract | None]]:
             record_offset,
             window_end(player_records, position, game_db_length),
             is_last_record=position == last_position,
+            suspension_entries=(),
         )
         for position, record_offset in enumerate(record_offsets)
     ]

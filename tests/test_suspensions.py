@@ -363,6 +363,91 @@ def test_contiguous_entries_keep_their_offset_order_within_each_player() -> None
     assert [entry.competition_id for entry in located[1]] == [40]
 
 
+def has_signature_at(buffer: bytes, signature_start: int) -> bool:
+    """Whether the signature (FF FF, then 05 at +9, FF at +11 and FF at +14) starts here."""
+    return (
+        buffer[signature_start] == 0xFF
+        and buffer[signature_start + 1] == 0xFF
+        and buffer[signature_start + 9] == 0x05
+        and buffer[signature_start + 11] == 0xFF
+        and buffer[signature_start + 14] == 0xFF
+    )
+
+
+@pytest.mark.parametrize(
+    ("real_entry", "planted_bytes", "false_signature_distance", "expected_entry"),
+    [
+        pytest.param(
+            # Year 2047 is stored as 0x07FF and e7 0xFF03 puts FF at +8; the false signature's
+            # 05 lands on the entry's zero byte at +6.
+            suspension_entry_bytes(
+                competition_id=1234, issued=packed_date(51, 2047), e7=0xFF03, e14=1
+            ),
+            {-3: 0xFF, -2: 0xFF, 6: 0x05},
+            7,
+            SuspensionEntry(1234, date(2047, 2, 20), 0xFF03, 1),
+            id="false-signature-3-bytes-before-the-entry",
+        ),
+        pytest.param(
+            # Day 5 puts 05 at +9, year 2047 puts FF at +11 and e14 255 puts FF at +14.
+            suspension_entry_bytes(
+                competition_id=1234, issued=packed_date(5, 2047), e7=3, e14=0xFF
+            ),
+            {0: 0xFF, 1: 0xFF},
+            4,
+            SuspensionEntry(1234, date(2047, 1, 5), 3, 0xFF),
+            id="false-signature-at-the-entry-start",
+        ),
+    ],
+)
+def test_a_real_entry_overlapped_by_an_earlier_false_signature_is_still_found(
+    real_entry: bytes,
+    planted_bytes: dict[int, int],
+    false_signature_distance: int,
+    expected_entry: SuspensionEntry,
+) -> None:
+    """A false signature that starts fewer than 15 bytes before a real one shares bytes with
+    it. The false signature's own entry has no valid issued date, so it is not kept, and the
+    real entry behind it must still be found.
+    """
+    entry_offset = 400
+    buffer = bytearray(buffer_with_entry(entry_offset, real_entry))
+    for relative_offset, value in planted_bytes.items():
+        buffer[entry_offset + relative_offset] = value
+    real_signature_start = entry_offset + 4
+    false_signature_start = real_signature_start - false_signature_distance
+    assert has_signature_at(bytes(buffer), false_signature_start)
+    assert has_signature_at(bytes(buffer), real_signature_start)
+
+    located = locate_suspensions(
+        bytes(buffer), synthetic_player_records((200,)), registered_suspension_layout()
+    )
+
+    assert dict(located) == {0: (expected_entry,)}
+
+
+@pytest.mark.parametrize(
+    ("reader_name", "row_count"),
+    [("players", 2), ("contracts", 0), ("suspensions", 2)],
+)
+def test_readers_raise_save_closed_error_after_close_and_earlier_tables_keep_working(
+    suspensions_fragment_path: Path, reader_name: str, row_count: int
+) -> None:
+    career_save = fmsave.open(suspensions_fragment_path)
+    table = getattr(career_save, reader_name)()
+    rows_before_close = list(table)
+    career_save.close()
+    with pytest.raises(fmsave.SaveClosedError):
+        getattr(career_save, reader_name)()
+    assert len(rows_before_close) == row_count
+    assert list(table) == rows_before_close
+
+    never_read_save = fmsave.open(suspensions_fragment_path)
+    never_read_save.close()
+    with pytest.raises(fmsave.SaveClosedError):
+        getattr(never_read_save, reader_name)()
+
+
 @pytest.mark.parametrize(
     ("layout_changes", "message"),
     [

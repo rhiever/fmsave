@@ -1,11 +1,12 @@
 """Locating unserved suspension entries in `game_db` and joining them to their players.
 
 A suspension entry is a short fixed-size record carrying a byte signature (see
-`SuspensionLayout`). `locate_suspensions` finds every entry in one pass of a compiled regex over
-the player region, from just before the first player record to the end of `game_db`, and gives
-each entry to its owning player by bisecting the sorted record offsets. The pattern, the field
-Struct, the offsets and the bounds are derived from the layout once per layout, and checked
-for consistency at that point, so the search loop never reads the layout.
+`SuspensionLayout`). `locate_suspensions` scans the player region, from just before the first
+player record to the end of `game_db`, with a compiled regex that resumes one byte after every
+match start, so signatures that overlap one another are all considered. It gives each entry to
+its owning player by bisecting the sorted record offsets. The pattern, the field Struct, the
+offsets and the bounds are derived from the layout once per layout, and checked for
+consistency at that point, so the search loop never reads the layout.
 """
 
 from __future__ import annotations
@@ -109,6 +110,9 @@ def _suspension_search(layout: SuspensionLayout) -> _SuspensionSearch:
             bounds.
     """
     pattern, pattern_offset, signature_end = _build_signature_pattern(layout.signature)
+    # The issued date stays in the Struct only so the build-time overlap and signature-span
+    # checks cover its four bytes; its value is read and validated by decode_date, never from
+    # the unpacked tuple.
     field_specs = [
         (layout.unknown_e7_offset, "H", "e7"),
         (layout.issued_date_offset, "I", "issued_date"),
@@ -152,10 +156,11 @@ def locate_suspensions(
 
     Positions index `player_records.record_offsets` and come in ascending order; each
     player's entries keep the order of their offsets. A player with no entry has no key.
-    The search runs once over `game_db`, starting `owner_back_offset` bytes before the first
-    record (or at 0); an entry is kept when it has an owner, a valid issued date (a readable
-    game date, so day 366 of a non-leap year is rejected) and a competition id strictly inside
-    the layout's range.
+    The scan starts `owner_back_offset` bytes before the first record (or at 0) and resumes
+    one byte after every match start, kept or not, so a false signature cannot hide a real
+    entry that overlaps it. An entry is kept when it has an owner, a valid issued date (a
+    readable game date, so day 366 of a non-leap year is rejected) and a competition id
+    strictly inside the layout's range.
 
     Raises:
         ValueError: The layout is inconsistent (see `_suspension_search`).
@@ -164,6 +169,7 @@ def locate_suspensions(
     record_offsets = player_records.record_offsets
     if not record_offsets:
         return {}
+    find_signature = search.pattern.search
     pattern_offset = search.pattern_offset
     owner_back_offset = search.owner_back_offset
     unpack_from = search.fields_struct.unpack_from
@@ -173,11 +179,15 @@ def locate_suspensions(
     issued_date_offset = search.issued_date_offset
     lower_bound = search.competition_id_lower_bound
     upper_bound = search.competition_id_upper_bound
+    game_db_length = len(game_db)
 
     region_start = max(0, record_offsets[0] - owner_back_offset)
     entries_by_position: dict[int, list[SuspensionEntry]] = {}
-    for match in search.pattern.finditer(game_db, region_start, len(game_db)):
-        entry_offset = match.start() - pattern_offset
+    match = find_signature(game_db, region_start, game_db_length)
+    while match is not None:
+        signature_start = match.start()
+        match = find_signature(game_db, signature_start + 1, game_db_length)
+        entry_offset = signature_start - pattern_offset
         if entry_offset < 0:
             continue
         position = bisect_right(record_offsets, entry_offset + owner_back_offset) - 1
