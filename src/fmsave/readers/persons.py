@@ -405,12 +405,12 @@ class PersonBlockDecoder:
         The fast path reads all four with one guarded Struct; the slow path (the window ends
         before the count byte) reads nation and personality directly (always in bounds: the
         search guarantees the personality run itself fits the window) and raises the same
-        `CorruptSaveError` as the entries read below whenever present's or count's own byte
-        lies past window_end.
+        `CorruptSaveError` as the entries read below when the present byte lies past
+        window_end, or, when present is non-zero, when the count byte does.
 
         Raises:
-            CorruptSaveError: On the slow path, present's or count's own byte lies past
-                window_end.
+            CorruptSaveError: On the slow path, when the present byte lies past window_end,
+                or, when present is non-zero, when the count byte does.
         """
         if birth_date_offset + self.p_struct_size <= window_end:
             return self.p_struct.unpack_from(game_db, birth_date_offset)

@@ -258,7 +258,6 @@ class Player:
 
     Person fields (name, birth date, nationality, home-grown ids, personality and traits)
     come from the player's person block; they stay None or empty when no block validates.
-    Contract and suspension fields are appended by later tasks.
 
     Attributes:
         uid: The player's id in the game database (unconfirmed).
