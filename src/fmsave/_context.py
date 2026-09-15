@@ -16,6 +16,9 @@ from typing import cast
 from fmsave._container import ContainerIndex, read_section
 from fmsave._errors import SaveClosedError
 from fmsave.models.meta import SaveInfo
+from fmsave.readers.clubs import GAME_DB_SECTION, ClubIndex, find_club_layouts, read_club_index
+
+CLUB_INDEX_CACHE_KEY = "club_index"
 
 
 def closed_save_error() -> SaveClosedError:
@@ -74,6 +77,21 @@ class SaveContext:
         if not self._closed:
             self._cache[key] = value
         return value
+
+    def club_index(self) -> ClubIndex:
+        """Every club with the team to club map, read from `game_db` once and then cached.
+
+        Raises:
+            SaveClosedError: The context is closed.
+            ReaderCheckError: No club records were found, or two clubs list the same team.
+        """
+        return self.cached(CLUB_INDEX_CACHE_KEY, self._build_club_index)
+
+    def _build_club_index(self) -> ClubIndex:
+        save_info = self._info
+        layouts = find_club_layouts(save_info.section_schemas.get(GAME_DB_SECTION), save_info.build)
+        with self.section(GAME_DB_SECTION) as game_db:
+            return read_club_index(game_db, layouts, save_info.file_name)
 
     def close(self) -> None:
         """Drop cached values and section loans. Calling it again does nothing."""

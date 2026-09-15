@@ -9,7 +9,11 @@ from typing import Self
 from fmsave._container import ContainerIndex, read_index, read_section
 from fmsave._context import SaveContext, closed_save_error
 from fmsave._version import read_save_info
+from fmsave.models.clubs import Club
 from fmsave.models.meta import SaveInfo
+from fmsave.table import Table
+
+CLUBS_TABLE_CACHE_KEY = "table:clubs"
 
 
 class Save:
@@ -39,6 +43,22 @@ class Save:
     def closed(self) -> bool:
         """Whether the save has been closed. Readers raise SaveClosedError once it is."""
         return self._context.closed
+
+    def clubs(self) -> Table[Club]:
+        """Every club in the save's game database, in club index order.
+
+        The table is read on the first call; later calls return the same table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: No club records were found, or two clubs list the same team.
+        """
+        context = self._context
+        return context.cached(
+            CLUBS_TABLE_CACHE_KEY, lambda: Table(context.club_index().clubs, Club)
+        )
 
     def close(self) -> None:
         """Close the save and release its cached results.

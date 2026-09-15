@@ -56,7 +56,88 @@ class NamePoolLayout:
     minimum_applies_from_bytes: int
 
 
-type Layout = GameInfoLayout | SaveSummaryLayout | NamePoolLayout
+@dataclass(frozen=True, slots=True)
+class ClubRecordLayout:
+    """How to recognise club records in `game_db` and where their fields sit.
+
+    A candidate record starts `anchor_offset` bytes before each `anchor` hit, and every other
+    offset counts from that start. The league nation is stored twice, as is the uid. Ranges
+    are inclusive (lowest, highest). Once a record has been accepted, the scan ends at the
+    first candidate `stop_gap_bytes` or more past the last accepted record start; that point
+    also ends the last record.
+    """
+
+    anchor: bytes
+    anchor_offset: int
+    club_index_offset: int
+    uid_offset: int
+    uid_copy_offset: int
+    zero_byte_offset: int
+    nation_offset: int
+    fa_nation_offset: int
+    nation_copy_offset: int
+    city_offset: int
+    long_name_offset: int
+    nation_id_range: tuple[int, int]
+    max_name_bytes: int
+    stop_gap_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class TeamListLayout:
+    """How to find and parse the team list inside one club record.
+
+    The list starts at the record's first `null_date_triple`. When that does not parse, each
+    `float_anchor` hit at least `minimum_float_anchor_record_offset` bytes into the record is
+    tried, with the list starting `float_anchor_offset` bytes before it. Offsets count from
+    the list start. At `counts_offset` comes a count of `first_entry_bytes`-byte entries that
+    each begin with `first_entry_lead_byte`, then a count of `second_entry_bytes`-byte entries
+    that each begin with `second_entry_lead_byte`, then `filler_bytes` bytes, then the team
+    count and that many u32 team ids. Ranges are inclusive (lowest, highest).
+    """
+
+    null_date_triple: bytes
+    float_anchor: bytes
+    float_anchor_offset: int
+    minimum_float_anchor_record_offset: int
+    counts_offset: int
+    first_entry_bytes: int
+    first_entry_lead_byte: int
+    second_entry_bytes: int
+    second_entry_lead_byte: int
+    filler_bytes: int
+    team_count_range: tuple[int, int]
+    team_id_range: tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class ClubStatusLayout:
+    """Where a club's reputation and last league position sit in the club-status table.
+
+    Offsets count from a hit of the club's stored uid (uid minus 1) written twice, so
+    `ordinal_offset` is negative. A hit counts when its ordinal is above the last accepted
+    ordinal and below `ordinal_limit`, and its kind byte is `normal_kind` or `stub_kind`. Only
+    normal records hold a position and a reputation. Ranges are inclusive (lowest, highest).
+    """
+
+    ordinal_offset: int
+    ordinal_limit: int
+    kind_offset: int
+    normal_kind: int
+    stub_kind: int
+    position_offset: int
+    reputation_offset: int
+    reputation_range: tuple[int, int]
+
+
+type Layout = (
+    GameInfoLayout
+    | SaveSummaryLayout
+    | NamePoolLayout
+    | ClubRecordLayout
+    | TeamListLayout
+    | ClubStatusLayout
+)
 
 
 @dataclass(frozen=True, slots=True)
