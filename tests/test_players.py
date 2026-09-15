@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import pickle
 from datetime import date
 from pathlib import Path
@@ -8,18 +9,20 @@ from pathlib import Path
 import pytest
 
 import fmsave
+import fmsave._context as context_module
 from fmsave import Table
+from fmsave._container import ContainerIndex
 from fmsave._context import CLUB_INDEX_CACHE_KEY
-from fmsave._errors import ReaderCheckError
+from fmsave._errors import CorruptSaveError, ReaderCheckError
 from fmsave._layouts import NamePoolLayout, PlayerRecordLayout, find_layout
 from fmsave._save import PLAYERS_TABLE_CACHE_KEY
 from fmsave.models.common import TransferValueState
-from fmsave.models.players import Personality, Player
+from fmsave.models.players import Attributes, Personality, Player
 from fmsave.readers.clubs import find_club_layouts, read_club_index
 from fmsave.readers.names import NAME_POOLS_CACHE_KEY, locate_name_pools
 from fmsave.readers.players import (
     PLAYER_RECORDS_CACHE_KEY,
-    decode_player_record,
+    build_player_decoder,
     locate_player_records,
     window_end,
 )
@@ -187,6 +190,14 @@ REJECT_UID_MISMATCH = {
 }
 STRAY_BLOCK = bytes([5]) * 69
 
+# Distinct raw value per index (1..54): a wrong foot-index splice or attribute reorder
+# changes at least one of the assertions in test_attribute_splice_keeps_each_value_in_place.
+FOOT_SPLICE_RAW_ATTRIBUTES = tuple(range(1, 55))
+
+
+def _scaled(raw_value: int) -> int:
+    return max(1, (raw_value + 2) // 5)
+
 
 def player_region_bytes() -> bytes:
     return (
@@ -200,9 +211,10 @@ def player_region_bytes() -> bytes:
     )
 
 
-def example_game_db() -> bytes:
+def example_game_db(*, leading_payload: bytes = b"") -> bytes:
     payload = (
-        name_pools_bytes([], [], [])
+        leading_payload
+        + name_pools_bytes([], [], [])
         + game_db_body([SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000)
         + player_region_bytes()
     )
@@ -228,9 +240,9 @@ def build_index(game_db: bytes):
 
 def decode_all(game_db: bytes) -> list[Player]:
     _, player_records, club_index = build_index(game_db)
+    decoder = build_player_decoder(player_records.layout, club_index)
     return [
-        decode_player_record(game_db, record_offset, club_index)
-        for record_offset in player_records.record_offsets
+        decoder.decode(game_db, record_offset) for record_offset in player_records.record_offsets
     ]
 
 
@@ -265,7 +277,160 @@ def test_doubled_uid_mismatch_is_rejected() -> None:
 def test_stray_block_with_no_valid_uid_is_rejected() -> None:
     game_db = example_game_db()
     _, player_records, _ = build_index(game_db)
-    assert len(player_records.uids) == 4
+    # Distinct from the offset-order test: the stray block must not shift a later record's
+    # position or get inserted anywhere in the index.
+    assert player_records.position_by_uid[900004] == 3
+    assert len(player_records.record_offsets) == 4
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        pytest.param({"potential_ability": -11}, id="PA below range"),
+        pytest.param({"potential_ability": 201}, id="PA above range"),
+        pytest.param({"bucket": 201}, id="bucket above range"),
+        pytest.param({"uid": 0, "doubled_uid": True}, id="uid zero"),
+        pytest.param({"uid": 0xFFFFFFFF, "doubled_uid": True}, id="uid missing-reference"),
+    ],
+)
+def test_out_of_range_scalar_candidates_are_rejected(override: dict[str, object]) -> None:
+    candidate = dict(PLAYER_D)
+    candidate.update(override)
+    candidate["pindex"] = 50
+    candidate["uid"] = override.get("uid", 900050)
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body([SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000)
+        + player_record_bytes(**candidate)
+    )
+    game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
+    name_pools = locate_name_pools(game_db, registered_name_pool_layout(), FILE_NAME)
+    with pytest.raises(ReaderCheckError):
+        locate_player_records(game_db, name_pools.end_offset, registered_player_layout(), FILE_NAME)
+
+
+@pytest.mark.parametrize(
+    ("rating_index", "bad_rating"),
+    [pytest.param(0, 0, id="rating below range"), pytest.param(0, 21, id="rating above range")],
+)
+def test_out_of_range_rating_is_rejected(rating_index: int, bad_rating: int) -> None:
+    ratings: list[int] = list(A_RATINGS)
+    ratings[rating_index] = bad_rating
+    candidate = dict(PLAYER_D)
+    candidate["ratings"] = tuple(ratings)
+    candidate["pindex"] = 51
+    candidate["uid"] = 900051
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body([SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000)
+        + player_record_bytes(**candidate)
+    )
+    game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
+    name_pools = locate_name_pools(game_db, registered_name_pool_layout(), FILE_NAME)
+    with pytest.raises(ReaderCheckError):
+        locate_player_records(game_db, name_pools.end_offset, registered_player_layout(), FILE_NAME)
+
+
+@pytest.mark.parametrize(
+    ("attribute_index", "bad_value"),
+    [
+        pytest.param(5, 0, id="attribute below range"),
+        pytest.param(5, 101, id="attribute above range"),
+    ],
+)
+def test_out_of_range_attribute_is_rejected(attribute_index: int, bad_value: int) -> None:
+    raw_attributes = list(A_RAW_ATTRIBUTES)
+    raw_attributes[attribute_index] = bad_value
+    candidate = dict(PLAYER_D)
+    candidate["raw_attributes"] = tuple(raw_attributes)
+    candidate["pindex"] = 52
+    candidate["uid"] = 900052
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body([SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000)
+        + player_record_bytes(**candidate)
+    )
+    game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
+    name_pools = locate_name_pools(game_db, registered_name_pool_layout(), FILE_NAME)
+    with pytest.raises(ReaderCheckError):
+        locate_player_records(game_db, name_pools.end_offset, registered_player_layout(), FILE_NAME)
+
+
+def test_marker_within_102_bytes_of_offset_zero_is_handled_cleanly() -> None:
+    # A marker this close to the start of game_db makes marker_hit - 102 negative; the scan
+    # must reject it without raising, and keep scanning the rest of the buffer normally.
+    leading_payload = bytes(50) + bytes.fromhex("01006c07") + bytes(20)
+    game_db = example_game_db(leading_payload=leading_payload)
+    _, player_records, _ = build_index(game_db)
+    assert list(player_records.uids) == [900001, 900002, 900003, 900004]
+
+
+def test_valid_marker_less_block_before_name_pools_end_is_not_found() -> None:
+    early_candidate = dict(PLAYER_D)
+    early_candidate["pindex"] = 99
+    early_candidate["uid"] = 900099
+    early_candidate["marker"] = packed_date(1, 2000)  # not the scan marker: no false accept
+    game_db = example_game_db(leading_payload=player_record_bytes(**early_candidate))
+    _, player_records, _ = build_index(game_db)
+    assert 900099 not in player_records.uids
+    assert list(player_records.uids) == [900001, 900002, 900003, 900004]
+
+
+def test_truncated_final_record_raises_corrupt_save_error() -> None:
+    truncated_candidate = dict(PLAYER_D)
+    truncated_candidate["pindex"] = 77
+    truncated_candidate["uid"] = 900077
+    full_record_bytes = player_record_bytes(**truncated_candidate)
+    # The record starts 26 bytes in; keep bytes up to +100 (past attributes_end at +93, short
+    # of decode_extent at +122).
+    truncated_record_bytes = full_record_bytes[: 26 + 100]
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body([SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000)
+        + truncated_record_bytes
+    )
+    game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
+    name_pools = locate_name_pools(game_db, registered_name_pool_layout(), FILE_NAME)
+    with pytest.raises(CorruptSaveError) as error_info:
+        locate_player_records(game_db, name_pools.end_offset, registered_player_layout(), FILE_NAME)
+    message = str(error_info.value)
+    assert FILE_NAME in message
+    assert "game_db" in message
+
+
+def test_attribute_field_order_matches_the_attributes_dataclass() -> None:
+    layout = registered_player_layout()
+    assert layout.attribute_field_order == tuple(
+        attribute_field.name for attribute_field in dataclasses.fields(Attributes)
+    )
+
+
+def test_attribute_splice_keeps_each_value_in_place() -> None:
+    candidate = dict(PLAYER_A)
+    candidate["raw_attributes"] = FOOT_SPLICE_RAW_ATTRIBUTES
+    candidate["pindex"] = 60
+    candidate["uid"] = 900060
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body([SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000)
+        + player_record_bytes(**candidate)
+    )
+    game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
+    players = decode_all(game_db)
+    player = by_uid(players, 900060)
+
+    expected_raw = tuple(
+        value for index, value in enumerate(FOOT_SPLICE_RAW_ATTRIBUTES) if index not in (24, 25)
+    )
+    expected_scaled = tuple(_scaled(value) for value in expected_raw)
+    assert dataclasses.astuple(player.raw_attributes) == expected_raw
+    assert dataclasses.astuple(player.attributes) == expected_scaled
+    assert player.attributes.flair == _scaled(FOOT_SPLICE_RAW_ATTRIBUTES[26])
+    assert player.attributes.concentration == _scaled(FOOT_SPLICE_RAW_ATTRIBUTES[53])
+    assert player.raw_left_foot == FOOT_SPLICE_RAW_ATTRIBUTES[24]
+    assert player.raw_right_foot == FOOT_SPLICE_RAW_ATTRIBUTES[25]
+    assert player.left_foot == _scaled(FOOT_SPLICE_RAW_ATTRIBUTES[24])
+    assert player.right_foot == _scaled(FOOT_SPLICE_RAW_ATTRIBUTES[25])
 
 
 def test_player_a_ability_positions_and_attributes() -> None:
@@ -289,6 +454,10 @@ def test_player_a_ability_positions_and_attributes() -> None:
     assert player_a.club_fa_nation_id == 4
     assert player_a.team_slot == 0
     assert player_a.club_uid == SOUTHPORT_CLUB_UID
+    assert player_a.club_name == "Example Southport"
+    assert player_a.club_short_name == "Southport"
+    assert player_a.club_nation_id == 3
+    assert player_a.club_last_league_position is None
     assert player_a.club_join_date == date(2029, 3, 1)
     assert player_a.height_cm == 181
 
@@ -387,6 +556,27 @@ def test_repeated_uid_raises_reader_check() -> None:
     assert "game_db" in message
 
 
+def test_repeated_pindex_raises_reader_check() -> None:
+    duplicate = dict(REJECT_ZERO_CA)
+    duplicate["current_ability"] = 120
+    duplicate["pindex"] = 11
+    duplicate["uid"] = 900022
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body([SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000)
+        + player_record_bytes(**PLAYER_A)
+        + player_record_bytes(**duplicate)
+    )
+    game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
+    name_pools = locate_name_pools(game_db, registered_name_pool_layout(), FILE_NAME)
+    with pytest.raises(ReaderCheckError) as error_info:
+        locate_player_records(game_db, name_pools.end_offset, registered_player_layout(), FILE_NAME)
+    message = str(error_info.value)
+    assert "pindex 11" in message
+    assert FILE_NAME in message
+    assert "game_db" in message
+
+
 def test_player_and_related_records_survive_pickle_and_deepcopy() -> None:
     players = decode_all(example_game_db())
     player_a = by_uid(players, 900001)
@@ -442,7 +632,33 @@ def test_save_players_returns_a_cached_table(players_fragment_path: Path) -> Non
         assert PLAYER_RECORDS_CACHE_KEY in career_save._context._cache
         assert NAME_POOLS_CACHE_KEY in career_save._context._cache
         assert CLUB_INDEX_CACHE_KEY in career_save._context._cache
+        assert career_save._context.name_pools() is career_save._context.name_pools()
+        assert career_save._context.player_records() is career_save._context.player_records()
+        assert (
+            career_save._context.player_records()
+            is career_save._context._cache[PLAYER_RECORDS_CACHE_KEY]
+        )
     assert career_save.closed
     with pytest.raises(fmsave.SaveClosedError):
         career_save.players()
+    with pytest.raises(fmsave.SaveClosedError):
+        career_save._context.name_pools()
+    with pytest.raises(fmsave.SaveClosedError):
+        career_save._context.player_records()
     assert len(players_table) == 4
+
+
+def test_cold_players_decompresses_game_db_exactly_once(
+    players_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    section_reads: list[str] = []
+    original_read_section = context_module.read_section
+
+    def counting_read_section(container_index: ContainerIndex, name: str) -> bytes:
+        section_reads.append(name)
+        return original_read_section(container_index, name)
+
+    monkeypatch.setattr(context_module, "read_section", counting_read_section)
+    with fmsave.open(players_fragment_path) as career_save:
+        career_save.players()
+        assert section_reads == ["game_db"]

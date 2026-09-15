@@ -146,9 +146,13 @@ class PlayerRecordLayout:
     `rating_range` followed by `attribute_count` bytes in `attribute_range`, searched only in
     the region after the name pools. Every other offset counts from the record start. Ranges
     are inclusive (lowest, highest). `attribute_field_order` names the 52 non-foot attributes
-    in the order the bytes at `attributes_offset` store them, skipping the two foot-strength
-    bytes; `position_codes` names the 15 position ratings in the order stored at
-    `ratings_offset`.
+    in the order the bytes at `attributes_offset` store them, skipping the byte at
+    `left_foot_index` and at `right_foot_index` (indexes into that 54-byte span, not
+    record offsets); `position_codes` names the 15 position ratings in the order stored at
+    `ratings_offset`. `decode_extent` is the offset, from the record start, one past the
+    last byte a full decode reads: a candidate that passes every acceptance check but whose
+    record does not reach `record_offset + decode_extent` is a truncated record, not a
+    rejected one.
     """
 
     marker: bytes
@@ -172,12 +176,15 @@ class PlayerRecordLayout:
     attributes_offset: int
     attribute_count: int
     attribute_range: tuple[int, int]
+    left_foot_index: int
+    right_foot_index: int
     transfer_value_offset: int
     transfer_value_placeholder: int
     club_join_date_offset: int
     match_sharpness_offset: int
     condition_offset: int
     height_offset: int
+    decode_extent: int
     position_codes: tuple[str, ...]
     attribute_field_order: tuple[str, ...]
 

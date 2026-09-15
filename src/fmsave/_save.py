@@ -8,22 +8,16 @@ from typing import Self
 
 from fmsave._container import ContainerIndex, read_index, read_section
 from fmsave._context import SaveContext, closed_save_error
-from fmsave._layouts import NamePoolLayout, PlayerRecordLayout, find_layout
 from fmsave._version import read_save_info
 from fmsave.models.clubs import Club
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
-from fmsave.readers.names import NAME_POOLS_CACHE_KEY, locate_name_pools
-from fmsave.readers.players import (
-    PLAYER_RECORDS_CACHE_KEY,
-    decode_player_record,
-    locate_player_records,
-)
+from fmsave.readers._common import GAME_DB_SECTION
+from fmsave.readers.players import build_player_decoder
 from fmsave.table import Table
 
 CLUBS_TABLE_CACHE_KEY = "table:clubs"
 PLAYERS_TABLE_CACHE_KEY = "table:players"
-_GAME_DB_SECTION = "game_db"
 
 
 class Save:
@@ -91,31 +85,17 @@ class Save:
 
     def _build_players_table(self) -> Table[Player]:
         context = self._context
-        save_info = self._info
-        club_index = context.club_index()
-        schema = save_info.section_schemas.get(_GAME_DB_SECTION)
-        record_layout = find_layout(
-            PlayerRecordLayout, _GAME_DB_SECTION, schema, save_info.build
-        ).layout
-        name_pool_layout = find_layout(
-            NamePoolLayout, _GAME_DB_SECTION, schema, save_info.build
-        ).layout
-        with context.section(_GAME_DB_SECTION) as game_db:
-            name_pools = context.cached(
-                NAME_POOLS_CACHE_KEY,
-                lambda: locate_name_pools(game_db, name_pool_layout, save_info.file_name),
-            )
-            player_records = context.cached(
-                PLAYER_RECORDS_CACHE_KEY,
-                lambda: locate_player_records(
-                    game_db, name_pools.end_offset, record_layout, save_info.file_name
-                ),
-            )
-            players = tuple(
-                decode_player_record(game_db, record_offset, club_index)
-                for record_offset in player_records.record_offsets
-            )
-        return Table(players, Player)
+        with context.section(GAME_DB_SECTION) as game_db:
+            club_index = context.club_index()
+            player_records = context.player_records()
+            decoder = build_player_decoder(player_records.layout, club_index)
+            decoded_players: list[Player] = []
+            append_player = decoded_players.append
+            # Positions are not used yet, but enumerate keeps window_end(records, position,
+            # len) available for a later task without restructuring this loop.
+            for _position, record_offset in enumerate(player_records.record_offsets):
+                append_player(decoder.decode(game_db, record_offset))
+        return Table(tuple(decoded_players), Player)
 
     def close(self) -> None:
         """Close the save and release its cached results.

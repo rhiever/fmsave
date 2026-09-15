@@ -11,11 +11,10 @@ import struct
 from array import array
 from dataclasses import dataclass, field
 
-from fmsave._errors import ISSUES_URL, CorruptSaveError, ReaderCheckError
+from fmsave._errors import CorruptSaveError, ReaderCheckError
 from fmsave._layouts import NamePoolLayout
-from fmsave.readers._common import MISSING_REFERENCE
+from fmsave.readers._common import MISSING_REFERENCE, layout_mismatch, section_label
 
-GAME_DB_SECTION = "game_db"
 POOL_NAMES = ("first names", "surnames", "common names")
 OFFSET_TYPECODE = "Q"
 NAME_POOLS_CACHE_KEY = "name_pools"
@@ -25,20 +24,9 @@ _ENTRY_HEADER = struct.Struct("<II")
 _LENGTH_WORD_AFTER_ENTRY_START = 4
 
 
-def _section_label(file_name: str) -> str:
-    return f"{file_name}: section {GAME_DB_SECTION!r}"
-
-
-def _layout_mismatch(file_name: str, detail: str) -> ReaderCheckError:
-    return ReaderCheckError(
-        f"{_section_label(file_name)}: {detail}, so the save layout differs from what fmsave "
-        f"expects. Please report it at {ISSUES_URL}"
-    )
-
-
 def _pool_overrun(file_name: str, pool_name: str) -> CorruptSaveError:
     return CorruptSaveError(
-        f"{_section_label(file_name)}: the {pool_name} pool runs past the end of the section"
+        f"{section_label(file_name)}: the {pool_name} pool runs past the end of the section"
     )
 
 
@@ -79,7 +67,7 @@ class PoolIndex:
 
     def _name_error(self, index: int, problem: str) -> CorruptSaveError:
         return CorruptSaveError(
-            f"{_section_label(self.file_name)}: name {index} of the {self.pool_name} pool {problem}"
+            f"{section_label(self.file_name)}: name {index} of the {self.pool_name} pool {problem}"
         )
 
 
@@ -104,7 +92,7 @@ def locate_name_pools(game_db: bytes, layout: NamePoolLayout, file_name: str) ->
     """
     signature_at = game_db.find(layout.signature)
     if signature_at < 0 or game_db.find(layout.signature, signature_at + 1) >= 0:
-        raise _layout_mismatch(
+        raise layout_mismatch(
             file_name, "name pools not found (their signature is missing or not unique)"
         )
     enforce_minimum = len(game_db) >= layout.minimum_applies_from_bytes
@@ -138,11 +126,11 @@ def _index_pool(
     entry_count: int = _COUNT_WORD.unpack_from(game_db, count_word_at)[0]
     if entry_count * _ENTRY_HEADER.size > buffer_length - position:
         raise CorruptSaveError(
-            f"{_section_label(file_name)}: the {pool_name} pool claims {entry_count} entries, "
+            f"{section_label(file_name)}: the {pool_name} pool claims {entry_count} entries, "
             "more than the rest of the section can hold"
         )
     if enforce_minimum and entry_count < layout.minimum_entries_per_pool:
-        raise _layout_mismatch(
+        raise layout_mismatch(
             file_name,
             f"the {pool_name} pool has {entry_count} entries, fewer than the "
             f"{layout.minimum_entries_per_pool} a full save holds",
@@ -187,4 +175,4 @@ def _entry_mismatch(
             f"entry {entry_index} of the {pool_name} pool is {name_length} bytes long, more than "
             f"the {layout.max_name_bytes} allowed"
         )
-    return _layout_mismatch(file_name, detail)
+    return layout_mismatch(file_name, detail)

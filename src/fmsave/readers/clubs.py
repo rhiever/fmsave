@@ -13,12 +13,9 @@ import struct
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from fmsave._errors import ISSUES_URL, ReaderCheckError
 from fmsave._layouts import ClubRecordLayout, ClubStatusLayout, TeamListLayout, find_layout
 from fmsave.models.clubs import Club, Team
-from fmsave.readers._common import MISSING_REFERENCE
-
-GAME_DB_SECTION = "game_db"
+from fmsave.readers._common import GAME_DB_SECTION, MISSING_REFERENCE, layout_mismatch
 
 _UINT32 = struct.Struct("<I")
 _UINT16 = struct.Struct("<H")
@@ -29,17 +26,6 @@ _NO_STATUS: tuple[int | None, int | None] = (None, None)
 @functools.cache
 def _team_ids_struct(team_count: int) -> struct.Struct:
     return struct.Struct(f"<{team_count}I")
-
-
-def _section_label(file_name: str) -> str:
-    return f"{file_name}: section {GAME_DB_SECTION!r}"
-
-
-def _layout_mismatch(file_name: str, detail: str) -> ReaderCheckError:
-    return ReaderCheckError(
-        f"{_section_label(file_name)}: {detail}, so the save layout differs from what fmsave "
-        f"expects. Please report it at {ISSUES_URL}"
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,7 +93,7 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
     """
     records, scan_end = _scan_club_records(game_db, layouts.records)
     if not records:
-        raise _layout_mismatch(file_name, "no club records found")
+        raise layout_mismatch(file_name, "no club records found")
     _reject_repeated_club_keys(records, file_name)
     record_ends = [next_record.record_start for next_record in records[1:]]
     record_ends.append(scan_end)
@@ -153,9 +139,9 @@ def _reject_repeated_club_keys(records: Sequence[_ClubRecord], file_name: str) -
     seen_club_indexes: set[int] = set()
     for record in records:
         if record.uid in seen_uids:
-            raise _layout_mismatch(file_name, f"club uid {record.uid} appears in two club records")
+            raise layout_mismatch(file_name, f"club uid {record.uid} appears in two club records")
         if record.club_index in seen_club_indexes:
-            raise _layout_mismatch(
+            raise layout_mismatch(
                 file_name, f"club index {record.club_index} appears in two club records"
             )
         seen_uids.add(record.uid)
@@ -174,7 +160,7 @@ def _map_teams_to_clubs(
             claiming_club = team_to_club.get(team.team_id)
             if claiming_club is not None:
                 repeat = "twice by one club" if claiming_club[0] == record.uid else "by two clubs"
-                raise _layout_mismatch(file_name, f"team id {team.team_id} is listed {repeat}")
+                raise layout_mismatch(file_name, f"team id {team.team_id} is listed {repeat}")
             team_to_club[team.team_id] = (record.uid, team.slot)
     return team_to_club
 

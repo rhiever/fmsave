@@ -15,8 +15,12 @@ from typing import cast
 
 from fmsave._container import ContainerIndex, read_section
 from fmsave._errors import SaveClosedError
+from fmsave._layouts import NamePoolLayout, PlayerRecordLayout, find_layout
 from fmsave.models.meta import SaveInfo
-from fmsave.readers.clubs import GAME_DB_SECTION, ClubIndex, find_club_layouts, read_club_index
+from fmsave.readers._common import GAME_DB_SECTION
+from fmsave.readers.clubs import ClubIndex, find_club_layouts, read_club_index
+from fmsave.readers.names import NAME_POOLS_CACHE_KEY, NamePools, locate_name_pools
+from fmsave.readers.players import PLAYER_RECORDS_CACHE_KEY, PlayerRecords, locate_player_records
 
 CLUB_INDEX_CACHE_KEY = "club_index"
 
@@ -93,6 +97,54 @@ class SaveContext:
         layouts = find_club_layouts(save_info.section_schemas.get(GAME_DB_SECTION), save_info.build)
         with self.section(GAME_DB_SECTION) as game_db:
             return read_club_index(game_db, layouts, save_info.file_name)
+
+    def name_pools(self) -> NamePools:
+        """The three name pools, read from `game_db` once and then cached.
+
+        Raises:
+            SaveClosedError: The context is closed.
+            ReaderCheckError: The signature is missing or appears more than once, an entry id
+                differs from its index, a name is longer than the layout allows, or (on a
+                full-size `game_db`) a pool has fewer entries than the layout requires.
+            CorruptSaveError: A pool runs past the end of `game_db`.
+        """
+        return self.cached(NAME_POOLS_CACHE_KEY, self._build_name_pools)
+
+    def _build_name_pools(self) -> NamePools:
+        save_info = self._info
+        layout = find_layout(
+            NamePoolLayout,
+            GAME_DB_SECTION,
+            save_info.section_schemas.get(GAME_DB_SECTION),
+            save_info.build,
+        ).layout
+        with self.section(GAME_DB_SECTION) as game_db:
+            return locate_name_pools(game_db, layout, save_info.file_name)
+
+    def player_records(self) -> PlayerRecords:
+        """Every accepted player record's offset, pindex and uid, read once and then cached.
+
+        Raises:
+            SaveClosedError: The context is closed.
+            ReaderCheckError: No player records were found, a pindex or uid appears in two
+                records, or the name pools cannot be located.
+            CorruptSaveError: A player record runs past the end of `game_db`.
+        """
+        return self.cached(PLAYER_RECORDS_CACHE_KEY, self._build_player_records)
+
+    def _build_player_records(self) -> PlayerRecords:
+        save_info = self._info
+        name_pools = self.name_pools()
+        layout = find_layout(
+            PlayerRecordLayout,
+            GAME_DB_SECTION,
+            save_info.section_schemas.get(GAME_DB_SECTION),
+            save_info.build,
+        ).layout
+        with self.section(GAME_DB_SECTION) as game_db:
+            return locate_player_records(
+                game_db, name_pools.end_offset, layout, save_info.file_name
+            )
 
     def close(self) -> None:
         """Drop cached values and section loans. Calling it again does nothing."""
