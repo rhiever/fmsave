@@ -297,13 +297,30 @@ class ContractLayout:
     `E + tail_sentinel_byte_offset` equals `tail_sentinel_byte_value` and the `u32` at
     `E + tail_sentinel_word_offset` equals `tail_sentinel_word_value` (`tail_sentinel_word_offset`
     is always `tail_sentinel_byte_offset + 1`, so the two sentinels form one contiguous
-    signature) and the stored event count at `tail_event_count_offset` matches. The clause
-    table is found, once a tail is found, by trying `base = E - clause_step_bytes * count`
-    for `count` from 0 to
-    `clause_max_count`; clause entries start at `base + clause_entries_offset`, each
-    `clause_entry_bytes` apart, and the `u32` clause terminator sits at
-    `E + clause_terminator_offset`, right after the last entry. The head fields are read only
-    when the `u16` at `base + head_gate_offset` equals `head_gate_value`.
+    signature) and the stored event count at `tail_event_count_offset` matches.
+
+    A clause table holds, from `base + clause_ff_offset`: an 8-byte marker
+    (`clause_ff_count` bytes), `clause_zero_count` zero bytes, the clause count byte at
+    `base + clause_count_offset`, and that many entries from `base + clause_entries_offset`,
+    each `clause_entry_bytes` long. After the last entry come two bonus lists and a trailer:
+    a competition count (`clause_competition_count_bytes` wide) and that many
+    `clause_competition_item_bytes`-byte items, each starting with
+    `clause_competition_item_prefix`; an award flag (`clause_award_flag_bytes` wide) that is 0
+    for no award list, or 1 followed by an award count (`clause_award_count_bytes` wide) and
+    that many `clause_award_item_bytes`-byte items, each starting with
+    `clause_award_item_prefix`; then `clause_trailer_bytes` zero bytes, which end at `E`. With
+    both lists empty, the bytes after the entries are `-clause_entries_offset` zero bytes.
+
+    Once a tail is found, the clause table is looked for first by trying
+    `base = E - clause_step_bytes * count` for `count` from 0 to `clause_max_count`, accepted
+    when the marker is `FF` x `clause_ff_count` and the zero run and the count byte equal to
+    `count` follow it: the position of a table whose bonus lists are empty. When that finds
+    nothing, the table is taken to be the one nearest `E` whose entries, bonus lists (up to
+    `clause_competition_max_count` competition items and `clause_award_max_count` award items)
+    and trailer end exactly at `E`, whose zero run and count byte check, and whose marker is
+    either `FF` x `clause_ff_count` or a `clause_team_marker_id_bytes`-byte team id that is not
+    all `FF`, followed by zero bytes. The head fields are read only when the `u16` at
+    `base + head_gate_offset` equals `head_gate_value`.
 
     The fallback reader walks `FF FF FF FF` hits in `[record_offset +
     fallback_start_from_record, limit)`, where `limit` is `max(record_offset +
@@ -354,7 +371,17 @@ class ContractLayout:
     clause_value_offset: int
     clause_parameter_offset: int
     clause_kind_offset: int
-    clause_terminator_offset: int
+    clause_team_marker_id_bytes: int
+    clause_competition_count_bytes: int
+    clause_competition_item_bytes: int
+    clause_competition_item_prefix: bytes
+    clause_competition_max_count: int
+    clause_award_flag_bytes: int
+    clause_award_count_bytes: int
+    clause_award_item_bytes: int
+    clause_award_item_prefix: bytes
+    clause_award_max_count: int
+    clause_trailer_bytes: int
 
     head_gate_offset: int
     head_gate_value: int
@@ -428,8 +455,10 @@ class GateBounds:
     `home_grown_club_refs_resolved` (of home-grown club references).
 
     Contracts: `players_with_chain` (of players), `tails_parsed` (of chain records),
-    `clause_terminator` and `contract_head` (of clause tables), `past_dated_tail_ends` (of
-    parsed tails with an end date) and `chain_teams_resolved` (of chain records).
+    `tails_without_clause_table` (parsed tails where no clause table is found, of parsed tails),
+    `clause_terminator` (clause tables whose bonus lists and zero trailer end exactly at the
+    tail start, of clause tables), `contract_head` (of clause tables), `past_dated_tail_ends`
+    (of parsed tails with an end date) and `chain_teams_resolved` (of chain records).
 
     Clubs: `clubs_minimum` (records), `team_lists_found` and `status_normal` (of clubs), and
     `status_confirmation` (of normal status records).
@@ -466,6 +495,7 @@ class GateBounds:
     home_grown_club_refs_resolved: BoundPair
     players_with_chain: BoundPair
     tails_parsed: BoundPair
+    tails_without_clause_table: BoundPair
     clause_terminator: BoundPair
     contract_head: BoundPair
     past_dated_tail_ends: BoundPair

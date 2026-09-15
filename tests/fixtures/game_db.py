@@ -275,6 +275,40 @@ CONTRACT_PADDING_BYTE = 0x22
 _CONTRACT_LEADING_PADDING_BYTES = 48
 _CONTRACT_HEAD_SPAN_BYTES = 19  # u16 gate + u8 type + 3 u32 money words + a 4-byte null date
 _CONTRACT_HEAD_GATE_VALUE = 5
+CONTRACT_CLAUSE_MARKER = b"\xff" * 8
+_COMPETITION_BONUS_FILLER_BYTE = 0x33
+
+
+def clause_bonus_lists_bytes(
+    *,
+    competition_bonuses: Sequence[tuple[int, int]] = (),
+    award_bonuses: Sequence[tuple[int, int]] | None = None,
+) -> bytes:
+    """The bytes a clause table stores after its last entry, up to the tail start.
+
+    Written forward: a count byte, then one 31-byte item per `(competition_id, value)` in
+    `competition_bonuses` (`01 00`, a null-date tag, the u32 competition id, the u32 value and 17
+    bytes of `_COMPETITION_BONUS_FILLER_BYTE`); then an award flag byte, 0 when `award_bonuses` is
+    None, else 1 followed by a u32 count and one 15-byte item per `(award_id, value)` (`01 00`,
+    the u32 award id, a zero u32, the u32 value and a zero byte); then two zero bytes. With no
+    bonuses at all these are the four zero bytes a plain clause table ends with.
+    """
+    output = bytearray([len(competition_bonuses)])
+    for competition_id, value in competition_bonuses:
+        output.extend(b"\x01\x00" + CONTRACT_TAG)
+        output.extend(struct.pack("<II", competition_id, value))
+        output.extend([_COMPETITION_BONUS_FILLER_BYTE] * 17)
+    if award_bonuses is None:
+        output.append(0)
+    else:
+        output.append(1)
+        output.extend(struct.pack("<I", len(award_bonuses)))
+        for award_id, value in award_bonuses:
+            output.extend(b"\x01\x00")
+            output.extend(struct.pack("<III", award_id, 0, value))
+            output.append(0)
+    output.extend(bytes(2))
+    return bytes(output)
 
 
 def contract_bytes(
@@ -288,17 +322,20 @@ def contract_bytes(
     head: dict[str, int] | None = None,
     events: int = 0,
     clause_table: bool = True,
+    clause_marker: bytes = CONTRACT_CLAUSE_MARKER,
+    clause_suffix: bytes | None = None,
 ) -> tuple[bytes, int]:
     """One contract chain record: the blob, and the offset of its tag (`M`) inside it.
 
     Built forward, in the order the format lays it out: `_CONTRACT_LEADING_PADDING_BYTES`
     of `CONTRACT_PADDING_BYTE`; then, only when `tail` is given, the head span (real head
     fields when `head` is given, `CONTRACT_PADDING_BYTE` otherwise, so the head gate never
-    reads 5 by accident), the clause table (`FF` x 8, `00` x 3, the count byte, the clause
-    entries, and the `u32` terminator) when `clause_table` is true, the 46-byte tail block,
-    and `events` 29-byte event records (their content is never read); then, always, one
-    padding byte, the start `date4`, 12 padding bytes and 3 zero bytes (`M-3`); then the
-    40-byte tag record itself. The head's own 4-byte null date is written as
+    reads 5 by accident), the clause table (the 8-byte `clause_marker`, `00` x 3, the count
+    byte, the clause entries, and `clause_suffix`, which defaults to
+    `clause_bonus_lists_bytes()`: empty bonus lists) when `clause_table` is true, the 46-byte
+    tail block, and `events` 29-byte event records (their content is never read); then,
+    always, one padding byte, the start `date4`, 12 padding bytes and 3 zero bytes (`M-3`);
+    then the 40-byte tag record itself. The head's own 4-byte null date is written as
     `CONTRACT_TAG`, since that is what a null `date4` reads as, so it looks like a second
     chain-record tag inside the record; its selector (the 4 bytes right after it) is
     whatever clause-table byte follows, never the player's own selector.
@@ -308,8 +345,12 @@ def contract_bytes(
     0x0300), and `break_tail` (bool; when true, the u32 that the tail locator requires to
     be 4 is written 5 instead, so no candidate offset parses). `head` keys: `type`,
     `money_a`, `money_b`, `money_c`. Pass `tail=None` for a record with no tail at all;
-    pass `clause_table=False` to omit the clause table even with a tail.
+    pass `clause_table=False` to omit the clause table even with a tail. `clause_marker`
+    is written as given (`FF` x 8 by default, or a u32 team id and a zero u32), and so is
+    `clause_suffix`, so a test can write a malformed marker or bonus list.
     """
+    if len(clause_marker) != 8:
+        raise ValueError("clause_marker must be 8 bytes")
     buffer = bytearray([CONTRACT_PADDING_BYTE]) * _CONTRACT_LEADING_PADDING_BYTES
 
     if tail is not None:
@@ -326,14 +367,14 @@ def contract_bytes(
 
         if clause_table:
             clause_count = len(clauses)
-            buffer.extend(b"\xff" * 8)
+            buffer.extend(clause_marker)
             buffer.extend(bytes(3))
             buffer.append(clause_count)
             for value, parameter, kind in clauses:
                 buffer.extend(
                     struct.pack("<IHH", value & 0xFFFFFFFF, parameter & 0xFFFF, kind & 0xFFFF)
                 )
-            buffer.extend(struct.pack("<I", 0))  # the clause-table terminator
+            buffer.extend(clause_bonus_lists_bytes() if clause_suffix is None else clause_suffix)
 
         tail_offset = len(buffer)
         buffer.extend(bytes(46))

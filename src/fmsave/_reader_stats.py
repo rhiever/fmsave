@@ -51,8 +51,11 @@ class PlayerStats:
 class ContractStats:
     """What one decode pass counted over the players' contract chain records.
 
-    `tail_ends` counts parsed tails with an end date, and `tail_ends_past` those whose end date
-    is before the save's in-game date.
+    `tails_without_clause_table` counts parsed tails where no clause table is found, and
+    `clause_tables` those where one is. `clause_tables_ending_at_tail` counts clause tables whose
+    bonus lists and zero trailer end exactly at the tail start. `tail_ends` counts parsed tails
+    with an end date, and `tail_ends_past` those whose end date is before the save's in-game
+    date.
     """
 
     players: int
@@ -60,8 +63,9 @@ class ContractStats:
     players_with_chain: int
     chain_records: int
     tails_parsed: int
+    tails_without_clause_table: int
     clause_tables: int
-    clause_terminator_ok: int
+    clause_tables_ending_at_tail: int
     head_ok: int
     tail_ends: int
     tail_ends_past: int

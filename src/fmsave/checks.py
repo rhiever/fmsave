@@ -267,8 +267,14 @@ def evaluate_contracts(
             applied,
         ),
         _gate(
+            "tails_without_clause_table",
+            _rate(stats.tails_without_clause_table, stats.tails_parsed),
+            bounds.tails_without_clause_table,
+            applied,
+        ),
+        _gate(
             "clause_terminator",
-            _rate(stats.clause_terminator_ok, stats.clause_tables),
+            _rate(stats.clause_tables_ending_at_tail, stats.clause_tables),
             bounds.clause_terminator,
             applied,
         ),
@@ -381,6 +387,7 @@ def check_contracts(stats: ContractStats, bounds: GateBounds, game_db_bytes: int
             {
                 "past_dated_tail_ends": stats.tail_ends_past,
                 "unparsed_tails": stats.chain_records - stats.tails_parsed,
+                "tails_without_clause_table": stats.tails_without_clause_table,
             }
         ),
     )

@@ -299,6 +299,15 @@
       'layout': dict({
         'chain_window_end_offset': -30,
         'chain_window_start_offset': -30,
+        'clause_award_count_bytes': 4,
+        'clause_award_flag_bytes': 1,
+        'clause_award_item_bytes': 15,
+        'clause_award_item_prefix': b'\x01\x00',
+        'clause_award_max_count': 32,
+        'clause_competition_count_bytes': 1,
+        'clause_competition_item_bytes': 31,
+        'clause_competition_item_prefix': b'\x01\x00\x01\x00l\x07',
+        'clause_competition_max_count': 32,
         'clause_count_offset': -5,
         'clause_entries_offset': -4,
         'clause_entry_bytes': 8,
@@ -308,7 +317,8 @@
         'clause_max_count': 23,
         'clause_parameter_offset': 4,
         'clause_step_bytes': 8,
-        'clause_terminator_offset': -4,
+        'clause_team_marker_id_bytes': 4,
+        'clause_trailer_bytes': 2,
         'clause_value_offset': 0,
         'clause_zero_count': 3,
         'clause_zero_offset': -8,
@@ -521,6 +531,10 @@
         'tails_parsed': tuple(
           0.7,
           None,
+        ),
+        'tails_without_clause_table': tuple(
+          None,
+          0.001,
         ),
         'team_lists_found': tuple(
           0.999,

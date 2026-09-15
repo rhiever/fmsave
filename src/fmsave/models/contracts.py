@@ -24,6 +24,8 @@ class SquadStatus(IntEnum):
     """A player's squad-status code, as shown on the contract screen."""
 
     UNKNOWN = -1
+    STAR_PLAYER = 1
+    IMPORTANT_PLAYER = 2
     REGULAR_STARTER = 3
     SQUAD_PLAYER = 4
     IMPACT_SUB = 5
@@ -46,25 +48,37 @@ class ContractType(IntEnum):
 class ClauseKind(IntEnum):
     """A contract clause's kind.
 
-    The save does not distinguish MINIMUM_FEE_RELEASE_DOMESTIC from
-    MINIMUM_FEE_RELEASE_DOMESTIC_ALTERNATE; both codes are named because both are seen in
-    the corpus with the same meaning. A clause's parameter is days to expiry from the
-    contract start for MINIMUM_FEE_RELEASE_DOMESTIC and MINIMUM_FEE_RELEASE_DOMESTIC_ALTERNATE
-    (None means no expiry), and years for OPTIONAL_EXTENSION_BY_CLUB. RELEGATION_RELEASE and
-    NON_PROMOTION_RELEASE carry no parameter meaning.
+    Only kinds whose meaning is confirmed are named; every other code is UNKNOWN and keeps its
+    raw number. Each code is a distinct kind: MINIMUM_FEE_RELEASE_DOMESTIC is code 0x12 only.
+
+    A clause's value is the release fee for MINIMUM_FEE_RELEASE, MINIMUM_FEE_RELEASE_FOREIGN
+    and MINIMUM_FEE_RELEASE_DOMESTIC, and the amount paid for APPEARANCE_FEE, SHUTOUT_BONUS,
+    INTERNATIONAL_CAP_BONUS, UNUSED_SUBSTITUTE_FEE and
+    SEASONAL_LANDMARK_COMBINED_GOALS_AND_ASSISTS. A clause's parameter is a percentage for
+    TOP_DIVISION_RELEGATION_SALARY_DROP, years for OPTIONAL_EXTENSION_BY_CLUB, the number of
+    goals plus assists that earns the bonus for SEASONAL_LANDMARK_COMBINED_GOALS_AND_ASSISTS,
+    and days to expiry from the contract start for MINIMUM_FEE_RELEASE_DOMESTIC (None means no
+    expiry). RELEGATION_RELEASE and NON_PROMOTION_RELEASE carry no parameter meaning.
     """
 
     UNKNOWN = -1
+    MINIMUM_FEE_RELEASE = 0x00
     RELEGATION_RELEASE = 0x01
     NON_PROMOTION_RELEASE = 0x02
-    MINIMUM_FEE_RELEASE_DOMESTIC = 0x11
-    MINIMUM_FEE_RELEASE_DOMESTIC_ALTERNATE = 0x12
+    TOP_DIVISION_RELEGATION_SALARY_DROP = 0x0F
+    MINIMUM_FEE_RELEASE_FOREIGN = 0x10
+    MINIMUM_FEE_RELEASE_DOMESTIC = 0x12
     OPTIONAL_EXTENSION_BY_CLUB = 0x16
+    APPEARANCE_FEE = 0x20
+    SHUTOUT_BONUS = 0x22
+    INTERNATIONAL_CAP_BONUS = 0x25
+    UNUSED_SUBSTITUTE_FEE = 0x26
+    SEASONAL_LANDMARK_COMBINED_GOALS_AND_ASSISTS = 0x29
 
 
 @dataclass(frozen=True, slots=True)
 class Clause:
-    """One release or extension clause attached to a contract.
+    """One clause attached to a contract, such as a release fee, an extension option or a bonus.
 
     Attributes:
         kind: The clause's kind.

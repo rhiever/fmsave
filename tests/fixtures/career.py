@@ -245,7 +245,7 @@ def player_a_bytes() -> bytes:
         },
         events=1,
         head={"type": 1, "money_a": 72000, "money_b": 5, "money_c": 9},
-        clauses=((250000, 365, 0x11), (0xFFFFFFFF, 2, 0x16)),
+        clauses=((250000, 365, 0x12), (0xFFFFFFFF, 2, 0x16)),
     )
     second_record, _ = contract_bytes(
         selector=pindex + SELECTOR_OFFSET,

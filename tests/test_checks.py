@@ -101,6 +101,7 @@ PLAYER_GATE_NAMES = (
 CONTRACT_GATE_NAMES = (
     "players_with_chain",
     "tails_parsed",
+    "tails_without_clause_table",
     "clause_terminator",
     "contract_head",
     "past_dated_tail_ends",
@@ -170,8 +171,9 @@ def healthy_contract_stats() -> ContractStats:
         players_with_chain=19_000,
         chain_records=25_000,
         tails_parsed=24_000,
-        clause_tables=24_000,
-        clause_terminator_ok=24_000,
+        tails_without_clause_table=5,
+        clause_tables=23_995,
+        clause_tables_ending_at_tail=23_995,
         head_ok=22_800,
         tail_ends=18_000,
         tail_ends_past=5,
@@ -336,8 +338,22 @@ def test_healthy_contract_stats_pass() -> None:
         ),
         pytest.param({"tails_parsed": 17_500}, [], id="tails-at-edge"),
         pytest.param({"tails_parsed": 17_490}, ["tails_parsed"], id="tails-below"),
-        pytest.param({"head_ok": 15_600}, [], id="head-at-edge"),
-        pytest.param({"head_ok": 15_590}, ["contract_head"], id="head-below"),
+        pytest.param(
+            {"tails_without_clause_table": 24}, [], id="tails-without-clause-table-at-edge"
+        ),
+        pytest.param(
+            {"tails_without_clause_table": 25},
+            ["tails_without_clause_table"],
+            id="tails-without-clause-table-above",
+        ),
+        pytest.param({"clause_tables_ending_at_tail": 23_972}, [], id="clause-terminator-at-edge"),
+        pytest.param(
+            {"clause_tables_ending_at_tail": 23_971},
+            ["clause_terminator"],
+            id="clause-terminator-below",
+        ),
+        pytest.param({"head_ok": 15_597}, [], id="head-at-edge"),
+        pytest.param({"head_ok": 15_596}, ["contract_head"], id="head-below"),
         pytest.param({"tail_ends_past": 900}, [], id="past-dated-at-edge"),
     ],
 )
@@ -633,7 +649,7 @@ def player_a_contract_records() -> bytes:
         start=packed_date(183, 2029),
         tail={"end": packed_date(182, 2032), "status": 3},
         head={"type": 1},
-        clauses=((250000, 365, 0x11),),
+        clauses=((250000, 365, 0x12),),
     )
     past_record, past_tag_offset = contract_bytes(
         selector=12,
@@ -832,6 +848,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
     assert contract_observed == {
         "players_with_chain": 0.5,
         "tails_parsed": pytest.approx(2 / 3),
+        "tails_without_clause_table": 0.0,
         "clause_terminator": 0.5,
         "contract_head": 0.5,
         "past_dated_tail_ends": 0.5,
@@ -848,7 +865,11 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
     assert {name: dict(reader.anomalies) for name, reader in readers.items()} == {
         "clubs": {},
         "players": {"markerless_players": 1, "unresolved_teams": 1},
-        "contracts": {"past_dated_tail_ends": 1, "unparsed_tails": 1},
+        "contracts": {
+            "past_dated_tail_ends": 1,
+            "unparsed_tails": 1,
+            "tails_without_clause_table": 0,
+        },
         "suspensions": {"suspensions_after_clock": 1},
         "managed_clubs": {"humans_without_club": 0},
     }
@@ -1031,7 +1052,8 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
             "team_resolved",
             "home_grown_club_refs_resolved",
         ],
-        "contracts": list(CONTRACT_GATE_NAMES),
+        # The fragment's parsed tails all have a clause table, so that one gate still passes.
+        "contracts": [name for name in CONTRACT_GATE_NAMES if name != "tails_without_clause_table"],
         "suspensions": list(SUSPENSION_GATE_NAMES),
         "managed_clubs": [],
     }

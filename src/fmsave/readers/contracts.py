@@ -44,6 +44,9 @@ _FOUR_FF = b"\xff\xff\xff\xff"
 _MISSING_U32 = 0xFFFFFFFF
 _MISSING_U16 = 0xFFFF
 _DATE_CACHE_MISS = object()
+_AWARD_LIST_ABSENT = 0
+_AWARD_LIST_PRESENT = 1
+_UNSIGNED_FORMAT_BY_WIDTH = {1: "B", 2: "H", 4: "I"}
 
 # One decoded chain record, before assembly, in this fixed field order: the first 7 fields
 # match ContractChainEntry's own field order exactly (club_uid, club_name, team_id, wage,
@@ -181,37 +184,92 @@ def _build_clause_entry_struct(layout: ContractLayout) -> struct.Struct:
     return struct_object
 
 
+def _empty_bonus_lists_size(layout: ContractLayout) -> int:
+    """How many bytes follow the last clause entry when both bonus lists are empty."""
+    return (
+        layout.clause_competition_count_bytes
+        + layout.clause_award_flag_bytes
+        + layout.clause_trailer_bytes
+    )
+
+
 def _build_clause_structs(
     layout: ContractLayout, entry_struct: struct.Struct
 ) -> tuple[struct.Struct, ...]:
     """One struct per possible clause count, each unpacking that many entries in a row and
-    then the u32 clause terminator right after the last entry.
+    then, as raw bytes, the bytes empty bonus lists would fill right after the last entry.
+
+    The fast path looks for a table exactly where one with empty bonus lists would sit, so a
+    table it finds ends at the tail start only when those bytes are all zero.
 
     Raises:
-        ValueError: The clause terminator would not sit right after the last clause entry for
-            every clause count: `clause_entry_bytes` differs from `clause_step_bytes`, or
-            `clause_terminator_offset` (from the tail start) differs from
-            `clause_entries_offset` (from the clause-table base).
+        ValueError: `clause_entry_bytes` differs from `clause_step_bytes`, so the fast path's
+            candidates would not step by whole entries; or `clause_entries_offset` is not minus
+            the size of empty bonus lists, so a table with empty bonus lists at a fast-path
+            candidate would not end at the tail start.
     """
-    if (
-        layout.clause_entry_bytes != layout.clause_step_bytes
-        or layout.clause_terminator_offset != layout.clause_entries_offset
-    ):
+    if layout.clause_entry_bytes != layout.clause_step_bytes:
         raise ValueError(
-            "the clause terminator must sit right after the last clause entry: "
             f"clause_entry_bytes ({layout.clause_entry_bytes}) must equal clause_step_bytes "
-            f"({layout.clause_step_bytes}), and clause_terminator_offset "
-            f"({layout.clause_terminator_offset}) must equal clause_entries_offset "
-            f"({layout.clause_entries_offset})"
+            f"({layout.clause_step_bytes})"
+        )
+    empty_lists_size = _empty_bonus_lists_size(layout)
+    if layout.clause_entries_offset != -empty_lists_size:
+        raise ValueError(
+            "the clause entries must end where empty bonus lists start: clause_entries_offset "
+            f"({layout.clause_entries_offset}) must be minus the size of empty bonus lists "
+            "(clause_competition_count_bytes + clause_award_flag_bytes + clause_trailer_bytes "
+            f"= {empty_lists_size})"
         )
     entry_format = entry_struct.format
     if isinstance(entry_format, bytes):
         entry_format = entry_format.decode("ascii")
     entry_body = entry_format.removeprefix("<").removeprefix("=")
     return tuple(
-        struct.Struct("<" + entry_body * count + "I")
+        struct.Struct("<" + entry_body * count + f"{empty_lists_size}s")
         for count in range(layout.clause_max_count + 1)
     )
+
+
+def _build_unsigned_struct(width: int, field_name: str) -> struct.Struct:
+    """A little-endian unsigned integer struct `width` bytes wide.
+
+    Raises:
+        ValueError: `width` is not 1, 2 or 4.
+    """
+    format_code = _UNSIGNED_FORMAT_BY_WIDTH.get(width)
+    if format_code is None:
+        raise ValueError(f"{field_name} ({width}) must be 1, 2 or 4")
+    return struct.Struct("<" + format_code)
+
+
+def _check_item_prefix(prefix: bytes, item_bytes: int, prefix_name: str, size_name: str) -> bytes:
+    """`prefix`, once checked to fit inside one item.
+
+    Raises:
+        ValueError: The prefix is longer than an item.
+    """
+    if len(prefix) > item_bytes:
+        raise ValueError(
+            f"{prefix_name} ({len(prefix)} bytes) must not be longer than {size_name} "
+            f"({item_bytes})"
+        )
+    return prefix
+
+
+def _build_team_marker_zero_run(layout: ContractLayout) -> bytes:
+    """The zero bytes that fill a clause-table marker after its team id.
+
+    Raises:
+        ValueError: The team id would not leave at least one byte of the marker for zeros.
+    """
+    team_id_bytes = layout.clause_team_marker_id_bytes
+    if not 0 < team_id_bytes < layout.clause_ff_count:
+        raise ValueError(
+            f"clause_team_marker_id_bytes ({team_id_bytes}) must be at least 1 and less than "
+            f"clause_ff_count ({layout.clause_ff_count})"
+        )
+    return bytes(layout.clause_ff_count - team_id_bytes)
 
 
 def _build_clause_prefixes(layout: ContractLayout) -> tuple[bytes, ...]:
@@ -302,8 +360,9 @@ class ContractDecoder:
     to the layout itself. The module constants and literals that remain in the methods
     describe things `ContractLayout` does not, for example the u32 width of the selector
     and of each date, the `E+0`/`E+1` zero bytes the tail locator checks, the fallback
-    reader's `FF FF FF FF` needle and its `j = i + 8`, and the `FFFFFFFF` and `FFFF` values
-    that mean a clause value or parameter is absent. The per-save caches (dates by their raw stored u32, and `CodedValue`
+    reader's `FF FF FF FF` needle and its `j = i + 8`, the `FFFFFFFF` and `FFFF` values
+    that mean a clause value or parameter is absent, and the award flag values 0 (no award
+    list) and 1 (an award list follows). The per-save caches (dates by their raw stored u32, and `CodedValue`
     labels by raw code) are keyed by values shared across many players; `CodedValue` objects
     are never cached process-globally, since a cache tied to this decoder is dropped with
     the save. The `*_count` fields count what decoding sees, for the contract checks.
@@ -342,6 +401,25 @@ class ContractDecoder:
     clause_entries_offset: int
     clause_prefixes: tuple[bytes, ...]
     clause_structs: tuple[struct.Struct, ...]
+    clause_empty_lists: bytes
+
+    # Clause locator fallback: the other marker form, the bonus lists and the trailer.
+    clause_entry_bytes: int
+    clause_zero_offset: int
+    clause_count_needles: tuple[bytes, ...]
+    clause_ff_run: bytes
+    clause_team_marker_id_ff: bytes
+    clause_team_marker_zero_run: bytes
+    clause_competition_count_struct: struct.Struct
+    clause_competition_item_bytes: int
+    clause_competition_item_prefix: bytes
+    clause_competition_max_count: int
+    clause_award_flag_struct: struct.Struct
+    clause_award_count_struct: struct.Struct
+    clause_award_item_bytes: int
+    clause_award_item_prefix: bytes
+    clause_award_max_count: int
+    clause_trailer: bytes
 
     # Head reader.
     head_struct: struct.Struct
@@ -378,8 +456,9 @@ class ContractDecoder:
     tails_parsed_count: int = 0
     tail_ends_count: int = 0
     tail_ends_past_count: int = 0
+    tails_without_clause_table_count: int = 0
     clause_table_count: int = 0
-    clause_terminator_ok_count: int = 0
+    clause_tables_ending_at_tail_count: int = 0
     head_ok_count: int = 0
 
     def stats(self, player_count: int, contract_count: int) -> ContractStats:
@@ -390,8 +469,9 @@ class ContractDecoder:
             players_with_chain=self.players_with_chain_count,
             chain_records=self.chain_record_count,
             tails_parsed=self.tails_parsed_count,
+            tails_without_clause_table=self.tails_without_clause_table_count,
             clause_tables=self.clause_table_count,
-            clause_terminator_ok=self.clause_terminator_ok_count,
+            clause_tables_ending_at_tail=self.clause_tables_ending_at_tail_count,
             head_ok=self.head_ok_count,
             tail_ends=self.tail_ends_count,
             tail_ends_past=self.tail_ends_past_count,
@@ -517,15 +597,115 @@ class ContractDecoder:
                 return base, count
         return None
 
+    def _locate_clause_base_fallback(
+        self, game_db: bytes, tail_offset: int
+    ) -> tuple[int, int] | None:
+        """(base, count) of the clause table nearest the tail start that ends exactly there, or
+        None.
+
+        Used when `_locate_clause_base` finds nothing, which happens when bonus lists sit
+        between the entries and the tail, or when the marker holds a team id. Read forward from
+        its base, a table's entries, competition list, award flag and list, and zero trailer
+        must end exactly at `tail_offset`. A base has only one forward reading, so the search
+        works back from the tail instead: each way the award list can end at the trailer fixes
+        where the competition list ends, each competition count then fixes where the entries
+        end, and each clause count then fixes one base. A base is accepted when its zero run
+        and count byte check and its marker is all `FF`, or a team id that is not all `FF`
+        followed by zero bytes. Of the accepted bases, the nearest to the tail is returned.
+        """
+        startswith = game_db.startswith
+        trailer_start = tail_offset - len(self.clause_trailer)
+        flag_struct = self.clause_award_flag_struct
+        flag_bytes = flag_struct.size
+        absent_flag_offset = trailer_start - flag_bytes
+        if absent_flag_offset < 0 or not startswith(self.clause_trailer, trailer_start):
+            return None
+
+        # Where the award list (its flag first) starts, for each way it can end at the trailer.
+        award_list_starts: list[int] = []
+        if flag_struct.unpack_from(game_db, absent_flag_offset)[0] == _AWARD_LIST_ABSENT:
+            award_list_starts.append(absent_flag_offset)
+        award_count_struct = self.clause_award_count_struct
+        award_count_bytes = award_count_struct.size
+        award_item_bytes = self.clause_award_item_bytes
+        award_item_prefix = self.clause_award_item_prefix
+        for award_count in range(self.clause_award_max_count + 1):
+            award_items_start = trailer_start - award_item_bytes * award_count
+            award_count_offset = award_items_start - award_count_bytes
+            flag_offset = award_count_offset - flag_bytes
+            if flag_offset < 0:
+                break
+            if (
+                award_count_struct.unpack_from(game_db, award_count_offset)[0] == award_count
+                and flag_struct.unpack_from(game_db, flag_offset)[0] == _AWARD_LIST_PRESENT
+                and all(
+                    startswith(award_item_prefix, award_items_start + award_item_bytes * index)
+                    for index in range(award_count)
+                )
+            ):
+                award_list_starts.append(flag_offset)
+
+        competition_count_struct = self.clause_competition_count_struct
+        competition_count_bytes = competition_count_struct.size
+        competition_item_bytes = self.clause_competition_item_bytes
+        competition_item_prefix = self.clause_competition_item_prefix
+        competition_max_count = self.clause_competition_max_count
+        entry_bytes = self.clause_entry_bytes
+        entries_offset = self.clause_entries_offset
+        ff_offset = self.clause_ff_offset
+        zero_offset = self.clause_zero_offset
+        count_needles = self.clause_count_needles
+        ff_run = self.clause_ff_run
+        team_id_ff = self.clause_team_marker_id_ff
+        team_zero_run = self.clause_team_marker_zero_run
+        team_zero_offset = len(team_id_ff)
+        clause_max_count = self.clause_max_count
+        nearest: tuple[int, int] | None = None
+        for award_list_start in award_list_starts:
+            for competition_count in range(competition_max_count + 1):
+                competition_items_start = (
+                    award_list_start - competition_item_bytes * competition_count
+                )
+                entries_end = competition_items_start - competition_count_bytes
+                if entries_end < 0:
+                    break
+                if competition_count_struct.unpack_from(game_db, entries_end)[
+                    0
+                ] != competition_count or not all(
+                    startswith(
+                        competition_item_prefix,
+                        competition_items_start + competition_item_bytes * index,
+                    )
+                    for index in range(competition_count)
+                ):
+                    continue
+                for clause_count in range(clause_max_count + 1):
+                    base = entries_end - entries_offset - entry_bytes * clause_count
+                    marker_offset = base + ff_offset
+                    if marker_offset < 0 or (nearest is not None and base <= nearest[0]):
+                        break
+                    if startswith(count_needles[clause_count], base + zero_offset) and (
+                        startswith(ff_run, marker_offset)
+                        or (
+                            not startswith(team_id_ff, marker_offset)
+                            and startswith(team_zero_run, marker_offset + team_zero_offset)
+                        )
+                    ):
+                        nearest = (base, clause_count)
+                        break
+        return nearest
+
     def _read_clauses(
         self, game_db: bytes, base: int, count: int
-    ) -> tuple[tuple[Clause, ...], int]:
-        """(clauses, terminator): the clause entries and the u32 stored right after them."""
+    ) -> tuple[tuple[Clause, ...], bytes]:
+        """(clauses, bytes_after_entries): the clause entries, and the bytes right after the
+        last entry that empty bonus lists would fill.
+        """
         entries_start = base + self.clause_entries_offset
         values = self.clause_structs[count].unpack_from(game_db, entries_start)
-        terminator: int = values[-1]
+        bytes_after_entries: bytes = values[-1]
         if count == 0:
-            return (), terminator
+            return (), bytes_after_entries
         clauses: list[Clause] = []
         for entry_index in range(0, count * 3, 3):
             raw_value = values[entry_index]
@@ -538,7 +718,7 @@ class ContractDecoder:
                     None if raw_value == _MISSING_U32 else raw_value,
                 )
             )
-        return tuple(clauses), terminator
+        return tuple(clauses), bytes_after_entries
 
     def _read_head(self, game_db: bytes, base: int) -> tuple[int, int, int, int] | None:
         head_offset = base + self.head_struct_offset
@@ -630,26 +810,34 @@ class ContractDecoder:
         }
 
         clause_base = self._locate_clause_base(game_db, tail_offset)
-        if clause_base is None:
-            return (
-                club_uid,
-                club_name,
-                team_id,
-                wage,
-                start,
-                end,
-                True,
-                squad_status_raw,
-                event_count,
-                (),
-                None,
-                unknown,
-            )
-        base, count = clause_base
+        if clause_base is not None:
+            base, count = clause_base
+            clauses, bytes_after_entries = self._read_clauses(game_db, base, count)
+            if bytes_after_entries == self.clause_empty_lists:
+                self.clause_tables_ending_at_tail_count += 1
+        else:
+            clause_base = self._locate_clause_base_fallback(game_db, tail_offset)
+            if clause_base is None:
+                self.tails_without_clause_table_count += 1
+                return (
+                    club_uid,
+                    club_name,
+                    team_id,
+                    wage,
+                    start,
+                    end,
+                    True,
+                    squad_status_raw,
+                    event_count,
+                    (),
+                    None,
+                    unknown,
+                )
+            base, count = clause_base
+            clauses, _bytes_after_entries = self._read_clauses(game_db, base, count)
+            # The fallback accepts only a table that ends exactly at the tail start.
+            self.clause_tables_ending_at_tail_count += 1
         self.clause_table_count += 1
-        clauses, terminator = self._read_clauses(game_db, base, count)
-        if terminator == 0:
-            self.clause_terminator_ok_count += 1
         head = self._read_head(game_db, base)
         contract_type_raw: int | None = None
         if head is not None:
@@ -957,8 +1145,11 @@ def build_contract_decoder(
     Raises:
         ValueError: A layout-derived Struct or needle would be inconsistent: overlapping
             fields, fields not laid out in the order they are unpacked, a clause entry
-            whose size does not match clause_entry_bytes, a clause FF run, zero run and
-            count byte that are not contiguous, a tail sentinel word that does not
+            whose size does not match clause_entry_bytes or clause_step_bytes, clause entries
+            that do not end where empty bonus lists start, a clause FF run, zero run and
+            count byte that are not contiguous, a team id that leaves no room for zero bytes
+            in the clause marker, a bonus list count or flag width other than 1, 2 or 4, a
+            bonus item prefix longer than its item, a tail sentinel word that does not
             immediately follow the sentinel byte, or a fallback_nonzero_length below 1.
     """
     club_by_team_id: dict[int, tuple[int | None, str | None]] = {}
@@ -969,6 +1160,9 @@ def build_contract_decoder(
     team_wage_struct, team_wage_struct_offset = _build_team_wage_struct(layout)
     head_struct, head_struct_offset = _build_head_struct(layout)
     clause_entry_struct = _build_clause_entry_struct(layout)
+    clause_structs = _build_clause_structs(layout, clause_entry_struct)
+    clause_prefixes = _build_clause_prefixes(layout)
+    team_marker_zero_run = _build_team_marker_zero_run(layout)
     tail_signature, tail_signature_offset = _build_tail_signature(layout)
 
     return ContractDecoder(
@@ -995,8 +1189,41 @@ def build_contract_decoder(
         clause_ff_offset=layout.clause_ff_offset,
         clause_count_offset=layout.clause_count_offset,
         clause_entries_offset=layout.clause_entries_offset,
-        clause_prefixes=_build_clause_prefixes(layout),
-        clause_structs=_build_clause_structs(layout, clause_entry_struct),
+        clause_prefixes=clause_prefixes,
+        clause_structs=clause_structs,
+        clause_empty_lists=bytes(_empty_bonus_lists_size(layout)),
+        clause_entry_bytes=layout.clause_entry_bytes,
+        clause_zero_offset=layout.clause_zero_offset,
+        clause_count_needles=tuple(prefix[layout.clause_ff_count :] for prefix in clause_prefixes),
+        clause_ff_run=b"\xff" * layout.clause_ff_count,
+        clause_team_marker_id_ff=b"\xff" * layout.clause_team_marker_id_bytes,
+        clause_team_marker_zero_run=team_marker_zero_run,
+        clause_competition_count_struct=_build_unsigned_struct(
+            layout.clause_competition_count_bytes, "clause_competition_count_bytes"
+        ),
+        clause_competition_item_bytes=layout.clause_competition_item_bytes,
+        clause_competition_item_prefix=_check_item_prefix(
+            layout.clause_competition_item_prefix,
+            layout.clause_competition_item_bytes,
+            "clause_competition_item_prefix",
+            "clause_competition_item_bytes",
+        ),
+        clause_competition_max_count=layout.clause_competition_max_count,
+        clause_award_flag_struct=_build_unsigned_struct(
+            layout.clause_award_flag_bytes, "clause_award_flag_bytes"
+        ),
+        clause_award_count_struct=_build_unsigned_struct(
+            layout.clause_award_count_bytes, "clause_award_count_bytes"
+        ),
+        clause_award_item_bytes=layout.clause_award_item_bytes,
+        clause_award_item_prefix=_check_item_prefix(
+            layout.clause_award_item_prefix,
+            layout.clause_award_item_bytes,
+            "clause_award_item_prefix",
+            "clause_award_item_bytes",
+        ),
+        clause_award_max_count=layout.clause_award_max_count,
+        clause_trailer=bytes(layout.clause_trailer_bytes),
         head_struct=head_struct,
         head_struct_offset=head_struct_offset,
         head_gate_value=layout.head_gate_value,

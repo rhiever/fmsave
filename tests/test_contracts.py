@@ -23,7 +23,7 @@ from fmsave._layouts import (
 from fmsave._reader_stats import ClubStats
 from fmsave._save import CONTRACTS_TABLE_CACHE_KEY, PLAYERS_TABLE_CACHE_KEY
 from fmsave._status import field_status
-from fmsave.models.common import ContractEndSource
+from fmsave.models.common import CodedValue, ContractEndSource
 from fmsave.models.contracts import (
     Clause,
     ClauseKind,
@@ -51,8 +51,10 @@ from tests.fixtures.container import (
     section_body,
 )
 from tests.fixtures.game_db import (
+    CONTRACT_CLAUSE_MARKER,
     CONTRACT_TAG,
     STUB_STATUS_KIND,
+    clause_bonus_lists_bytes,
     club_record_bytes,
     contract_bytes,
     fallback_contract_bytes,
@@ -175,7 +177,7 @@ def _player_a_trailing() -> bytes:
         },
         events=1,
         head={"type": 1, "money_a": 72000, "money_b": 5, "money_c": 9},
-        clauses=((250000, 365, 0x11), (0xFFFFFFFF, 2, 0x16)),
+        clauses=((250000, 365, 0x12), (0xFFFFFFFF, 2, 0x16)),
     )
     record_two, _ = contract_bytes(
         selector=12,
@@ -669,17 +671,44 @@ def test_build_contract_decoder_rejects_a_non_contiguous_clause_prefix(
 
 
 @pytest.mark.parametrize(
-    "layout_changes",
+    ("layout_changes", "message"),
     [
-        pytest.param({"clause_terminator_offset": -8}, id="terminator-offset"),
-        pytest.param({"clause_step_bytes": 9}, id="step-differs-from-entry-size"),
+        pytest.param(
+            {"clause_step_bytes": 9}, "clause_step_bytes", id="step-differs-from-entry-size"
+        ),
+        pytest.param(
+            {"clause_entries_offset": -5},
+            "empty bonus lists",
+            id="entries-do-not-end-where-empty-lists-start",
+        ),
+        pytest.param({"clause_trailer_bytes": 3}, "empty bonus lists", id="trailer-size-differs"),
+        pytest.param(
+            {"clause_award_count_bytes": 3},
+            "clause_award_count_bytes",
+            id="unsupported-award-count-width",
+        ),
+        pytest.param(
+            {"clause_competition_item_bytes": 5},
+            "clause_competition_item_prefix",
+            id="competition-prefix-longer-than-item",
+        ),
+        pytest.param(
+            {"clause_award_item_bytes": 1},
+            "clause_award_item_prefix",
+            id="award-prefix-longer-than-item",
+        ),
+        pytest.param(
+            {"clause_team_marker_id_bytes": 9},
+            "clause_team_marker_id_bytes",
+            id="team-id-longer-than-marker",
+        ),
     ],
 )
-def test_build_contract_decoder_rejects_a_terminator_not_right_after_the_clause_entries(
-    layout_changes: dict[str, int],
+def test_build_contract_decoder_rejects_an_inconsistent_clause_table_layout(
+    layout_changes: dict[str, int], message: str
 ) -> None:
     broken_layout = dataclasses.replace(registered_contract_layout(), **layout_changes)
-    with pytest.raises(ValueError, match="clause terminator"):
+    with pytest.raises(ValueError, match=message):
         _test_contract_decoder(broken_layout)
 
 
@@ -1036,6 +1065,356 @@ def test_tail_locator_matches_the_reference_loop_on_seeded_synthetic_buffers() -
 
     # Every count on both sides of tail_max_event_count was really planted.
     assert planted_boundary_event_counts == set(boundary_event_counts)
+
+
+BONUS_RECORD_PINDEX = 7
+BONUS_RECORD_PLAYER_UID = 900040
+FICTIONAL_CLAUSES = (
+    (0xFFFFFFFF, 25, 0x0F),
+    (46000, 0xFFFF, 0x20),
+    (500000, 0xFFFF, 0x00),
+)
+EXPECTED_FICTIONAL_CLAUSES = (
+    ("TOP_DIVISION_RELEGATION_SALARY_DROP", 15, 25, None),
+    ("APPEARANCE_FEE", 32, None, 46000),
+    ("MINIMUM_FEE_RELEASE", 0, None, 500000),
+)
+ONE_COMPETITION_BONUS = clause_bonus_lists_bytes(competition_bonuses=((9001, 150000),))
+ONE_AWARD_BONUS = clause_bonus_lists_bytes(award_bonuses=((4, 64000),))
+TEAM_ID_CLAUSE_MARKER = struct.pack("<II", NORTHBRIDGE_TEAM_A, 0)
+
+
+def _bonus_record(
+    *,
+    clause_suffix: bytes | None = None,
+    clause_marker: bytes = CONTRACT_CLAUSE_MARKER,
+    clauses: tuple[tuple[int, int, int], ...] = FICTIONAL_CLAUSES,
+    events: int = 0,
+) -> tuple[bytes, int]:
+    return contract_bytes(
+        selector=BONUS_RECORD_PINDEX + 1,
+        team_id=NORTHBRIDGE_TEAM_A,
+        wage=2400,
+        start=packed_date(1, 2029),
+        tail={"end": packed_date(1, 2033), "status": 4},
+        head={"type": 1, "money_a": 81000, "money_b": 3, "money_c": 7},
+        clauses=clauses,
+        events=events,
+        clause_marker=clause_marker,
+        clause_suffix=clause_suffix,
+    )
+
+
+def _decode_bonus_record(record: bytes) -> tuple[Contract, ContractDecoder]:
+    decoder = _test_contract_decoder(registered_contract_layout())
+    game_db = record + bytes(64)
+    contract, _on_loan, _loan_uid, _loan_name = decoder.decode(
+        game_db, 0, len(game_db), True, BONUS_RECORD_PINDEX, BONUS_RECORD_PLAYER_UID, None, None
+    )
+    assert contract is not None
+    return contract, decoder
+
+
+def _clause_rows(contract: Contract) -> tuple[tuple[str, int, int | None, int | None], ...]:
+    return tuple(
+        (clause.kind.label.name, clause.kind.raw, clause.parameter, clause.value)
+        for clause in contract.clauses
+    )
+
+
+@pytest.mark.parametrize("events", [0, 2])
+@pytest.mark.parametrize(
+    "clause_suffix",
+    [
+        pytest.param(ONE_COMPETITION_BONUS, id="competition-list-only"),
+        pytest.param(
+            clause_bonus_lists_bytes(award_bonuses=((4, 64000), (5, 58000))),
+            id="award-list-only",
+        ),
+        pytest.param(
+            clause_bonus_lists_bytes(
+                competition_bonuses=((9001, 150000), (9002, 90000), (9003, 45000)),
+                award_bonuses=((4, 64000), (5, 58000), (6, 20000)),
+            ),
+            id="both-lists",
+        ),
+        pytest.param(clause_bonus_lists_bytes(award_bonuses=()), id="award-flag-with-no-awards"),
+    ],
+)
+def test_a_clause_table_followed_by_bonus_lists_decodes_its_clauses_type_and_head(
+    clause_suffix: bytes, events: int
+) -> None:
+    record, _tag_offset = _bonus_record(clause_suffix=clause_suffix, events=events)
+    contract, decoder = _decode_bonus_record(record)
+    assert _clause_rows(contract) == EXPECTED_FICTIONAL_CLAUSES
+    assert contract.type is not None
+    assert contract.type.label is ContractType.FULL_TIME
+    assert contract.unknown["money_a"] == 81000
+    assert contract.unknown["money_c"] == 7
+    assert contract.event_count == events
+    stats = decoder.stats(player_count=1, contract_count=1)
+    assert stats.tails_parsed == 1
+    assert stats.tails_without_clause_table == 0
+    assert stats.clause_tables == 1
+    assert stats.clause_tables_ending_at_tail == 1
+    assert stats.head_ok == 1
+
+
+def test_an_empty_clause_table_followed_by_bonus_lists_is_found() -> None:
+    record, _tag_offset = _bonus_record(clause_suffix=ONE_AWARD_BONUS, clauses=())
+    contract, decoder = _decode_bonus_record(record)
+    assert contract.clauses == ()
+    assert contract.type is not None
+    assert contract.unknown["money_a"] == 81000
+    assert decoder.stats(player_count=1, contract_count=1).clause_tables == 1
+
+
+@pytest.mark.parametrize(
+    "clause_suffix",
+    [
+        pytest.param(None, id="no-bonus-lists"),
+        pytest.param(ONE_AWARD_BONUS, id="award-list"),
+    ],
+)
+@pytest.mark.parametrize(
+    "clause_marker",
+    [
+        pytest.param(struct.pack("<II", NORTHBRIDGE_TEAM_A, 0), id="own-team-id"),
+        pytest.param(struct.pack("<II", SOUTHPORT_TEAM_ID, 0), id="another-team-id"),
+    ],
+)
+def test_a_clause_table_marked_with_a_team_id_is_found(
+    clause_marker: bytes, clause_suffix: bytes | None
+) -> None:
+    record, _tag_offset = _bonus_record(clause_marker=clause_marker, clause_suffix=clause_suffix)
+    contract, decoder = _decode_bonus_record(record)
+    assert _clause_rows(contract) == EXPECTED_FICTIONAL_CLAUSES
+    assert contract.type is not None
+    assert contract.unknown["money_b"] == 3
+    stats = decoder.stats(player_count=1, contract_count=1)
+    assert stats.clause_tables == 1
+    assert stats.tails_without_clause_table == 0
+
+
+def _with_byte(data: bytes, index: int, value: int) -> bytes:
+    changed = bytearray(data)
+    changed[index] = value
+    return bytes(changed)
+
+
+@pytest.mark.parametrize(
+    ("clause_marker", "clause_suffix"),
+    [
+        pytest.param(
+            CONTRACT_CLAUSE_MARKER,
+            _with_byte(ONE_COMPETITION_BONUS, 6, 0x08),
+            id="competition-item-prefix",
+        ),
+        pytest.param(
+            CONTRACT_CLAUSE_MARKER, _with_byte(ONE_AWARD_BONUS, 6, 0x02), id="award-item-prefix"
+        ),
+        pytest.param(
+            CONTRACT_CLAUSE_MARKER,
+            _with_byte(clause_bonus_lists_bytes(award_bonuses=()), 1, 2),
+            id="award-flag-neither-0-nor-1",
+        ),
+        pytest.param(
+            CONTRACT_CLAUSE_MARKER,
+            _with_byte(ONE_AWARD_BONUS, 2, 2),
+            id="award-count-runs-past-the-tail",
+        ),
+        # Four bytes after the entries put a table with the FF marker where the fast path looks,
+        # so these two use a team-id marker, which only the fallback accepts.
+        pytest.param(
+            TEAM_ID_CLAUSE_MARKER, bytes([1, 0, 0, 0]), id="competition-list-runs-past-the-tail"
+        ),
+        pytest.param(TEAM_ID_CLAUSE_MARKER, bytes([0, 0, 1, 0]), id="nonzero-trailer"),
+        pytest.param(CONTRACT_CLAUSE_MARKER, bytes(5), id="ends-one-byte-before-the-tail"),
+        pytest.param(b"\xff" * 7 + b"\xfe", None, id="marker-ff-run-broken-at-the-end"),
+        pytest.param(b"\xfe" + b"\xff" * 7, None, id="marker-ff-run-broken-at-the-start"),
+        pytest.param(b"\xff" * 4 + bytes(4), None, id="marker-team-id-all-ff"),
+        pytest.param(
+            struct.pack("<II", NORTHBRIDGE_TEAM_A, 1), None, id="marker-team-id-without-zero-word"
+        ),
+        pytest.param(b"\xff" * 7 + b"\xfe", ONE_AWARD_BONUS, id="marker-broken-before-bonus-lists"),
+    ],
+)
+def test_near_miss_clause_tables_are_rejected(clause_marker: bytes, clause_suffix: bytes) -> None:
+    record, _tag_offset = _bonus_record(clause_marker=clause_marker, clause_suffix=clause_suffix)
+    contract, decoder = _decode_bonus_record(record)
+    assert contract.squad_status is not None  # the tail itself still parses
+    assert contract.clauses == ()
+    assert contract.type is None
+    assert "money_a" not in contract.unknown
+    stats = decoder.stats(player_count=1, contract_count=1)
+    assert stats.tails_parsed == 1
+    assert stats.clause_tables == 0
+    assert stats.tails_without_clause_table == 1
+
+
+def test_a_clause_table_with_a_broken_zero_run_is_rejected() -> None:
+    record, _tag_offset = _bonus_record(clause_suffix=ONE_AWARD_BONUS)
+    marker_offset = record.rfind(CONTRACT_CLAUSE_MARKER + bytes(3) + bytes([3]))
+    assert marker_offset >= 0
+    contract, decoder = _decode_bonus_record(_with_byte(record, marker_offset + 9, 1))
+    assert contract.clauses == ()
+    assert decoder.stats(player_count=1, contract_count=1).tails_without_clause_table == 1
+
+
+def test_a_tail_with_no_clause_table_is_counted() -> None:
+    record, _tag_offset = contract_bytes(
+        selector=BONUS_RECORD_PINDEX + 1,
+        team_id=NORTHBRIDGE_TEAM_A,
+        wage=2400,
+        start=packed_date(1, 2029),
+        tail={"end": packed_date(1, 2033), "status": 4},
+        clause_table=False,
+    )
+    contract, decoder = _decode_bonus_record(record)
+    assert contract.clauses == ()
+    stats = decoder.stats(player_count=1, contract_count=1)
+    assert stats.tails_parsed == 1
+    assert stats.tails_without_clause_table == 1
+
+
+def test_a_plain_clause_table_is_found_by_the_fast_path_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def failing_fallback(
+        self: ContractDecoder, game_db: bytes, tail_offset: int
+    ) -> tuple[int, int] | None:
+        raise AssertionError("the fallback ran although the fast path finds this table")
+
+    monkeypatch.setattr(ContractDecoder, "_locate_clause_base_fallback", failing_fallback)
+    record, _tag_offset = _bonus_record()
+    contract, decoder = _decode_bonus_record(record)
+    assert _clause_rows(contract) == EXPECTED_FICTIONAL_CLAUSES
+    stats = decoder.stats(player_count=1, contract_count=1)
+    assert stats.clause_tables == 1
+    assert stats.clause_tables_ending_at_tail == 1
+
+
+def test_a_plain_table_with_nonzero_bytes_after_its_entries_is_found_but_not_counted_whole() -> (
+    None
+):
+    record, _tag_offset = _bonus_record(clause_suffix=bytes([0, 0, 0, 1]))
+    contract, decoder = _decode_bonus_record(record)
+    assert _clause_rows(contract) == EXPECTED_FICTIONAL_CLAUSES
+    stats = decoder.stats(player_count=1, contract_count=1)
+    assert stats.clause_tables == 1
+    assert stats.clause_tables_ending_at_tail == 0
+
+
+@pytest.mark.parametrize("clause_count", [0, 1, 5, 23])
+def test_the_fallback_finds_the_same_plain_table_as_the_fast_path(clause_count: int) -> None:
+    clauses = tuple((1000 + index, 0xFFFF, 0x20 + index % 8) for index in range(clause_count))
+    record, tag_offset = _bonus_record(clauses=clauses)
+    decoder = _test_contract_decoder(registered_contract_layout())
+    tail_offset = decoder._locate_tail(record, tag_offset)
+    assert tail_offset is not None
+    fast_path_result = decoder._locate_clause_base(record, tail_offset)
+    assert fast_path_result is not None
+    assert fast_path_result[1] == clause_count
+    assert decoder._locate_clause_base_fallback(record, tail_offset) == fast_path_result
+
+
+def test_the_fallback_agrees_with_the_fast_path_on_seeded_tables() -> None:
+    """Seeded tables with realistic entries, random bonus lists and either marker form: every
+    table decodes to its planted clauses, and wherever the fast path finds a table the fallback
+    finds the same one.
+    """
+    layout = registered_contract_layout()
+    decoder = _test_contract_decoder(layout)
+    random_generator = random.Random(20260916)
+    fast_path_agreements = 0
+    for _trial in range(300):
+        clause_count = random_generator.randint(0, layout.clause_max_count)
+        clauses = tuple(
+            (
+                random_generator.choice((0xFFFFFFFF, random_generator.randint(1, 2**31))),
+                random_generator.choice((0xFFFF, random_generator.randint(1, 400))),
+                random_generator.randint(0, 0x3F),
+            )
+            for _clause in range(clause_count)
+        )
+        competition_bonuses = tuple(
+            (random_generator.randint(1, 5000), random_generator.randint(1, 2**31))
+            for _bonus in range(random_generator.choice((0, 0, 1, 2, 3)))
+        )
+        award_bonuses = (
+            None
+            if random_generator.random() < 0.5
+            else tuple(
+                (random_generator.randint(0, 4000), random_generator.randint(1, 2**31))
+                for _bonus in range(random_generator.randint(0, 3))
+            )
+        )
+        clause_marker = (
+            CONTRACT_CLAUSE_MARKER
+            if random_generator.random() < 0.7
+            else struct.pack("<II", random_generator.randint(1, 3_000_000), 0)
+        )
+        record, tag_offset = _bonus_record(
+            clauses=clauses,
+            clause_marker=clause_marker,
+            clause_suffix=clause_bonus_lists_bytes(
+                competition_bonuses=competition_bonuses, award_bonuses=award_bonuses
+            ),
+            events=random_generator.randint(0, 3),
+        )
+        contract, _decoder = _decode_bonus_record(record)
+        expected_rows = tuple(
+            (
+                CodedValue.from_raw(ClauseKind, kind).label.name,
+                kind,
+                None if parameter == 0xFFFF else parameter,
+                None if value == 0xFFFFFFFF else value,
+            )
+            for value, parameter, kind in clauses
+        )
+        assert _clause_rows(contract) == expected_rows
+
+        tail_offset = decoder._locate_tail(record, tag_offset)
+        assert tail_offset is not None
+        fast_path_result = decoder._locate_clause_base(record, tail_offset)
+        if fast_path_result is not None:
+            assert decoder._locate_clause_base_fallback(record, tail_offset) == fast_path_result
+            fast_path_agreements += 1
+    # About one table in seven has the FF marker and empty bonus lists, where the fast path looks.
+    assert fast_path_agreements > 20
+
+
+@pytest.mark.parametrize(
+    ("raw_kind", "expected_name"),
+    [
+        (0x00, "MINIMUM_FEE_RELEASE"),
+        (0x0F, "TOP_DIVISION_RELEGATION_SALARY_DROP"),
+        (0x10, "MINIMUM_FEE_RELEASE_FOREIGN"),
+        (0x12, "MINIMUM_FEE_RELEASE_DOMESTIC"),
+        (0x16, "OPTIONAL_EXTENSION_BY_CLUB"),
+        (0x20, "APPEARANCE_FEE"),
+        (0x22, "SHUTOUT_BONUS"),
+        (0x25, "INTERNATIONAL_CAP_BONUS"),
+        (0x26, "UNUSED_SUBSTITUTE_FEE"),
+        (0x29, "SEASONAL_LANDMARK_COMBINED_GOALS_AND_ASSISTS"),
+        (0x11, "UNKNOWN"),
+        (0x27, "UNKNOWN"),
+    ],
+)
+def test_clause_kinds_confirmed_in_game_are_named(raw_kind: int, expected_name: str) -> None:
+    kind = CodedValue.from_raw(ClauseKind, raw_kind)
+    assert kind.label.name == expected_name
+    assert kind.raw == raw_kind
+
+
+@pytest.mark.parametrize(
+    ("raw_status", "expected_name"),
+    [(1, "STAR_PLAYER"), (2, "IMPORTANT_PLAYER"), (15, "UNKNOWN")],
+)
+def test_squad_statuses_confirmed_in_game_are_named(raw_status: int, expected_name: str) -> None:
+    status = CodedValue.from_raw(SquadStatus, raw_status)
+    assert status.label.name == expected_name
+    assert status.raw == raw_status
 
 
 def test_field_status_resolves_contract_wage_through_contract_class() -> None:
