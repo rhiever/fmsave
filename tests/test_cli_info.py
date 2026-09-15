@@ -80,6 +80,34 @@ def test_info_json(fragment_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     assert list(record["section_schemas"]) == sorted(record["section_schemas"])
 
 
+SUMMARY_TEXTS = ("Alex Manager", "Northbridge", "Example League")
+
+
+@pytest.mark.parametrize("show_name", [False, True], ids=["hidden", "show-name"])
+@pytest.mark.parametrize("json_output", [False, True], ids=["text", "json"])
+def test_info_never_prints_summary_strings(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], show_name: bool, json_output: bool
+) -> None:
+    summary = save_summary_body(
+        leading_strings=("Example League",),
+        trailing_strings=("Alex Manager",),
+        club_uid_after=("Northbridge", 5001),
+    )
+    file_path = build_container_fragment(replaced_sections(save_game_summary=summary)).write(
+        tmp_path / "career.bin"
+    )
+    arguments = ["info", str(file_path)]
+    if json_output:
+        arguments.append("--json")
+    if show_name:
+        arguments.append("--show-name")
+    assert cli.main(arguments) == cli.EXIT_OK
+    output = capsys.readouterr().out
+    assert "26.3.2+2329565" in output
+    for summary_text in SUMMARY_TEXTS:
+        assert summary_text not in output
+
+
 def test_info_json_with_non_ascii_name(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     fragment_path = build_container_fragment(save_name="Carrière 東京").write(
         tmp_path / "career.bin"

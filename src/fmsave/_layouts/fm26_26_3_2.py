@@ -10,11 +10,13 @@ from fmsave._layouts import (
     ClubStatusLayout,
     ContractLayout,
     GameInfoLayout,
+    HumansLayout,
     LayoutEntry,
     NamePoolLayout,
     PersonBlockLayout,
     PlayerRecordLayout,
     SaveSummaryLayout,
+    SummaryStringsLayout,
     SuspensionLayout,
     TeamListLayout,
 )
@@ -31,6 +33,20 @@ GAME_INFO = GameInfoLayout(
 SAVE_SUMMARY = SaveSummaryLayout(
     version_pattern=r"([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,4})\+([0-9]{1,10})",
     max_version_bytes=32,
+)
+
+# Strings start right after the 8-byte section header; control characters end a candidate.
+SUMMARY_STRINGS = SummaryStringsLayout(
+    strings_start_offset=8,
+    string_length_range=(2, 120),
+    lowest_code_point=0x20,
+)
+
+HUMANS = HumansLayout(
+    human_count_offset=8,
+    first_selector_offset=10,
+    person_uid_offset=4,
+    person_uid_copy_offset=8,
 )
 
 NAME_POOLS = NamePoolLayout(
@@ -287,6 +303,7 @@ SUSPENSIONS = SuspensionLayout(
 LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_info", schema=46, build=BUILD, layout=GAME_INFO),
     LayoutEntry(region="save_game_summary", schema=29, build=BUILD, layout=SAVE_SUMMARY),
+    LayoutEntry(region="save_game_summary", schema=29, build=BUILD, layout=SUMMARY_STRINGS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=NAME_POOLS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CLUB_RECORDS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TEAM_LISTS),
@@ -295,4 +312,5 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=PERSON_BLOCKS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CONTRACTS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=SUSPENSIONS),
+    LayoutEntry(region="humans", schema=21, build=BUILD, layout=HUMANS),
 )

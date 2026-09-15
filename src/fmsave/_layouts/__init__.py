@@ -36,6 +36,38 @@ class SaveSummaryLayout:
     max_version_bytes: int
 
 
+@dataclass(frozen=True, slots=True)
+class SummaryStringsLayout:
+    """How to pick the length-prefixed strings out of `save_game_summary`.
+
+    Every offset from `strings_start_offset` is tried in order. A string is a u32 byte length
+    within `string_length_range` (inclusive) followed by that many bytes of valid UTF-8 with
+    no character below `lowest_code_point`. After a string the search continues at its end;
+    anywhere else it moves on by one byte.
+    """
+
+    strings_start_offset: int
+    string_length_range: tuple[int, int]
+    lowest_code_point: int
+
+
+@dataclass(frozen=True, slots=True)
+class HumansLayout:
+    """Where the human managers are named in `humans`, and how their person header is found.
+
+    The u16 at `human_count_offset` is the number of human managers, and the u32 at
+    `first_selector_offset` is the first human manager's person id plus 1. In `game_db`, that
+    person's header is the u32 person id followed by the same uid at `person_uid_offset` and at
+    `person_uid_copy_offset`, both counted from the person id; a uid of 0 or FFFFFFFF does not
+    count.
+    """
+
+    human_count_offset: int
+    first_selector_offset: int
+    person_uid_offset: int
+    person_uid_copy_offset: int
+
+
 # Count checks (such as the name pool minimum) apply only to a decompressed `game_db` at
 # least this large; smaller sections come from fragments that cannot meet full-save counts.
 FULL_SAVE_MINIMUM_GAME_DB_BYTES = 16 * 1024 * 1024
@@ -345,6 +377,7 @@ class SuspensionLayout:
 type Layout = (
     GameInfoLayout
     | SaveSummaryLayout
+    | SummaryStringsLayout
     | NamePoolLayout
     | ClubRecordLayout
     | TeamListLayout
@@ -353,6 +386,7 @@ type Layout = (
     | PersonBlockLayout
     | ContractLayout
     | SuspensionLayout
+    | HumansLayout
 )
 
 

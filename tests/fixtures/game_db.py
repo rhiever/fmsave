@@ -10,7 +10,7 @@ import struct
 from collections.abc import Sequence
 from typing import cast
 
-from tests.fixtures.container import length_prefixed, packed_date
+from tests.fixtures.container import length_prefixed, packed_date, section_body
 
 NAME_POOL_SIGNATURE = struct.pack("<6I", 46421, 0, 1024, 256, 2048, 0)
 CLUB_RECORD_ANCHOR = b"\xff\xff\xff\xff"
@@ -398,3 +398,14 @@ def suspension_entry_bytes(*, competition_id: int, issued: bytes, e7: int, e14: 
     output.append(0xFF)
     output.append(0)
     return bytes(output)
+
+
+HUMANS_SCHEMA = 21
+
+
+def humans_body(*, count: int, selector: int) -> bytes:
+    """A `humans` section: u16 human count, u32 selector, then 32 zero bytes.
+
+    The selector is the first human manager's person id plus 1.
+    """
+    return section_body(".dat", HUMANS_SCHEMA, struct.pack("<HI", count, selector) + bytes(32))

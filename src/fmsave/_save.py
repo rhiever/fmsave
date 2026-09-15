@@ -13,10 +13,12 @@ from fmsave._layouts import ContractLayout, PersonBlockLayout, SuspensionLayout,
 from fmsave._version import read_save_info
 from fmsave.models.clubs import Club
 from fmsave.models.contracts import Contract
+from fmsave.models.managed import ManagedClub
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
 from fmsave.models.suspensions import Suspension
-from fmsave.readers._common import GAME_DB_SECTION
+from fmsave.readers._common import GAME_DB_SECTION, HUMANS_SECTION, SAVE_SUMMARY_SECTION
+from fmsave.readers.managed import find_managed_club_layouts, resolve_managed_clubs
 from fmsave.readers.player_scan import window_end
 from fmsave.readers.players import build_player_decoder
 from fmsave.readers.suspensions import SuspensionEntry, locate_suspensions, suspension_rows
@@ -26,6 +28,7 @@ CLUBS_TABLE_CACHE_KEY = "table:clubs"
 PLAYERS_TABLE_CACHE_KEY = "table:players"
 CONTRACTS_TABLE_CACHE_KEY = "table:contracts"
 SUSPENSIONS_TABLE_CACHE_KEY = "table:suspensions"
+MANAGED_CLUBS_TABLE_CACHE_KEY = "table:managed_clubs"
 
 
 class _PlayerTables(NamedTuple):
@@ -145,6 +148,48 @@ class Save:
         """
         context = self._context
         return context.cached(SUSPENSIONS_TABLE_CACHE_KEY, self._suspensions_table_entry_point)
+
+    def managed_clubs(self) -> Table[ManagedClub]:
+        """The club run by the save's first human manager, or an empty table when there is none.
+
+        The link from a human manager to a club is proven only on saves with a single human
+        manager; on a save with several, only the first is listed. The club comes from the
+        manager's contract and is checked against the save summary, which also stores the
+        manager's name. The table is read on the first call; later calls return the same table.
+        It does not decode players.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: No club record is accepted, a club uid or club index appears in
+                two records, a team id is listed twice, the save's in-game date is unreadable,
+                the contract and the save summary link the manager to different clubs, or the
+                save lists a human manager but no club can be linked to them.
+        """
+        context = self._context
+        return context.cached(MANAGED_CLUBS_TABLE_CACHE_KEY, self._read_managed_clubs)
+
+    def _read_managed_clubs(self) -> Table[ManagedClub]:
+        context = self._context
+        save_info = context.info
+        clock = save_info.game_date
+        if clock is None:
+            raise ReaderCheckError(
+                f"{save_info.file_name}: the save's in-game date is unreadable, so contract "
+                "chain records cannot be decoded"
+            )
+        layouts = find_managed_club_layouts(save_info.section_schemas, save_info.build)
+        with (
+            context.section(HUMANS_SECTION) as humans,
+            context.section(SAVE_SUMMARY_SECTION) as summary,
+            context.section(GAME_DB_SECTION) as game_db,
+        ):
+            club_index = context.club_index()
+            managed_clubs = resolve_managed_clubs(
+                humans, game_db, summary, club_index, clock, layouts, save_info.file_name
+            )
+        return Table(managed_clubs, ManagedClub)
 
     def _players_table_entry_point(self) -> Table[Player]:
         tables = self._decode_player_tables()

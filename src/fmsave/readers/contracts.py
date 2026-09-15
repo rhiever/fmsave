@@ -67,6 +67,11 @@ type _ChainRecordTuple = tuple[
     "dict[str, int] | None",
 ]
 
+# Positions in a decoded chain record tuple, for readers outside this module.
+CHAIN_RECORD_CLUB_UID = 0
+CHAIN_RECORD_END = 5
+CHAIN_RECORD_HAS_TAIL = 6
+
 
 def _build_unpack_ordered_struct(
     struct_description: str,

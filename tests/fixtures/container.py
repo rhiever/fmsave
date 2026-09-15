@@ -67,10 +67,20 @@ def save_summary_body(
     leading_strings: tuple[str, ...] = ("Alex Example", "Example League"),
     trailing_strings: tuple[str, ...] = ("Northbridge FC",),
     schema: int = 29,
+    club_uid_after: tuple[str, int] | None = None,
 ) -> bytes:
+    """The leading strings, a u32 7, the version, then the trailing strings, back to back.
+
+    When `club_uid_after` is `(short_name, uid)`, the string `short_name` follows the last
+    trailing string with no gap, and `u32 uid` follows it; that last trailing string is then
+    the one read as the manager name.
+    """
     payload = b"".join(length_prefixed(text) for text in leading_strings)
     payload += struct.pack("<I", 7) + length_prefixed(version)
     payload += b"".join(length_prefixed(text) for text in trailing_strings)
+    if club_uid_after is not None:
+        short_name, club_uid = club_uid_after
+        payload += length_prefixed(short_name) + struct.pack("<I", club_uid)
     return section_body(".dat", schema, payload)
 
 

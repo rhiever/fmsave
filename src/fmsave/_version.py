@@ -29,6 +29,7 @@ from fmsave._layouts import (
     FALLBACK_BUILD,
     GameInfoLayout,
     SaveSummaryLayout,
+    SummaryStringsLayout,
     find_layout,
     known_builds,
 )
@@ -41,6 +42,8 @@ from fmsave._scan import (
     read_u32,
 )
 from fmsave.models.meta import SaveInfo, SectionInfo
+from fmsave.readers._common import SAVE_SUMMARY_SECTION
+from fmsave.readers.managed import read_summary_strings
 
 SUPPORTED_GAME_MAJOR = 26
 SECTION_MAGIC_PREFIX = b"\x03\x01"
@@ -48,7 +51,6 @@ SECTION_HEAD_BYTES = 8
 SCHEMA_OFFSET = 6
 LENGTH_PREFIX_BYTES = 4
 GAME_INFO_SECTION = "game_info"
-SAVE_SUMMARY_SECTION = "save_game_summary"
 VERSION_CANDIDATE_START = re.compile(rb"(?<![0-9.])[0-9]{1,3}\.")
 
 
@@ -107,8 +109,14 @@ def find_game_version(summary: bytes, layout: SaveSummaryLayout, file_name: str)
     )
 
 
-def detect_game_version(container_index: ContainerIndex) -> GameVersion:
-    """Read the version from `save_game_summary` alone and reject games other than FM26."""
+@dataclass(frozen=True, slots=True)
+class SummaryFacts:
+    version: GameVersion
+    summary_strings: tuple[str, ...]
+
+
+def read_summary_facts(container_index: ContainerIndex) -> SummaryFacts:
+    """Read `save_game_summary` once: the version, rejecting games other than FM26, and its strings."""
     file_name = container_index.file_name
     summary = read_section(container_index, SAVE_SUMMARY_SECTION)
     summary_schema = section_schema(
@@ -124,7 +132,10 @@ def detect_game_version(container_index: ContainerIndex) -> GameVersion:
             f"{file_name} is an {version.game} save ({version.build}). fmsave {__version__} reads FM26 saves "
             f"only; {version.game} is not supported yet. See {ISSUES_URL}"
         )
-    return version
+    strings_layout = find_layout(
+        SummaryStringsLayout, SAVE_SUMMARY_SECTION, summary_schema, ""
+    ).layout
+    return SummaryFacts(version, read_summary_strings(summary, strings_layout))
 
 
 def decode_game_info(
@@ -188,7 +199,8 @@ def read_game_info_facts(
 def read_save_info(container_index: ContainerIndex) -> SaveInfo:
     """Detect the game and build and read save metadata. Warns on unknown FM26 builds."""
     file_name = container_index.file_name
-    version = detect_game_version(container_index)
+    summary_facts = read_summary_facts(container_index)
+    version = summary_facts.version
     known_build = version.build in known_builds()
     if not known_build:
         warnings.warn(
@@ -230,6 +242,7 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
         time_slot=facts.time_slot,
         save_name=container_index.save_name,
         sections=sections,
+        summary_strings=summary_facts.summary_strings,
         section_schemas=FrozenMapping(section_schemas),
         file_name=file_name,
     )

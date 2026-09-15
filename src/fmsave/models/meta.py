@@ -37,7 +37,7 @@ class SectionInfo:
 class SaveInfo:
     """Facts about a save, read when it is opened.
 
-    The repr leaves out the save name and the section list.
+    The repr leaves out the save name, the summary strings and the section list.
 
     Attributes:
         game: Game edition, for example "FM26".
@@ -49,6 +49,9 @@ class SaveInfo:
         time_slot: Intra-day time slot stored with the in-game date (unconfirmed).
         save_name: The save's own name. `fmsave info` hides it unless --show-name is passed.
         sections: Every named section in file order.
+        summary_strings: The readable strings stored in the save summary, in file order,
+            including the build string. They can hold the human manager's name and club and
+            competition names, so `fmsave info` does not show them (unconfirmed).
         section_schemas: Schema number of every named section, read-only.
         file_name: The save's file name, without its folder.
     """
@@ -62,6 +65,7 @@ class SaveInfo:
     time_slot: int
     save_name: str = field(repr=False)
     sections: tuple[SectionInfo, ...] = field(repr=False)
+    summary_strings: tuple[str, ...] = field(repr=False)
     section_schemas: Mapping[str, int] = field(hash=False)
     file_name: str
 
@@ -83,5 +87,5 @@ register_field_statuses(
         "section_schemas",
         "file_name",
     ),
-    unconfirmed=("db_version", "game_date", "time_slot"),
+    unconfirmed=("db_version", "game_date", "time_slot", "summary_strings"),
 )

@@ -28,6 +28,19 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'lowest_code_point': 32,
+        'string_length_range': tuple(
+          2,
+          120,
+        ),
+        'strings_start_offset': 8,
+      }),
+      'region': 'save_game_summary',
+      'schema': 29,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
         'max_name_bytes': 64,
         'minimum_applies_from_bytes': 16777216,
         'minimum_entries_per_pool': 50000,
@@ -366,6 +379,17 @@
       }),
       'region': 'game_db',
       'schema': 4000,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
+        'first_selector_offset': 10,
+        'human_count_offset': 8,
+        'person_uid_copy_offset': 8,
+        'person_uid_offset': 4,
+      }),
+      'region': 'humans',
+      'schema': 21,
     }),
   ])
 # ---

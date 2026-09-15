@@ -13,6 +13,10 @@ MISSING_REFERENCE = 0xFFFFFFFF
 # The one section every game_db reader (names, clubs, players) works from.
 GAME_DB_SECTION = "game_db"
 
+# The small sections the managed-club reader works from, besides game_db.
+HUMANS_SECTION = "humans"
+SAVE_SUMMARY_SECTION = "save_game_summary"
+
 
 def section_label(file_name: str, section_name: str = GAME_DB_SECTION) -> str:
     """ "<file name>: section '<section name>'", the common prefix of a reader's error text."""

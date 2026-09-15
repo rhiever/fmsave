@@ -10,6 +10,7 @@ from fmsave.models.contracts import (
     ContractType,
     SquadStatus,
 )
+from fmsave.models.managed import ManagedClub
 from fmsave.models.meta import SaveInfo, SectionInfo
 from fmsave.models.players import (
     Ability,
@@ -33,6 +34,7 @@ __all__ = [
     "ContractChainEntry",
     "ContractEndSource",
     "ContractType",
+    "ManagedClub",
     "Personality",
     "Player",
     "PlayerSuspension",

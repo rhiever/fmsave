@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import fmsave._version as version_module
 from fmsave._container import RETRY_HINT, ContainerIndex, read_index
 from fmsave._errors import (
     ISSUES_URL,
@@ -250,6 +251,35 @@ def test_save_info_survives_pickle_and_deepcopy(tmp_path: Path) -> None:
         assert copied_info == save_info
         assert copied_info.section_schemas == dict(save_info.section_schemas)
         assert copied_info.sections[0].unknown == {"tail0": 0, "tail1": 0}
+
+
+def test_save_info_holds_the_summary_strings_in_file_order(tmp_path: Path) -> None:
+    save_info = read_save_info(build_index(tmp_path))
+    assert save_info.summary_strings == (
+        "Alex Example",
+        "Example League",
+        "26.3.2+2329565",
+        "Northbridge FC",
+    )
+    copied_info = pickle.loads(pickle.dumps(save_info))
+    assert copied_info.summary_strings == save_info.summary_strings
+
+
+def test_summary_is_read_once_for_the_version_and_the_strings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    index = build_index(tmp_path)
+    section_reads: list[str] = []
+    original_read_section = version_module.read_section
+
+    def counting_read_section(container_index: ContainerIndex, name: str) -> bytes:
+        section_reads.append(name)
+        return original_read_section(container_index, name)
+
+    monkeypatch.setattr(version_module, "read_section", counting_read_section)
+    save_info = read_save_info(index)
+    assert section_reads.count("save_game_summary") == 1
+    assert "Northbridge FC" in save_info.summary_strings
 
 
 def test_save_info_repr_hides_folder_save_name_and_sections(tmp_path: Path) -> None:
