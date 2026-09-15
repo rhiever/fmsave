@@ -71,7 +71,7 @@ class Attributes:
         penalty_taking: Penalty taking.
         tackling: Tackling.
         vision: Vision.
-        one_on_ones: Goalkeeping one-on-ones.
+        handling: Goalkeeping handling.
         aerial_reach: Goalkeeping aerial reach.
         command_of_area: Goalkeeping command of area.
         communication: Goalkeeping communication.
@@ -79,7 +79,7 @@ class Attributes:
         throwing: Goalkeeping throwing.
         anticipation: Anticipation.
         decisions: Decisions.
-        handling: Goalkeeping handling.
+        one_on_ones: Goalkeeping one-on-ones.
         positioning: Positioning (an attribute, not a position rating).
         reflexes: Goalkeeping reflexes.
         first_touch: First touch.
@@ -125,7 +125,7 @@ class Attributes:
     penalty_taking: int
     tackling: int
     vision: int
-    one_on_ones: int
+    handling: int
     aerial_reach: int
     command_of_area: int
     communication: int
@@ -133,7 +133,7 @@ class Attributes:
     throwing: int
     anticipation: int
     decisions: int
-    handling: int
+    one_on_ones: int
     positioning: int
     reflexes: int
     first_touch: int
@@ -396,7 +396,7 @@ register_field_statuses(
         "penalty_taking",
         "tackling",
         "vision",
-        "one_on_ones",
+        "handling",
         "aerial_reach",
         "command_of_area",
         "communication",
@@ -404,7 +404,7 @@ register_field_statuses(
         "throwing",
         "anticipation",
         "decisions",
-        "handling",
+        "one_on_ones",
         "positioning",
         "reflexes",
         "first_touch",

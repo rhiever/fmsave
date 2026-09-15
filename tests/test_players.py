@@ -507,6 +507,32 @@ def test_attribute_splice_keeps_each_value_in_place() -> None:
     assert player.right_foot == _scaled(FOOT_SPLICE_RAW_ATTRIBUTES[25])
 
 
+def test_goalkeeper_handling_and_one_on_ones_read_their_own_record_bytes() -> None:
+    record_start_in_fragment = 26
+    handling_record_offset = 50
+    one_on_ones_record_offset = 58
+    handling_raw = 73
+    one_on_ones_raw = 37
+    candidate = dict(PLAYER_A)
+    candidate["pindex"] = 61
+    candidate["uid"] = 900061
+    record_fragment = bytearray(player_record_bytes(**candidate))
+    record_fragment[record_start_in_fragment + handling_record_offset] = handling_raw
+    record_fragment[record_start_in_fragment + one_on_ones_record_offset] = one_on_ones_raw
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body([SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000)
+        + bytes(record_fragment)
+    )
+    game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
+    player = by_uid(decode_all(game_db), 900061)
+
+    assert player.raw_attributes.handling == handling_raw
+    assert player.raw_attributes.one_on_ones == one_on_ones_raw
+    assert player.attributes.handling == _scaled(handling_raw)
+    assert player.attributes.one_on_ones == _scaled(one_on_ones_raw)
+
+
 def test_player_a_ability_positions_and_attributes() -> None:
     players = decode_all(example_game_db())
     player_a = by_uid(players, 900001)

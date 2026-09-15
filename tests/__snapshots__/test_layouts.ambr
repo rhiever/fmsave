@@ -136,7 +136,7 @@
           'penalty_taking',
           'tackling',
           'vision',
-          'one_on_ones',
+          'handling',
           'aerial_reach',
           'command_of_area',
           'communication',
@@ -144,7 +144,7 @@
           'throwing',
           'anticipation',
           'decisions',
-          'handling',
+          'one_on_ones',
           'positioning',
           'reflexes',
           'first_touch',
@@ -439,8 +439,8 @@
           None,
         ),
         'handling_above_finishing': tuple(
-          0.15,
-          0.35,
+          0.2,
+          0.3,
         ),
         'height_in_range': tuple(
           0.999,

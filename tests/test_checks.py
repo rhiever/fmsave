@@ -255,7 +255,7 @@ def test_a_shifted_layout_fails_with_a_message_naming_both_gates() -> None:
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
         enforce("players", results)
     assert str(error_info.value) == (
-        "players failed checks: handling_above_finishing=0.61 (expected 0.15..0.35); "
+        "players failed checks: handling_above_finishing=0.61 (expected 0.2..0.3); "
         "with_natural_position=0.89 (expected 0.97..). "
         f"Please report it at {ISSUES_URL} with the output of fmsave validate."
     )
@@ -476,12 +476,27 @@ def test_the_enforce_message_holds_no_digits_beyond_rates_and_bounds() -> None:
     for gate_name in ("handling_above_finishing", "with_natural_position"):
         assert gate_name in remainder
         remainder = remainder.replace(gate_name, "")
-    for number_text in ("0.6172", "0.15", "0.35", "0.89", "0.97"):
+    for number_text in ("0.6172", "0.2", "0.3", "0.89", "0.97"):
         assert number_text in remainder
         remainder = remainder.replace(number_text, "")
     assert re.search(r"\d", remainder) is None
     for fictional_text in ("Alex", "Northbridge", "Example", FILE_NAME):
         assert fictional_text not in message
+
+
+@pytest.mark.parametrize(
+    "handling_above_finishing",
+    [
+        pytest.param(3_600, id="attribute bytes read one position late"),
+        pytest.param(12_200, id="attribute bytes read one position early"),
+    ],
+)
+def test_a_one_byte_attribute_shift_fails_the_handling_gate(handling_above_finishing: int) -> None:
+    shifted_stats = dataclasses.replace(
+        healthy_player_stats(), handling_above_finishing=handling_above_finishing
+    )
+    results = evaluate_players(shifted_stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert failed_gate_names(results) == ["handling_above_finishing"]
 
 
 # A fragment whose readers see known counts: two clubs, two players, a human manager.
@@ -493,7 +508,7 @@ SOUTHPORT_TEAM = 70003
 UNREGISTERED_TEAM_ID = 79999
 PLAYER_A_UID = 900001
 PLAYER_B_UID = 900002
-HANDLING_INDEX = 19
+HANDLING_INDEX = 11
 FINISHING_INDEX = 2
 SUMMARY_SCHEMA = 29
 

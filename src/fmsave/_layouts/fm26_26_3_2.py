@@ -167,7 +167,7 @@ PLAYER_RECORDS = PlayerRecordLayout(
         "penalty_taking",
         "tackling",
         "vision",
-        "one_on_ones",
+        "handling",
         "aerial_reach",
         "command_of_area",
         "communication",
@@ -175,7 +175,7 @@ PLAYER_RECORDS = PlayerRecordLayout(
         "throwing",
         "anticipation",
         "decisions",
-        "handling",
+        "one_on_ones",
         "positioning",
         "reflexes",
         "first_touch",
@@ -323,7 +323,9 @@ GATE_BOUNDS = GateBounds(
     names_resolved=(0.995, None),
     relation_sentinel=(0.999, None),
     second_nation_qualifier=(0.995, None),
-    handling_above_finishing=(0.15, 0.35),
+    # Reading the attribute bytes one position early or late moves this share below or above
+    # the bound, so it stays narrow.
+    handling_above_finishing=(0.20, 0.30),
     with_natural_position=(0.97, None),
     height_in_range=(0.999, None),
     height_median=(170, 190),
