@@ -222,9 +222,10 @@ def _flagged_runs(
     minimum_run_length: int,
 ) -> Iterator[tuple[int, int]]:
     """Yield (run_start, run_end) for each maximal run, at or after start, of at least
-    minimum_run_length consecutive bytes that lie in the wider of the two ranges.
+    minimum_run_length consecutive bytes that lie in the hull of the two ranges: the smallest
+    single range containing both, and so a superset of each regex byte class.
 
-    A translate table flags each byte 1 when it lies in that wider range, 0 otherwise.
+    A translate table flags each byte 1 when it lies in that hull, 0 otherwise.
     `flags.find(run_needle, position)`, where run_needle is minimum_run_length flag bytes of
     1, finds the first index at or after position where a run of that many flagged bytes
     starts. That index is exact: an earlier start in the same maximal run would itself be a
@@ -234,9 +235,9 @@ def _flagged_runs(
     the next 0 is, by construction, part of one contiguous flagged stretch.
 
     A true completeness-pattern match's bytes are all flagged, because both the rating and
-    the attribute sub-ranges the pattern checks are subsets of the wider flagged range, so
-    every true match lies entirely inside one maximal run; bounding the exact search to these
-    runs therefore finds the same matches a global, unbounded search would.
+    the attribute sub-ranges the pattern checks are subsets of the hull, so every true match
+    lies entirely inside one maximal run; bounding the exact search to these runs therefore
+    finds the same matches a global, unbounded search would.
     """
     buffer_length = len(buffer)
     flags = buffer.translate(_flag_table(rating_range, attribute_range))

@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import pickle
+import re
 from datetime import date
 from pathlib import Path
 
@@ -436,7 +437,11 @@ def test_decode_extent_matches_the_decoder_structs_real_highest_read() -> None:
     tail_layout = _tail_layout(layout)
     header_extent = header_layout.start_offset + header_layout.struct_object.size
     tail_extent = tail_layout.start_offset + tail_layout.struct_object.size
-    assert layout.decode_extent == max(header_extent, tail_extent)
+    ratings_extent = layout.ratings_offset + layout.ratings_count
+    attributes_extent = layout.attributes_offset + layout.attribute_count
+    assert layout.decode_extent == max(
+        header_extent, tail_extent, ratings_extent, attributes_extent
+    )
 
 
 def test_attribute_splice_keeps_each_value_in_place() -> None:
@@ -726,7 +731,7 @@ _SYNTHETIC_SAFE_FILLER_BYTE = 50
 _SYNTHETIC_VALID_MATCH = bytes([5] * 15 + [_SYNTHETIC_SAFE_FILLER_BYTE] * 54)
 
 
-def _synthetic_pattern():
+def _synthetic_pattern() -> re.Pattern[bytes]:
     return _completeness_pattern(_SYNTHETIC_RATING_RANGE, 15, _SYNTHETIC_ATTRIBUTE_RANGE, 54)
 
 
@@ -798,3 +803,31 @@ def test_flagged_runs_finds_two_matches_inside_one_long_run() -> None:
     buffer = _SYNTHETIC_VALID_MATCH + _SYNTHETIC_VALID_MATCH
     assert _prefiltered_match_starts(buffer, 0) == _reference_match_starts(buffer, 0)
     assert _prefiltered_match_starts(buffer, 0) == [0, len(_SYNTHETIC_VALID_MATCH)]
+
+
+def test_flagged_runs_finds_a_match_at_a_nonzero_offset_in_its_run() -> None:
+    # The run starts with a flagged filler byte, one byte before the match itself, so the
+    # match does not begin at run_start; a run_end computed as exactly
+    # run_start + minimum_run_length would stop one byte short of this match's own end.
+    buffer = (
+        bytes([_SYNTHETIC_OUT_OF_RANGE_BYTE])
+        + bytes([_SYNTHETIC_SAFE_FILLER_BYTE])
+        + _SYNTHETIC_VALID_MATCH
+        + bytes([_SYNTHETIC_OUT_OF_RANGE_BYTE])
+    )
+    assert _prefiltered_match_starts(buffer, 0) == _reference_match_starts(buffer, 0)
+    assert _prefiltered_match_starts(buffer, 0) == [2]
+
+
+def test_flagged_runs_search_start_inside_a_run_not_aligned_to_a_match() -> None:
+    # start (2) falls inside the run but is neither the run's true start (0) nor the match's
+    # start (5); the match's end (74) still needs run_end to reach past
+    # run_start + minimum_run_length, since run_start here equals start itself.
+    buffer = (
+        bytes([_SYNTHETIC_SAFE_FILLER_BYTE]) * 5
+        + _SYNTHETIC_VALID_MATCH
+        + bytes([_SYNTHETIC_OUT_OF_RANGE_BYTE])
+    )
+    start = 2
+    assert _prefiltered_match_starts(buffer, start) == _reference_match_starts(buffer, start)
+    assert _prefiltered_match_starts(buffer, start) == [5]
