@@ -1,0 +1,60 @@
+name: Unsupported save
+description: Report a save that fmsave refuses to open or cannot read, without attaching it.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach save files or screenshots, and do not paste real player, staff, club or competition names, uids or values. Error messages name the save file, so replace its name with `career.fm` before pasting.
+  - type: checkboxes
+    id: no-real-data
+    attributes:
+      label: No save files or real data
+      options:
+        - label: I have not attached a save file, screenshot or any real player data
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened
+      description: The command you ran and the error or warning fmsave printed.
+    validations:
+      required: true
+  - type: input
+    id: fmsave-version
+    attributes:
+      label: fmsave version
+      description: The output of `fmsave --version`.
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      description: The output of `python --version`.
+    validations:
+      required: true
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system
+      placeholder: macOS 15, Windows 11, Ubuntu 24.04
+    validations:
+      required: true
+  - type: input
+    id: game-build
+    attributes:
+      label: FM26 build
+      description: The Build line from `fmsave info SAVE`. If `info` fails, give the build shown in the game.
+    validations:
+      required: true
+  - type: input
+    id: game-store
+    attributes:
+      label: Where the game came from
+      placeholder: Steam, Epic Games Store, Xbox app
+  - type: textarea
+    id: validate-output
+    attributes:
+      label: fmsave validate output
+      description: The output of `fmsave validate SAVE --json`, if it runs.
+      render: json

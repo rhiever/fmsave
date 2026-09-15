@@ -1,0 +1,65 @@
+name: Bug report
+description: Report something fmsave gets wrong, without attaching saves or real data.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach save files or screenshots, and do not paste real player, staff, club or competition names, uids or values. Describe the problem in general terms. `fmsave validate SAVE --json` prints no names, uids or text from the save, so its output is safe to paste.
+  - type: checkboxes
+    id: no-real-data
+    attributes:
+      label: No save files or real data
+      options:
+        - label: I have not attached a save file, screenshot or any real player data
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What went wrong
+      description: The command or code you ran, and what happened. Use fictional names such as "Northbridge FC" or "Alex Example" if you need an example.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: For a wrong value, name the field (such as `contract_end`) and describe what the game shows in general terms.
+    validations:
+      required: true
+  - type: input
+    id: fmsave-version
+    attributes:
+      label: fmsave version
+      description: The output of `fmsave --version`.
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      description: The output of `python --version`.
+    validations:
+      required: true
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system
+      placeholder: macOS 15, Windows 11, Ubuntu 24.04
+    validations:
+      required: true
+  - type: input
+    id: game-build
+    attributes:
+      label: FM26 build
+      description: The Build line from `fmsave info SAVE`.
+    validations:
+      required: true
+  - type: textarea
+    id: validate-output
+    attributes:
+      label: fmsave validate output
+      description: The output of `fmsave validate SAVE --json`.
+      render: json
+    validations:
+      required: true
