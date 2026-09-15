@@ -29,6 +29,7 @@ from fmsave._container import damaged_part_error
 from fmsave._errors import CorruptSaveError
 from fmsave._layouts import ContractLayout, HumansLayout, SummaryStringsLayout, find_layout
 from fmsave._scan import read_u16, read_u32
+from fmsave.checks import ManagedStats
 from fmsave.models.clubs import Club
 from fmsave.models.managed import ManagedClub
 from fmsave.readers._common import (
@@ -244,6 +245,13 @@ def _first_human(humans: bytes, layout: HumansLayout, file_name: str) -> tuple[i
         raise damaged_part_error(file_name, f"section {HUMANS_SECTION!r}", error) from error
 
 
+class ManagedClubsResult(NamedTuple):
+    """The managed-club rows, and what the reader found on the way for the checks."""
+
+    managed_clubs: tuple[ManagedClub, ...]
+    stats: ManagedStats
+
+
 def resolve_managed_clubs(
     humans: bytes,
     game_db: bytes,
@@ -252,12 +260,13 @@ def resolve_managed_clubs(
     clock: date,
     layouts: ManagedClubLayouts,
     file_name: str,
-) -> tuple[ManagedClub, ...]:
-    """The club run by the save's first human manager, as a one-row tuple, or ().
+) -> ManagedClubsResult:
+    """The club run by the save's first human manager, as a one-row tuple or (), with counts.
 
-    Only the first human manager is read, even when the save counts more than one. The result
-    is () when the save lists no human manager, or when no managed club is found, for example
-    while the manager is between jobs.
+    Only the first human manager is read, even when the save counts more than one. The rows
+    are () when the save lists no human manager, or when no managed club is found, for example
+    while the manager is between jobs. The stats count the human managers, whether each route
+    found a club, and the rows.
 
     With one human manager, the summary must not link the manager to any club other than the
     one route 1 finds. With several, it is enough that one summary link names that club.
@@ -272,7 +281,7 @@ def resolve_managed_clubs(
     """
     first_human = _first_human(humans, layouts.humans, file_name)
     if first_human is None:
-        return ()
+        return ManagedClubsResult((), ManagedStats(0, 0, 0, 0))
     human_count, selector = first_human
     has_person_id = selector not in _NO_PERSON_UIDS
     chain_club = (
@@ -282,6 +291,8 @@ def resolve_managed_clubs(
     )
     links = _summary_links(summary, layouts.summary_strings, club_index)
     linked_club_uids = sorted({link.club.uid for link in links})
+    route_one_resolved = 0 if chain_club is None else 1
+    route_two_resolved = 1 if linked_club_uids else 0
 
     if chain_club is not None:
         agreeing_links = [link for link in links if link.club.uid == chain_club.uid]
@@ -307,17 +318,20 @@ def resolve_managed_clubs(
             HUMANS_SECTION,
         )
     else:
-        return ()
+        return ManagedClubsResult(
+            (), ManagedStats(human_count, route_one_resolved, route_two_resolved, 0)
+        )
 
     manager_person_uid = (
         _manager_person_uid(game_db, selector, layouts.humans) if has_person_id else None
     )
-    return (
-        ManagedClub(
-            club_uid=club.uid,
-            club_name=club.name,
-            club_short_name=club.short_name,
-            manager_name=manager_name,
-            manager_person_uid=manager_person_uid,
-        ),
+    managed_club = ManagedClub(
+        club_uid=club.uid,
+        club_name=club.name,
+        club_short_name=club.short_name,
+        manager_name=manager_name,
+        manager_person_uid=manager_person_uid,
+    )
+    return ManagedClubsResult(
+        (managed_club,), ManagedStats(human_count, route_one_resolved, route_two_resolved, 1)
     )

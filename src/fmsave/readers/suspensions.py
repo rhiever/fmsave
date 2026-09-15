@@ -22,6 +22,7 @@ from datetime import date
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import SuspensionLayout
 from fmsave._scan import decode_date
+from fmsave.checks import SuspensionStats
 from fmsave.models.players import Player
 from fmsave.models.suspensions import PlayerSuspension, Suspension
 from fmsave.readers._common import build_gap_padded_struct
@@ -209,6 +210,27 @@ def locate_suspensions(
         else:
             position_entries.append(entry)
     return {position: tuple(entries) for position, entries in entries_by_position.items()}
+
+
+def suspension_stats(
+    entries_by_position: Mapping[int, tuple[SuspensionEntry, ...]], player_count: int, clock: date
+) -> SuspensionStats:
+    """Count the located entries for the suspension checks: entries, players with an entry,
+    and entries issued after the save's in-game date.
+    """
+    entry_count = 0
+    issued_after_clock = 0
+    for entries in entries_by_position.values():
+        entry_count += len(entries)
+        for entry in entries:
+            if entry.issued > clock:
+                issued_after_clock += 1
+    return SuspensionStats(
+        players=player_count,
+        entries=entry_count,
+        players_with_entries=len(entries_by_position),
+        issued_after_clock=issued_after_clock,
+    )
 
 
 def player_suspensions(entries: Sequence[SuspensionEntry]) -> tuple[PlayerSuspension, ...]:

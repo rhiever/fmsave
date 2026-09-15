@@ -1,0 +1,670 @@
+"""Reader checks, and the validation report built from them.
+
+While a reader decodes, it counts what it sees into a stats record (`PlayerStats`,
+`ContractStats`, `ClubStats`, `SuspensionStats` or `ManagedStats`). The `evaluate_*` functions
+compare those counts with the loose `GateBounds` registered for the save's layout and return one
+`GateResult` per check, and `enforce` raises `ReaderCheckError` when an applied check failed,
+before the reader caches its table. The checks apply only to a `game_db` of at least
+`GateBounds.minimum_applies_from_bytes`, since smaller sections come from fragments that cannot
+meet full-save counts.
+
+`validate_save` runs every reader and returns a `ValidationReport`, which holds only structural
+facts, counts and rates: never names, uids or other values from the save.
+
+Only the names in `__all__` are public. The stats records, `ReaderCheck`, `GateCheckError` and
+the `evaluate_*`, `check_*` and `enforce*` functions are internal to fmsave.
+"""
+
+from __future__ import annotations
+
+import platform
+from array import array
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from statistics import median_low
+from typing import TYPE_CHECKING, Literal
+
+from fmsave._errors import ISSUES_URL, FmsaveError, ReaderCheckError
+from fmsave._frozen import FrozenMapping
+from fmsave._layouts import BoundPair, GateBounds
+from fmsave._package import __version__
+from fmsave._status import registered_statuses
+
+if TYPE_CHECKING:
+    from fmsave._save import Save
+
+__all__ = ["GateResult", "ReaderValidation", "ValidationReport", "validate_save"]
+
+# Internal switch: when False, failed checks are still evaluated and reported but never raised.
+_GATES_ENABLED = True
+
+CLUBS_READER = "clubs"
+PLAYERS_READER = "players"
+CONTRACTS_READER = "contracts"
+SUSPENSIONS_READER = "suspensions"
+MANAGED_CLUBS_READER = "managed_clubs"
+
+# Players, contracts and suspensions are decoded in one pass, so they fail or succeed together.
+_PLAYER_PASS_READERS = frozenset({PLAYERS_READER, CONTRACTS_READER, SUSPENSIONS_READER})
+
+_REPORT_REQUEST = f"Please report it at {ISSUES_URL} with the output of fmsave validate."
+_NO_ANOMALIES: FrozenMapping[str, int] = FrozenMapping({})
+_NO_COVERAGE: FrozenMapping[str, float] = FrozenMapping({})
+
+
+@dataclass(frozen=True, slots=True)
+class PlayerStats:
+    """What one decode pass counted over the player records.
+
+    `ages` holds every known age, for the median; `heights_median` is the low median of every
+    record's height. Relation counts cover every entry of every validated person block.
+    """
+
+    records: int
+    markerless: int
+    with_person_block: int
+    with_resolved_name: int
+    relation_entries: int
+    relation_sentinel_ok: int
+    second_nation_entries: int
+    second_nation_qualifier_ok: int
+    handling_above_finishing: int
+    with_natural_position: int
+    height_in_150_210: int
+    condition_sharpness_in_range: int
+    with_valid_join_date: int
+    world_not_above_current: int
+    home_within_1000_of_current: int
+    with_team: int
+    team_resolved: int
+    aged_14_to_45: int
+    home_grown_club_refs: int
+    home_grown_club_refs_resolved: int
+    ages: array[int]
+    heights_median: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class ContractStats:
+    """What one decode pass counted over the players' contract chain records."""
+
+    players: int
+    contracts: int
+    players_with_chain: int
+    chain_records: int
+    tails_parsed: int
+    clause_tables: int
+    clause_terminator_ok: int
+    head_ok: int
+    tail_ends_past: int
+    chain_teams_resolved: int
+
+
+@dataclass(frozen=True, slots=True)
+class ClubStats:
+    """What the club pass counted: records, team lists and normal status records."""
+
+    records: int
+    team_lists_found: int
+    status_normal: int
+    status_confirmed_a18: int
+
+
+@dataclass(frozen=True, slots=True)
+class SuspensionStats:
+    """What the suspension search counted over the player region."""
+
+    players: int
+    entries: int
+    players_with_entries: int
+    issued_after_clock: int
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedStats:
+    """What the managed-club reader found: human managers, resolved routes (0 or 1) and rows."""
+
+    human_count: int
+    route_one_resolved: int
+    route_two_resolved: int
+    rows: int
+
+
+@dataclass(frozen=True, slots=True)
+class GateResult:
+    """One reader check: an observed count or rate compared with its bounds.
+
+    Attributes:
+        name: The check's name.
+        observed: The observed count, rate or median, or None when a rate has no denominator.
+        minimum: The lowest value that passes, or None when there is no lower bound.
+        maximum: The highest value that passes, or None when there is no upper bound.
+        passed: Whether the check passed; a check that was not applied always passes.
+        applied: Whether the check applied: False when `game_db` is too small for full-save
+            counts.
+    """
+
+    name: str
+    observed: float | None
+    minimum: float | None
+    maximum: float | None
+    passed: bool
+    applied: bool
+
+    def to_json_dict(self) -> dict[str, object]:
+        """The check as a JSON-ready dict."""
+        return {
+            "name": self.name,
+            "observed": self.observed,
+            "minimum": self.minimum,
+            "maximum": self.maximum,
+            "passed": self.passed,
+            "applied": self.applied,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ReaderCheck:
+    """One reader's evaluated checks, its record count and its anomaly counts."""
+
+    reader: str
+    record_count: int
+    gates: tuple[GateResult, ...]
+    anomalies: Mapping[str, int]
+
+
+class GateCheckError(ReaderCheckError):
+    """A ReaderCheckError from failed reader checks, carrying every check of the failed pass."""
+
+    checks: tuple[ReaderCheck, ...]
+
+    def __init__(self, message: str, checks: tuple[ReaderCheck, ...] = ()) -> None:
+        super().__init__(message)
+        self.checks = checks
+
+
+def _rate(numerator: int, denominator: int) -> float | None:
+    return numerator / denominator if denominator else None
+
+
+def _gate(name: str, observed: float | None, bound: BoundPair, applied: bool) -> GateResult:
+    minimum, maximum = bound
+    if not applied:
+        return GateResult(name, observed, minimum, maximum, passed=True, applied=False)
+    passed = (
+        observed is not None
+        and (minimum is None or observed >= minimum)
+        and (maximum is None or observed <= maximum)
+    )
+    return GateResult(name, observed, minimum, maximum, passed=passed, applied=True)
+
+
+def _applies(bounds: GateBounds, game_db_bytes: int) -> bool:
+    return game_db_bytes >= bounds.minimum_applies_from_bytes
+
+
+def evaluate_players(
+    stats: PlayerStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The player reader's checks, in a fixed order."""
+    applied = _applies(bounds, game_db_bytes)
+    records = stats.records
+    ages = stats.ages
+    age_median = median_low(ages) if ages else None
+    return (
+        _gate("players_minimum", records, bounds.players_minimum, applied),
+        _gate(
+            "person_blocks",
+            _rate(stats.with_person_block, records),
+            bounds.person_blocks,
+            applied,
+        ),
+        _gate(
+            "names_resolved",
+            _rate(stats.with_resolved_name, stats.with_person_block),
+            bounds.names_resolved,
+            applied,
+        ),
+        _gate(
+            "relation_sentinel",
+            _rate(stats.relation_sentinel_ok, stats.relation_entries),
+            bounds.relation_sentinel,
+            applied,
+        ),
+        _gate(
+            "second_nation_qualifier",
+            _rate(stats.second_nation_qualifier_ok, stats.second_nation_entries),
+            bounds.second_nation_qualifier,
+            applied,
+        ),
+        _gate(
+            "handling_above_finishing",
+            _rate(stats.handling_above_finishing, records),
+            bounds.handling_above_finishing,
+            applied,
+        ),
+        _gate(
+            "with_natural_position",
+            _rate(stats.with_natural_position, records),
+            bounds.with_natural_position,
+            applied,
+        ),
+        _gate(
+            "height_in_150_210",
+            _rate(stats.height_in_150_210, records),
+            bounds.height_in_150_210,
+            applied,
+        ),
+        _gate("height_median", stats.heights_median, bounds.height_median, applied),
+        _gate("age_median", age_median, bounds.age_median, applied),
+        _gate(
+            "aged_14_to_45", _rate(stats.aged_14_to_45, len(ages)), bounds.aged_14_to_45, applied
+        ),
+        _gate(
+            "condition_sharpness_in_range",
+            _rate(stats.condition_sharpness_in_range, records),
+            bounds.condition_sharpness_in_range,
+            applied,
+        ),
+        _gate(
+            "join_date_valid",
+            _rate(stats.with_valid_join_date, records),
+            bounds.join_date_valid,
+            applied,
+        ),
+        _gate(
+            "world_not_above_current",
+            _rate(stats.world_not_above_current, records),
+            bounds.world_not_above_current,
+            applied,
+        ),
+        _gate(
+            "home_within_1000_of_current",
+            _rate(stats.home_within_1000_of_current, records),
+            bounds.home_within_1000_of_current,
+            applied,
+        ),
+        _gate(
+            "team_resolved",
+            _rate(stats.team_resolved, stats.with_team),
+            bounds.team_resolved,
+            applied,
+        ),
+        _gate(
+            "home_grown_club_refs_resolved",
+            _rate(stats.home_grown_club_refs_resolved, stats.home_grown_club_refs),
+            bounds.home_grown_club_refs_resolved,
+            applied,
+        ),
+    )
+
+
+def evaluate_contracts(
+    stats: ContractStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The contract reader's checks, in a fixed order."""
+    applied = _applies(bounds, game_db_bytes)
+    return (
+        _gate(
+            "players_with_chain",
+            _rate(stats.players_with_chain, stats.players),
+            bounds.players_with_chain,
+            applied,
+        ),
+        _gate(
+            "tails_parsed",
+            _rate(stats.tails_parsed, stats.chain_records),
+            bounds.tails_parsed,
+            applied,
+        ),
+        _gate(
+            "clause_terminator",
+            _rate(stats.clause_terminator_ok, stats.clause_tables),
+            bounds.clause_terminator,
+            applied,
+        ),
+        _gate(
+            "contract_head",
+            _rate(stats.head_ok, stats.clause_tables),
+            bounds.contract_head,
+            applied,
+        ),
+        _gate(
+            "past_dated_tail_ends",
+            _rate(stats.tail_ends_past, stats.tails_parsed),
+            bounds.past_dated_tail_ends,
+            applied,
+        ),
+        _gate(
+            "chain_teams_resolved",
+            _rate(stats.chain_teams_resolved, stats.chain_records),
+            bounds.chain_teams_resolved,
+            applied,
+        ),
+    )
+
+
+def evaluate_clubs(
+    stats: ClubStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The club reader's checks, in a fixed order."""
+    applied = _applies(bounds, game_db_bytes)
+    records = stats.records
+    return (
+        _gate("clubs_minimum", records, bounds.clubs_minimum, applied),
+        _gate(
+            "team_lists_found",
+            _rate(stats.team_lists_found, records),
+            bounds.team_lists_found,
+            applied,
+        ),
+        _gate("status_normal", _rate(stats.status_normal, records), bounds.status_normal, applied),
+        _gate(
+            "status_confirmation",
+            _rate(stats.status_confirmed_a18, stats.status_normal),
+            bounds.status_confirmation,
+            applied,
+        ),
+    )
+
+
+def evaluate_suspensions(
+    stats: SuspensionStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The suspension reader's checks; the share of players is not applied without players."""
+    applied = _applies(bounds, game_db_bytes)
+    return (
+        _gate(
+            "suspension_share_of_players",
+            _rate(stats.players_with_entries, stats.players),
+            bounds.suspension_share_of_players,
+            applied and stats.players > 0,
+        ),
+        _gate("issued_after_clock", stats.issued_after_clock, bounds.issued_after_clock, applied),
+    )
+
+
+def evaluate_managed(
+    stats: ManagedStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """Which routes found the managed club, as results that never fail.
+
+    A manager between jobs has no club, so a missing club is an anomaly, not a failure.
+    """
+    applied = _applies(bounds, game_db_bytes)
+    return (
+        GateResult("route_one_resolved", stats.route_one_resolved, None, None, True, applied),
+        GateResult("route_two_resolved", stats.route_two_resolved, None, None, True, applied),
+    )
+
+
+def check_players(stats: PlayerStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The player reader's checks, record count and anomaly counts."""
+    return ReaderCheck(
+        PLAYERS_READER,
+        stats.records,
+        evaluate_players(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {
+                "markerless_players": stats.markerless,
+                "unresolved_teams": stats.with_team - stats.team_resolved,
+            }
+        ),
+    )
+
+
+def check_contracts(stats: ContractStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The contract reader's checks, record count and anomaly counts."""
+    return ReaderCheck(
+        CONTRACTS_READER,
+        stats.contracts,
+        evaluate_contracts(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {
+                "past_dated_tail_ends": stats.tail_ends_past,
+                "unparsed_tails": stats.chain_records - stats.tails_parsed,
+            }
+        ),
+    )
+
+
+def check_clubs(stats: ClubStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The club reader's checks and record count."""
+    return ReaderCheck(
+        CLUBS_READER, stats.records, evaluate_clubs(stats, bounds, game_db_bytes), _NO_ANOMALIES
+    )
+
+
+def check_suspensions(
+    stats: SuspensionStats, bounds: GateBounds, game_db_bytes: int
+) -> ReaderCheck:
+    """The suspension reader's checks, record count and anomaly counts."""
+    return ReaderCheck(
+        SUSPENSIONS_READER,
+        stats.entries,
+        evaluate_suspensions(stats, bounds, game_db_bytes),
+        FrozenMapping({"suspensions_after_clock": stats.issued_after_clock}),
+    )
+
+
+def check_managed(stats: ManagedStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The managed-club reader's route results, record count and anomaly counts."""
+    humans_without_club = 1 if stats.human_count >= 1 and stats.rows == 0 else 0
+    return ReaderCheck(
+        MANAGED_CLUBS_READER,
+        stats.rows,
+        evaluate_managed(stats, bounds, game_db_bytes),
+        FrozenMapping({"humans_without_club": humans_without_club}),
+    )
+
+
+def _format_number(value: float | None) -> str:
+    if value is None:
+        return "none"
+    rounded = round(value, 4)
+    if rounded == int(rounded):
+        return str(int(rounded))
+    return repr(rounded)
+
+
+def _format_bound(value: float | None) -> str:
+    return "" if value is None else _format_number(value)
+
+
+def _failure_summary(reader_name: str, results: Sequence[GateResult]) -> str | None:
+    """ "<reader> failed checks: <gate>=<observed> (expected <min>..<max>); ...", or None."""
+    failures = [
+        f"{result.name}={_format_number(result.observed)} "
+        f"(expected {_format_bound(result.minimum)}..{_format_bound(result.maximum)})"
+        for result in results
+        if result.applied and not result.passed
+    ]
+    if not failures:
+        return None
+    return f"{reader_name} failed checks: {'; '.join(failures)}"
+
+
+def enforce(reader_name: str, results: Sequence[GateResult]) -> None:
+    """Raise when any applied check failed. The message holds only rounded rates and bounds.
+
+    Raises:
+        ReaderCheckError: An applied check failed.
+    """
+    summary = _failure_summary(reader_name, results)
+    if summary is not None and _GATES_ENABLED:
+        raise GateCheckError(f"{summary}. {_REPORT_REQUEST}")
+
+
+def enforce_checks(reader_checks: Sequence[ReaderCheck]) -> None:
+    """Raise when any applied check of any of these readers failed, naming each failed reader.
+
+    The error carries every one of the readers' checks, so a report can show them.
+
+    Raises:
+        ReaderCheckError: An applied check failed.
+    """
+    summaries = [
+        summary
+        for reader_check in reader_checks
+        if (summary := _failure_summary(reader_check.reader, reader_check.gates)) is not None
+    ]
+    if summaries and _GATES_ENABLED:
+        raise GateCheckError(f"{'. '.join(summaries)}. {_REPORT_REQUEST}", tuple(reader_checks))
+
+
+type ReaderStatus = Literal["ok", "failed", "error"]
+
+
+@dataclass(frozen=True, slots=True)
+class ReaderValidation:
+    """How one reader fared in `validate_save`.
+
+    Players, contracts and suspensions are decoded in one pass, so a failed check in any of
+    them fails all three; each reader's gates show which of its own checks failed.
+
+    Attributes:
+        reader: The reader: "clubs", "players", "contracts", "suspensions" or "managed_clubs".
+        status: "ok" when the reader returned its table, "failed" when checks stopped it, and
+            "error" when it raised another fmsave error.
+        record_count: How many records the reader decoded, or None when it did not get far
+            enough to count them.
+        gates: The reader's checks, in a fixed order; empty when it did not get far enough.
+        coverage: The table's coverage (the share of non-None values per column); empty
+            unless the status is "ok".
+        anomalies: Counts of records the reader decoded but flags, such as unresolved teams.
+    """
+
+    reader: str
+    status: ReaderStatus
+    record_count: int | None
+    gates: tuple[GateResult, ...]
+    coverage: Mapping[str, float]
+    anomalies: Mapping[str, int]
+
+    def to_json_dict(self) -> dict[str, object]:
+        """The reader's outcome as a JSON-ready dict."""
+        return {
+            "reader": self.reader,
+            "status": self.status,
+            "record_count": self.record_count,
+            "gates": [gate.to_json_dict() for gate in self.gates],
+            "coverage": dict(self.coverage),
+            "anomalies": dict(self.anomalies),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationReport:
+    """What `validate_save` found, holding no names, uids or other values from the save.
+
+    Attributes:
+        fmsave_version: The fmsave version.
+        python_version: The Python version.
+        os: The operating system name, for example "Linux".
+        game: Game edition, for example "FM26".
+        build: Version and build that last wrote the save.
+        known_build: Whether fmsave has layout tables for this build.
+        section_schemas: Schema number of every named section.
+        readers: Each reader's outcome, in the order they ran.
+        field_statuses: Whether each public field's meaning is "verified" or "unconfirmed".
+    """
+
+    fmsave_version: str
+    python_version: str
+    os: str
+    game: str
+    build: str
+    known_build: bool
+    section_schemas: Mapping[str, int]
+    readers: tuple[ReaderValidation, ...]
+    field_statuses: Mapping[str, str]
+
+    def to_json_dict(self) -> dict[str, object]:
+        """The report as a JSON-ready dict."""
+        return {
+            "fmsave_version": self.fmsave_version,
+            "python_version": self.python_version,
+            "os": self.os,
+            "game": self.game,
+            "build": self.build,
+            "known_build": self.known_build,
+            "section_schemas": dict(self.section_schemas),
+            "readers": [reader.to_json_dict() for reader in self.readers],
+            "field_statuses": dict(self.field_statuses),
+        }
+
+
+def _unsuccessful_validation(reader_name: str, error: FmsaveError) -> ReaderValidation:
+    if not isinstance(error, ReaderCheckError):
+        return ReaderValidation(reader_name, "error", None, (), _NO_COVERAGE, _NO_ANOMALIES)
+    carried_checks = error.checks if isinstance(error, GateCheckError) else ()
+    for reader_check in carried_checks:
+        if reader_check.reader == reader_name:
+            return ReaderValidation(
+                reader_name,
+                "failed",
+                reader_check.record_count,
+                reader_check.gates,
+                _NO_COVERAGE,
+                reader_check.anomalies,
+            )
+    return ReaderValidation(reader_name, "failed", None, (), _NO_COVERAGE, _NO_ANOMALIES)
+
+
+def validate_save(career_save: Save) -> ValidationReport:
+    """Run every reader on a save and report how each fared.
+
+    Readers run in the order clubs, players, contracts, suspensions, managed clubs. A reader
+    whose checks fail is reported "failed" with its checks, and one that raises another fmsave
+    error is reported "error" without the error's text; the remaining readers still run. The
+    report holds only structural facts, counts and rates, never names, uids or other values
+    from the save.
+    """
+    # Imported here because fmsave._save imports this module.
+    from fmsave._save import cached_reader_check
+
+    save_info = career_save.info
+    reader_tables = (
+        (CLUBS_READER, career_save.clubs),
+        (PLAYERS_READER, career_save.players),
+        (CONTRACTS_READER, career_save.contracts),
+        (SUSPENSIONS_READER, career_save.suspensions),
+        (MANAGED_CLUBS_READER, career_save.managed_clubs),
+    )
+    validations: list[ReaderValidation] = []
+    player_pass_error: FmsaveError | None = None
+    for reader_name, read_table in reader_tables:
+        shares_player_pass = reader_name in _PLAYER_PASS_READERS
+        if shares_player_pass and player_pass_error is not None:
+            # The shared pass would decode everything again only to raise the same error.
+            validations.append(_unsuccessful_validation(reader_name, player_pass_error))
+            continue
+        try:
+            table = read_table()
+        except FmsaveError as error:
+            if shares_player_pass:
+                player_pass_error = error
+            validations.append(_unsuccessful_validation(reader_name, error))
+            continue
+        reader_check = cached_reader_check(career_save, reader_name)
+        validations.append(
+            ReaderValidation(
+                reader_name,
+                "ok",
+                len(table),
+                () if reader_check is None else reader_check.gates,
+                table.coverage,
+                _NO_ANOMALIES if reader_check is None else reader_check.anomalies,
+            )
+        )
+    return ValidationReport(
+        fmsave_version=__version__,
+        python_version=platform.python_version(),
+        os=platform.system(),
+        game=save_info.game,
+        build=save_info.build,
+        known_build=save_info.known_build,
+        section_schemas=FrozenMapping(save_info.section_schemas),
+        readers=tuple(validations),
+        field_statuses=registered_statuses(),
+    )

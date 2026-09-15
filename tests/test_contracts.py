@@ -22,6 +22,7 @@ from fmsave._layouts import (
 )
 from fmsave._save import CONTRACTS_TABLE_CACHE_KEY, PLAYERS_TABLE_CACHE_KEY
 from fmsave._status import field_status
+from fmsave.checks import ClubStats
 from fmsave.models.common import ContractEndSource
 from fmsave.models.contracts import (
     Clause,
@@ -57,7 +58,14 @@ from tests.fixtures.game_db import (
 )
 from tests.helpers.export_asserts import assert_matches_json_normalize
 
-EMPTY_CLUB_INDEX = ClubIndex(clubs=(), uid_by_club_index={}, club_by_uid={}, team_to_club={})
+EMPTY_CLUB_INDEX = ClubIndex(
+    clubs=(),
+    uid_by_club_index={},
+    club_by_uid={},
+    team_to_club={},
+    stats=ClubStats(records=0, team_lists_found=0, status_normal=0, status_confirmed_a18=0),
+    game_db_bytes=0,
+)
 
 FILE_NAME = "career example.fm"
 GAME_DB_SCHEMA = 4000
@@ -652,6 +660,21 @@ def test_build_contract_decoder_rejects_a_non_contiguous_clause_prefix(
 ) -> None:
     broken_layout = dataclasses.replace(registered_contract_layout(), **layout_changes)
     with pytest.raises(ValueError, match=message):
+        _test_contract_decoder(broken_layout)
+
+
+@pytest.mark.parametrize(
+    "layout_changes",
+    [
+        pytest.param({"clause_terminator_offset": -8}, id="terminator-offset"),
+        pytest.param({"clause_step_bytes": 9}, id="step-differs-from-entry-size"),
+    ],
+)
+def test_build_contract_decoder_rejects_a_terminator_not_right_after_the_clause_entries(
+    layout_changes: dict[str, int],
+) -> None:
+    broken_layout = dataclasses.replace(registered_contract_layout(), **layout_changes)
+    with pytest.raises(ValueError, match="clause terminator"):
         _test_contract_decoder(broken_layout)
 
 

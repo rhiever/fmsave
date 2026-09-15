@@ -3,14 +3,23 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable, Sequence
 from types import TracebackType
 from typing import NamedTuple, Self
 
+from fmsave import checks
 from fmsave._container import ContainerIndex, read_index, read_section
 from fmsave._context import SaveContext, closed_save_error
 from fmsave._errors import ReaderCheckError
-from fmsave._layouts import ContractLayout, PersonBlockLayout, SuspensionLayout, find_layout
+from fmsave._layouts import (
+    ContractLayout,
+    GateBounds,
+    PersonBlockLayout,
+    SuspensionLayout,
+    find_layout,
+)
 from fmsave._version import read_save_info
+from fmsave.checks import ReaderCheck
 from fmsave.models.clubs import Club
 from fmsave.models.contracts import Contract
 from fmsave.models.managed import ManagedClub
@@ -20,8 +29,13 @@ from fmsave.models.suspensions import Suspension
 from fmsave.readers._common import GAME_DB_SECTION, HUMANS_SECTION, SAVE_SUMMARY_SECTION
 from fmsave.readers.managed import find_managed_club_layouts, resolve_managed_clubs
 from fmsave.readers.player_scan import window_end
-from fmsave.readers.players import build_player_decoder
-from fmsave.readers.suspensions import SuspensionEntry, locate_suspensions, suspension_rows
+from fmsave.readers.players import build_player_decoder, collect_player_stats
+from fmsave.readers.suspensions import (
+    SuspensionEntry,
+    locate_suspensions,
+    suspension_rows,
+    suspension_stats,
+)
 from fmsave.table import Table
 
 CLUBS_TABLE_CACHE_KEY = "table:clubs"
@@ -32,11 +46,29 @@ MANAGED_CLUBS_TABLE_CACHE_KEY = "table:managed_clubs"
 
 
 class _PlayerTables(NamedTuple):
-    """The three tables one decode pass over the player records builds."""
+    """The three tables one decode pass over the player records builds, and their checks."""
 
     players: Table[Player]
     contracts: Table[Contract]
     suspensions: Table[Suspension]
+    reader_checks: tuple[ReaderCheck, ...]
+
+
+def _check_cache_key(reader_name: str) -> str:
+    return f"check:{reader_name}"
+
+
+def _returning[ValueT](value: ValueT) -> Callable[[], ValueT]:
+    return lambda: value
+
+
+def cached_reader_check(career_save: Save, reader_name: str) -> ReaderCheck | None:
+    """The checks a reader passed when its table was read, or None before it was read."""
+    # The validation report reads the checks through this module, which owns Save's context.
+    stored = career_save._context.cached_value(  # pyright: ignore[reportPrivateUsage]
+        _check_cache_key(reader_name)
+    )
+    return stored if isinstance(stored, ReaderCheck) else None
 
 
 class Save:
@@ -77,12 +109,11 @@ class Save:
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
             ReaderCheckError: No club record is accepted, a club uid or club index appears
-                in two records, or a team id is listed twice (by one club or by two).
+                in two records, a team id is listed twice (by one club or by two), or, on a
+                full-size save, the club records fall outside the checks' bounds.
         """
         context = self._context
-        return context.cached(
-            CLUBS_TABLE_CACHE_KEY, lambda: Table(context.club_index().clubs, Club)
-        )
+        return context.cached(CLUBS_TABLE_CACHE_KEY, self._read_clubs)
 
     def players(self) -> Table[Player]:
         """Every player in the save's game database, in record offset order.
@@ -90,7 +121,8 @@ class Save:
         Person fields (name, birth date, nationality, personality, traits and the rest) are filled
         in from each player's person block, or stay None or empty when no block validates.
         The table is read on the first call to `players()`, `contracts()` or `suspensions()`,
-        from one decode pass; later calls to any of them return the same tables.
+        from one decode pass; later calls to any of them return the same tables. When a check
+        of that pass fails, none of the three tables is kept, so each of them raises.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -100,8 +132,9 @@ class Save:
                 valid UTF-8.
             ReaderCheckError: No club record is accepted, a club uid or club index appears
                 in two records, a team id is listed twice (by one club or by two), no player
-                records were found, two player records share a uid, or the save's in-game
-                date is unreadable.
+                records were found, two player records share a uid, the save's in-game
+                date is unreadable, or, on a full-size save, the players, contracts or
+                suspensions decoded fall outside the checks' bounds.
         """
         context = self._context
         return context.cached(PLAYERS_TABLE_CACHE_KEY, self._players_table_entry_point)
@@ -111,7 +144,8 @@ class Save:
 
         Only players whose contract is not None appear. The table is read on the first
         call to `players()`, `contracts()` or `suspensions()`, from one decode pass; later
-        calls to any of them return the same tables.
+        calls to any of them return the same tables. When a check of that pass fails, none
+        of the three tables is kept, so each of them raises.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -121,8 +155,9 @@ class Save:
                 valid UTF-8.
             ReaderCheckError: No club record is accepted, a club uid or club index appears
                 in two records, a team id is listed twice (by one club or by two), no player
-                records were found, two player records share a uid, or the save's in-game
-                date is unreadable.
+                records were found, two player records share a uid, the save's in-game
+                date is unreadable, or, on a full-size save, the players, contracts or
+                suspensions decoded fall outside the checks' bounds.
         """
         context = self._context
         return context.cached(CONTRACTS_TABLE_CACHE_KEY, self._contracts_table_entry_point)
@@ -133,7 +168,8 @@ class Save:
         Each player's suspensions keep the order the save stores them in, and each row
         carries the player's current club. The table is read on the first call to
         `players()`, `contracts()` or `suspensions()`, from one decode pass; later calls to
-        any of them return the same tables.
+        any of them return the same tables. When a check of that pass fails, none of the
+        three tables is kept, so each of them raises.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -143,8 +179,9 @@ class Save:
                 valid UTF-8.
             ReaderCheckError: No club record is accepted, a club uid or club index appears
                 in two records, a team id is listed twice (by one club or by two), no player
-                records were found, two player records share a uid, or the save's in-game
-                date is unreadable.
+                records were found, two player records share a uid, the save's in-game
+                date is unreadable, or, on a full-size save, the players, contracts or
+                suspensions decoded fall outside the checks' bounds.
         """
         context = self._context
         return context.cached(SUSPENSIONS_TABLE_CACHE_KEY, self._suspensions_table_entry_point)
@@ -173,6 +210,30 @@ class Save:
         context = self._context
         return context.cached(MANAGED_CLUBS_TABLE_CACHE_KEY, self._read_managed_clubs)
 
+    def _gate_bounds(self) -> GateBounds:
+        save_info = self._context.info
+        return find_layout(
+            GateBounds,
+            GAME_DB_SECTION,
+            save_info.section_schemas.get(GAME_DB_SECTION),
+            save_info.build,
+        ).layout
+
+    def _store_reader_checks(self, reader_checks: Sequence[ReaderCheck]) -> None:
+        """Keep checks that passed next to their tables, for the validation report."""
+        context = self._context
+        for reader_check in reader_checks:
+            context.cached(_check_cache_key(reader_check.reader), _returning(reader_check))
+
+    def _read_clubs(self) -> Table[Club]:
+        club_index = self._context.club_index()
+        club_check = checks.check_clubs(
+            club_index.stats, self._gate_bounds(), club_index.game_db_bytes
+        )
+        checks.enforce_checks((club_check,))
+        self._store_reader_checks((club_check,))
+        return Table(club_index.clubs, Club)
+
     def _read_managed_clubs(self) -> Table[ManagedClub]:
         context = self._context
         save_info = context.info
@@ -189,14 +250,19 @@ class Save:
             context.section(GAME_DB_SECTION) as game_db,
         ):
             club_index = context.club_index()
-            managed_clubs = resolve_managed_clubs(
+            managed_clubs, managed_stats = resolve_managed_clubs(
                 humans, game_db, summary, club_index, clock, layouts, save_info.file_name
             )
+            game_db_length = len(game_db)
+        managed_check = checks.check_managed(managed_stats, self._gate_bounds(), game_db_length)
+        checks.enforce_checks((managed_check,))
+        self._store_reader_checks((managed_check,))
         return Table(managed_clubs, ManagedClub)
 
     def _players_table_entry_point(self) -> Table[Player]:
         tables = self._decode_player_tables()
         context = self._context
+        self._store_reader_checks(tables.reader_checks)
         context.cached(CONTRACTS_TABLE_CACHE_KEY, lambda: tables.contracts)
         context.cached(SUSPENSIONS_TABLE_CACHE_KEY, lambda: tables.suspensions)
         return tables.players
@@ -204,6 +270,7 @@ class Save:
     def _contracts_table_entry_point(self) -> Table[Contract]:
         tables = self._decode_player_tables()
         context = self._context
+        self._store_reader_checks(tables.reader_checks)
         context.cached(PLAYERS_TABLE_CACHE_KEY, lambda: tables.players)
         context.cached(SUSPENSIONS_TABLE_CACHE_KEY, lambda: tables.suspensions)
         return tables.contracts
@@ -211,6 +278,7 @@ class Save:
     def _suspensions_table_entry_point(self) -> Table[Suspension]:
         tables = self._decode_player_tables()
         context = self._context
+        self._store_reader_checks(tables.reader_checks)
         context.cached(PLAYERS_TABLE_CACHE_KEY, lambda: tables.players)
         context.cached(CONTRACTS_TABLE_CACHE_KEY, lambda: tables.contracts)
         return tables.suspensions
@@ -276,12 +344,33 @@ class Save:
                     append_contract(contract)
                 if suspension_entries:
                     extend_suspensions(suspension_rows(player, suspension_entries))
-        # All records are decoded above; the three tables are built from here on, and cached
-        # only by the entry point that asked for them.
+        # All records are decoded above. Every check of the pass runs here, before any table is
+        # built: when one fails, nothing is cached and the next call decodes and checks again.
+        gate_bounds = self._gate_bounds()
+        player_count = len(decoded_players)
+        reader_checks = (
+            checks.check_players(
+                collect_player_stats(decoded_players, decoder, player_records.markerless_count),
+                gate_bounds,
+                game_db_length,
+            ),
+            checks.check_contracts(
+                decoder.contract_decoder.stats(player_count, len(decoded_contracts)),
+                gate_bounds,
+                game_db_length,
+            ),
+            checks.check_suspensions(
+                suspension_stats(suspension_entries_by_position, player_count, clock),
+                gate_bounds,
+                game_db_length,
+            ),
+        )
+        checks.enforce_checks(reader_checks)
         return _PlayerTables(
             Table(tuple(decoded_players), Player),
             Table(tuple(decoded_contracts), Contract),
             Table(tuple(decoded_suspensions), Suspension),
+            reader_checks,
         )
 
     def close(self) -> None:

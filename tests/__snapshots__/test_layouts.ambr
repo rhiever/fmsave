@@ -391,5 +391,129 @@
       'region': 'humans',
       'schema': 21,
     }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
+        'age_median': tuple(
+          20,
+          30,
+        ),
+        'aged_14_to_45': tuple(
+          0.995,
+          None,
+        ),
+        'chain_teams_resolved': tuple(
+          0.98,
+          None,
+        ),
+        'clause_terminator': tuple(
+          0.999,
+          None,
+        ),
+        'clubs_minimum': tuple(
+          5000,
+          None,
+        ),
+        'condition_sharpness_in_range': tuple(
+          0.999,
+          None,
+        ),
+        'contract_head': tuple(
+          0.8,
+          None,
+        ),
+        'handling_above_finishing': tuple(
+          0.15,
+          0.35,
+        ),
+        'height_in_150_210': tuple(
+          0.999,
+          None,
+        ),
+        'height_median': tuple(
+          170,
+          190,
+        ),
+        'home_grown_club_refs_resolved': tuple(
+          0.98,
+          None,
+        ),
+        'home_within_1000_of_current': tuple(
+          0.95,
+          None,
+        ),
+        'issued_after_clock': tuple(
+          0,
+          0,
+        ),
+        'join_date_valid': tuple(
+          0.35,
+          0.7,
+        ),
+        'minimum_applies_from_bytes': 16777216,
+        'names_resolved': tuple(
+          0.995,
+          None,
+        ),
+        'past_dated_tail_ends': tuple(
+          None,
+          0.01,
+        ),
+        'person_blocks': tuple(
+          0.99,
+          None,
+        ),
+        'players_minimum': tuple(
+          10000,
+          None,
+        ),
+        'players_with_chain': tuple(
+          0.85,
+          None,
+        ),
+        'relation_sentinel': tuple(
+          0.999,
+          None,
+        ),
+        'second_nation_qualifier': tuple(
+          0.995,
+          None,
+        ),
+        'status_confirmation': tuple(
+          0.95,
+          None,
+        ),
+        'status_normal': tuple(
+          0.98,
+          None,
+        ),
+        'suspension_share_of_players': tuple(
+          0.0005,
+          0.03,
+        ),
+        'tails_parsed': tuple(
+          0.85,
+          None,
+        ),
+        'team_lists_found': tuple(
+          0.999,
+          None,
+        ),
+        'team_resolved': tuple(
+          0.98,
+          None,
+        ),
+        'with_natural_position': tuple(
+          0.97,
+          None,
+        ),
+        'world_not_above_current': tuple(
+          0.95,
+          None,
+        ),
+      }),
+      'region': 'game_db',
+      'schema': 4000,
+    }),
   ])
 # ---

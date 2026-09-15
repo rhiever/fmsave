@@ -280,8 +280,9 @@ class ContractLayout:
     table is found, once a tail is found, by trying `base = E - clause_step_bytes * count`
     for `count` from 0 to
     `clause_max_count`; clause entries start at `base + clause_entries_offset`, each
-    `clause_entry_bytes` apart. The head fields are read only when the `u16` at
-    `base + head_gate_offset` equals `head_gate_value`.
+    `clause_entry_bytes` apart, and the `u32` clause terminator sits at
+    `E + clause_terminator_offset`, right after the last entry. The head fields are read only
+    when the `u16` at `base + head_gate_offset` equals `head_gate_value`.
 
     The fallback reader walks `FF FF FF FF` hits in `[record_offset +
     fallback_start_from_record, limit)`, where `limit` is `max(record_offset +
@@ -374,6 +375,70 @@ class SuspensionLayout:
     competition_id_exclusive_range: tuple[int, int]
 
 
+type BoundPair = tuple[float | None, float | None]
+
+
+@dataclass(frozen=True, slots=True)
+class GateBounds:
+    """Loose bounds for the reader checks on what the `game_db` readers decode.
+
+    Each bound is an inclusive `(minimum, maximum)` pair; None leaves that side open. Rates
+    are shares from 0 to 1, and the other bounds are counts or medians. The checks apply only
+    when `game_db` is at least `minimum_applies_from_bytes` long, because smaller sections
+    come from fragments that cannot meet full-save counts.
+
+    Players: `players_minimum` (records), `person_blocks` (records with a person block),
+    `names_resolved` (of person blocks), `relation_sentinel` (relation entries ending in the
+    sentinel byte), `second_nation_qualifier` (second-nation entries with a known qualifier),
+    `handling_above_finishing` (all records), `with_natural_position`, `height_in_150_210`,
+    `height_median`, `age_median`, `aged_14_to_45` (of known ages),
+    `condition_sharpness_in_range`, `join_date_valid`, `world_not_above_current`,
+    `home_within_1000_of_current`, `team_resolved` (of players with a team) and
+    `home_grown_club_refs_resolved` (of home-grown club references).
+
+    Contracts: `players_with_chain` (of players), `tails_parsed` (of chain records),
+    `clause_terminator` and `contract_head` (of clause tables), `past_dated_tail_ends` (of
+    parsed tails) and `chain_teams_resolved` (of chain records).
+
+    Clubs: `clubs_minimum` (records), `team_lists_found` and `status_normal` (of clubs), and
+    `status_confirmation` (of normal status records).
+
+    Suspensions: `suspension_share_of_players` (players with an entry, of players) and
+    `issued_after_clock` (entries).
+    """
+
+    minimum_applies_from_bytes: int
+    players_minimum: BoundPair
+    person_blocks: BoundPair
+    names_resolved: BoundPair
+    relation_sentinel: BoundPair
+    second_nation_qualifier: BoundPair
+    handling_above_finishing: BoundPair
+    with_natural_position: BoundPair
+    height_in_150_210: BoundPair
+    height_median: BoundPair
+    age_median: BoundPair
+    aged_14_to_45: BoundPair
+    condition_sharpness_in_range: BoundPair
+    join_date_valid: BoundPair
+    world_not_above_current: BoundPair
+    home_within_1000_of_current: BoundPair
+    team_resolved: BoundPair
+    home_grown_club_refs_resolved: BoundPair
+    players_with_chain: BoundPair
+    tails_parsed: BoundPair
+    clause_terminator: BoundPair
+    contract_head: BoundPair
+    past_dated_tail_ends: BoundPair
+    chain_teams_resolved: BoundPair
+    clubs_minimum: BoundPair
+    team_lists_found: BoundPair
+    status_normal: BoundPair
+    status_confirmation: BoundPair
+    suspension_share_of_players: BoundPair
+    issued_after_clock: BoundPair
+
+
 type Layout = (
     GameInfoLayout
     | SaveSummaryLayout
@@ -387,6 +452,7 @@ type Layout = (
     | ContractLayout
     | SuspensionLayout
     | HumansLayout
+    | GateBounds
 )
 
 

@@ -10,6 +10,7 @@ from fmsave._layouts import (
     FALLBACK_BUILD,
     FULL_SAVE_MINIMUM_GAME_DB_BYTES,
     GameInfoLayout,
+    GateBounds,
     LayoutEntry,
     NamePoolLayout,
     SaveSummaryLayout,
@@ -40,6 +41,14 @@ def test_name_pool_layout_is_registered_for_game_db() -> None:
     match = find_layout(NamePoolLayout, "game_db", 4000, "")
     assert match.exact
     assert match.layout.minimum_applies_from_bytes == FULL_SAVE_MINIMUM_GAME_DB_BYTES
+
+
+def test_gate_bounds_are_registered_for_game_db_with_the_full_save_threshold() -> None:
+    match = find_layout(GateBounds, "game_db", 4000, "")
+    assert match.exact
+    assert match.layout.minimum_applies_from_bytes == FULL_SAVE_MINIMUM_GAME_DB_BYTES
+    assert match.layout.players_minimum == (10_000, None)
+    assert match.layout.past_dated_tail_ends == (None, 0.01)
 
 
 def test_unknown_schema_falls_back_to_build_then_fallback_build() -> None:

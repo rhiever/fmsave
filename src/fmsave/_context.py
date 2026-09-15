@@ -86,6 +86,15 @@ class SaveContext:
             self._cache[key] = value
         return value
 
+    def cached_value(self, key: str) -> object | None:
+        """Return the value stored under `key`, or None when nothing is stored.
+
+        Raises:
+            SaveClosedError: The context is closed.
+        """
+        self._require_open()
+        return self._cache.get(key)
+
     def club_index(self) -> ClubIndex:
         """Every club with the team to club map, read from `game_db` once and then cached.
 

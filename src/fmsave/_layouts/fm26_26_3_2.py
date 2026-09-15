@@ -10,6 +10,7 @@ from fmsave._layouts import (
     ClubStatusLayout,
     ContractLayout,
     GameInfoLayout,
+    GateBounds,
     HumansLayout,
     LayoutEntry,
     NamePoolLayout,
@@ -300,6 +301,39 @@ SUSPENSIONS = SuspensionLayout(
     competition_id_exclusive_range=(0, 60_000),
 )
 
+GATE_BOUNDS = GateBounds(
+    minimum_applies_from_bytes=FULL_SAVE_MINIMUM_GAME_DB_BYTES,
+    players_minimum=(10_000, None),
+    person_blocks=(0.99, None),
+    names_resolved=(0.995, None),
+    relation_sentinel=(0.999, None),
+    second_nation_qualifier=(0.995, None),
+    handling_above_finishing=(0.15, 0.35),
+    with_natural_position=(0.97, None),
+    height_in_150_210=(0.999, None),
+    height_median=(170, 190),
+    age_median=(20, 30),
+    aged_14_to_45=(0.995, None),
+    condition_sharpness_in_range=(0.999, None),
+    join_date_valid=(0.35, 0.70),
+    world_not_above_current=(0.95, None),
+    home_within_1000_of_current=(0.95, None),
+    team_resolved=(0.98, None),
+    home_grown_club_refs_resolved=(0.98, None),
+    players_with_chain=(0.85, None),
+    tails_parsed=(0.85, None),
+    clause_terminator=(0.999, None),
+    contract_head=(0.80, None),
+    past_dated_tail_ends=(None, 0.01),
+    chain_teams_resolved=(0.98, None),
+    clubs_minimum=(5_000, None),
+    team_lists_found=(0.999, None),
+    status_normal=(0.98, None),
+    status_confirmation=(0.95, None),
+    suspension_share_of_players=(0.0005, 0.03),
+    issued_after_clock=(0, 0),
+)
+
 LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_info", schema=46, build=BUILD, layout=GAME_INFO),
     LayoutEntry(region="save_game_summary", schema=29, build=BUILD, layout=SAVE_SUMMARY),
@@ -313,4 +347,5 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CONTRACTS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=SUSPENSIONS),
     LayoutEntry(region="humans", schema=21, build=BUILD, layout=HUMANS),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=GATE_BOUNDS),
 )

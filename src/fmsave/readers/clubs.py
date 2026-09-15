@@ -14,6 +14,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from fmsave._layouts import ClubRecordLayout, ClubStatusLayout, TeamListLayout, find_layout
+from fmsave.checks import ClubStats
 from fmsave.models.clubs import Club, Team
 from fmsave.readers._common import GAME_DB_SECTION, MISSING_REFERENCE, layout_mismatch
 
@@ -21,6 +22,12 @@ _UINT32 = struct.Struct("<I")
 _UINT16 = struct.Struct("<H")
 _UINT32_PAIR = struct.Struct("<II")
 _NO_STATUS: tuple[int | None, int | None] = (None, None)
+
+# A normal status record is confirmed, for the club checks only, when the u32 this many bytes
+# before its doubled uid holds the club's stored index (the public index minus 1) and the
+# bytes after that u32 are zero. The confirmation never decides which record is accepted.
+_STATUS_CONFIRMATION_OFFSET = -18
+_STATUS_CONFIRMATION_ZERO_BYTES = bytes(10)
 
 
 @functools.cache
@@ -59,12 +66,16 @@ class ClubIndex:
         club_by_uid: The club for each uid (the stored uid plus 1). Uids are unique.
         team_to_club: (club uid, slot) for each team id. Team ids are exactly as stored, with
             no +1, unlike club indexes and uids. Each team id belongs to one club and one slot.
+        stats: What the club pass counted, for the club checks.
+        game_db_bytes: The length of the `game_db` the index was read from.
     """
 
     clubs: tuple[Club, ...]
     uid_by_club_index: Mapping[int, int]
     club_by_uid: Mapping[int, Club]
     team_to_club: Mapping[int, tuple[int, int]]
+    stats: ClubStats
+    game_db_bytes: int
 
     def __repr__(self) -> str:
         return f"<fmsave ClubIndex {len(self.clubs)} clubs, {len(self.team_to_club)} teams>"
@@ -103,8 +114,8 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
     ]
     team_to_club = _map_teams_to_clubs(records, teams_by_record, file_name)
     index_order = sorted(range(len(records)), key=lambda position: records[position].club_index)
-    statuses = _read_statuses(
-        game_db, [records[position].uid for position in index_order], layouts.statuses
+    statuses, normal_status_count, confirmed_status_count = _read_statuses(
+        game_db, [records[position] for position in index_order], layouts.statuses
     )
 
     clubs: list[Club] = []
@@ -126,11 +137,19 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         clubs.append(club)
         uid_by_club_index[record.club_index] = record.uid
         club_by_uid[record.uid] = club
+    stats = ClubStats(
+        records=len(records),
+        team_lists_found=sum(1 for teams in teams_by_record if teams),
+        status_normal=normal_status_count,
+        status_confirmed_a18=confirmed_status_count,
+    )
     return ClubIndex(
         clubs=tuple(clubs),
         uid_by_club_index=uid_by_club_index,
         club_by_uid=club_by_uid,
         team_to_club=team_to_club,
+        stats=stats,
+        game_db_bytes=len(game_db),
     )
 
 
@@ -324,9 +343,12 @@ def _parse_team_ids(
 
 
 def _read_statuses(
-    game_db: bytes, uids_in_index_order: Sequence[int], layout: ClubStatusLayout
-) -> list[tuple[int | None, int | None]]:
-    """Walk the status table once, in club index order; return (reputation, position) pairs.
+    game_db: bytes, records_in_index_order: Sequence[_ClubRecord], layout: ClubStatusLayout
+) -> tuple[list[tuple[int | None, int | None]], int, int]:
+    """Walk the status table once, in club index order.
+
+    Returns the (reputation, position) pair of every club, the number of normal status records
+    accepted, and how many of those the stored club index before the record confirms.
 
     Until a hit is accepted each search runs to the end of the buffer, and the walk gives up
     after `maximum_leading_misses` clubs in a row miss. After that, a hit must start at most
@@ -342,13 +364,16 @@ def _read_statuses(
     normal_kind = layout.normal_kind
     accepted_kinds = (normal_kind, layout.stub_kind)
     window_span = layout.search_window_bytes + _UINT32_PAIR.size
+    startswith = game_db.startswith
     statuses: list[tuple[int | None, int | None]] = []
+    normal_status_count = 0
+    confirmed_status_count = 0
     cursor = 0
     previous_ordinal = -1
     found_first_status = False
     leading_misses = 0
-    for uid in uids_in_index_order:
-        stored_uid = uid - 1
+    for record in records_in_index_order:
+        stored_uid = record.uid - 1
         uid_pair = pack_uid_pair(stored_uid, stored_uid)
         search_end = cursor + window_span if found_first_status else buffer_length
         status = _NO_STATUS
@@ -370,6 +395,16 @@ def _read_statuses(
                     cursor = kind_at
                     if kind == normal_kind:
                         status = _normal_status(game_db, status_hit, layout)
+                        normal_status_count += 1
+                        confirmation_at = status_hit + _STATUS_CONFIRMATION_OFFSET
+                        if (
+                            confirmation_at >= 0
+                            and read_uint32(game_db, confirmation_at)[0] == record.club_index - 1
+                            and startswith(
+                                _STATUS_CONFIRMATION_ZERO_BYTES, confirmation_at + _UINT32.size
+                            )
+                        ):
+                            confirmed_status_count += 1
                     break
             status_hit = find_uid_pair(uid_pair, status_hit + 1, search_end)
         statuses.append(status)
@@ -379,8 +414,8 @@ def _read_statuses(
             leading_misses += 1
             if leading_misses >= layout.maximum_leading_misses:
                 break
-    statuses.extend([_NO_STATUS] * (len(uids_in_index_order) - len(statuses)))
-    return statuses
+    statuses.extend([_NO_STATUS] * (len(records_in_index_order) - len(statuses)))
+    return statuses, normal_status_count, confirmed_status_count
 
 
 def _normal_status(

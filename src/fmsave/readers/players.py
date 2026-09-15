@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import functools
 import struct
-from collections.abc import Mapping
+from array import array
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 
 from fmsave._layouts import ContractLayout, PersonBlockLayout, PlayerRecordLayout
 from fmsave._scan import decode_date
+from fmsave.checks import PlayerStats
 from fmsave.models.common import TransferValueState
 from fmsave.models.contracts import Contract
 from fmsave.models.players import Ability, Attributes, Player, Positions, Reputation
@@ -35,6 +37,12 @@ _TeamFields = tuple[
 _DATE_CACHE_MISS = object()
 
 _SCALE_TABLE = bytes(max(1, (raw_value + 2) // 5) for raw_value in range(256))
+
+# The ranges the player checks count values inside, all inclusive.
+_CHECKED_HEIGHT_RANGE = (150, 210)
+_CHECKED_AGE_RANGE = (14, 45)
+_CONDITION_SHARPNESS_MAXIMUM = 10_000
+_HOME_REPUTATION_SPREAD = 1_000
 
 # The None/empty value for every person field, used when no person block validates.
 _EMPTY_PERSON_TUPLE: tuple[
@@ -341,6 +349,111 @@ class PlayerDecoder:
         decoded = decode_date(game_db, date_offset)
         cache[raw_date] = decoded
         return decoded
+
+
+def collect_player_stats(
+    players: Sequence[Player], decoder: PlayerDecoder, markerless_count: int
+) -> PlayerStats:
+    """Count what the player checks look at, in one loop over the decoded players.
+
+    The relation counts come from the person-block decoder, which kept them while it read each
+    relation list; `markerless_count` comes from the record scan.
+    """
+    with_person_block = 0
+    with_resolved_name = 0
+    handling_above_finishing = 0
+    with_natural_position = 0
+    condition_sharpness_in_range = 0
+    with_valid_join_date = 0
+    world_not_above_current = 0
+    home_within_1000_of_current = 0
+    with_team = 0
+    team_resolved = 0
+    aged_14_to_45 = 0
+    home_grown_club_refs = 0
+    home_grown_club_refs_resolved = 0
+    height_counts = [0] * 256
+    ages = array("i")
+    append_age = ages.append
+    lowest_age, highest_age = _CHECKED_AGE_RANGE
+    for player in players:
+        if player.personality is not None:
+            with_person_block += 1
+            if player.name:
+                with_resolved_name += 1
+        raw_attributes = player.raw_attributes
+        if raw_attributes.handling > raw_attributes.finishing:
+            handling_above_finishing += 1
+        if player.natural_positions:
+            with_natural_position += 1
+        height_counts[player.height_cm] += 1
+        if (
+            player.condition <= _CONDITION_SHARPNESS_MAXIMUM
+            and player.match_sharpness <= _CONDITION_SHARPNESS_MAXIMUM
+        ):
+            condition_sharpness_in_range += 1
+        if player.club_join_date is not None:
+            with_valid_join_date += 1
+        reputation = player.reputation
+        current_reputation = reputation.current
+        if reputation.world <= current_reputation:
+            world_not_above_current += 1
+        if abs(reputation.home - current_reputation) <= _HOME_REPUTATION_SPREAD:
+            home_within_1000_of_current += 1
+        if player.team_id is not None:
+            with_team += 1
+            if player.club_uid is not None:
+                team_resolved += 1
+        age = player.age
+        if age is not None:
+            append_age(age)
+            if lowest_age <= age <= highest_age:
+                aged_14_to_45 += 1
+        home_grown_club_uids = player.home_grown_club_uids
+        if home_grown_club_uids:
+            reference_count = len(home_grown_club_uids)
+            home_grown_club_refs += reference_count
+            home_grown_club_refs_resolved += reference_count - home_grown_club_uids.count(None)
+    lowest_height, highest_height = _CHECKED_HEIGHT_RANGE
+    person_decoder = decoder.person_decoder
+    return PlayerStats(
+        records=len(players),
+        markerless=markerless_count,
+        with_person_block=with_person_block,
+        with_resolved_name=with_resolved_name,
+        relation_entries=person_decoder.relation_entry_count,
+        relation_sentinel_ok=person_decoder.relation_sentinel_ok_count,
+        second_nation_entries=person_decoder.second_nation_entry_count,
+        second_nation_qualifier_ok=person_decoder.second_nation_qualifier_ok_count,
+        handling_above_finishing=handling_above_finishing,
+        with_natural_position=with_natural_position,
+        height_in_150_210=sum(height_counts[lowest_height : highest_height + 1]),
+        condition_sharpness_in_range=condition_sharpness_in_range,
+        with_valid_join_date=with_valid_join_date,
+        world_not_above_current=world_not_above_current,
+        home_within_1000_of_current=home_within_1000_of_current,
+        with_team=with_team,
+        team_resolved=team_resolved,
+        aged_14_to_45=aged_14_to_45,
+        home_grown_club_refs=home_grown_club_refs,
+        home_grown_club_refs_resolved=home_grown_club_refs_resolved,
+        ages=ages,
+        heights_median=_low_median_of_counts(height_counts),
+    )
+
+
+def _low_median_of_counts(value_counts: Sequence[int]) -> int | None:
+    """The low median of values given as a count per value (index), or None with no values."""
+    total = sum(value_counts)
+    if total == 0:
+        return None
+    median_position = (total - 1) // 2
+    seen = 0
+    for value, count in enumerate(value_counts):
+        seen += count
+        if seen > median_position:
+            return value
+    return None
 
 
 def build_player_decoder(

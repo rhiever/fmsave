@@ -58,8 +58,15 @@ _UINT16_STRUCT = struct.Struct("<H")
 # required zero byte: q+0/q+4, q+5/q+9, q+10/q+14.
 _NAME_BLOCK_STRUCT = struct.Struct("<QIBIBIB")
 # referenced value, then kind and role read together as one little-endian u16 (kind is the
-# low byte, role the high byte), the qualifier and sentinel byte skipped.
-_RELATION_ENTRY_FORMAT = "I6xH4x"
+# low byte, role the high byte), then the qualifier byte and the sentinel byte, which only the
+# person checks read.
+_RELATION_ENTRY_FORMAT = "I6xHB2xB"
+_RELATION_VALUES_PER_ENTRY = 4
+_RELATION_SENTINEL_INDEX = 3
+_RELATION_SENTINEL = 0xFF
+# The qualifiers a second-nation entry carries: 100 when the player holds the nationality, 15
+# when the player is eligible for it.
+_SECOND_NATION_QUALIFIERS = (15, 100)
 _TRAIT_BIT_COUNT = 64
 _NAME_CACHE_MISS = object()
 
@@ -199,6 +206,12 @@ class PersonBlockDecoder:
     birth_cache: dict[int, tuple[date | None, int | None]]
     first_name_cache: dict[int, str | None]
     surname_cache: dict[int, str | None]
+
+    # Counts for the player checks, added to as relation lists are read.
+    relation_entry_count: int = 0
+    relation_sentinel_ok_count: int = 0
+    second_nation_entry_count: int = 0
+    second_nation_qualifier_ok_count: int = 0
 
     def decode(self, game_db: bytes, window_start: int, window_end: int) -> PersonTuple | None:
         """The first validated person block in `[window_start, window_end)`, or None.
@@ -484,9 +497,16 @@ class PersonBlockDecoder:
         home_grown_club_key = self.home_grown_club_key
         club_index = self.club_index
 
+        second_nation_entry_count = 0
+        second_nation_qualifier_ok_count = 0
         values_iterator = iter(flat_values)
-        for referenced, pair_key in zip(values_iterator, values_iterator, strict=True):
+        for referenced, pair_key, qualifier, _sentinel in zip(
+            values_iterator, values_iterator, values_iterator, values_iterator, strict=True
+        ):
             if pair_key == second_nation_key:
+                second_nation_entry_count += 1
+                if qualifier in _SECOND_NATION_QUALIFIERS:
+                    second_nation_qualifier_ok_count += 1
                 if referenced not in second_nation_ids:
                     second_nation_ids.append(referenced)
             elif pair_key == home_grown_nation_key:
@@ -501,6 +521,13 @@ class PersonBlockDecoder:
                 club = None if club_uid is None else club_index.club_by_uid.get(club_uid)
                 home_grown_club_uids.append(club_uid)
                 home_grown_club_names.append(None if club is None else club.name)
+        self.relation_entry_count += relation_count
+        self.relation_sentinel_ok_count += flat_values[
+            _RELATION_SENTINEL_INDEX::_RELATION_VALUES_PER_ENTRY
+        ].count(_RELATION_SENTINEL)
+        if second_nation_entry_count:
+            self.second_nation_entry_count += second_nation_entry_count
+            self.second_nation_qualifier_ok_count += second_nation_qualifier_ok_count
         return (
             tuple(second_nation_ids) if second_nation_ids else (),
             tuple(home_grown_nation_ids) if home_grown_nation_ids else (),

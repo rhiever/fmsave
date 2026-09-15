@@ -15,6 +15,7 @@ from fmsave._package import __version__
 from fmsave._save import Save
 from fmsave._save import open_save as open
 from fmsave._status import field_status
+from fmsave.checks import GateResult, ReaderValidation, ValidationReport, validate_save
 from fmsave.models.clubs import Club, Team
 from fmsave.models.common import CodedValue, ContractEndSource
 from fmsave.models.contracts import (
@@ -56,6 +57,7 @@ __all__ = [
     "ContractType",
     "CorruptSaveError",
     "FmsaveError",
+    "GateResult",
     "ManagedClub",
     "NotAFmSaveError",
     "Personality",
@@ -63,6 +65,7 @@ __all__ = [
     "PlayerSuspension",
     "Positions",
     "ReaderCheckError",
+    "ReaderValidation",
     "Reputation",
     "Save",
     "SaveChangedError",
@@ -76,7 +79,9 @@ __all__ = [
     "Trait",
     "UnknownBuildWarning",
     "UnsupportedGameError",
+    "ValidationReport",
     "__version__",
     "field_status",
     "open",
+    "validate_save",
 ]

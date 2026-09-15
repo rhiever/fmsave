@@ -26,6 +26,7 @@ from fmsave._errors import CorruptSaveError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import ContractLayout
 from fmsave._scan import decode_date
+from fmsave.checks import ContractStats
 from fmsave.models.common import CodedValue, ContractEndSource
 from fmsave.models.contracts import (
     Clause,
@@ -183,13 +184,33 @@ def _build_clause_entry_struct(layout: ContractLayout) -> struct.Struct:
 def _build_clause_structs(
     layout: ContractLayout, entry_struct: struct.Struct
 ) -> tuple[struct.Struct, ...]:
-    """One struct per possible clause count, each unpacking that many entries in a row."""
+    """One struct per possible clause count, each unpacking that many entries in a row and
+    then the u32 clause terminator right after the last entry.
+
+    Raises:
+        ValueError: The clause terminator would not sit right after the last clause entry for
+            every clause count: `clause_entry_bytes` differs from `clause_step_bytes`, or
+            `clause_terminator_offset` (from the tail start) differs from
+            `clause_entries_offset` (from the clause-table base).
+    """
+    if (
+        layout.clause_entry_bytes != layout.clause_step_bytes
+        or layout.clause_terminator_offset != layout.clause_entries_offset
+    ):
+        raise ValueError(
+            "the clause terminator must sit right after the last clause entry: "
+            f"clause_entry_bytes ({layout.clause_entry_bytes}) must equal clause_step_bytes "
+            f"({layout.clause_step_bytes}), and clause_terminator_offset "
+            f"({layout.clause_terminator_offset}) must equal clause_entries_offset "
+            f"({layout.clause_entries_offset})"
+        )
     entry_format = entry_struct.format
     if isinstance(entry_format, bytes):
         entry_format = entry_format.decode("ascii")
     entry_body = entry_format.removeprefix("<").removeprefix("=")
     return tuple(
-        struct.Struct("<" + entry_body * count) for count in range(layout.clause_max_count + 1)
+        struct.Struct("<" + entry_body * count + "I")
+        for count in range(layout.clause_max_count + 1)
     )
 
 
@@ -285,7 +306,7 @@ class ContractDecoder:
     that mean a clause value or parameter is absent. The per-save caches (dates by their raw stored u32, and `CodedValue`
     labels by raw code) are keyed by values shared across many players; `CodedValue` objects
     are never cached process-globally, since a cache tied to this decoder is dropped with
-    the save.
+    the save. The `*_count` fields count what decoding sees, for the contract checks.
     """
 
     club_by_team_id: dict[int, tuple[int | None, str | None]]
@@ -349,6 +370,31 @@ class ContractDecoder:
     contract_type_cache: dict[int, CodedValue[ContractType]] = field(
         default_factory=_new_contract_type_cache
     )
+
+    # Counts for the contract checks, added to as chain records are decoded.
+    players_with_chain_count: int = 0
+    chain_record_count: int = 0
+    chain_teams_resolved_count: int = 0
+    tails_parsed_count: int = 0
+    tail_ends_past_count: int = 0
+    clause_table_count: int = 0
+    clause_terminator_ok_count: int = 0
+    head_ok_count: int = 0
+
+    def stats(self, player_count: int, contract_count: int) -> ContractStats:
+        """What decoding has counted so far, with the pass's player and contract counts."""
+        return ContractStats(
+            players=player_count,
+            contracts=contract_count,
+            players_with_chain=self.players_with_chain_count,
+            chain_records=self.chain_record_count,
+            tails_parsed=self.tails_parsed_count,
+            clause_tables=self.clause_table_count,
+            clause_terminator_ok=self.clause_terminator_ok_count,
+            head_ok=self.head_ok_count,
+            tail_ends_past=self.tail_ends_past_count,
+            chain_teams_resolved=self.chain_teams_resolved_count,
+        )
 
     def _cached_date(self, game_db: bytes, raw_value: int, date_offset: int) -> date | None:
         cache = self.date_cache
@@ -469,11 +515,15 @@ class ContractDecoder:
                 return base, count
         return None
 
-    def _read_clauses(self, game_db: bytes, base: int, count: int) -> tuple[Clause, ...]:
-        if count == 0:
-            return ()
+    def _read_clauses(
+        self, game_db: bytes, base: int, count: int
+    ) -> tuple[tuple[Clause, ...], int]:
+        """(clauses, terminator): the clause entries and the u32 stored right after them."""
         entries_start = base + self.clause_entries_offset
         values = self.clause_structs[count].unpack_from(game_db, entries_start)
+        terminator: int = values[-1]
+        if count == 0:
+            return (), terminator
         clauses: list[Clause] = []
         for entry_index in range(0, count * 3, 3):
             raw_value = values[entry_index]
@@ -486,7 +536,7 @@ class ContractDecoder:
                     None if raw_value == _MISSING_U32 else raw_value,
                 )
             )
-        return tuple(clauses)
+        return tuple(clauses), terminator
 
     def _read_head(self, game_db: bytes, base: int) -> tuple[int, int, int, int] | None:
         head_offset = base + self.head_struct_offset
@@ -518,6 +568,9 @@ class ContractDecoder:
             )
         team_id, wage = team_wage_struct.unpack_from(game_db, team_wage_offset)
         club_uid, club_name = self.club_by_team_id.get(team_id, (None, None))
+        self.chain_record_count += 1
+        if club_uid is not None:
+            self.chain_teams_resolved_count += 1
 
         start_offset = chain_tag_offset + self.start_offset
         start: date | None = None
@@ -557,6 +610,9 @@ class ContractDecoder:
             event_count,
         ) = self.tail_struct.unpack_from(game_db, tail_offset)
         end = self._cached_date(game_db, raw_end, tail_offset + self.tail_end_offset)
+        self.tails_parsed_count += 1
+        if end is not None and end < self.clock:
+            self.tail_ends_past_count += 1
         unknown: dict[str, int] = {
             "e2": e2,
             "e8": e8,
@@ -586,10 +642,14 @@ class ContractDecoder:
                 unknown,
             )
         base, count = clause_base
-        clauses = self._read_clauses(game_db, base, count)
+        self.clause_table_count += 1
+        clauses, terminator = self._read_clauses(game_db, base, count)
+        if terminator == 0:
+            self.clause_terminator_ok_count += 1
         head = self._read_head(game_db, base)
         contract_type_raw: int | None = None
         if head is not None:
+            self.head_ok_count += 1
             contract_type_raw, money_a, money_b, money_c = head
             unknown["money_a"] = money_a
             unknown["money_b"] = money_b
@@ -762,6 +822,7 @@ class ContractDecoder:
             else:
                 end, end_source = None, ContractEndSource.NONE
         else:
+            self.players_with_chain_count += 1
             first_record = chain_records[0]
             first_club_uid = first_record[0]
             first_club_name = first_record[1]
