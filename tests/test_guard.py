@@ -65,22 +65,28 @@ def stage(repository: Path, relative_path: str, content: bytes | str) -> None:
     run_git(repository, "add", "-f", relative_path)
 
 
-def stage_symbolic_link_entry(repository: Path, relative_path: str, target: str) -> None:
-    """Stage a symbolic link entry through the index alone, so no platform link support is needed."""
-    object_id = (
+def write_object(repository: Path, content: bytes) -> str:
+    """Write a blob to the object database without touching the index; return its id."""
+    return (
         subprocess.run(
             ["git", "hash-object", "-w", "--stdin"],
             cwd=repository,
-            input=target.encode("utf-8"),
+            input=content,
             check=True,
             capture_output=True,
         )
         .stdout.decode("ascii")
         .strip()
     )
+
+
+def stage_symbolic_link_entry(repository: Path, relative_path: str, target: str) -> str:
+    """Stage a symbolic link entry through the index alone, so no platform link support is needed."""
+    object_id = write_object(repository, target.encode("utf-8"))
     run_git(
         repository, "update-index", "--add", "--cacheinfo", f"120000,{object_id},{relative_path}"
     )
+    return object_id
 
 
 def run_guard(repository: Path, *arguments: str) -> int:
@@ -713,6 +719,48 @@ def test_history_mode_checks_every_path_of_a_shared_blob(repository: Path) -> No
     run_git(repository, "commit", "-q", "-m", "remove copy")
     assert run_guard(repository, "--tracked") == 0
     assert run_guard(repository, "--history") == 1
+
+
+@pytest.mark.parametrize("becomes_link", [True, False], ids=["file-to-link", "file-to-executable"])
+def test_history_mode_reports_a_path_once_when_only_its_mode_changes(
+    repository: Path, capsys: pytest.CaptureFixture[str], becomes_link: bool
+) -> None:
+    run_text = encoded_run(HEX_ALPHABET, 512)
+    stage(repository, "docs/data", run_text)
+    run_git(repository, "commit", "-q", "-m", "add file")
+    if becomes_link:
+        object_id = stage_symbolic_link_entry(repository, "docs/data", run_text)
+    else:
+        object_id = write_object(repository, run_text.encode("utf-8"))
+        run_git(repository, "update-index", "--chmod=+x", "docs/data")
+    run_git(repository, "commit", "-q", "-m", "change mode")
+    assert run_guard(repository, "--history") == 1
+    location = f"guard: docs/data@{object_id[:12]}"
+    link_lines = [f"{location}: {SYMBOLIC_LINK_REASON}"] if becomes_link else []
+    assert capsys.readouterr().err.splitlines() == [
+        *link_lines,
+        f"{location}:1: contains a long encoded run (hex, 512 characters)",
+        blocked_line(len(link_lines) + 1),
+    ]
+
+
+@pytest.mark.parametrize(
+    "tag_options", [[], ["-a", "-m", "tagged payload"]], ids=["lightweight", "annotated"]
+)
+def test_history_mode_checks_a_blob_reachable_only_from_a_tag(
+    repository: Path, capsys: pytest.CaptureFixture[str], tag_options: list[str]
+) -> None:
+    stage(repository, "ok.txt", "fine\n")
+    run_git(repository, "commit", "-q", "-m", "add file")
+    object_id = write_object(repository, (encoded_run(HEX_ALPHABET, 512) + "\n").encode("utf-8"))
+    run_git(repository, "tag", *tag_options, "payload", object_id)
+    assert run_guard(repository, "--tracked") == 0
+    capsys.readouterr()
+    assert run_guard(repository, "--history") == 1
+    assert capsys.readouterr().err.splitlines() == [
+        f"guard: tagged blob {object_id[:12]}:1: contains a long encoded run (hex, 512 characters)",
+        blocked_line(1),
+    ]
 
 
 def test_history_mode_checks_commit_messages(repository: Path) -> None:

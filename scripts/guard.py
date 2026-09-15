@@ -512,23 +512,25 @@ def add_object_path(object_paths: dict[str, list[str]], object_id: str, path: st
         paths.append(path)
 
 
-def add_blob_entry(
-    blob_entries: dict[str, list[tuple[str, str]]], object_id: str, path: str, mode: str
+def add_blob_mode(
+    blob_modes: dict[str, dict[str, str]], object_id: str, path: str, mode: str
 ) -> None:
-    entries = blob_entries.setdefault(object_id, [])
-    if (path, mode) not in entries:
-        entries.append((path, mode))
+    """Keep one mode per (blob, path): the first one listed, unless a symbolic link mode follows."""
+    path_modes = blob_modes.setdefault(object_id, {})
+    if path not in path_modes or mode == SYMBOLIC_LINK_MODE:
+        path_modes[path] = mode
 
 
 def history_blobs(repository_root: Path) -> Iterator[Blob]:
-    """Every (blob, path, mode) entry reachable from any ref; each blob is read once.
+    """One entry per (blob, path) reachable from any ref; each blob is read once.
 
     Entries come from the root tree of every commit and every tagged tree, which carry the
-    modes. A blob path that `rev-list --objects` names but no tree listing covers is still
-    checked, with an empty mode.
+    modes. When a path holds the same blob under several modes, a symbolic link mode wins.
+    A blob path that `rev-list --objects` names but no tree listing covers is still checked,
+    with an empty mode, and a blob that a tag points at directly is checked as a tagged blob.
     """
     object_paths: dict[str, list[str]] = {}
-    root_names: list[str] = []
+    unnamed_ids: list[str] = []
     listing = run_git(repository_root, ["rev-list", "--objects", "--all"]).decode(
         "utf-8", "surrogateescape"
     )
@@ -537,8 +539,12 @@ def history_blobs(repository_root: Path) -> Iterator[Blob]:
         if path:
             add_object_path(object_paths, object_id, path)
         else:
-            root_names.append(f"{object_id}^{{tree}}")
-    batch_names = [*object_paths, *root_names]
+            unnamed_ids.append(object_id)
+    batch_names = [
+        *object_paths,
+        *unnamed_ids,
+        *(f"{object_id}^{{tree}}" for object_id in unnamed_ids),
+    ]
     if not batch_names:
         return
     batch_input = ("\n".join(batch_names) + "\n").encode("ascii")
@@ -549,31 +555,41 @@ def history_blobs(repository_root: Path) -> Iterator[Blob]:
         .decode("ascii")
         .splitlines()
     )
+    named_count = len(object_paths)
+    unnamed_end = named_count + len(unnamed_ids)
     named_blob_ids: list[str] = []
+    tagged_blob_ids: dict[str, None] = {}
     root_tree_ids: dict[str, None] = {}
     for line_index, type_line in enumerate(type_lines):
         object_id, _, object_type = type_line.partition(" ")
-        if line_index < len(object_paths):
+        if line_index < named_count:
             if object_type == "blob":
                 named_blob_ids.append(object_id)
+        elif line_index < unnamed_end:
+            if object_type == "blob":
+                tagged_blob_ids[object_id] = None
         elif object_type == "tree":
             root_tree_ids[object_id] = None
-    blob_entries: dict[str, list[tuple[str, str]]] = {}
+    blob_modes: dict[str, dict[str, str]] = {}
     for tree_id in root_tree_ids:
         tree_listing = run_git(repository_root, ["ls-tree", "-r", "-z", "--full-tree", tree_id])
         for entry in split_null_terminated(tree_listing):
             metadata, _, path = entry.partition("\t")
             mode, object_type, object_id = metadata.split(" ")
             if object_type == "blob":
-                add_blob_entry(blob_entries, object_id, path, mode)
+                add_blob_mode(blob_modes, object_id, path, mode)
     for object_id in named_blob_ids:
-        entries = blob_entries.setdefault(object_id, [])
-        listed_paths = {path for path, _ in entries}
-        entries.extend((path, "") for path in object_paths[object_id] if path not in listed_paths)
-    for object_id, entries in blob_entries.items():
+        path_modes = blob_modes.setdefault(object_id, {})
+        for path in object_paths[object_id]:
+            path_modes.setdefault(path, "")
+    for object_id, path_modes in blob_modes.items():
         content = run_git(repository_root, ["cat-file", "blob", object_id])
-        for path, mode in entries:
+        for path, mode in path_modes.items():
             yield Blob(path, f"{path}@{object_id[:12]}", object_id, mode, content)
+    for object_id in tagged_blob_ids:
+        if object_id not in blob_modes:
+            content = run_git(repository_root, ["cat-file", "blob", object_id])
+            yield Blob("", f"tagged blob {object_id[:12]}", object_id, "", content)
 
 
 def history_message_findings(repository_root: Path, references: PrivateReferences) -> list[Finding]:
