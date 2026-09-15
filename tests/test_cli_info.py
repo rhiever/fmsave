@@ -12,7 +12,6 @@ import pytest
 
 import fmsave
 from fmsave import cli
-from tests.fixtures.career import career_fragment
 from tests.fixtures.container import (
     SectionFrame,
     build_container_fragment,
@@ -37,8 +36,9 @@ def replaced_sections(**replacement_bodies: bytes) -> list[SectionFrame]:
 
 
 @pytest.fixture
-def fragment_path(tmp_path: Path) -> Path:
-    return build_container_fragment().write(tmp_path / "Private Folder" / "career.bin")
+def fragment_path(container_fragment_path: Path) -> Path:
+    """The shared read-only default container fragment, inside a "Private Folder" folder."""
+    return container_fragment_path
 
 
 def test_info_text_hides_save_name(fragment_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -136,9 +136,9 @@ def test_info_json_with_show_name_includes_the_summary_strings(
 
 
 def test_info_on_a_whole_career_shows_summary_strings_only_on_request(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    career_save_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    career_path = career_fragment().write(tmp_path / "Ünïcode folder" / "career.fm")
+    career_path = career_save_path
     assert cli.main(["info", str(career_path), "--json"]) == cli.EXIT_OK
     assert "summary_strings" not in json.loads(capsys.readouterr().out)
     assert cli.main(["info", str(career_path), "--json", "--show-name"]) == cli.EXIT_OK

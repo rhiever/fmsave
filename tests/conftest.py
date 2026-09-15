@@ -21,8 +21,16 @@ from typing import Any, NoReturn
 import pytest
 
 import fmsave
+from tests.fixtures.career import career_fragment
+from tests.fixtures.container import ContainerFragment, build_container_fragment
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+SHARED_CAREER_FOLDER_NAME = "Ünïcode folder"
+SHARED_CAREER_FILE_NAME = "career example.fm"
+SHARED_CONTAINER_FOLDER_NAME = "Private Folder"
+SHARED_CONTAINER_FILE_NAME = "career.bin"
+READ_ONLY_FILE_MODE = 0o444
+READ_ONLY_FOLDER_MODE = 0o555
 CORPUS_ENVIRONMENT_VARIABLE = "FMSAVE_CORPUS"
 CORPUS_MARKER_NAMES = ("corpus", "corpus_fast", "corpus_full")
 CORPUS_FIXTURE_NAMES = ("corpus_save_paths", "corpus_saves", "golden_values")
@@ -177,6 +185,37 @@ def load_golden_values(root: Path) -> dict[str, Any]:
     if not golden_path.is_file():
         fail_quietly("golden values file is missing")
     return load_json_object(golden_path)
+
+
+def write_shared_fragment(fragment: ContainerFragment, file_path: Path) -> Path:
+    """Write a fragment that several tests read, then make the file and its folder read-only.
+
+    A test that tried to change the file or write beside it would fail at once instead of
+    changing what later tests read.
+    """
+    written_path = fragment.write(file_path)
+    written_path.chmod(READ_ONLY_FILE_MODE)
+    written_path.parent.chmod(READ_ONLY_FOLDER_MODE)
+    return written_path
+
+
+@pytest.fixture(scope="session")
+def career_save_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The whole career fragment, written once per session for tests that only read it.
+
+    Tests that write files, or need a variant or their own copy of the save, use tmp_path.
+    """
+    shared_folder = tmp_path_factory.mktemp("shared career") / SHARED_CAREER_FOLDER_NAME
+    return write_shared_fragment(career_fragment(), shared_folder / SHARED_CAREER_FILE_NAME)
+
+
+@pytest.fixture(scope="session")
+def container_fragment_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The default container fragment, written once per session for tests that only read it."""
+    shared_folder = tmp_path_factory.mktemp("shared container") / SHARED_CONTAINER_FOLDER_NAME
+    return write_shared_fragment(
+        build_container_fragment(), shared_folder / SHARED_CONTAINER_FILE_NAME
+    )
 
 
 @pytest.fixture(scope="session")

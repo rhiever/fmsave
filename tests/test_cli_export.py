@@ -33,8 +33,9 @@ def write_career(tmp_path: Path, **fragment_options: bool) -> Path:
 
 
 @pytest.fixture
-def save_path(tmp_path: Path) -> Path:
-    return write_career(tmp_path)
+def save_path(career_save_path: Path) -> Path:
+    """The shared read-only career save; tests write their output files under tmp_path."""
+    return career_save_path
 
 
 def csv_rows(output_text: str) -> list[list[str]]:
@@ -404,9 +405,9 @@ def test_all_managed_clubs_without_a_managed_club_writes_no_rows(
 
 
 def test_output_file_is_utf8_and_stdout_stays_empty(
-    save_path: Path, capsys: pytest.CaptureFixture[str]
+    save_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    output_path = save_path.parent / "out file.csv"
+    output_path = tmp_path / "out file.csv"
     exit_code, output_text, error_text = run_export(
         capsys, str(save_path), "players", "--all", "-o", str(output_path)
     )
@@ -432,25 +433,29 @@ def test_output_file_in_a_missing_folder_exits_2(
 
 
 def test_output_file_that_is_the_save_exits_2_and_keeps_the_save(
-    save_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    save_bytes = save_path.read_bytes()
+    own_save_path = write_career(tmp_path)
+    save_bytes = own_save_path.read_bytes()
     exit_code, _, error_text = run_export(
-        capsys, str(save_path), "players", "--all", "-o", str(save_path)
+        capsys, str(own_save_path), "players", "--all", "-o", str(own_save_path)
     )
     assert exit_code == cli.EXIT_USAGE
     assert "fmsave: error:" in error_text
-    assert save_path.read_bytes() == save_bytes
+    assert own_save_path.read_bytes() == save_bytes
 
 
 def test_a_failed_player_check_exits_3_and_writes_no_file(
-    save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    save_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     def failing_player_gates(*arguments: object) -> tuple[GateResult, ...]:
         return (GateResult("players_minimum", 4, 25000, None, passed=False, applied=True),)
 
     monkeypatch.setattr("fmsave.checks.evaluate_players", failing_player_gates)
-    output_path = save_path.parent / "out.csv"
+    output_path = tmp_path / "out.csv"
     exit_code, output_text, error_text = run_export(
         capsys, str(save_path), "players", "--all", "-o", str(output_path)
     )
@@ -566,14 +571,18 @@ def test_a_failed_standard_output_write_is_reported_as_a_write_failure(
 
 
 def export_to_a_failing_output_file(
-    save_path: Path, monkeypatch: pytest.MonkeyPatch, write_error: OSError, platform_name: str
+    save_path: Path,
+    output_folder: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    write_error: OSError,
+    platform_name: str,
 ) -> int:
     def failing_write_records(*arguments: object) -> None:
         raise write_error
 
     monkeypatch.setattr(cli, "write_records", failing_write_records)
     monkeypatch.setattr(sys, "platform", platform_name)
-    output_path = save_path.parent / "out.csv"
+    output_path = output_folder / "out.csv"
     exit_code = cli.main(["export", str(save_path), "players", "--all", "-o", str(output_path)])
     monkeypatch.undo()
     return exit_code
@@ -588,12 +597,15 @@ def export_to_a_failing_output_file(
 )
 def test_a_failed_output_file_write_is_reported_as_a_write_failure(
     save_path: Path,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     write_error: OSError,
     platform_name: str,
 ) -> None:
-    exit_code = export_to_a_failing_output_file(save_path, monkeypatch, write_error, platform_name)
+    exit_code = export_to_a_failing_output_file(
+        save_path, tmp_path, monkeypatch, write_error, platform_name
+    )
     assert exit_code == cli.EXIT_UNEXPECTED
     captured_output = capsys.readouterr()
     assert captured_output.out == ""
@@ -612,12 +624,15 @@ def test_a_failed_output_file_write_is_reported_as_a_write_failure(
 )
 def test_an_output_file_that_is_a_closed_pipe_exits_quietly(
     save_path: Path,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     write_error: OSError,
     platform_name: str,
 ) -> None:
-    exit_code = export_to_a_failing_output_file(save_path, monkeypatch, write_error, platform_name)
+    exit_code = export_to_a_failing_output_file(
+        save_path, tmp_path, monkeypatch, write_error, platform_name
+    )
     assert exit_code == cli.EXIT_UNEXPECTED
     captured_output = capsys.readouterr()
     assert captured_output.out == ""
@@ -633,6 +648,7 @@ def test_an_output_file_that_is_a_closed_pipe_exits_quietly(
 )
 def test_an_output_file_that_fails_to_open_is_never_quiet(
     save_path: Path,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     open_error: OSError,
@@ -643,7 +659,7 @@ def test_an_output_file_that_fails_to_open_is_never_quiet(
 
     monkeypatch.setattr(cli, "open", failing_open, raising=False)
     monkeypatch.setattr(sys, "platform", platform_name)
-    output_path = save_path.parent / "bad?.csv"
+    output_path = tmp_path / "bad?.csv"
     exit_code = cli.main(["export", str(save_path), "players", "--all", "-o", str(output_path)])
     monkeypatch.undo()
     assert exit_code == cli.EXIT_UNEXPECTED
@@ -653,10 +669,12 @@ def test_an_output_file_that_fails_to_open_is_never_quiet(
 
 
 def test_an_output_file_that_cannot_be_opened_is_a_write_failure(
-    save_path: Path, capsys: pytest.CaptureFixture[str]
+    save_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    folder_as_output_path = tmp_path / "Ünïcode folder"
+    folder_as_output_path.mkdir()
     exit_code, output_text, error_text = run_export(
-        capsys, str(save_path), "players", "--all", "-o", str(save_path.parent)
+        capsys, str(save_path), "players", "--all", "-o", str(folder_as_output_path)
     )
     assert exit_code == cli.EXIT_UNEXPECTED
     assert output_text == ""

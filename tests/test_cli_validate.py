@@ -8,7 +8,6 @@ import pytest
 import fmsave
 from fmsave import cli
 from fmsave.checks import GateResult
-from tests.fixtures.career import career_fragment
 
 FILE_NAME = "career example.fm"
 REPORT_KEYS = {
@@ -26,8 +25,10 @@ PRIVATE_TEXTS = ("Alex", "Northbridge", "Example", "900001", "5001", "Ünïcode"
 
 
 @pytest.fixture
-def save_path(tmp_path: Path) -> Path:
-    return career_fragment().write(tmp_path / "Ünïcode folder" / FILE_NAME)
+def save_path(career_save_path: Path) -> Path:
+    """The shared read-only career save, whose file is named FILE_NAME."""
+    assert career_save_path.name == FILE_NAME
+    return career_save_path
 
 
 def failing_contract_gates(*arguments: object) -> tuple[GateResult, ...]:
