@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import time
@@ -167,6 +168,37 @@ def test_other_warnings_are_emitted_as_python_warnings(
     with pytest.warns(DeprecationWarning, match="a library caution"):
         assert cli.main(["info", str(fragment_path)]) == cli.EXIT_OK
     assert "fmsave: warning" not in capsys.readouterr().err
+
+
+def warn_twice_and_succeed(arguments: object) -> int:
+    for _ in range(2):
+        warnings.warn("a repeated library caution", DeprecationWarning, stacklevel=1)
+    return cli.EXIT_OK
+
+
+def test_other_warnings_follow_filters_for_their_own_module(
+    fragment_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "run_info", warn_twice_and_succeed)
+    with warnings.catch_warnings(record=True) as recorded_warnings:
+        warnings.simplefilter("always")
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module=re.escape(__name__))
+        assert cli.main(["info", str(fragment_path)]) == cli.EXIT_OK
+    assert [recorded.category for recorded in recorded_warnings] == []
+    assert "fmsave: warning" not in capsys.readouterr().err
+
+
+def test_a_repeated_warning_is_shown_once_under_the_default_action(
+    fragment_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "run_info", warn_twice_and_succeed)
+    with warnings.catch_warnings(record=True) as recorded_warnings:
+        warnings.simplefilter("default")
+        assert cli.main(["info", str(fragment_path)]) == cli.EXIT_OK
+    assert [str(recorded.message) for recorded in recorded_warnings] == [
+        "a repeated library caution"
+    ]
+    capsys.readouterr()
 
 
 def test_info_json_with_non_ascii_name(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

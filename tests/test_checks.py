@@ -50,12 +50,12 @@ from fmsave.checks import (
     validate_save,
 )
 from fmsave.readers.clubs import find_club_layouts, read_club_index
+from tests.fixtures.career import MANAGER_SELECTOR, career_summary, manager_region_bytes
 from tests.fixtures.container import (
     SectionFrame,
     build_container_fragment,
     default_sections,
     packed_date,
-    save_summary_body,
     section_body,
 )
 from tests.fixtures.game_db import (
@@ -493,8 +493,6 @@ SOUTHPORT_TEAM = 70003
 UNREGISTERED_TEAM_ID = 79999
 PLAYER_A_UID = 900001
 PLAYER_B_UID = 900002
-MANAGER_SELECTOR = 500
-MANAGER_NAME = "Alex Manager"
 HANDLING_INDEX = 19
 FINISHING_INDEX = 2
 SUMMARY_SCHEMA = 29
@@ -543,19 +541,6 @@ def counted_clubs_region() -> bytes:
         ),
     ]
     return game_db_body(clubs, statuses, gap_bytes=2000)
-
-
-def manager_region() -> bytes:
-    person_header = struct.pack("<III", MANAGER_SELECTOR - 1, 777001, 777001)
-    chain_record, _tag_offset = contract_bytes(
-        selector=MANAGER_SELECTOR,
-        team_id=NORTHBRIDGE_TEAM_A,
-        wage=4000,
-        start=packed_date(183, 2029),
-        tail={"end": packed_date(182, 2032), "status": 3},
-        head={"type": 1},
-    )
-    return person_header + bytes(64) + chain_record + bytes(64)
 
 
 def player_a_relations() -> tuple[bytes, ...]:
@@ -669,25 +654,11 @@ def counted_game_db() -> bytes:
         name_pools_bytes(["Alex"], ["Example"], [])
         + counted_clubs_region()
         + bytes(64)
-        + manager_region()
+        + manager_region_bytes()
         + player_a_bytes()
         + player_b_bytes()
     )
     return section_body(".dat", GAME_DB_SCHEMA, payload)
-
-
-def linked_summary() -> bytes:
-    return save_summary_body(
-        leading_strings=("Example League",),
-        trailing_strings=("Example Cup", MANAGER_NAME),
-        club_uid_after=("Northbridge", NORTHBRIDGE_UID),
-    )
-
-
-UNLINKED_SUMMARY = save_summary_body(
-    leading_strings=("Example League",),
-    trailing_strings=("Example Cup", MANAGER_NAME, "Northbridge"),
-)
 
 
 def write_counted_fragment(
@@ -696,7 +667,7 @@ def write_counted_fragment(
     replacements = {
         "game_db": counted_game_db(),
         "humans": humans_body(count=1, selector=MANAGER_SELECTOR) if humans is None else humans,
-        "save_game_summary": linked_summary() if summary is None else summary,
+        "save_game_summary": career_summary(linked=True) if summary is None else summary,
     }
     sections = [
         SectionFrame(
@@ -815,7 +786,7 @@ def test_a_human_manager_between_jobs_reports_an_anomaly_and_stays_ok(tmp_path: 
     fragment_path = write_counted_fragment(
         tmp_path,
         humans=humans_body(count=1, selector=MANAGER_SELECTOR + 7),
-        summary=UNLINKED_SUMMARY,
+        summary=career_summary(linked=False),
     )
     with fmsave.open(fragment_path) as career_save:
         assert len(career_save.managed_clubs()) == 0

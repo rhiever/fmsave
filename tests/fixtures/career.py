@@ -116,7 +116,7 @@ SECOND_NORTHBRIDGE_CLUB = ExampleClub(
     6,
     SECOND_NORTHBRIDGE_UID,
     "Northbridge FC",
-    "Northbridge Town",
+    "Northbridge",
     SECOND_NORTHBRIDGE_NATION_ID,
     (70010,),
 )
@@ -400,7 +400,8 @@ def career_fragment(
     """The whole career fragment.
 
     Args:
-        duplicate_club_name: Add a second club named "Northbridge FC" (uid 5006).
+        duplicate_club_name: Add a second club (uid 5006) with the same name, "Northbridge FC",
+            and the same short name, "Northbridge".
         manager_between_jobs: Give the one human manager no contract and no summary link, so
             no route finds a managed club.
     """

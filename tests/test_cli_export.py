@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import errno
 import io
 import json
 import subprocess
@@ -9,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from fmsave import cli, export
+import fmsave
+from fmsave import AmbiguousNameError, Club, Table, cli, export
 from fmsave.checks import GateResult
 from fmsave.models.players import Player
 from tests.fixtures.career import (
@@ -99,9 +101,64 @@ def test_an_ambiguous_club_name_lists_the_candidates_and_exits_2(
     assert "uid 5006" in error_text
     error_lines = error_text.splitlines()
     assert "  uid 5001  Northbridge FC (Northbridge), nation id 3" in error_lines
-    assert "  uid 5006  Northbridge FC (Northbridge Town), nation id 9" in error_lines
+    assert "  uid 5006  Northbridge FC (Northbridge), nation id 9" in error_lines
     assert "later release" in error_text
     assert error_lines[-1].endswith("use the uid to choose one")
+
+
+def test_a_short_name_shared_by_two_clubs_is_ambiguous(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    duplicate_save_path = write_career(tmp_path, duplicate_club_name=True)
+    exit_code, output_text, error_text = run_export(
+        capsys, str(duplicate_save_path), "players", "--club", "northbridge"
+    )
+    assert exit_code == cli.EXIT_USAGE
+    assert output_text == ""
+    error_lines = error_text.splitlines()
+    assert error_lines[0] == 'fmsave: error: more than one club matches "northbridge":'
+    assert error_lines[1:3] == [
+        "  uid 5001  Northbridge FC (Northbridge), nation id 3",
+        "  uid 5006  Northbridge FC (Northbridge), nation id 9",
+    ]
+    assert error_lines[-1].endswith("use the uid to choose one")
+
+
+def example_club(uid: int, short_name: str) -> Club:
+    return Club(uid, "Example Rovers", short_name, 3, 3, None, (), None, None)
+
+
+def test_a_path_like_value_is_reduced_in_the_ambiguity_header() -> None:
+    shared_short_name = "Hidden Place/Rovers"
+    clubs = Table(
+        (example_club(5101, shared_short_name), example_club(5102, shared_short_name)), Club
+    )
+    with pytest.raises(AmbiguousNameError) as error_info:
+        cli.resolve_club(clubs, shared_short_name)
+    message_lines = str(error_info.value).splitlines()
+    assert message_lines[0] == 'more than one club matches "Rovers":'
+    assert [line.split()[1] for line in message_lines[1:3]] == ["5101", "5102"]
+
+
+@pytest.mark.parametrize(
+    ("club_value", "expected_club_uids"),
+    [
+        pytest.param("5001", ["5001"], id="managed-club-uid"),
+        pytest.param("Northbridge FC", ["5001"], id="managed-club-name"),
+        pytest.param("Southport", [], id="other-club"),
+    ],
+)
+def test_managed_clubs_club(
+    save_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    club_value: str,
+    expected_club_uids: list[str],
+) -> None:
+    exit_code, output_text, _ = run_export(
+        capsys, str(save_path), "managed-clubs", "--club", club_value
+    )
+    assert exit_code == cli.EXIT_OK
+    assert [record["club_uid"] for record in csv_records(output_text)] == expected_club_uids
 
 
 @pytest.mark.parametrize(
@@ -255,6 +312,28 @@ def test_json_with_columns_writes_flat_objects(
     ]
 
 
+CHOSEN_PLAYER_COLUMNS = ["birth_date", "name", "natural_positions", "suspensions", "uid"]
+
+
+def test_csv_with_columns_matches_the_selected_flat_rows_byte_for_byte(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, _ = run_export(
+        capsys, str(save_path), "players", "--all", "--columns", ",".join(CHOSEN_PLAYER_COLUMNS)
+    )
+    assert exit_code == cli.EXIT_OK
+    with fmsave.open(save_path) as career_save:
+        players = career_save.players()
+    expected_output = io.StringIO(newline="")
+    selected_rows = (
+        export.select_columns(flat_row, CHOSEN_PLAYER_COLUMNS)
+        for flat_row in export.flat_rows(players, Player)
+    )
+    export.write_csv(selected_rows, CHOSEN_PLAYER_COLUMNS, expected_output)
+    assert output_text == expected_output.getvalue()
+    assert '"[{""suspension_competition_id"":1234' in output_text
+
+
 def test_an_empty_selection_writes_an_empty_json_array(
     save_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -406,29 +485,125 @@ def test_csv_to_a_translating_stdout_keeps_single_line_endings(
     assert b"\r\r\n" not in written_bytes
 
 
-class BrokenPipeStream(io.StringIO):
-    """A stdout whose reader has gone away, as when output is piped into `head`."""
+class FailingOutputStream(io.StringIO):
+    """A stdout whose every write and flush fails with one error, such as a closed pipe."""
+
+    def __init__(self, write_error: OSError) -> None:
+        super().__init__()
+        self.write_error = write_error
 
     def write(self, text: str) -> int:
-        raise BrokenPipeError(32, "Broken pipe")
+        raise self.write_error
 
     def flush(self) -> None:
-        raise BrokenPipeError(32, "Broken pipe")
+        raise self.write_error
 
 
-@pytest.mark.parametrize("output_format", ["csv", "json", "jsonl"])
-def test_a_broken_pipe_exits_quietly(
+OUTPUT_COMMANDS = [
+    pytest.param(["export", "{save}", "players", "--all"], id="export-csv"),
+    pytest.param(["export", "{save}", "players", "--all", "--format", "json"], id="export-json"),
+    pytest.param(["export", "{save}", "clubs", "--all", "--format", "jsonl"], id="export-jsonl"),
+    pytest.param(["validate", "{save}"], id="validate"),
+    pytest.param(["info", "{save}", "--json"], id="info"),
+]
+
+
+def filled_command(command_tokens: list[str], save_path: Path) -> list[str]:
+    return [token.replace("{save}", str(save_path)) for token in command_tokens]
+
+
+@pytest.mark.parametrize("command_tokens", OUTPUT_COMMANDS)
+@pytest.mark.parametrize(
+    ("write_error", "platform_name"),
+    [
+        pytest.param(BrokenPipeError(errno.EPIPE, "Broken pipe"), "linux", id="broken-pipe"),
+        pytest.param(OSError(errno.EPIPE, "Broken pipe"), "darwin", id="epipe"),
+        pytest.param(OSError(errno.EINVAL, "Invalid argument"), "win32", id="windows-einval"),
+    ],
+)
+def test_a_closed_standard_output_exits_quietly(
     save_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    output_format: str,
+    command_tokens: list[str],
+    write_error: OSError,
+    platform_name: str,
 ) -> None:
-    monkeypatch.setattr(sys, "stdout", BrokenPipeStream())
-    exit_code = cli.main(["export", str(save_path), "players", "--all", "--format", output_format])
-    assert exit_code in (cli.EXIT_OK, cli.EXIT_UNEXPECTED)
+    monkeypatch.setattr(sys, "platform", platform_name)
+    monkeypatch.setattr(sys, "stdout", FailingOutputStream(write_error))
+    exit_code = cli.main(filled_command(command_tokens, save_path))
+    monkeypatch.undo()
+    assert exit_code == cli.EXIT_UNEXPECTED
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("command_tokens", OUTPUT_COMMANDS)
+@pytest.mark.parametrize(
+    ("write_error", "platform_name"),
+    [
+        pytest.param(OSError(errno.EINVAL, "Invalid argument"), "linux", id="einval"),
+        pytest.param(OSError(errno.ENOSPC, "No space left on device"), "win32", id="enospc"),
+    ],
+)
+def test_a_failed_standard_output_write_is_reported_as_a_write_failure(
+    save_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    command_tokens: list[str],
+    write_error: OSError,
+    platform_name: str,
+) -> None:
+    monkeypatch.setattr(sys, "platform", platform_name)
+    monkeypatch.setattr(sys, "stdout", FailingOutputStream(write_error))
+    exit_code = cli.main(filled_command(command_tokens, save_path))
+    monkeypatch.undo()
+    assert exit_code == cli.EXIT_UNEXPECTED
     error_text = capsys.readouterr().err
+    assert error_text == f"fmsave: error: cannot write the output: {write_error.strerror}\n"
+
+
+@pytest.mark.parametrize(
+    ("write_error", "platform_name"),
+    [
+        pytest.param(OSError(errno.ENOSPC, "No space left on device"), "linux", id="enospc"),
+        pytest.param(OSError(errno.EINVAL, "Invalid argument"), "win32", id="windows-einval"),
+        pytest.param(BrokenPipeError(errno.EPIPE, "Broken pipe"), "linux", id="broken-pipe"),
+    ],
+)
+def test_a_failed_output_file_write_is_reported_as_a_write_failure(
+    save_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    write_error: OSError,
+    platform_name: str,
+) -> None:
+    def failing_write_records(*arguments: object) -> None:
+        raise write_error
+
+    monkeypatch.setattr(cli, "write_records", failing_write_records)
+    monkeypatch.setattr(sys, "platform", platform_name)
+    output_path = save_path.parent / "out.csv"
+    exit_code = cli.main(["export", str(save_path), "players", "--all", "-o", str(output_path)])
+    monkeypatch.undo()
+    assert exit_code == cli.EXIT_UNEXPECTED
+    captured_output = capsys.readouterr()
+    assert captured_output.out == ""
+    assert captured_output.err == (
+        f"fmsave: error: cannot write the output: {write_error.strerror}\n"
+    )
+
+
+def test_an_output_file_that_cannot_be_opened_is_a_write_failure(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "players", "--all", "-o", str(save_path.parent)
+    )
+    assert exit_code == cli.EXIT_UNEXPECTED
+    assert output_text == ""
+    assert error_text.startswith("fmsave: error: cannot write the output: ")
     assert "cannot read" not in error_text
-    assert "error" not in error_text
+    assert "Ünïcode" not in error_text
 
 
 def test_a_closed_pipe_exits_quietly_from_a_real_process(save_path: Path) -> None:
@@ -468,16 +643,58 @@ def test_usage_errors_hide_folders_in_option_values(
     assert str(tmp_path) not in error_text
 
 
-def test_a_glued_short_option_value_keeps_its_option_in_the_message(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("argument_tokens", "expected_message"),
+    [
+        pytest.param(
+            ["info", "a.fm", "-o{folder}/x.csv"],
+            "unrecognized arguments: -ox.csv",
+            id="glued-output-under-info",
+        ),
+        pytest.param(
+            ["export", "a.fm", "players", "--all", "-o{folder}/x.csv", "{folder}/y.csv"],
+            "unrecognized arguments: y.csv",
+            id="extra-path-after-glued-output",
+        ),
+        pytest.param(
+            ["export", "a.fm", "players", "--all", "--format", "{folder}/x"],
+            "argument --format: invalid choice: 'x'",
+            id="format-value",
+        ),
+        pytest.param(
+            ["export", "a.fm", "{folder}/badtable", "--all"],
+            "argument TABLE: invalid choice: 'badtable'",
+            id="table-value",
+        ),
+        pytest.param(
+            ["info", "a.fm", "--columns={folder}/uid"],
+            "unrecognized arguments: --columns=uid",
+            id="columns-value-under-info",
+        ),
+        pytest.param(
+            ["validate", "a.fm", "--club", "{folder}/Nowhere"],
+            "unrecognized arguments: --club Nowhere",
+            id="club-value-under-validate",
+        ),
+    ],
+)
+def test_usage_errors_that_quote_a_path_like_value_keep_the_message_without_the_folder(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    argument_tokens: list[str],
+    expected_message: str,
 ) -> None:
-    glued_argument = f"-o{tmp_path / PRIVATE_FOLDER / 'x.csv'}"
+    folder_text = str(tmp_path / PRIVATE_FOLDER)
+    filled_tokens = [token.replace("{folder}", folder_text) for token in argument_tokens]
     with pytest.raises(SystemExit) as exit_info:
-        cli.main(["info", "a.fm", glued_argument])
+        cli.main(filled_tokens)
     assert exit_info.value.code == cli.EXIT_USAGE
     error_text = capsys.readouterr().err
-    assert "unrecognized arguments: -ox.csv" in error_text
+    last_error_line = error_text.splitlines()[-1]
+    assert last_error_line.startswith("fmsave")
+    assert f": error: {expected_message}" in last_error_line
     assert PRIVATE_FOLDER not in error_text
+    assert str(tmp_path) not in error_text
 
 
 @pytest.mark.parametrize(

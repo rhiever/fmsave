@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
 import io
 import json
 import os
@@ -146,7 +147,17 @@ class CommandUsageError(Exception):
 
 
 class OutputWriteError(Exception):
-    """The output file could not be opened for writing."""
+    """Opening, writing or flushing the command's output failed.
+
+    Attributes:
+        write_error: The OSError the output raised.
+        to_standard_output: Whether the output was standard output rather than a file.
+    """
+
+    def __init__(self, write_error: OSError, *, to_standard_output: bool) -> None:
+        super().__init__(write_error.strerror or type(write_error).__name__)
+        self.write_error = write_error
+        self.to_standard_output = to_standard_output
 
 
 class CommandLineParser(argparse.ArgumentParser):
@@ -230,7 +241,7 @@ def build_parser() -> CommandLineParser:
         "validate",
         help="report how each reader fares on a save, without any names or uids",
         description="Run every reader and report its checks, counts and coverage. The report "
-        "holds no names, uids or other values from the save.",
+        "holds no names, uids or text from the save.",
     )
     add_save_argument(validate_parser)
     validate_parser.add_argument("--json", action="store_true", help="print JSON instead of text")
@@ -295,9 +306,13 @@ def run_info(arguments: argparse.Namespace) -> int:
     with fmsave.open(save_path) as career_save:
         save_info = career_save.info
     if arguments.json:
-        print(json.dumps(info_record(save_info, arguments.show_name), indent=2, ensure_ascii=True))
+        info_text = json.dumps(
+            info_record(save_info, arguments.show_name), indent=2, ensure_ascii=True
+        )
     else:
-        print(render_info_text(save_info, arguments.show_name))
+        info_text = render_info_text(save_info, arguments.show_name)
+    with output_write_errors(to_standard_output=True):
+        print(info_text)
     return EXIT_OK
 
 
@@ -493,26 +508,38 @@ def check_output_path(output_path: Path, save_path: Path) -> None:
 
 
 @contextlib.contextmanager
-def output_stream(output_path: Path | None) -> Generator[TextIO]:
-    """Yield the output file opened as UTF-8, or standard output reconfigured to UTF-8.
+def output_write_errors(*, to_standard_output: bool) -> Generator[None]:
+    """Raise an OSError from opening, writing or flushing output as an OutputWriteError.
 
-    Raises:
-        OutputWriteError: The output file cannot be opened.
+    Only output is written inside the block, so a failure there is never a failure to read the
+    save.
     """
+    try:
+        yield
+    except OSError as error:
+        raise OutputWriteError(error, to_standard_output=to_standard_output) from error
+
+
+def is_closed_pipe_error(write_error: OSError) -> bool:
+    """Whether a write failed because the reader of a pipe has gone away.
+
+    Windows reports a write to a closed pipe as EINVAL rather than EPIPE.
+    """
+    if isinstance(write_error, BrokenPipeError) or write_error.errno == errno.EPIPE:
+        return True
+    return write_error.errno == errno.EINVAL and sys.platform == "win32"
+
+
+@contextlib.contextmanager
+def output_stream(output_path: Path | None) -> Generator[TextIO]:
+    """Yield the output file opened as UTF-8, or standard output reconfigured to UTF-8."""
     if output_path is None:
         standard_output = sys.stdout
         if isinstance(standard_output, io.TextIOWrapper):
             standard_output.reconfigure(encoding="utf-8", newline="")
         yield standard_output
         return
-    try:
-        file_stream = open(output_path, "w", encoding="utf-8", newline="")  # noqa: SIM115
-    except OSError as error:
-        reason = error.strerror or type(error).__name__
-        raise OutputWriteError(
-            f"cannot write {error_file_name(error.filename)}: {reason}"
-        ) from error
-    with file_stream:
+    with open(output_path, "w", encoding="utf-8", newline="") as file_stream:
         yield file_stream
 
 
@@ -525,15 +552,12 @@ def write_records(
 ) -> None:
     """Write records one at a time as CSV, a JSON array or JSON Lines.
 
-    CSV rows are flat. JSON rows are nested, or flat with only the chosen columns.
+    CSV rows are flat, and write_csv keeps only the chosen columns. JSON rows are nested, or
+    flat with only the chosen columns.
     """
     if output_format == "csv":
-        flat_rows = export.flat_rows(records, record_type)
-        if column_names is None:
-            export.write_csv(flat_rows, export.column_names(record_type), stream)
-        else:
-            selected_rows = (export.select_columns(row, column_names) for row in flat_rows)
-            export.write_csv(selected_rows, column_names, stream)
+        csv_columns = export.column_names(record_type) if column_names is None else column_names
+        export.write_csv(export.flat_rows(records, record_type), csv_columns, stream)
         return
     if column_names is None:
         json_rows: Iterable[dict[str, object]] = (
@@ -562,7 +586,10 @@ def run_export(arguments: argparse.Namespace) -> int:
     with fmsave.open(save_path) as career_save:
         scope = resolve_scope(career_save, arguments)
         records = scoped_records(career_save, table_name, scope)
-    with output_stream(output_path) as stream:
+    with (
+        output_write_errors(to_standard_output=output_path is None),
+        output_stream(output_path) as stream,
+    ):
         write_records(records, record_type, arguments.format, column_names, stream)
     return EXIT_OK
 
@@ -606,9 +633,11 @@ def run_validate(arguments: argparse.Namespace) -> int:
     with fmsave.open(Path(arguments.save_path)) as career_save:
         report = validate_save(career_save)
     if arguments.json:
-        print(json.dumps(report.to_json_dict(), indent=2, ensure_ascii=True))
+        report_text = json.dumps(report.to_json_dict(), indent=2, ensure_ascii=True)
     else:
-        print(render_validation_text(report))
+        report_text = render_validation_text(report)
+    with output_write_errors(to_standard_output=True):
+        print(report_text)
     return validation_exit_code(report)
 
 
@@ -646,15 +675,16 @@ def run_guarded(arguments: argparse.Namespace) -> tuple[int, str | None]:
     """Run a command and turn any failure into an exit code and an error message."""
     try:
         exit_code = run_command(arguments)
-        sys.stdout.flush()
+        with output_write_errors(to_standard_output=True):
+            sys.stdout.flush()
         return exit_code, None
-    except BrokenPipeError:
-        silence_standard_output()
-        return EXIT_UNEXPECTED, None
+    except OutputWriteError as error:
+        if error.to_standard_output and is_closed_pipe_error(error.write_error):
+            silence_standard_output()
+            return EXIT_UNEXPECTED, None
+        return EXIT_UNEXPECTED, f"cannot write the output: {error}"
     except CommandUsageError as error:
         return EXIT_USAGE, str(error)
-    except OutputWriteError as error:
-        return EXIT_UNEXPECTED, str(error)
     except FileNotFoundError as error:
         return EXIT_USAGE, f"file not found: {error_file_name(error.filename)}"
     except OSError as error:
@@ -684,6 +714,18 @@ def configure_output_streams() -> None:
             stream.reconfigure(errors="backslashreplace")
 
 
+def warning_module_name(filename: str) -> str:
+    """The module name warnings filters match for a warning raised in this file.
+
+    It is the name of the loaded module with that file, or else the file name without ".py",
+    which is what the warnings module itself falls back to.
+    """
+    for module_name, loaded_module in list(sys.modules.items()):
+        if getattr(loaded_module, "__file__", None) == filename:
+            return module_name
+    return filename[:-3] if filename.lower().endswith(".py") else filename
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     configure_output_streams()
     argument_tokens = list(sys.argv[1:] if argv is None else argv)
@@ -695,6 +737,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     with warnings.catch_warnings(record=True) as caught_warnings:
         warnings.simplefilter("always")
         exit_code, error_message = run_guarded(arguments)
+    shown_warnings_registry: dict[str | tuple[str, type[Warning], int], int] = {}
     for caught_warning in caught_warnings:
         if issubclass(caught_warning.category, FmsaveWarning):
             print(f"fmsave: warning: {caught_warning.message}", file=sys.stderr)
@@ -704,6 +747,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 caught_warning.category,
                 caught_warning.filename,
                 caught_warning.lineno,
+                module=warning_module_name(caught_warning.filename),
+                registry=shown_warnings_registry,
                 source=caught_warning.source,
             )
     if error_message is not None:
