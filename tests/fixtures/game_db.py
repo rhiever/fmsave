@@ -134,3 +134,59 @@ def game_db_body(
 ) -> bytes:
     """64 zero bytes, the club records, `gap_bytes` zero bytes, then the status records."""
     return bytes(64) + b"".join(club_records) + bytes(gap_bytes) + b"".join(status_records)
+
+
+PLAYER_RECORD_MARKER = bytes.fromhex("01006c07")
+PLAYER_RECORD_BODY_BYTES = 300
+
+
+def player_record_bytes(
+    *,
+    pindex: int,
+    uid: int,
+    current_ability: int,
+    potential_ability: int,
+    bucket: int,
+    home_reputation: int,
+    current_reputation: int,
+    world_reputation: int,
+    team_id: int,
+    ratings: Sequence[int],
+    raw_attributes: Sequence[int],
+    transfer_value_raw: int,
+    join_date: bytes,
+    sharpness: int,
+    condition: int,
+    height_cm: int,
+    marker: bytes = PLAYER_RECORD_MARKER,
+    doubled_uid: bool = True,
+    trailing: bytes = b"",
+) -> bytes:
+    """One player record fragment: a header, the doubled uid, reputations, the record body.
+
+    The record itself starts 26 bytes into the returned bytes. Every offset inside the body
+    counts from that start; unlisted bytes are 0. `marker` is written at offset 102 (the scan
+    marker for accepted records, or a real date for a marker-less record).
+    """
+    header = bytearray(b"\x00\x40\x00\x00\x00\x00\x00")
+    header.extend(struct.pack("<I", pindex))
+    second_uid = uid if doubled_uid else uid + 1
+    header.extend(struct.pack("<II", uid, second_uid))
+    header.append(0)
+    header.extend(struct.pack("<HHH", home_reputation, current_reputation, world_reputation))
+
+    body = bytearray(PLAYER_RECORD_BODY_BYTES)
+    struct.pack_into("<H", body, 0, current_ability)
+    struct.pack_into("<h", body, 2, potential_ability)
+    body[8] = bucket
+    struct.pack_into("<I", body, 16, team_id)
+    body[24 : 24 + len(ratings)] = bytes(ratings)
+    body[39 : 39 + len(raw_attributes)] = bytes(raw_attributes)
+    struct.pack_into("<I", body, 93, transfer_value_raw)
+    body[98 : 98 + len(join_date)] = join_date
+    body[102 : 102 + len(marker)] = marker
+    struct.pack_into("<H", body, 106, sharpness)
+    struct.pack_into("<H", body, 110, condition)
+    body[121] = height_cm
+
+    return bytes(header) + bytes(body) + trailing

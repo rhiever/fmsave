@@ -137,6 +137,51 @@ class ClubStatusLayout:
     maximum_leading_misses: int = 16
 
 
+@dataclass(frozen=True, slots=True)
+class PlayerRecordLayout:
+    """How to recognise player records in `game_db` and where their fields sit.
+
+    A marker candidate starts `marker_offset` bytes before each `marker` hit. A completeness
+    candidate starts `ratings_offset` bytes before a match of `ratings_count` bytes in
+    `rating_range` followed by `attribute_count` bytes in `attribute_range`, searched only in
+    the region after the name pools. Every other offset counts from the record start. Ranges
+    are inclusive (lowest, highest). `attribute_field_order` names the 52 non-foot attributes
+    in the order the bytes at `attributes_offset` store them, skipping the two foot-strength
+    bytes; `position_codes` names the 15 position ratings in the order stored at
+    `ratings_offset`.
+    """
+
+    marker: bytes
+    marker_offset: int
+    pindex_offset: int
+    uid_offset: int
+    uid_copy_offset: int
+    home_reputation_offset: int
+    current_reputation_offset: int
+    world_reputation_offset: int
+    current_ability_offset: int
+    current_ability_range: tuple[int, int]
+    potential_ability_offset: int
+    potential_ability_range: tuple[int, int]
+    reputation_bucket_offset: int
+    reputation_bucket_range: tuple[int, int]
+    team_id_offset: int
+    ratings_offset: int
+    ratings_count: int
+    rating_range: tuple[int, int]
+    attributes_offset: int
+    attribute_count: int
+    attribute_range: tuple[int, int]
+    transfer_value_offset: int
+    transfer_value_placeholder: int
+    club_join_date_offset: int
+    match_sharpness_offset: int
+    condition_offset: int
+    height_offset: int
+    position_codes: tuple[str, ...]
+    attribute_field_order: tuple[str, ...]
+
+
 type Layout = (
     GameInfoLayout
     | SaveSummaryLayout
@@ -144,6 +189,7 @@ type Layout = (
     | ClubRecordLayout
     | TeamListLayout
     | ClubStatusLayout
+    | PlayerRecordLayout
 )
 
 

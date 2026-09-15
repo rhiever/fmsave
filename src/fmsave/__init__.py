@@ -18,19 +18,34 @@ from fmsave._status import field_status
 from fmsave.models.clubs import Club, Team
 from fmsave.models.common import CodedValue
 from fmsave.models.meta import SaveInfo, SectionInfo
+from fmsave.models.players import (
+    Ability,
+    Attributes,
+    Personality,
+    Player,
+    Positions,
+    Reputation,
+    Trait,
+)
 from fmsave.table import Table
 
 OUTPUT_SCHEMA_VERSION = 1
 
 __all__ = [
     "OUTPUT_SCHEMA_VERSION",
+    "Ability",
     "AmbiguousNameError",
+    "Attributes",
     "Club",
     "CodedValue",
     "CorruptSaveError",
     "FmsaveError",
     "NotAFmSaveError",
+    "Personality",
+    "Player",
+    "Positions",
     "ReaderCheckError",
+    "Reputation",
     "Save",
     "SaveChangedError",
     "SaveClosedError",
@@ -38,6 +53,7 @@ __all__ = [
     "SectionInfo",
     "Table",
     "Team",
+    "Trait",
     "UnknownBuildWarning",
     "UnsupportedGameError",
     "__version__",

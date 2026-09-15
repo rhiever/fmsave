@@ -18,6 +18,7 @@ from fmsave.readers._common import MISSING_REFERENCE
 GAME_DB_SECTION = "game_db"
 POOL_NAMES = ("first names", "surnames", "common names")
 OFFSET_TYPECODE = "Q"
+NAME_POOLS_CACHE_KEY = "name_pools"
 
 _COUNT_WORD = struct.Struct("<I")
 _ENTRY_HEADER = struct.Struct("<II")

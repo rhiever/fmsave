@@ -83,7 +83,8 @@ class SaveContext:
 
         Raises:
             SaveClosedError: The context is closed.
-            ReaderCheckError: No club records were found, or two clubs list the same team.
+            ReaderCheckError: No club record is accepted, a club uid or club index appears
+                in two records, or a team id is listed twice (by one club or by two).
         """
         return self.cached(CLUB_INDEX_CACHE_KEY, self._build_club_index)
 

@@ -8,12 +8,22 @@ from typing import Self
 
 from fmsave._container import ContainerIndex, read_index, read_section
 from fmsave._context import SaveContext, closed_save_error
+from fmsave._layouts import NamePoolLayout, PlayerRecordLayout, find_layout
 from fmsave._version import read_save_info
 from fmsave.models.clubs import Club
 from fmsave.models.meta import SaveInfo
+from fmsave.models.players import Player
+from fmsave.readers.names import NAME_POOLS_CACHE_KEY, locate_name_pools
+from fmsave.readers.players import (
+    PLAYER_RECORDS_CACHE_KEY,
+    decode_player_record,
+    locate_player_records,
+)
 from fmsave.table import Table
 
 CLUBS_TABLE_CACHE_KEY = "table:clubs"
+PLAYERS_TABLE_CACHE_KEY = "table:players"
+_GAME_DB_SECTION = "game_db"
 
 
 class Save:
@@ -53,12 +63,59 @@ class Save:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
-            ReaderCheckError: No club records were found, or two clubs list the same team.
+            ReaderCheckError: No club record is accepted, a club uid or club index appears
+                in two records, or a team id is listed twice (by one club or by two).
         """
         context = self._context
         return context.cached(
             CLUBS_TABLE_CACHE_KEY, lambda: Table(context.club_index().clubs, Club)
         )
+
+    def players(self) -> Table[Player]:
+        """Every player in the save's game database, in record offset order.
+
+        The table is read on the first call; later calls return the same table. Person
+        fields (name, birth date, nationality, personality, traits and the rest) are None
+        or empty for now.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: No club record is accepted, a club uid or club index appears
+                in two records, a team id is listed twice (by one club or by two), no player
+                records were found, or two player records share a uid.
+        """
+        context = self._context
+        return context.cached(PLAYERS_TABLE_CACHE_KEY, self._build_players_table)
+
+    def _build_players_table(self) -> Table[Player]:
+        context = self._context
+        save_info = self._info
+        club_index = context.club_index()
+        schema = save_info.section_schemas.get(_GAME_DB_SECTION)
+        record_layout = find_layout(
+            PlayerRecordLayout, _GAME_DB_SECTION, schema, save_info.build
+        ).layout
+        name_pool_layout = find_layout(
+            NamePoolLayout, _GAME_DB_SECTION, schema, save_info.build
+        ).layout
+        with context.section(_GAME_DB_SECTION) as game_db:
+            name_pools = context.cached(
+                NAME_POOLS_CACHE_KEY,
+                lambda: locate_name_pools(game_db, name_pool_layout, save_info.file_name),
+            )
+            player_records = context.cached(
+                PLAYER_RECORDS_CACHE_KEY,
+                lambda: locate_player_records(
+                    game_db, name_pools.end_offset, record_layout, save_info.file_name
+                ),
+            )
+            players = tuple(
+                decode_player_record(game_db, record_offset, club_index)
+                for record_offset in player_records.record_offsets
+            )
+        return Table(players, Player)
 
     def close(self) -> None:
         """Close the save and release its cached results.
