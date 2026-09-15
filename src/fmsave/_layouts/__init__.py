@@ -118,6 +118,11 @@ class ClubStatusLayout:
     `ordinal_offset` is negative. A hit counts when its ordinal is above the last accepted
     ordinal and below `ordinal_limit`, and its kind byte is `normal_kind` or `stub_kind`. Only
     normal records hold a position and a reputation. Ranges are inclusive (lowest, highest).
+
+    Clubs are searched in club index order from a cursor that moves past each accepted hit.
+    Until the first hit is accepted a search runs to the end of `game_db`, and when the first
+    `maximum_leading_misses` clubs all miss, the walk stops with no status for any club. After
+    that, a club's hit must start at most `search_window_bytes` past the cursor.
     """
 
     ordinal_offset: int
@@ -128,6 +133,8 @@ class ClubStatusLayout:
     position_offset: int
     reputation_offset: int
     reputation_range: tuple[int, int]
+    search_window_bytes: int
+    maximum_leading_misses: int = 16
 
 
 type Layout = (

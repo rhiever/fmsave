@@ -13,9 +13,9 @@ from dataclasses import dataclass, field
 
 from fmsave._errors import ISSUES_URL, CorruptSaveError, ReaderCheckError
 from fmsave._layouts import NamePoolLayout
+from fmsave.readers._common import MISSING_REFERENCE
 
 GAME_DB_SECTION = "game_db"
-MISSING_NAME_INDEX = 0xFFFFFFFF
 POOL_NAMES = ("first names", "surnames", "common names")
 OFFSET_TYPECODE = "Q"
 
@@ -59,7 +59,7 @@ class PoolIndex:
         Raises:
             CorruptSaveError: The name is not valid UTF-8 or lies outside `buffer`.
         """
-        if index == MISSING_NAME_INDEX or not 0 <= index < self.entry_count:
+        if index == MISSING_REFERENCE or not 0 <= index < self.entry_count:
             return None
         length_word_at = self.entry_offsets[index]
         text_start = length_word_at + _COUNT_WORD.size

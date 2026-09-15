@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 import os
-import sys
 import unicodedata
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import Any, ClassVar, NoReturn, cast, overload
@@ -112,13 +111,15 @@ class Table[RecordT](Sequence[RecordT]):
     def __reversed__(self) -> Iterator[RecordT]:
         return reversed(self._records)
 
-    def index(self, value: object, start: int = 0, stop: int = sys.maxsize) -> int:
+    def index(self, value: object, start: int = 0, stop: int | None = None) -> int:
         """Return the position of the first record equal to value between start and stop.
+
+        A stop of None means the end of the table. Negative start and stop count from the end.
 
         Raises:
             ValueError: No such record.
         """
-        return self._records.index(value, start, stop)
+        return self._records.index(value, start, len(self._records) if stop is None else stop)
 
     def count(self, value: object) -> int:
         """Return how many records equal value."""

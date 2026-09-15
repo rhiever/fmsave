@@ -89,6 +89,7 @@
       'build': '26.3.2+2329565',
       'layout': dict({
         'kind_offset': 8,
+        'maximum_leading_misses': 16,
         'normal_kind': 10,
         'ordinal_limit': 200000,
         'ordinal_offset': -4,
@@ -98,6 +99,7 @@
           1,
           10000,
         ),
+        'search_window_bytes': 262144,
         'stub_kind': 11,
       }),
       'region': 'game_db',

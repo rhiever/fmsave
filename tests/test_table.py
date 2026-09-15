@@ -149,6 +149,16 @@ def test_index_count_and_reversed_use_the_record_tuple() -> None:
     assert list(reversed(table)) == list(reversed(CLUB_RECORDS))
 
 
+def test_index_accepts_a_negative_or_missing_stop() -> None:
+    table = example_table()
+    assert table.index(CLUB_RECORDS[2], 0, -1) == 2
+    with pytest.raises(ValueError):
+        table.index(CLUB_RECORDS[3], 0, -1)
+    assert table.index(CLUB_RECORDS[3], 1, None) == 3
+    assert table.index(CLUB_RECORDS[3], stop=None) == 3
+    assert table.index(CLUB_RECORDS[3], -2, None) == 3
+
+
 def test_where_docstring_explains_coded_value_matching() -> None:
     where_docstring = Table.where.__doc__ or ""
     assert "CodedValue" in where_docstring

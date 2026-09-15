@@ -10,16 +10,15 @@ from __future__ import annotations
 
 import functools
 import struct
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from fmsave._errors import ISSUES_URL, ReaderCheckError
 from fmsave._layouts import ClubRecordLayout, ClubStatusLayout, TeamListLayout, find_layout
 from fmsave.models.clubs import Club, Team
+from fmsave.readers._common import MISSING_REFERENCE
 
 GAME_DB_SECTION = "game_db"
-# The value the save stores in an id field that refers to nothing.
-MISSING_ID = 0xFFFFFFFF
 
 _UINT32 = struct.Struct("<I")
 _UINT16 = struct.Struct("<H")
@@ -65,11 +64,15 @@ def find_club_layouts(game_db_schema: int | None, build: str) -> ClubLayouts:
 class ClubIndex:
     """Every club in club index order, with the lookups other readers join through.
 
+    One index is cached and shared by every reader of a save: never mutate its mappings.
+
     Attributes:
         clubs: Every accepted club, in ascending club index.
-        uid_by_club_index: The club uid for each club index (the stored index plus 1).
-        club_by_uid: The club for each uid; if a uid repeats, the first club keeps it.
-        team_to_club: (club uid, slot) for each team id.
+        uid_by_club_index: The club uid for each club index (the stored index plus 1). Club
+            indexes are unique.
+        club_by_uid: The club for each uid (the stored uid plus 1). Uids are unique.
+        team_to_club: (club uid, slot) for each team id. Team ids are exactly as stored, with
+            no +1, unlike club indexes and uids. Each team id belongs to one club and one slot.
     """
 
     clubs: tuple[Club, ...]
@@ -99,17 +102,20 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
     """Read every club record, its team list and its status into a ClubIndex.
 
     Raises:
-        ReaderCheckError: No club record is accepted, or one team id is listed by two clubs.
+        ReaderCheckError: No club record is accepted, a club uid or club index appears in two
+            records, or a team id is listed twice (by one club or by two).
     """
     records, scan_end = _scan_club_records(game_db, layouts.records)
     if not records:
         raise _layout_mismatch(file_name, "no club records found")
+    _reject_repeated_club_keys(records, file_name)
     record_ends = [next_record.record_start for next_record in records[1:]]
     record_ends.append(scan_end)
     teams_by_record = [
         _read_teams(game_db, record.record_start, record_end, layouts.team_lists)
         for record, record_end in zip(records, record_ends, strict=True)
     ]
+    team_to_club = _map_teams_to_clubs(records, teams_by_record, file_name)
     index_order = sorted(range(len(records)), key=lambda position: records[position].club_index)
     statuses = _read_statuses(
         game_db, [records[position].uid for position in index_order], layouts.statuses
@@ -118,10 +124,8 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
     clubs: list[Club] = []
     uid_by_club_index: dict[int, int] = {}
     club_by_uid: dict[int, Club] = {}
-    team_to_club: dict[int, tuple[int, int]] = {}
     for position, (reputation, last_league_position) in zip(index_order, statuses, strict=True):
         record = records[position]
-        teams = teams_by_record[position]
         club = Club(
             uid=record.uid,
             name=record.name,
@@ -129,27 +133,50 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
             nation_id=record.nation_id,
             fa_nation_id=record.fa_nation_id,
             city_id=record.city_id,
-            teams=teams,
+            teams=teams_by_record[position],
             reputation=reputation,
             last_league_position=last_league_position,
         )
         clubs.append(club)
-        uid_by_club_index.setdefault(record.club_index, record.uid)
-        club_by_uid.setdefault(record.uid, club)
-        claimed_here: set[int] = set()
-        for team in teams:
-            if team.team_id in claimed_here:
-                continue
-            if team.team_id in team_to_club:
-                raise _layout_mismatch(file_name, f"team id {team.team_id} is listed by two clubs")
-            team_to_club[team.team_id] = (record.uid, team.slot)
-            claimed_here.add(team.team_id)
+        uid_by_club_index[record.club_index] = record.uid
+        club_by_uid[record.uid] = club
     return ClubIndex(
         clubs=tuple(clubs),
         uid_by_club_index=uid_by_club_index,
         club_by_uid=club_by_uid,
         team_to_club=team_to_club,
     )
+
+
+def _reject_repeated_club_keys(records: Sequence[_ClubRecord], file_name: str) -> None:
+    seen_uids: set[int] = set()
+    seen_club_indexes: set[int] = set()
+    for record in records:
+        if record.uid in seen_uids:
+            raise _layout_mismatch(file_name, f"club uid {record.uid} appears in two club records")
+        if record.club_index in seen_club_indexes:
+            raise _layout_mismatch(
+                file_name, f"club index {record.club_index} appears in two club records"
+            )
+        seen_uids.add(record.uid)
+        seen_club_indexes.add(record.club_index)
+
+
+def _map_teams_to_clubs(
+    records: Sequence[_ClubRecord],
+    teams_by_record: Sequence[tuple[Team, ...]],
+    file_name: str,
+) -> dict[int, tuple[int, int]]:
+    """Map each team id to (club uid, slot); club uids must already be unique."""
+    team_to_club: dict[int, tuple[int, int]] = {}
+    for record, teams in zip(records, teams_by_record, strict=True):
+        for team in teams:
+            claiming_club = team_to_club.get(team.team_id)
+            if claiming_club is not None:
+                repeat = "twice by one club" if claiming_club[0] == record.uid else "by two clubs"
+                raise _layout_mismatch(file_name, f"team id {team.team_id} is listed {repeat}")
+            team_to_club[team.team_id] = (record.uid, team.slot)
+    return team_to_club
 
 
 def _scan_club_records(game_db: bytes, layout: ClubRecordLayout) -> tuple[list[_ClubRecord], int]:
@@ -240,7 +267,7 @@ def _accepted_record(
         uid=stored_uid + 1,
         nation_id=nation_id,
         fa_nation_id=fa_nation_id,
-        city_id=None if stored_city_id == MISSING_ID else stored_city_id,
+        city_id=None if stored_city_id == MISSING_REFERENCE else stored_city_id,
         name=name,
         short_name=short_name,
     )
@@ -261,10 +288,9 @@ def _read_teams(
     )
     while float_hit >= 0:
         team_list_start = float_hit - layout.float_anchor_offset
-        if team_list_start >= record_start:
-            team_ids = _parse_team_ids(game_db, team_list_start, record_end, layout)
-            if team_ids is not None:
-                return _teams_in_slot_order(team_ids)
+        team_ids = _parse_team_ids(game_db, team_list_start, record_end, layout)
+        if team_ids is not None:
+            return _teams_in_slot_order(team_ids)
         float_hit = game_db.find(float_anchor, float_hit + 1, record_end)
     return ()
 
@@ -312,9 +338,14 @@ def _parse_team_ids(
 
 
 def _read_statuses(
-    game_db: bytes, uids_in_index_order: list[int], layout: ClubStatusLayout
+    game_db: bytes, uids_in_index_order: Sequence[int], layout: ClubStatusLayout
 ) -> list[tuple[int | None, int | None]]:
-    """Walk the status table once, in club index order; return (reputation, position) pairs."""
+    """Walk the status table once, in club index order; return (reputation, position) pairs.
+
+    Until a hit is accepted each search runs to the end of the buffer, and the walk gives up
+    after `maximum_leading_misses` clubs in a row miss. After that, a hit must start at most
+    `search_window_bytes` past the cursor.
+    """
     buffer_length = len(game_db)
     find_uid_pair = game_db.find
     pack_uid_pair = _UINT32_PAIR.pack
@@ -324,14 +355,19 @@ def _read_statuses(
     kind_offset = layout.kind_offset
     normal_kind = layout.normal_kind
     accepted_kinds = (normal_kind, layout.stub_kind)
+    window_span = layout.search_window_bytes + _UINT32_PAIR.size
     statuses: list[tuple[int | None, int | None]] = []
     cursor = 0
     previous_ordinal = -1
+    found_first_status = False
+    leading_misses = 0
     for uid in uids_in_index_order:
         stored_uid = uid - 1
         uid_pair = pack_uid_pair(stored_uid, stored_uid)
+        search_end = cursor + window_span if found_first_status else buffer_length
         status = _NO_STATUS
-        status_hit = find_uid_pair(uid_pair, cursor)
+        accepted = False
+        status_hit = find_uid_pair(uid_pair, cursor, search_end)
         while status_hit >= 0:
             ordinal_at = status_hit + ordinal_offset
             kind_at = status_hit + kind_offset
@@ -343,13 +379,21 @@ def _read_statuses(
                 ordinal: int = read_uint32(game_db, ordinal_at)[0]
                 kind = game_db[kind_at]
                 if previous_ordinal < ordinal < ordinal_limit and kind in accepted_kinds:
+                    accepted = True
                     previous_ordinal = ordinal
                     cursor = kind_at
                     if kind == normal_kind:
                         status = _normal_status(game_db, status_hit, layout)
                     break
-            status_hit = find_uid_pair(uid_pair, status_hit + 1)
+            status_hit = find_uid_pair(uid_pair, status_hit + 1, search_end)
         statuses.append(status)
+        if accepted:
+            found_first_status = True
+        elif not found_first_status:
+            leading_misses += 1
+            if leading_misses >= layout.maximum_leading_misses:
+                break
+    statuses.extend([_NO_STATUS] * (len(uids_in_index_order) - len(statuses)))
     return statuses
 
 

@@ -78,6 +78,10 @@ CLUB_STATUSES = ClubStatusLayout(
     position_offset=10,
     reputation_offset=11,
     reputation_range=(1, 10_000),
+    # A power of two at least four times the largest gap between consecutive accepted status
+    # records measured on real saves.
+    search_window_bytes=256 * 1024,
+    maximum_leading_misses=16,
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import pickle
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -26,6 +28,8 @@ from tests.fixtures.container import (
 from tests.fixtures.game_db import (
     NORMAL_STATUS_KIND,
     NULL_DATE,
+    STATUS_RECORD_BYTES,
+    STATUS_UID_AT,
     STUB_STATUS_KIND,
     club_record_bytes,
     club_record_names_end,
@@ -293,6 +297,24 @@ def test_club_after_a_gap_below_64_kib_is_accepted() -> None:
     assert club_index.team_to_club[70007] == (5005, 0)
 
 
+@pytest.mark.parametrize(
+    ("start_distance", "expected_uids"),
+    [
+        (65_536, [5001, 5002, 5004]),
+        (65_535, [5001, 5002, 5004, 5005]),
+    ],
+)
+def test_scan_stops_at_a_candidate_exactly_64_kib_past_the_last_record(
+    start_distance: int, expected_uids: list[int]
+) -> None:
+    fifth_club = ExampleClubSpec(5, 5005, "Example Wanderers", "Wanderers", 3, 3, 81, (70007,))
+    club_records = [club.record_bytes() for club in EXAMPLE_CLUBS]
+    padding_bytes = start_distance - len(club_records[-1])
+    club_records.append(bytes(padding_bytes) + fifth_club.record_bytes())
+    club_index = read_index(example_game_db(club_records))
+    assert club_uids(club_index) == expected_uids
+
+
 def test_last_club_team_list_is_found_beyond_20000_bytes() -> None:
     athletic_record = ATHLETIC.record_bytes()
     names_end = ATHLETIC.names_end()
@@ -366,6 +388,42 @@ def test_team_claimed_by_two_clubs_raises_reader_check() -> None:
         assert fictional_name not in message
 
 
+@pytest.mark.parametrize(
+    ("changed_southport", "expected_detail"),
+    [
+        pytest.param(replace(SOUTHPORT, uid=5001), "club uid 5001 ", id="uid twice"),
+        pytest.param(replace(SOUTHPORT, club_index=1), "club index 1 ", id="club index twice"),
+    ],
+)
+def test_repeated_club_uid_or_index_raises_reader_check(
+    changed_southport: ExampleClubSpec, expected_detail: str
+) -> None:
+    club_records = [
+        NORTHBRIDGE.record_bytes(),
+        changed_southport.record_bytes(),
+        ATHLETIC.record_bytes(),
+    ]
+    with pytest.raises(ReaderCheckError) as error_info:
+        read_index(example_game_db(club_records))
+    message = str(error_info.value)
+    assert expected_detail in message
+    assert FILE_NAME in message
+    assert "game_db" in message
+
+
+def test_team_listed_twice_by_one_club_raises_reader_check() -> None:
+    repeating_athletic = replace(ATHLETIC, team_ids=(70005, 70004, 70005))
+    club_records = [
+        NORTHBRIDGE.record_bytes(),
+        SOUTHPORT.record_bytes(),
+        repeating_athletic.record_bytes(),
+    ]
+    with pytest.raises(ReaderCheckError, match="team id 70005 is listed twice") as error_info:
+        read_index(example_game_db(club_records))
+    assert FILE_NAME in str(error_info.value)
+    assert "game_db" in str(error_info.value)
+
+
 def test_game_db_without_club_records_raises_reader_check() -> None:
     game_db = section_body(".dat", GAME_DB_SCHEMA, bytes(4096) + b"\xff" * 64 + bytes(128))
     with pytest.raises(ReaderCheckError) as error_info:
@@ -425,6 +483,93 @@ def test_status_record_with_another_kind_is_skipped() -> None:
     assert northbridge.last_league_position is None
 
 
+@pytest.mark.parametrize(
+    ("decoy_ordinal", "decoy_kind"),
+    [
+        pytest.param(52, NORMAL_STATUS_KIND, id="ordinal not above the previous one"),
+        pytest.param(53, 0x0C, id="another kind byte"),
+    ],
+)
+def test_rejected_status_hit_is_passed_over_for_a_later_valid_one(
+    decoy_ordinal: int, decoy_kind: int
+) -> None:
+    northbridge_status, southport_status, athletic_status = example_status_records((51, 52, 54))
+    decoy_status = status_record_bytes(
+        ordinal=decoy_ordinal,
+        club_index=4,
+        uid=5004,
+        kind=decoy_kind,
+        last_league_position=1,
+        reputation=9999,
+    )
+    status_records = [northbridge_status, southport_status, decoy_status, athletic_status]
+    athletic = read_index(example_game_db(status_records=status_records)).club_by_uid[5004]
+    assert athletic.reputation == 1200
+    assert athletic.last_league_position == 14
+
+
+# From the cursor just after Southport's kind byte, Rovers' uid sits at this many bytes plus the
+# gap: the rest of Southport's record, Athletic's record, then Rovers' uid offset.
+ROVERS_UID_DISTANCE_BEFORE_GAP = (
+    STATUS_RECORD_BYTES - (STATUS_UID_AT + 8) + STATUS_RECORD_BYTES + STATUS_UID_AT
+)
+
+
+@pytest.mark.parametrize(
+    ("distance_beyond_window", "rovers_reputation", "athletic_reputation"),
+    [
+        pytest.param(0, 4000, None, id="at the window end"),
+        pytest.param(1, None, 1200, id="one byte beyond the window"),
+    ],
+)
+def test_status_search_after_the_first_hit_is_bounded_by_the_window(
+    distance_beyond_window: int, rovers_reputation: int | None, athletic_reputation: int | None
+) -> None:
+    window_bytes = registered_club_layouts().statuses.search_window_bytes
+    rovers_status = status_record_bytes(
+        ordinal=60,
+        club_index=3,
+        uid=5003,
+        kind=NORMAL_STATUS_KIND,
+        last_league_position=7,
+        reputation=4000,
+    )
+    gap_bytes = window_bytes - ROVERS_UID_DISTANCE_BEFORE_GAP + distance_beyond_window
+    status_records = [*example_status_records(), bytes(gap_bytes) + rovers_status]
+    club_records = records_with_rovers_after_northbridge(ROVERS.record_bytes())
+    club_index = read_index(example_game_db(club_records, status_records))
+    assert club_index.club_by_uid[5001].reputation == 6500
+    assert club_index.club_by_uid[5003].reputation == rovers_reputation
+    assert club_index.club_by_uid[5004].reputation == athletic_reputation
+
+
+@pytest.mark.parametrize(("missing_clubs", "last_club_reputation"), [(15, 1200), (16, None)])
+def test_status_walk_stops_after_too_many_leading_misses(
+    missing_clubs: int, last_club_reputation: int | None
+) -> None:
+    assert registered_club_layouts().statuses.maximum_leading_misses == 16
+    leading_clubs = [
+        ExampleClubSpec(
+            club_number, 6000 + club_number, f"Example Club {club_number}", "Club", 3, 3, 77, ()
+        )
+        for club_number in range(1, missing_clubs + 1)
+    ]
+    last_club = replace(ATHLETIC, club_index=missing_clubs + 1)
+    last_club_status = status_record_bytes(
+        ordinal=51,
+        club_index=missing_clubs + 1,
+        uid=5004,
+        kind=NORMAL_STATUS_KIND,
+        last_league_position=14,
+        reputation=1200,
+    )
+    club_records = [club.record_bytes() for club in (*leading_clubs, last_club)]
+    club_index = read_index(example_game_db(club_records, [last_club_status]))
+    assert len(club_index.clubs) == missing_clubs + 1
+    assert club_index.club_by_uid[5004].reputation == last_club_reputation
+    assert club_index.club_by_uid[6001].reputation is None
+
+
 def test_clubs_and_teams_survive_pickle_and_deepcopy() -> None:
     club_index = read_index(example_game_db())
     for club in club_index.clubs:
@@ -458,10 +603,23 @@ def test_club_index_repr_hides_names_and_the_file_name() -> None:
     assert "3 clubs" in description
 
 
-def test_layout_reprs_hide_nothing_sensitive() -> None:
+LAYOUT_VALUE_PATTERN = r"(?:-?\d+|b'[^']*'|\(\d+, \d+\))"
+
+
+def test_layouts_hold_and_show_only_numbers_and_byte_patterns() -> None:
     club_layouts = registered_club_layouts()
-    for description in (repr(club_layouts), repr(club_layouts.records)):
-        assert "Northbridge" not in description
+    for layout in (club_layouts.records, club_layouts.team_lists, club_layouts.statuses):
+        type_name = type(layout).__name__
+        for layout_field in dataclasses.fields(layout):
+            value = getattr(layout, layout_field.name)
+            is_number_pair = isinstance(value, tuple) and all(
+                type(item) is int
+                for item in value  # pyright: ignore[reportUnknownVariableType]
+            )
+            assert type(value) in (int, bytes) or is_number_pair, f"{type_name}.{layout_field.name}"
+        field_pattern = rf"\w+={LAYOUT_VALUE_PATTERN}"
+        repr_pattern = rf"{type_name}\({field_pattern}(?:, {field_pattern})*\)"
+        assert re.fullmatch(repr_pattern, repr(layout)), type_name
 
 
 def test_field_statuses_follow_the_brief() -> None:
@@ -513,6 +671,8 @@ def test_registered_club_layouts() -> None:
     assert (status_layout.normal_kind, status_layout.stub_kind) == (0x0A, 0x0B)
     assert (status_layout.position_offset, status_layout.reputation_offset) == (10, 11)
     assert status_layout.reputation_range == (1, 10_000)
+    assert status_layout.search_window_bytes == 262_144
+    assert status_layout.maximum_leading_misses == 16
     club_layouts = registered_club_layouts()
     assert club_layouts == ClubLayouts(record_layout, team_list_layout, status_layout)
 
