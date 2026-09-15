@@ -97,8 +97,14 @@ def written_csv_text(
     records: Sequence[object], record_type: type, columns: Sequence[str] | None
 ) -> str:
     stream = io.StringIO(newline="")
-    export._write_records_csv(records, record_type, stream, columns=columns)
+    export._write_records_csv(
+        records, record_type, stream, columns=columns, operation_name="write_csv"
+    )
     return stream.getvalue()
+
+
+def present_counts(records: Sequence[object], record_type: type) -> dict[str, int]:
+    return export._present_counts(records, record_type, operation_name="coverage")
 
 
 @pytest.fixture(scope="module")
@@ -151,7 +157,7 @@ def test_coverage_equals_the_share_of_present_values_in_the_built_columns(
         coverage = Table(chosen_records, record_type).coverage
         expected_coverage = reference_coverage(chosen_records, record_type)
         assert list(coverage.items()) == list(expected_coverage.items())
-        assert export._present_counts(chosen_records, record_type) == reference_present_counts(
+        assert present_counts(chosen_records, record_type) == reference_present_counts(
             chosen_records, record_type
         )
     assert any(0.0 < share < 1.0 for share in Table(records, record_type).coverage.values())
@@ -422,7 +428,7 @@ def test_hand_written_records_give_the_hard_coded_coverage_and_csv_text() -> Non
     records = hand_written_records()
     coverage = Table(records, ExampleSampledRecord).coverage
     assert list(coverage.items()) == list(HAND_WRITTEN_COVERAGE.items())
-    assert export._present_counts(records, ExampleSampledRecord) == {
+    assert present_counts(records, ExampleSampledRecord) == {
         column_name: round(share * len(records))
         for column_name, share in HAND_WRITTEN_COVERAGE.items()
     }
@@ -485,29 +491,49 @@ def test_counts_and_csv_reject_the_values_to_columns_rejects(changes: dict[str, 
         export.to_columns([record], ExampleSampledRecord)
     expected_message = re.escape(str(expected_error.value))
     with pytest.raises(expected_error.type, match=expected_message):
-        export._present_counts([record], ExampleSampledRecord)
+        present_counts([record], ExampleSampledRecord)
     with pytest.raises(expected_error.type, match=expected_message):
         _ = Table([record], ExampleSampledRecord).coverage
     with pytest.raises(expected_error.type, match=expected_message):
         written_csv_text((record,), ExampleSampledRecord, None)
 
 
-def test_records_of_another_type_are_rejected() -> None:
-    wrong_records = [ExampleSpell(None, None)]
-    with pytest.raises(TypeError, match="_present_counts expected ExampleSampledRecord"):
-        export._present_counts(wrong_records, ExampleSampledRecord)
-    with pytest.raises(TypeError, match="_write_records_csv expected ExampleSampledRecord"):
+def test_records_of_another_type_are_rejected_under_the_public_operation_name(
+    tmp_path: Path,
+) -> None:
+    wrong_records = (ExampleSpell(None, None),)
+    expected_message = "expected ExampleSampledRecord records, not ExampleSpell"
+    with pytest.raises(TypeError, match=f"^coverage {expected_message}$"):
+        present_counts(wrong_records, ExampleSampledRecord)
+    with pytest.raises(TypeError, match=f"^write_csv {expected_message}$"):
         written_csv_text(wrong_records, ExampleSampledRecord, None)
+    with pytest.raises(TypeError, match=f"^write_records {expected_message}$"):
+        cli.write_records(wrong_records, ExampleSampledRecord, "csv", None, io.StringIO())
+    # The Table constructor already rejects such records, so they are put in place directly.
+    table = Table((), ExampleSampledRecord)
+    object.__setattr__(table, "_records", wrong_records)
+    with pytest.raises(TypeError, match=f"^coverage {expected_message}$"):
+        _ = table.coverage
+    with pytest.raises(TypeError, match=f"^write_csv {expected_message}$"):
+        table.write_csv(tmp_path / "table.csv")
 
 
 def test_the_csv_writer_checks_the_columns_before_writing() -> None:
     stream = io.StringIO(newline="")
     with pytest.raises(ValueError, match="unknown columns: nope, also_nope"):
         export._write_records_csv(
-            (), ExampleSampledRecord, stream, columns=["nope", "uid", "also_nope"]
+            (),
+            ExampleSampledRecord,
+            stream,
+            columns=["nope", "uid", "also_nope"],
+            operation_name="write_csv",
         )
     with pytest.raises(TypeError, match="not a string"):
-        export._write_records_csv((), ExampleSampledRecord, stream, columns="uid")
+        export._write_records_csv(
+            (), ExampleSampledRecord, stream, columns="uid", operation_name="write_csv"
+        )
     assert stream.getvalue() == ""
-    export._write_records_csv((), ExampleSampledRecord, stream, columns=[])
+    export._write_records_csv(
+        (), ExampleSampledRecord, stream, columns=[], operation_name="write_csv"
+    )
     assert stream.getvalue() == reference_csv_text((), ExampleSampledRecord, [])

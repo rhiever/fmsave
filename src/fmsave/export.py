@@ -805,7 +805,9 @@ def _missing_counts(records: Sequence[object], class_plan: _ClassPlan) -> list[i
     return missing_counts
 
 
-def _present_counts(records: Iterable[object], record_type: type) -> dict[str, int]:  # pyright: ignore[reportUnusedFunction]
+def _present_counts(  # pyright: ignore[reportUnusedFunction]
+    records: Iterable[object], record_type: type, *, operation_name: str
+) -> dict[str, int]:
     """Count the records whose flat value is not None, for each column of record_type.
 
     Keys are column_names(record_type). Each count equals len(values) - values.count(None) for
@@ -817,6 +819,12 @@ def _present_counts(records: Iterable[object], record_type: type) -> dict[str, i
     and values one field at a time, so when several things are wrong the first error raised
     may differ.
 
+    Args:
+        records: Records that are all exactly of record_type.
+        record_type: The record class.
+        operation_name: The public operation the caller offers, such as "coverage", which the
+            error for a record of another type names.
+
     Raises:
         TypeError: A record is not exactly of record_type, record_type is not supported, or a
             value does not match its field's type.
@@ -827,7 +835,7 @@ def _present_counts(records: Iterable[object], record_type: type) -> dict[str, i
     record_list = list(records)
     if set(map(type, record_list)) - {record_type}:
         stray_record = next(record for record in record_list if type(record) is not record_type)
-        raise _record_type_error("_present_counts", record_type, stray_record)
+        raise _record_type_error(operation_name, record_type, stray_record)
     record_count = len(record_list)
     missing_counts = _missing_counts(record_list, class_plan)
     return {
@@ -990,6 +998,7 @@ def _write_records_csv[RecordT](  # pyright: ignore[reportUnusedFunction]
     destination: str | os.PathLike[str] | TextIO,
     *,
     columns: Sequence[str] | None = None,
+    operation_name: str,
 ) -> None:
     """Write records as UTF-8 CSV with a header row, straight from their fields.
 
@@ -1002,6 +1011,8 @@ def _write_records_csv[RecordT](  # pyright: ignore[reportUnusedFunction]
         record_type: The record class.
         destination: A path, or a stream opened with newline="".
         columns: The flat column names to write, in this order, or None for every column.
+        operation_name: The public operation the caller offers, such as "write_csv", which
+            the error for a record of another type names.
 
     Raises:
         TypeError: columns is a single string, a record is not exactly of record_type,
@@ -1024,7 +1035,7 @@ def _write_records_csv[RecordT](  # pyright: ignore[reportUnusedFunction]
     with _text_output(destination, newline="") as stream:
         writer = csv.writer(stream)
         writer.writerow(column_list)
-        writer.writerows(_csv_rows(records, record_type, class_plan, read_cells))
+        writer.writerows(_csv_rows(records, record_type, class_plan, read_cells, operation_name))
 
 
 def _csv_rows(
@@ -1032,10 +1043,11 @@ def _csv_rows(
     record_type: type,
     class_plan: _ClassPlan,
     read_cells: Callable[[list[object]], tuple[object, ...]] | None,
+    operation_name: str,
 ) -> Iterator[Sequence[object]]:
     for record in records:
         if type(record) is not record_type:
-            raise _record_type_error("_write_records_csv", record_type, record)
+            raise _record_type_error(operation_name, record_type, record)
         cells: list[object] = []
         _append_csv_cells(cells, record, class_plan)
         row: Sequence[object] = cells if read_cells is None else read_cells(cells)

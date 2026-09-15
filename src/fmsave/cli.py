@@ -569,7 +569,9 @@ def write_records(
     flat with only the chosen columns.
     """
     if output_format == "csv":
-        export._write_records_csv(records, record_type, stream, columns=column_names)  # pyright: ignore[reportPrivateUsage]
+        export._write_records_csv(  # pyright: ignore[reportPrivateUsage]
+            records, record_type, stream, columns=column_names, operation_name="write_records"
+        )
         return
     if column_names is None:
         json_rows: Iterable[dict[str, object]] = (
