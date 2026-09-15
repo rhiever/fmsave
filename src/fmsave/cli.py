@@ -569,8 +569,7 @@ def write_records(
     flat with only the chosen columns.
     """
     if output_format == "csv":
-        csv_columns = export.column_names(record_type) if column_names is None else column_names
-        export.write_csv(export.flat_rows(records, record_type), csv_columns, stream)
+        export.write_records_csv(records, record_type, stream, columns=column_names)
         return
     if column_names is None:
         json_rows: Iterable[dict[str, object]] = (

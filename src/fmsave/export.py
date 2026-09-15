@@ -28,9 +28,18 @@ from typing import Any, Literal, TextIO, TypeGuard, cast
 from fmsave.models.common import CodedValue
 
 type _FieldKind = Literal[
-    "value", "date", "text_enum", "coded", "group", "values", "coded_values", "records", "unknown"
+    "value",
+    "bool",
+    "date",
+    "text_enum",
+    "coded",
+    "group",
+    "values",
+    "coded_values",
+    "records",
+    "unknown",
 ]
-type _ScalarKind = Literal["value", "date", "text_enum"]
+type _ScalarKind = Literal["value", "bool", "date", "text_enum"]
 type _Step = _FieldRun | _FieldPlan
 
 _UNKNOWN_FIELD_NAME = "unknown"
@@ -38,6 +47,10 @@ _CODE_SUFFIX = "_code"
 _CSV_ITEM_SEPARATOR = ";"
 _MISSING_PAIR: tuple[None, None] = (None, None)
 _NONE_TYPE = type(None)
+# The csv module writes cells of exactly these types the way _csv_cell would.
+_CSV_NATIVE_TYPES: frozenset[type] = frozenset((str, int, _NONE_TYPE))
+_STR_ONLY: frozenset[type] = frozenset((str,))
+_INT_ONLY: frozenset[type] = frozenset((int,))
 _is_present: Callable[[object], bool] = functools.partial(operator.is_not, None)
 _read_label_text = operator.attrgetter("label_text")
 _read_raw = operator.attrgetter("raw")
@@ -69,12 +82,15 @@ class _ClassPlan:
         fields: One plan per dataclass field, in declaration order.
         columns: The flat column names, in order.
         read_fields: Returns every field value of a record as a tuple, in declaration order.
-        steps: Runs of plain and date fields, and the plans of every other field, in
+        steps: Runs of plain, bool and date fields, and the plans of every other field, in
             declaration order. Used for flat values and for dicts that are not JSON-ready.
-        json_steps: The same, but runs hold plain fields only. Used for JSON-ready dicts.
+        json_steps: The same, but runs hold plain and bool fields only. Used for JSON-ready
+            dicts.
+        csv_steps: The same, but runs hold int and str fields only. Used for CSV cells.
         all_plain: Whether steps is at most one run, so the field values are the flat values.
         json_all_plain: The same for json_steps, so the field values are the JSON-ready flat
             values.
+        csv_all_plain: The same for csv_steps, so the field values are the CSV cells.
         missing_columns: One None per column, for a missing group.
     """
 
@@ -84,12 +100,14 @@ class _ClassPlan:
     read_fields: Callable[[object], tuple[object, ...]]
     steps: tuple[_Step, ...]
     json_steps: tuple[_Step, ...]
+    csv_steps: tuple[_Step, ...]
     all_plain: bool
     json_all_plain: bool
+    csv_all_plain: bool
     missing_columns: tuple[None, ...]
 
 
-_NO_MEMBERS = _ClassPlan(object, (), (), _read_no_fields, (), (), True, True, ())
+_NO_MEMBERS = _ClassPlan(object, (), (), _read_no_fields, (), (), (), True, True, True, ())
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -131,8 +149,10 @@ def _without_none(annotation: object) -> object:
 
 
 def _scalar_kind(annotation: object) -> _ScalarKind | None:
-    if annotation is bool or annotation is int or annotation is str:
+    if annotation is int or annotation is str:
         return "value"
+    if annotation is bool:
+        return "bool"
     if annotation is date:
         return "date"
     if isinstance(annotation, type) and issubclass(annotation, StrEnum):
@@ -221,13 +241,14 @@ def _flat_columns(field_plans: tuple[_FieldPlan, ...]) -> list[str]:
                 )
             case "unknown":
                 columns.extend(f"{field_plan.name}_{key}" for key in field_plan.unknown_keys)
-            case "value" | "date" | "text_enum" | "values" | "records":
+            case "value" | "bool" | "date" | "text_enum" | "values" | "records":
                 columns.append(field_plan.name)
     return columns
 
 
-_FLAT_RUN_KINDS: frozenset[_FieldKind] = frozenset(("value", "date"))
-_JSON_RUN_KINDS: frozenset[_FieldKind] = frozenset(("value",))
+_FLAT_RUN_KINDS: frozenset[_FieldKind] = frozenset(("value", "bool", "date"))
+_JSON_RUN_KINDS: frozenset[_FieldKind] = frozenset(("value", "bool"))
+_CSV_RUN_KINDS: frozenset[_FieldKind] = frozenset(("value",))
 
 
 def _steps(
@@ -289,6 +310,7 @@ def _class_plan(record_type: type) -> _ClassPlan:
             raise ValueError(f"{type_name} has more than one {name_role} named {duplicate_name!r}")
     steps = _steps(field_plans, _FLAT_RUN_KINDS)
     json_steps = _steps(field_plans, _JSON_RUN_KINDS)
+    csv_steps = _steps(field_plans, _CSV_RUN_KINDS)
     return _ClassPlan(
         record_type=record_type,
         fields=field_plans,
@@ -296,8 +318,10 @@ def _class_plan(record_type: type) -> _ClassPlan:
         read_fields=_field_reader(tuple(record_field.name for record_field in record_fields)),
         steps=steps,
         json_steps=json_steps,
+        csv_steps=csv_steps,
         all_plain=_is_one_run(steps),
         json_all_plain=_is_one_run(json_steps),
+        csv_all_plain=_is_one_run(csv_steps),
         missing_columns=(None,) * len(columns),
     )
 
@@ -445,7 +469,7 @@ def _missing_nested(class_plan: _ClassPlan) -> dict[str, object]:
             case "coded" | "coded_values":
                 nested[field_plan.name] = None
                 nested[field_plan.code_name] = None
-            case "value" | "date" | "text_enum" | "values" | "records":
+            case "value" | "bool" | "date" | "text_enum" | "values" | "records":
                 nested[field_plan.name] = None
     return nested
 
@@ -462,7 +486,7 @@ def _nested_record(
         field_name = step.name
         value = field_values[step.index]
         match step.kind:
-            case "value":
+            case "value" | "bool":
                 nested[field_name] = value
             case "date":
                 nested[field_name] = (
@@ -530,8 +554,64 @@ def _append_flat_values(
                 flat_values.append(
                     value.isoformat() if json_ready and isinstance(value, date) else value
                 )
-            case "value":
+            case "value" | "bool":
                 flat_values.append(value)
+
+
+def _append_csv_cells(cells: list[object], record: object, class_plan: _ClassPlan) -> None:
+    """Append a record's CSV cells, in column order, without building flat rows.
+
+    A cell is either the text _csv_cell gives for the flat value, or a value the csv module
+    writes as that same text: an int or str field's value, a coded value's label and code, a
+    text enum's value, an unknown mapping's values, and None for a missing or empty tuple.
+    """
+    field_values = class_plan.read_fields(record)
+    for step in class_plan.csv_steps:
+        if isinstance(step, _FieldRun):
+            cells.extend(field_values[step.values])
+            continue
+        value = field_values[step.index]
+        match step.kind:
+            case "group":
+                members = step.members
+                if value is None:
+                    cells.extend(members.missing_columns)
+                elif not isinstance(value, members.record_type):
+                    raise _group_type_error(step)
+                elif members.csv_all_plain:
+                    cells.extend(members.read_fields(value))
+                else:
+                    _append_csv_cells(cells, value, members)
+            case "values":
+                # Text enum and date items give the same text through _csv_items_text.
+                cells.append(
+                    None if value is None else _csv_items_text(_sequence_items(step, value))
+                )
+            case "date":
+                cells.append(value.isoformat() if type(value) is date else _csv_cell(value))
+            case "records":
+                # Every item is a dict, so a tuple with items is always compact JSON.
+                record_items = _record_items(step, value, json_ready=False)
+                cells.append(_compact_json(record_items) if record_items else None)
+            case "coded":
+                cells.extend(_coded_pair(step, value))
+            case "coded_values":
+                if value is None:
+                    cells.extend(_MISSING_PAIR)
+                else:
+                    labels, codes = cast(
+                        "tuple[Sequence[object], Sequence[object]]",
+                        _coded_items(step, value, json_ready=False),
+                    )
+                    cells.extend((_csv_items_text(labels), _csv_items_text(codes)))
+            case "unknown":
+                cells.extend(_unknown_values(step, value))
+            case "text_enum":
+                cells.append(value.value if isinstance(value, StrEnum) else value)
+            case "bool":
+                cells.append(("true" if value else "false") if type(value) is bool else value)
+            case "value":
+                cells.append(value)
 
 
 def record_to_dict(record: object, *, json_ready: bool) -> dict[str, object]:
@@ -653,7 +733,7 @@ def _missing_counts(records: Sequence[object], class_plan: _ClassPlan) -> list[i
     for field_plan in class_plan.fields:
         values: tuple[object, ...] = field_columns[field_plan.index]
         match field_plan.kind:
-            case "value" | "date" | "text_enum":
+            case "value" | "bool" | "date" | "text_enum":
                 missing_counts.append(values.count(None))
             case "coded":
                 _require_types(
@@ -803,13 +883,30 @@ def _compact_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=_json_default)
 
 
+def _csv_items_text(items: Sequence[object]) -> str:
+    """A tuple or list as one cell: compact JSON when an item is a mapping, else joined with ";"."""
+    if not items:
+        return ""
+    item_types = set(map(type, items))
+    if item_types <= _STR_ONLY:
+        return _CSV_ITEM_SEPARATOR.join(cast("Sequence[str]", items))
+    if item_types <= _INT_ONLY:
+        return _CSV_ITEM_SEPARATOR.join(map(str, items))
+    if any(isinstance(item, Mapping) for item in items):
+        return _compact_json(items)
+    return _CSV_ITEM_SEPARATOR.join(_csv_cell(item) for item in items)
+
+
 def _csv_cell(value: object) -> str:
-    if type(value) is str:
-        return value
-    if type(value) is int:
+    value_type = type(value)
+    if value_type is str:
+        return cast("str", value)
+    if value_type is int:
         return str(value)
     if value is None:
         return ""
+    if value_type is tuple or value_type is list:
+        return _csv_items_text(cast("Sequence[object]", value))
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, date):
@@ -817,20 +914,18 @@ def _csv_cell(value: object) -> str:
     if isinstance(value, Mapping):
         return _compact_json(cast("Mapping[object, object]", value))
     if isinstance(value, (tuple, list)):
-        items = cast("Sequence[object]", value)
-        if any(isinstance(item, Mapping) for item in items):
-            return _compact_json(items)
-        return _CSV_ITEM_SEPARATOR.join(_csv_cell(item) for item in items)
+        return _csv_items_text(cast("Sequence[object]", value))
     return str(value)
 
 
-def _cell_reader(column_list: list[str]) -> Callable[[Mapping[str, object]], tuple[object, ...]]:
-    if not column_list:
-        return lambda flat_row: ()
-    if len(column_list) == 1:
-        only_column_name = column_list[0]
-        return lambda flat_row: (flat_row[only_column_name],)
-    return operator.itemgetter(*column_list)
+def _cell_reader[KeyT](keys: list[KeyT]) -> Callable[[Any], tuple[object, ...]]:
+    """Return the cells at the given keys of a row, as a tuple, for any number of keys."""
+    if not keys:
+        return lambda row: ()
+    if len(keys) == 1:
+        only_key = keys[0]
+        return lambda row: (row[only_key],)
+    return operator.itemgetter(*keys)
 
 
 @contextmanager
@@ -879,6 +974,67 @@ def write_csv(
                     for cell in read_cells(flat_row)
                 ]
             )
+
+
+def write_records_csv[RecordT](
+    records: Iterable[RecordT],
+    record_type: type[RecordT],
+    destination: str | os.PathLike[str] | TextIO,
+    *,
+    columns: Sequence[str] | None = None,
+) -> None:
+    """Write records as UTF-8 CSV with a header row, straight from their fields.
+
+    The text equals write_csv(flat_rows(records, record_type), columns, destination), with
+    columns defaulting to column_names(record_type), but no flat rows are built. See write_csv
+    for how cells are written and how the destination is handled.
+
+    Args:
+        records: Records that are all exactly of record_type.
+        record_type: The record class.
+        destination: A path, or a stream opened with newline="".
+        columns: The flat column names to write, in this order, or None for every column.
+
+    Raises:
+        TypeError: columns is a single string, a record is not exactly of record_type,
+            record_type is not supported, or a value does not match its field's type.
+        ValueError: A name in columns is not a column of record_type (raised before anything
+            is written), two fields give the same column name, or a record's unknown mapping
+            holds an undeclared key.
+    """
+    class_plan = _class_plan(record_type)
+    if isinstance(columns, str):
+        raise TypeError("columns must be a sequence of column names, not a string")
+    column_list = list(class_plan.columns if columns is None else columns)
+    read_cells: Callable[[list[object]], tuple[object, ...]] | None = None
+    if column_list != list(class_plan.columns):
+        column_indexes = {name: index for index, name in enumerate(class_plan.columns)}
+        unknown_names = [name for name in column_list if name not in column_indexes]
+        if unknown_names:
+            raise ValueError("unknown columns: " + ", ".join(unknown_names))
+        read_cells = _cell_reader([column_indexes[name] for name in column_list])
+    with _text_output(destination, newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(column_list)
+        writer.writerows(_csv_rows(records, record_type, class_plan, read_cells))
+
+
+def _csv_rows(
+    records: Iterable[object],
+    record_type: type,
+    class_plan: _ClassPlan,
+    read_cells: Callable[[list[object]], tuple[object, ...]] | None,
+) -> Iterator[Sequence[object]]:
+    for record in records:
+        if type(record) is not record_type:
+            raise _record_type_error("write_records_csv", record_type, record)
+        cells: list[object] = []
+        _append_csv_cells(cells, record, class_plan)
+        row: Sequence[object] = cells if read_cells is None else read_cells(cells)
+        if not _CSV_NATIVE_TYPES.issuperset(map(type, row)):
+            # A value whose type its field does not declare, such as a bool in an int field.
+            row = [_csv_cell(cell) for cell in row]
+        yield row
 
 
 def write_json(
