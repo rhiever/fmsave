@@ -318,8 +318,9 @@ class ContractLayout:
     nothing, the table is taken to be the one nearest `E` whose entries, bonus lists (up to
     `clause_competition_max_count` competition items and `clause_award_max_count` award items)
     and trailer end exactly at `E`, whose zero run and count byte check, and whose marker is
-    either `FF` x `clause_ff_count` or a `clause_team_marker_id_bytes`-byte team id that is not
-    all `FF`, followed by zero bytes. The head fields are read only when the `u16` at
+    either `FF` x `clause_ff_count` or a `clause_team_marker_id_bytes`-byte team id that is
+    neither all `FF` nor all zero, followed by zero bytes. The head fields are read only when
+    the `u16` at
     `base + head_gate_offset` equals `head_gate_value`.
 
     The fallback reader walks `FF FF FF FF` hits in `[record_offset +
@@ -458,7 +459,11 @@ class GateBounds:
     `tails_without_clause_table` (parsed tails where no clause table is found, of parsed tails),
     `clause_terminator` (clause tables whose bonus lists and zero trailer end exactly at the
     tail start, of clause tables), `contract_head` (of clause tables), `past_dated_tail_ends`
-    (of parsed tails with an end date) and `chain_teams_resolved` (of chain records).
+    (of parsed tails with an end date) and `chain_teams_resolved` (of chain records). Only
+    tables found by the first search can fail `clause_terminator`, since the search that works
+    back from the tail accepts a table only when it ends there; a table that search cannot find
+    at all counts towards `tails_without_clause_table` instead, so the two together cover every
+    way a clause table can go missing or stop short.
 
     Clubs: `clubs_minimum` (records), `team_lists_found` and `status_normal` (of clubs), and
     `status_confirmation` (of normal status records).

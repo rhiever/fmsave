@@ -409,6 +409,7 @@ class ContractDecoder:
     clause_count_needles: tuple[bytes, ...]
     clause_ff_run: bytes
     clause_team_marker_id_ff: bytes
+    clause_team_marker_id_zeros: bytes
     clause_team_marker_zero_run: bytes
     clause_competition_count_struct: struct.Struct
     clause_competition_item_bytes: int
@@ -610,8 +611,9 @@ class ContractDecoder:
         works back from the tail instead: each way the award list can end at the trailer fixes
         where the competition list ends, each competition count then fixes where the entries
         end, and each clause count then fixes one base. A base is accepted when its zero run
-        and count byte check and its marker is all `FF`, or a team id that is not all `FF`
-        followed by zero bytes. Of the accepted bases, the nearest to the tail is returned.
+        and count byte check and its marker is all `FF`, or a team id that is neither all `FF`
+        nor all zero, followed by zero bytes. Of the accepted bases, the nearest to the tail is
+        returned.
         """
         startswith = game_db.startswith
         trailer_start = tail_offset - len(self.clause_trailer)
@@ -657,6 +659,7 @@ class ContractDecoder:
         count_needles = self.clause_count_needles
         ff_run = self.clause_ff_run
         team_id_ff = self.clause_team_marker_id_ff
+        team_id_zeros = self.clause_team_marker_id_zeros
         team_zero_run = self.clause_team_marker_zero_run
         team_zero_offset = len(team_id_ff)
         clause_max_count = self.clause_max_count
@@ -688,6 +691,7 @@ class ContractDecoder:
                         startswith(ff_run, marker_offset)
                         or (
                             not startswith(team_id_ff, marker_offset)
+                            and not startswith(team_id_zeros, marker_offset)
                             and startswith(team_zero_run, marker_offset + team_zero_offset)
                         )
                     ):
@@ -1197,6 +1201,7 @@ def build_contract_decoder(
         clause_count_needles=tuple(prefix[layout.clause_ff_count :] for prefix in clause_prefixes),
         clause_ff_run=b"\xff" * layout.clause_ff_count,
         clause_team_marker_id_ff=b"\xff" * layout.clause_team_marker_id_bytes,
+        clause_team_marker_id_zeros=bytes(layout.clause_team_marker_id_bytes),
         clause_team_marker_zero_run=team_marker_zero_run,
         clause_competition_count_struct=_build_unsigned_struct(
             layout.clause_competition_count_bytes, "clause_competition_count_bytes"

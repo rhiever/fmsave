@@ -58,13 +58,11 @@ class ClauseKind(IntEnum):
     TOP_DIVISION_RELEGATION_SALARY_DROP, years for OPTIONAL_EXTENSION_BY_CLUB, the number of
     goals plus assists that earns the bonus for SEASONAL_LANDMARK_COMBINED_GOALS_AND_ASSISTS,
     and days to expiry from the contract start for MINIMUM_FEE_RELEASE_DOMESTIC (None means no
-    expiry). RELEGATION_RELEASE and NON_PROMOTION_RELEASE carry no parameter meaning.
+    expiry).
     """
 
     UNKNOWN = -1
     MINIMUM_FEE_RELEASE = 0x00
-    RELEGATION_RELEASE = 0x01
-    NON_PROMOTION_RELEASE = 0x02
     TOP_DIVISION_RELEGATION_SALARY_DROP = 0x0F
     MINIMUM_FEE_RELEASE_FOREIGN = 0x10
     MINIMUM_FEE_RELEASE_DOMESTIC = 0x12

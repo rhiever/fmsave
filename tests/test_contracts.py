@@ -514,7 +514,7 @@ def test_no_head_leaves_type_and_money_absent_but_clauses_parse() -> None:
         start=packed_date(1, 2028),
         tail={"end": packed_date(1, 2030), "status": 3},
         head=None,
-        clauses=((100, 10, 0x01),),
+        clauses=((100, 0xFFFF, 0x00),),
     )
     payload = (
         name_pools_bytes([], [], [])
@@ -534,7 +534,7 @@ def test_no_head_leaves_type_and_money_absent_but_clauses_parse() -> None:
     assert contract.unknown.get("money_b") is None
     assert contract.unknown.get("money_c") is None
     assert len(contract.clauses) == 1
-    assert contract.clauses[0].kind.label is ClauseKind.RELEGATION_RELEASE
+    assert contract.clauses[0].kind.label is ClauseKind.MINIMUM_FEE_RELEASE
 
 
 def test_chain_record_far_past_record_is_included_with_no_cap() -> None:
@@ -1233,6 +1233,7 @@ def _with_byte(data: bytes, index: int, value: int) -> bytes:
         pytest.param(b"\xff" * 7 + b"\xfe", None, id="marker-ff-run-broken-at-the-end"),
         pytest.param(b"\xfe" + b"\xff" * 7, None, id="marker-ff-run-broken-at-the-start"),
         pytest.param(b"\xff" * 4 + bytes(4), None, id="marker-team-id-all-ff"),
+        pytest.param(bytes(8), None, id="marker-team-id-all-zero"),
         pytest.param(
             struct.pack("<II", NORTHBRIDGE_TEAM_A, 1), None, id="marker-team-id-without-zero-word"
         ),
@@ -1397,6 +1398,8 @@ def test_the_fallback_agrees_with_the_fast_path_on_seeded_tables() -> None:
         (0x25, "INTERNATIONAL_CAP_BONUS"),
         (0x26, "UNUSED_SUBSTITUTE_FEE"),
         (0x29, "SEASONAL_LANDMARK_COMBINED_GOALS_AND_ASSISTS"),
+        (0x01, "UNKNOWN"),
+        (0x02, "UNKNOWN"),
         (0x11, "UNKNOWN"),
         (0x27, "UNKNOWN"),
     ],
