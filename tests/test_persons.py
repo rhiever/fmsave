@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import pickle
-import re
 from datetime import date
 
 import pytest
@@ -13,10 +12,7 @@ from fmsave._layouts import NamePoolLayout, PersonBlockLayout, PlayerRecordLayou
 from fmsave.models.players import Trait
 from fmsave.readers.clubs import find_club_layouts, read_club_index
 from fmsave.readers.names import locate_name_pools
-from fmsave.readers.persons import (
-    _personality_pattern,
-    build_person_block_decoder,
-)
+from fmsave.readers.persons import build_person_block_decoder
 from fmsave.readers.player_scan import locate_player_records, window_end
 from fmsave.readers.players import build_player_decoder
 from tests.fixtures.container import (
@@ -32,6 +28,7 @@ from tests.fixtures.game_db import (
     club_record_bytes,
     game_db_body,
     name_pools_bytes,
+    person_block_birth_offset,
     person_block_bytes,
     player_record_bytes,
     relation_entry_bytes,
@@ -67,6 +64,28 @@ SOUTHPORT_STATUS = status_record_bytes(
     kind=STUB_STATUS_KIND,
     last_league_position=5,
     reputation=3000,
+)
+
+RESERVE_CLUB_UID = 5004
+RESERVE_CLUB_INDEX = 3
+RESERVE_CLUB = club_record_bytes(
+    club_index=RESERVE_CLUB_INDEX,
+    uid=RESERVE_CLUB_UID,
+    nation_id=3,
+    fa_nation_id=4,
+    city_id=81,
+    name="Example Reserve",
+    short_name="Reserve",
+    team_ids=(70050,),
+    float_anchor_only=True,
+)
+RESERVE_STATUS = status_record_bytes(
+    ordinal=52,
+    club_index=RESERVE_CLUB_INDEX,
+    uid=RESERVE_CLUB_UID,
+    kind=STUB_STATUS_KIND,
+    last_league_position=8,
+    reputation=2000,
 )
 
 DEFAULT_PERSONALITY = (15, 12, 9, 20, 18, 7, 11, 3)
@@ -143,7 +162,7 @@ def registered_player_layout() -> PlayerRecordLayout:
 
 def game_db_prefix() -> bytes:
     return name_pools_bytes(FIRST_NAMES, SURNAMES, COMMON_NAMES) + game_db_body(
-        [SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000
+        [SOUTHPORT_CLUB, RESERVE_CLUB], [SOUTHPORT_STATUS, RESERVE_STATUS], gap_bytes=2000
     )
 
 
@@ -224,7 +243,7 @@ def test_birth_year_after_clock_year_is_rejected() -> None:
 
 def test_nonzero_byte_in_the_required_zero_range_is_rejected() -> None:
     mutable = bytearray(PLAYER_A_BLOCK)
-    birth_local_offset = 152  # PLAYER_A_BLOCK has no legal name, so L == 0.
+    birth_local_offset = person_block_birth_offset(None)  # PLAYER_A_BLOCK has no legal name.
     mutable[birth_local_offset + 16] = 5
     assert decode_block(bytes(mutable)) is None
 
@@ -274,6 +293,149 @@ def test_relation_list_overrun_raises_corrupt_save_error() -> None:
     assert "game_db" in message
 
 
+def test_relation_count_byte_overrun_raises_corrupt_save_error() -> None:
+    # present (p+37) is 1 on PLAYER_A_BLOCK; truncate the window right at the count byte
+    # (p+38), so the present byte itself still fits but the count byte does not.
+    prefix = game_db_prefix()
+    game_db = prefix + PLAYER_A_BLOCK
+    layout = registered_person_layout()
+    birth_absolute = len(prefix) + person_block_birth_offset(None)
+    count_absolute = birth_absolute + layout.relation_count_offset_from_birth
+    decoder = build_decoder(game_db)
+    with pytest.raises(CorruptSaveError) as error_info:
+        decoder.decode(game_db, len(prefix), count_absolute)
+    message = str(error_info.value)
+    assert FILE_NAME in message
+    assert "game_db" in message
+
+
+def test_relation_present_zero_gives_empty_relations_even_with_a_nonzero_count() -> None:
+    prefix = game_db_prefix()
+    mutable_game_db = bytearray(prefix + PLAYER_A_BLOCK)
+    layout = registered_person_layout()
+    birth_absolute = len(prefix) + person_block_birth_offset(None)
+    present_absolute = birth_absolute + layout.relation_present_offset_from_birth
+    mutable_game_db[present_absolute] = 0
+    game_db = bytes(mutable_game_db)
+    decoder = build_decoder(game_db)
+    person = decoder.decode(game_db, len(prefix), len(game_db))
+    assert person is not None
+    assert person.second_nation_ids == ()
+    assert person.home_grown_nation_ids == ()
+    assert person.home_grown_club_uids == ()
+    assert person.home_grown_club_names == ()
+
+
+def test_relation_present_zero_with_an_overrunning_count_raises_no_error() -> None:
+    prefix = game_db_prefix()
+    mutable_game_db = bytearray(prefix + PLAYER_A_BLOCK)
+    layout = registered_person_layout()
+    birth_absolute = len(prefix) + person_block_birth_offset(None)
+    present_absolute = birth_absolute + layout.relation_present_offset_from_birth
+    mutable_game_db[present_absolute] = 0
+    game_db = bytes(mutable_game_db)
+    decoder = build_decoder(game_db)
+    # The window ends right after the present byte: reading the count byte or any entry
+    # would overrun it, but present is 0 so neither is ever read.
+    truncated_window_end = present_absolute + 1
+    person = decoder.decode(game_db, len(prefix), truncated_window_end)
+    assert person is not None
+    assert person.second_nation_ids == ()
+
+
+def test_unresolved_home_grown_club_keeps_its_list_position() -> None:
+    relations = (
+        relation_entry_bytes(SOUTHPORT_CLUB_INDEX, 1, 72),
+        relation_entry_bytes(99, 1, 72),
+        relation_entry_bytes(RESERVE_CLUB_INDEX, 1, 72),
+    )
+    block = person_block_bytes(
+        first_name_id=0,
+        surname_id=0,
+        common_name_id=0xFFFFFFFF,
+        legal_name=None,
+        birth=packed_date(60, 2004),
+        nation_id=44,
+        personality=DEFAULT_PERSONALITY,
+        trait_bits=0,
+        relations=relations,
+    )
+    person = decode_block(block)
+    assert person is not None
+    assert person.home_grown_club_uids == (5002, None, 5004)
+    assert person.home_grown_club_names == ("Southport Example", None, "Example Reserve")
+
+
+def test_day_366_in_a_non_leap_year_is_accepted_with_null_birth_date() -> None:
+    block = person_block_bytes(
+        first_name_id=0,
+        surname_id=0,
+        common_name_id=0xFFFFFFFF,
+        legal_name=None,
+        birth=packed_date(366, 2003),  # 2003 is not a leap year: no day 366 exists.
+        nation_id=44,
+        personality=DEFAULT_PERSONALITY,
+        trait_bits=0,
+        relations=(),
+    )
+    person = decode_block(block)
+    assert person is not None
+    assert person.birth_date is None
+    assert person.age is None
+
+
+def test_invalid_utf8_legal_name_raises_corrupt_save_error() -> None:
+    legal_name = "AAAA"
+    mutable_block = bytearray(
+        person_block_bytes(
+            first_name_id=0,
+            surname_id=0,
+            common_name_id=0xFFFFFFFF,
+            legal_name=legal_name,
+            birth=packed_date(60, 2004),
+            nation_id=44,
+            personality=DEFAULT_PERSONALITY,
+            trait_bits=0,
+            relations=(),
+        )
+    )
+    birth_local_offset = person_block_birth_offset(legal_name)
+    legal_name_length = len(legal_name.encode("utf-8"))
+    legal_name_start_local = birth_local_offset - legal_name_length
+    mutable_block[legal_name_start_local : legal_name_start_local + legal_name_length] = (
+        b"\x80" * legal_name_length
+    )
+    prefix = game_db_prefix()
+    game_db = prefix + bytes(mutable_block)
+    decoder = build_decoder(game_db)
+    with pytest.raises(CorruptSaveError) as error_info:
+        decoder.decode(game_db, len(prefix), len(game_db))
+    message = str(error_info.value)
+    assert FILE_NAME in message
+
+
+def test_candidate_one_byte_before_window_start_is_skipped() -> None:
+    prefix = game_db_prefix()
+    game_db = prefix + PLAYER_A_BLOCK
+    true_birth_absolute = len(prefix) + person_block_birth_offset(None)
+    decoder = build_decoder(game_db)
+    window_start = true_birth_absolute + 1
+    assert decoder.decode(game_db, window_start, len(game_db)) is None
+
+
+def test_in_window_false_personality_run_that_fails_validation_is_skipped() -> None:
+    # A first, otherwise-real block whose own required zero region is corrupted (so it fails
+    # validation once entered, not merely excluded by the window-start bound), followed by a
+    # second, real, valid block in the same window.
+    broken_block = bytearray(PLAYER_A_BLOCK)
+    broken_birth_local_offset = person_block_birth_offset(None)
+    broken_block[broken_birth_local_offset + 16] = 5
+    combined_block = bytes(broken_block) + PLAYER_A_BLOCK
+    person = decode_block(combined_block)
+    assert person is not None
+    assert person.nation_id == 44
+
+
 def test_non_ascii_legal_name_round_trips() -> None:
     block = person_block_bytes(
         first_name_id=0xFFFFFFFF,
@@ -291,24 +453,6 @@ def test_non_ascii_legal_name_round_trips() -> None:
     assert person.legal_name == "Łukasz Exämple"
 
 
-def test_personality_pattern_finds_overlapping_starts_a_consuming_pattern_would_miss() -> None:
-    layout = registered_person_layout()
-    overlapping_pattern = _personality_pattern(layout)
-    lowest, highest = layout.personality_range
-    consuming_pattern = re.compile(
-        b"[" + bytes((lowest,)) + b"-" + bytes((highest,)) + b"]{" + b"8}"
-    )
-    # A run of 11 in-range bytes: a consuming (non-overlapping) pattern only ever reports the
-    # leftmost 8-byte window, so it never reaches start position 3, the "true" candidate here.
-    buffer = bytes([5] * 11)
-    overlapping_starts = [match.start() for match in overlapping_pattern.finditer(buffer)]
-    consuming_starts = [match.start() for match in consuming_pattern.finditer(buffer)]
-    assert overlapping_starts == [0, 1, 2, 3]
-    assert consuming_starts == [0]
-    assert 3 in overlapping_starts
-    assert 3 not in consuming_starts
-
-
 def test_unreadable_clock_raises_reader_check_error_from_players(tmp_path) -> None:
     sections = [
         SectionFrame("game_info", game_info_body(game_day_of_year=60, game_year=1800))
@@ -320,8 +464,32 @@ def test_unreadable_clock_raises_reader_check_error_from_players(tmp_path) -> No
     with fmsave.open(path) as career_save:
         with pytest.raises(ReaderCheckError) as error_info:
             career_save.players()
-        assert "in-game date is unreadable" in str(error_info.value)
+        message = str(error_info.value)
+        assert message.startswith(FILE_NAME)
+        assert (
+            "the save's in-game date is unreadable, so person blocks and ages cannot be "
+            "decoded" in message
+        )
 
+
+PLAYER_FULL_RELATIONS = (
+    relation_entry_bytes(12, 8, 9, 100),
+    relation_entry_bytes(5, 8, 70),
+    relation_entry_bytes(SOUTHPORT_CLUB_INDEX, 1, 72),
+    relation_entry_bytes(99, 1, 72),
+)
+
+PLAYER_FULL_BLOCK = person_block_bytes(
+    first_name_id=0,
+    surname_id=0,
+    common_name_id=1,
+    legal_name="Legal Round Trip",
+    birth=packed_date(60, 2004),
+    nation_id=44,
+    personality=DEFAULT_PERSONALITY,
+    trait_bits=(1 << 13) | (1 << 40),
+    relations=PLAYER_FULL_RELATIONS,
+)
 
 _FULL_PLAYER_KWARGS = {
     "pindex": 21,
@@ -345,7 +513,7 @@ _FULL_PLAYER_KWARGS = {
 
 def test_full_player_decode_merges_person_fields_and_round_trips() -> None:
     prefix = game_db_prefix()
-    payload = prefix + player_record_bytes(**_FULL_PLAYER_KWARGS, trailing=PLAYER_A_BLOCK)
+    payload = prefix + player_record_bytes(**_FULL_PLAYER_KWARGS, trailing=PLAYER_FULL_BLOCK)
     game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
 
     name_pools = locate_name_pools(game_db, registered_name_pool_layout(), FILE_NAME)
@@ -366,13 +534,26 @@ def test_full_player_decode_merges_person_fields_and_round_trips() -> None:
     record_window_end = window_end(player_records, 0, len(game_db))
     player = decoder.decode(game_db, record_offset, record_window_end)
 
-    assert player.name == "Alex Example"
+    assert player.name == "Pim"
+    assert player.first_name == "Alex"
+    assert player.last_name == "Example"
+    assert player.common_name == "Pim"
+    assert player.full_name == "Alex Example"
+    assert player.legal_name == "Legal Round Trip"
     assert player.birth_date == date(2004, 2, 29)
     assert player.age == 27
+    assert player.nation_id == 44
+    assert player.second_nation_ids == (12,)
+    assert player.home_grown_nation_ids == (5,)
+    assert player.home_grown_club_uids == (5002, None)
+    assert player.home_grown_club_names == ("Southport Example", None)
     assert player.personality is not None
     assert player.personality.pressure == 20
     assert player.trait_bits == (1 << 13) | (1 << 40)
-    assert player.home_grown_club_uids == (5002,)
+    assert [trait.label for trait in player.traits] == [
+        Trait.LIKES_TO_TRY_TO_BEAT_OFFSIDE_TRAP,
+        Trait.UNKNOWN,
+    ]
 
     copied = pickle.loads(pickle.dumps(player))
     assert copied == player

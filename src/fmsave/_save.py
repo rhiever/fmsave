@@ -78,8 +78,9 @@ class Save:
         Raises:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
-            CorruptSaveError: The save is damaged or was being written, or a player's
-                relation list runs past its record window.
+            CorruptSaveError: The save is damaged or was being written, a player's relation
+                header or entry list runs past its record window, or a legal name is not
+                valid UTF-8.
             ReaderCheckError: No club record is accepted, a club uid or club index appears
                 in two records, a team id is listed twice (by one club or by two), no player
                 records were found, two player records share a uid, or the save's in-game
@@ -94,7 +95,8 @@ class Save:
         clock = save_info.game_date
         if clock is None:
             raise ReaderCheckError(
-                "the save's in-game date is unreadable, so person blocks and ages cannot be decoded"
+                f"{save_info.file_name}: the save's in-game date is unreadable, so person "
+                "blocks and ages cannot be decoded"
             )
         with context.section(GAME_DB_SECTION) as game_db:
             club_index = context.club_index()

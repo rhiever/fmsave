@@ -258,8 +258,8 @@ class Player:
     """A player record from the save's game database.
 
     Person fields (name, birth date, nationality, home-grown ids, personality and traits)
-    are always None or empty until a later reader pass fills them in. Contract and
-    suspension fields are appended by later tasks.
+    come from the player's person block; they stay None or empty when no block validates.
+    Contract and suspension fields are appended by later tasks.
 
     Attributes:
         uid: The player's id in the game database (unconfirmed).
@@ -276,9 +276,11 @@ class Player:
         nation_id: Id of the player's primary nation (unconfirmed).
         second_nation_ids: Ids of the player's other eligible nations.
         home_grown_nation_ids: Ids of nations the player is considered home grown for.
-        home_grown_club_uids: Uids of clubs the player is considered home grown for.
+        home_grown_club_uids: Uids of clubs the player is considered home grown for, in
+            relation-list order; an entry is None when its club index does not resolve, but
+            still keeps its position.
         home_grown_club_names: Denormalised names for home_grown_club_uids, in the same
-            order.
+            order; None wherever home_grown_club_uids is None.
         height_cm: Height in centimetres (unconfirmed).
         ability: Current and potential ability.
         reputation: Reputation figures; never threshold on reputation.bucket.
@@ -301,7 +303,7 @@ class Player:
         natural_positions: Position codes rated at least 18, best first.
         accomplished_positions: Position codes rated 15 to 17, best first. This is an
             fmsave classifier label, not text the game itself shows.
-        personality: Personality profile, or None until a later reader pass fills it in.
+        personality: Personality profile, or None when no person block validates.
         attributes: The 52 non-foot attributes, on the 1 to 20 display scale.
         raw_attributes: The same 52 attributes, on the 1 to 100 raw scale.
         left_foot: Left foot strength, on the 1 to 20 display scale.
@@ -316,7 +318,7 @@ class Player:
         match_sharpness: Match sharpness, on a 0 to 10000 raw scale.
         traits: Named player traits; an unnamed bit is Trait.UNKNOWN with raw set to the
             bit number.
-        trait_bits: The raw trait bitmask, or None until a later reader pass fills it in.
+        trait_bits: The raw trait bitmask, or None when no person block validates.
     """
 
     uid: int
@@ -331,7 +333,7 @@ class Player:
     nation_id: int | None
     second_nation_ids: tuple[int, ...]
     home_grown_nation_ids: tuple[int, ...]
-    home_grown_club_uids: tuple[int, ...]
+    home_grown_club_uids: tuple[int | None, ...]
     home_grown_club_names: tuple[str | None, ...]
     height_cm: int
     ability: Ability

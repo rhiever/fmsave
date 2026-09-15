@@ -49,8 +49,11 @@ class PersonFields:
         nation_id: Id of the player's primary nation.
         second_nation_ids: Ids of the player's other eligible nations.
         home_grown_nation_ids: Ids of nations the player is considered home grown for.
-        home_grown_club_uids: Uids of clubs the player is considered home grown for.
-        home_grown_club_names: Denormalised names for home_grown_club_uids, in the same order.
+        home_grown_club_uids: Uids of clubs the player is considered home grown for, in
+            relation-list order; an entry is None when its club index does not resolve, but
+            still keeps its position.
+        home_grown_club_names: Denormalised names for home_grown_club_uids, in the same
+            order; None wherever home_grown_club_uids is None.
         personality: Personality profile.
         trait_bits: The raw trait bitmask.
         traits: Named player traits; an unnamed bit is Trait.UNKNOWN with raw set to the bit
@@ -63,12 +66,12 @@ class PersonFields:
     common_name: str | None
     full_name: str | None
     legal_name: str | None
-    birth_date: date
-    age: int
+    birth_date: date | None
+    age: int | None
     nation_id: int
     second_nation_ids: tuple[int, ...]
     home_grown_nation_ids: tuple[int, ...]
-    home_grown_club_uids: tuple[int, ...]
+    home_grown_club_uids: tuple[int | None, ...]
     home_grown_club_names: tuple[str | None, ...]
     personality: Personality
     trait_bits: int
@@ -146,7 +149,7 @@ class PersonBlockDecoder:
 
         Raises:
             CorruptSaveError: A validated block's relation header or entry list runs past
-                window_end.
+                window_end, or its legal name is not valid UTF-8.
         """
         layout = self.layout
         for run_start, run_end in _flagged_runs(
@@ -168,8 +171,8 @@ class PersonBlockDecoder:
         self, game_db: bytes, birth_date_offset: int, window_start: int, window_end: int
     ) -> PersonFields | None:
         layout = self.layout
-        birth_date = self._validate_birth_date(game_db, birth_date_offset)
-        if birth_date is None:
+        raw_checks_passed, birth_date = self._validate_birth_date(game_db, birth_date_offset)
+        if not raw_checks_passed:
             return None
         zero_bytes_start = birth_date_offset + layout.date_zero_bytes_offset_from_birth
         zero_bytes = game_db[zero_bytes_start : zero_bytes_start + layout.date_zero_bytes_count]
@@ -214,7 +217,9 @@ class PersonBlockDecoder:
         if name is None:
             name = legal_name
         age = (
-            self.clock.year
+            None
+            if birth_date is None
+            else self.clock.year
             - birth_date.year
             - ((self.clock.month, self.clock.day) < (birth_date.month, birth_date.day))
         )
@@ -244,17 +249,22 @@ class PersonBlockDecoder:
             traits=traits,
         )
 
-    def _validate_birth_date(self, game_db: bytes, birth_date_offset: int) -> date | None:
+    def _validate_birth_date(
+        self, game_db: bytes, birth_date_offset: int
+    ) -> tuple[bool, date | None]:
+        """(raw_checks_passed, birth_date). A candidate whose raw checks pass but whose day
+        does not exist in its (non-leap) year is still accepted, with birth_date None.
+        """
         packed, year = _DATE4_STRUCT.unpack_from(game_db, birth_date_offset)
         time_slot = packed >> 9
         day_of_year = packed & _TIME_SLOT_MASK
         if time_slot != 0:
-            return None
+            return False, None
         if not 1 <= day_of_year <= 366:
-            return None
+            return False, None
         if not 1901 <= year <= self.clock.year:
-            return None
-        return decode_date(game_db, birth_date_offset)
+            return False, None
+        return True, decode_date(game_db, birth_date_offset)
 
     def _find_legal_name_length(self, game_db: bytes, birth_date_offset: int) -> int | None:
         layout = self.layout
@@ -324,13 +334,24 @@ class PersonBlockDecoder:
 
     def _read_relations(
         self, game_db: bytes, birth_date_offset: int, window_end: int
-    ) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...], tuple[str | None, ...]]:
+    ) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int | None, ...], tuple[str | None, ...]]:
         layout = self.layout
-        header_end = birth_date_offset + layout.relation_count_offset_from_birth + 1
-        if header_end > window_end:
-            raise self._relation_overrun_error(header_end, window_end)
+        present_offset = birth_date_offset + layout.relation_present_offset_from_birth
+        present_header_end = present_offset + 1
+        if present_header_end > window_end:
+            raise self._relation_overrun_error(present_header_end, window_end)
+        present = game_db[present_offset]
+        empty_relations = (), (), (), ()
+        if present == 0:
+            return empty_relations
+
         count_offset = birth_date_offset + layout.relation_count_offset_from_birth
+        count_header_end = count_offset + 1
+        if count_header_end > window_end:
+            raise self._relation_overrun_error(count_header_end, window_end)
         relation_count: int = game_db[count_offset]
+        if relation_count == 0:
+            return empty_relations
         entries_start = birth_date_offset + layout.relation_entries_offset_from_birth
         entries_end = entries_start + layout.relation_entry_bytes * relation_count
         if entries_end > window_end:
@@ -338,7 +359,7 @@ class PersonBlockDecoder:
 
         second_nation_ids: list[int] = []
         home_grown_nation_ids: list[int] = []
-        home_grown_club_uids: list[int] = []
+        home_grown_club_uids: list[int | None] = []
         home_grown_club_names: list[str | None] = []
         seen_second_nation: set[int] = set()
         seen_home_grown_nation: set[int] = set()
@@ -359,10 +380,9 @@ class PersonBlockDecoder:
             elif pair == layout.home_grown_club_pair and referenced not in seen_home_grown_club:
                 seen_home_grown_club.add(referenced)
                 club_uid = self.club_index.uid_by_club_index.get(referenced)
-                if club_uid is not None:
-                    club = self.club_index.club_by_uid.get(club_uid)
-                    home_grown_club_uids.append(club_uid)
-                    home_grown_club_names.append(None if club is None else club.name)
+                club = None if club_uid is None else self.club_index.club_by_uid.get(club_uid)
+                home_grown_club_uids.append(club_uid)
+                home_grown_club_names.append(None if club is None else club.name)
         return (
             tuple(second_nation_ids),
             tuple(home_grown_nation_ids),

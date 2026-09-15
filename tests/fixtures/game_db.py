@@ -142,6 +142,12 @@ PLAYER_RECORD_BODY_BYTES = 300
 
 PERSON_BLOCK_UNIDENTIFIED_DATE = packed_date(1, 1900)
 PERSON_BLOCK_FILLER_BYTE = 0x21
+DEFAULT_PERSON_BLOCK_CLUTTER = b"\x00" * 120
+
+# Bytes between the block start and the birth date4: the unidentified date (4) plus its zero
+# byte (1), the u64 trait bits (8), three name ids each followed by a zero byte (5 * 3 = 15),
+# and the legal-name length word (4). The legal name text itself (its byte length) follows.
+_PERSON_BLOCK_HEADER_BYTES = 5 + 8 + 15 + 4
 
 
 def relation_entry_bytes(referenced: int, kind: int, role: int, qualifier: int = 100) -> bytes:
@@ -155,6 +161,16 @@ def relation_entry_bytes(referenced: int, kind: int, role: int, qualifier: int =
     return bytes(output)
 
 
+def person_block_birth_offset(
+    legal_name: str | None, clutter: bytes = DEFAULT_PERSON_BLOCK_CLUTTER
+) -> int:
+    """The birth date4's offset inside a `person_block_bytes` result, for a given legal name
+    and clutter length; callers must derive this rather than hard-coding it.
+    """
+    legal_name_length = 0 if legal_name is None else len(legal_name.encode("utf-8"))
+    return len(clutter) + _PERSON_BLOCK_HEADER_BYTES + legal_name_length
+
+
 def person_block_bytes(
     *,
     first_name_id: int,
@@ -166,7 +182,7 @@ def person_block_bytes(
     personality: Sequence[int],
     trait_bits: int,
     relations: Sequence[bytes],
-    clutter: bytes = b"\x00" * 120,
+    clutter: bytes = DEFAULT_PERSON_BLOCK_CLUTTER,
 ) -> bytes:
     """A person block, in the order fmsave's reader expects: clutter, then trait bits, name
     ids, legal name, birth date, filler, nation id, personality, city filler, and the
