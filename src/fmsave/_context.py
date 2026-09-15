@@ -20,7 +20,11 @@ from fmsave.models.meta import SaveInfo
 from fmsave.readers._common import GAME_DB_SECTION
 from fmsave.readers.clubs import ClubIndex, find_club_layouts, read_club_index
 from fmsave.readers.names import NAME_POOLS_CACHE_KEY, NamePools, locate_name_pools
-from fmsave.readers.players import PLAYER_RECORDS_CACHE_KEY, PlayerRecords, locate_player_records
+from fmsave.readers.player_scan import (
+    PLAYER_RECORDS_CACHE_KEY,
+    PlayerRecords,
+    locate_player_records,
+)
 
 CLUB_INDEX_CACHE_KEY = "club_index"
 
@@ -134,7 +138,6 @@ class SaveContext:
 
     def _build_player_records(self) -> PlayerRecords:
         save_info = self._info
-        name_pools = self.name_pools()
         layout = find_layout(
             PlayerRecordLayout,
             GAME_DB_SECTION,
@@ -142,6 +145,9 @@ class SaveContext:
             save_info.build,
         ).layout
         with self.section(GAME_DB_SECTION) as game_db:
+            # name_pools() is called inside this borrow so its own internal borrow shares
+            # this one, instead of decompressing game_db a second time on a cold call.
+            name_pools = self.name_pools()
             return locate_player_records(
                 game_db, name_pools.end_offset, layout, save_info.file_name
             )

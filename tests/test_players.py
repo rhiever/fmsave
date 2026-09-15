@@ -20,12 +20,15 @@ from fmsave.models.common import TransferValueState
 from fmsave.models.players import Attributes, Personality, Player
 from fmsave.readers.clubs import find_club_layouts, read_club_index
 from fmsave.readers.names import NAME_POOLS_CACHE_KEY, locate_name_pools
-from fmsave.readers.players import (
+from fmsave.readers.player_scan import (
     PLAYER_RECORDS_CACHE_KEY,
-    build_player_decoder,
+    _completeness_pattern,
+    _flagged_runs,
+    build_header_layout,
     locate_player_records,
     window_end,
 )
+from fmsave.readers.players import _tail_layout, build_player_decoder
 from tests.fixtures.container import (
     SectionFrame,
     build_container_fragment,
@@ -398,11 +401,42 @@ def test_truncated_final_record_raises_corrupt_save_error() -> None:
     assert "game_db" in message
 
 
+def test_truncated_record_with_marker_intact_raises_corrupt_save_error() -> None:
+    truncated_candidate = dict(PLAYER_D)
+    truncated_candidate["pindex"] = 78
+    truncated_candidate["uid"] = 900078
+    full_record_bytes = player_record_bytes(**truncated_candidate)
+    # The marker sits at +102..+106; keep it intact (truncate at +110) but stop short of
+    # decode_extent (+122), so this record is found by the marker scan, not completeness.
+    truncated_record_bytes = full_record_bytes[: 26 + 110]
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body([SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000)
+        + truncated_record_bytes
+    )
+    game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
+    name_pools = locate_name_pools(game_db, registered_name_pool_layout(), FILE_NAME)
+    with pytest.raises(CorruptSaveError) as error_info:
+        locate_player_records(game_db, name_pools.end_offset, registered_player_layout(), FILE_NAME)
+    message = str(error_info.value)
+    assert FILE_NAME in message
+    assert "game_db" in message
+
+
 def test_attribute_field_order_matches_the_attributes_dataclass() -> None:
     layout = registered_player_layout()
     assert layout.attribute_field_order == tuple(
         attribute_field.name for attribute_field in dataclasses.fields(Attributes)
     )
+
+
+def test_decode_extent_matches_the_decoder_structs_real_highest_read() -> None:
+    layout = registered_player_layout()
+    header_layout = build_header_layout(layout)
+    tail_layout = _tail_layout(layout)
+    header_extent = header_layout.start_offset + header_layout.struct_object.size
+    tail_extent = tail_layout.start_offset + tail_layout.struct_object.size
+    assert layout.decode_extent == max(header_extent, tail_extent)
 
 
 def test_attribute_splice_keeps_each_value_in_place() -> None:
@@ -662,3 +696,105 @@ def test_cold_players_decompresses_game_db_exactly_once(
     with fmsave.open(players_fragment_path) as career_save:
         career_save.players()
         assert section_reads == ["game_db"]
+
+
+def test_cold_player_records_decompresses_game_db_exactly_once(
+    players_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    section_reads: list[str] = []
+    original_read_section = context_module.read_section
+
+    def counting_read_section(container_index: ContainerIndex, name: str) -> bytes:
+        section_reads.append(name)
+        return original_read_section(container_index, name)
+
+    monkeypatch.setattr(context_module, "read_section", counting_read_section)
+    with fmsave.open(players_fragment_path) as career_save:
+        career_save._context.player_records()
+        assert section_reads == ["game_db"]
+
+
+# `_flagged_runs` equivalence tests: synthetic bytes only, no game_db fixtures. The filler
+# byte (50) lies in the attribute range but not the (narrower) rating range, so it can never
+# itself start a match (a match's first 15 bytes must all be in the rating range); this keeps
+# every synthetic buffer's true match positions unambiguous.
+_SYNTHETIC_RATING_RANGE = (1, 20)
+_SYNTHETIC_ATTRIBUTE_RANGE = (1, 100)
+_SYNTHETIC_MINIMUM_RUN_LENGTH = 15 + 54
+_SYNTHETIC_OUT_OF_RANGE_BYTE = 0
+_SYNTHETIC_SAFE_FILLER_BYTE = 50
+_SYNTHETIC_VALID_MATCH = bytes([5] * 15 + [_SYNTHETIC_SAFE_FILLER_BYTE] * 54)
+
+
+def _synthetic_pattern():
+    return _completeness_pattern(_SYNTHETIC_RATING_RANGE, 15, _SYNTHETIC_ATTRIBUTE_RANGE, 54)
+
+
+def _reference_match_starts(buffer: bytes, start: int) -> list[int]:
+    pattern = _synthetic_pattern()
+    return [match.start() for match in pattern.finditer(buffer, start)]
+
+
+def _prefiltered_match_starts(buffer: bytes, start: int) -> list[int]:
+    pattern = _synthetic_pattern()
+    starts: list[int] = []
+    for run_start, run_end in _flagged_runs(
+        buffer,
+        start,
+        _SYNTHETIC_RATING_RANGE,
+        _SYNTHETIC_ATTRIBUTE_RANGE,
+        _SYNTHETIC_MINIMUM_RUN_LENGTH,
+    ):
+        starts.extend(match.start() for match in pattern.finditer(buffer, run_start, run_end))
+    return starts
+
+
+def test_flagged_runs_finds_a_match_in_a_run_of_exactly_the_minimum_length() -> None:
+    buffer = (
+        bytes([_SYNTHETIC_OUT_OF_RANGE_BYTE])
+        + _SYNTHETIC_VALID_MATCH
+        + bytes([_SYNTHETIC_OUT_OF_RANGE_BYTE])
+    )
+    assert _prefiltered_match_starts(buffer, 0) == _reference_match_starts(buffer, 0)
+    assert _prefiltered_match_starts(buffer, 0) == [1]
+
+
+def test_flagged_runs_skips_a_run_one_byte_short_of_the_minimum() -> None:
+    buffer = (
+        bytes([_SYNTHETIC_OUT_OF_RANGE_BYTE])
+        + _SYNTHETIC_VALID_MATCH[:-1]
+        + bytes([_SYNTHETIC_OUT_OF_RANGE_BYTE])
+    )
+    assert _prefiltered_match_starts(buffer, 0) == _reference_match_starts(buffer, 0)
+    assert _prefiltered_match_starts(buffer, 0) == []
+
+
+def test_flagged_runs_excludes_a_match_before_the_search_start() -> None:
+    first_match_at = 10
+    second_match_at = first_match_at + len(_SYNTHETIC_VALID_MATCH) + 5
+    buffer = (
+        bytes([_SYNTHETIC_SAFE_FILLER_BYTE]) * first_match_at
+        + _SYNTHETIC_VALID_MATCH
+        + bytes([_SYNTHETIC_SAFE_FILLER_BYTE]) * 5
+        + _SYNTHETIC_VALID_MATCH
+        + bytes([_SYNTHETIC_SAFE_FILLER_BYTE]) * 5
+    )
+    # This buffer's run crosses the search start: the first match sits entirely before it.
+    assert _prefiltered_match_starts(buffer, second_match_at) == _reference_match_starts(
+        buffer, second_match_at
+    )
+    assert _prefiltered_match_starts(buffer, second_match_at) == [second_match_at]
+    # Sanity: without the bound, the earlier match is found too, proving it was excluded above.
+    assert first_match_at in _reference_match_starts(buffer, 0)
+
+
+def test_flagged_runs_reaches_a_match_ending_at_the_buffer_end() -> None:
+    buffer = bytes([_SYNTHETIC_OUT_OF_RANGE_BYTE]) * 5 + _SYNTHETIC_VALID_MATCH
+    assert _prefiltered_match_starts(buffer, 0) == _reference_match_starts(buffer, 0)
+    assert _prefiltered_match_starts(buffer, 0) == [5]
+
+
+def test_flagged_runs_finds_two_matches_inside_one_long_run() -> None:
+    buffer = _SYNTHETIC_VALID_MATCH + _SYNTHETIC_VALID_MATCH
+    assert _prefiltered_match_starts(buffer, 0) == _reference_match_starts(buffer, 0)
+    assert _prefiltered_match_starts(buffer, 0) == [0, len(_SYNTHETIC_VALID_MATCH)]
