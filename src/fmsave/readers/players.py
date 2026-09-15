@@ -33,6 +33,26 @@ _DATE_CACHE_MISS = object()
 
 _SCALE_TABLE = bytes(max(1, (raw_value + 2) // 5) for raw_value in range(256))
 
+# The Task 6 empty values for every person field, used when no person block validates.
+_EMPTY_PERSON_TUPLE: tuple[
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    tuple[()],
+    tuple[()],
+    tuple[()],
+    tuple[()],
+    None,
+    None,
+    tuple[()],
+] = (None, None, None, None, None, None, None, None, None, (), (), (), (), None, None, ())
+
 
 def _new_date_cache() -> dict[int, date | None]:
     return {}
@@ -116,7 +136,6 @@ class PlayerDecoder:
     """
 
     layout: PlayerRecordLayout
-    person_layout: PersonBlockLayout
     person_decoder: PersonBlockDecoder
     header_layout: HeaderLayout
     tail_layout: _TailLayout
@@ -206,25 +225,43 @@ class PlayerDecoder:
             game_db, record_offset + layout.club_join_date_offset, club_join_date_raw
         )
 
-        person_window_start = record_offset + self.person_layout.window_start_offset
-        person_fields = self.person_decoder.decode(game_db, person_window_start, record_window_end)
+        person_window_start = record_offset + self.person_decoder.layout.window_start_offset
+        person = self.person_decoder.decode(game_db, person_window_start, record_window_end)
+        (
+            name,
+            first_name,
+            last_name,
+            common_name,
+            full_name,
+            legal_name,
+            birth_date,
+            age,
+            nation_id,
+            second_nation_ids,
+            home_grown_nation_ids,
+            home_grown_club_uids,
+            home_grown_club_names,
+            personality,
+            trait_bits,
+            traits,
+        ) = _EMPTY_PERSON_TUPLE if person is None else person
 
         # Positional, matching Player's field order in models/players.py.
         return Player(
             uid,
-            None if person_fields is None else person_fields.name,
-            None if person_fields is None else person_fields.first_name,
-            None if person_fields is None else person_fields.last_name,
-            None if person_fields is None else person_fields.common_name,
-            None if person_fields is None else person_fields.full_name,
-            None if person_fields is None else person_fields.legal_name,
-            None if person_fields is None else person_fields.birth_date,
-            None if person_fields is None else person_fields.age,
-            None if person_fields is None else person_fields.nation_id,
-            () if person_fields is None else person_fields.second_nation_ids,
-            () if person_fields is None else person_fields.home_grown_nation_ids,
-            () if person_fields is None else person_fields.home_grown_club_uids,
-            () if person_fields is None else person_fields.home_grown_club_names,
+            name,
+            first_name,
+            last_name,
+            common_name,
+            full_name,
+            legal_name,
+            birth_date,
+            age,
+            nation_id,
+            second_nation_ids,
+            home_grown_nation_ids,
+            home_grown_club_uids,
+            home_grown_club_names,
             height_cm,
             ability,
             reputation,
@@ -240,7 +277,7 @@ class PlayerDecoder:
             club_join_date,
             natural_positions,
             accomplished_positions,
-            None if person_fields is None else person_fields.personality,
+            personality,
             attributes,
             raw_attributes,
             left_foot,
@@ -252,8 +289,8 @@ class PlayerDecoder:
             transfer_value_state,
             condition,
             match_sharpness,
-            () if person_fields is None else person_fields.traits,
-            None if person_fields is None else person_fields.trait_bits,
+            traits,
+            trait_bits,
         )
 
     def _cached_date(self, game_db: bytes, date_offset: int, raw_date: int) -> date | None:
@@ -274,13 +311,8 @@ def build_player_decoder(
     clock: date,
     person_layout: PersonBlockLayout,
     file_name: str,
-    game_db: bytes,
 ) -> PlayerDecoder:
-    """Build the per-save decoder from the save's layout, its ClubIndex, name pools and clock.
-
-    `game_db` is used only to build the person decoder's save-wide personality search index
-    (see `build_person_block_decoder`); the returned `PlayerDecoder` keeps no reference to it.
-    """
+    """Build the per-save decoder from the save's layout, its ClubIndex, name pools and clock."""
     team_fields: dict[int, _TeamFields] = {}
     for team_id, (club_uid, team_slot) in club_index.team_to_club.items():
         club = club_index.club_by_uid[club_uid]
@@ -295,11 +327,10 @@ def build_player_decoder(
             team_slot,
         )
     person_decoder = build_person_block_decoder(
-        person_layout, name_pools, club_index, clock, file_name, game_db
+        person_layout, name_pools, club_index, clock, file_name
     )
     return PlayerDecoder(
         layout=layout,
-        person_layout=person_layout,
         person_decoder=person_decoder,
         header_layout=build_header_layout(layout),
         tail_layout=_tail_layout(layout),

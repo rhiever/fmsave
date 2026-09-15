@@ -3,16 +3,18 @@ from __future__ import annotations
 import copy
 import pickle
 from datetime import date
+from typing import NamedTuple
 
 import pytest
 
 import fmsave
 from fmsave._errors import CorruptSaveError, ReaderCheckError
 from fmsave._layouts import NamePoolLayout, PersonBlockLayout, PlayerRecordLayout, find_layout
-from fmsave.models.players import Trait
+from fmsave.models.common import CodedValue
+from fmsave.models.players import Personality, Trait
 from fmsave.readers.clubs import find_club_layouts, read_club_index
 from fmsave.readers.names import locate_name_pools
-from fmsave.readers.persons import build_person_block_decoder
+from fmsave.readers.persons import PersonTuple, build_person_block_decoder
 from fmsave.readers.player_scan import locate_player_records, window_end
 from fmsave.readers.players import build_player_decoder
 from tests.fixtures.container import (
@@ -38,6 +40,34 @@ from tests.fixtures.game_db import (
 FILE_NAME = "career example.fm"
 GAME_DB_SCHEMA = 4000
 CLOCK = date(2031, 3, 1)
+
+
+class PersonView(NamedTuple):
+    """A readable view onto `PersonBlockDecoder.decode`'s plain positional return tuple,
+    for tests only; production code never builds this.
+    """
+
+    name: str | None
+    first_name: str | None
+    last_name: str | None
+    common_name: str | None
+    full_name: str | None
+    legal_name: str | None
+    birth_date: date | None
+    age: int | None
+    nation_id: int
+    second_nation_ids: tuple[int, ...]
+    home_grown_nation_ids: tuple[int, ...]
+    home_grown_club_uids: tuple[int | None, ...]
+    home_grown_club_names: tuple[str | None, ...]
+    personality: Personality
+    trait_bits: int
+    traits: tuple[CodedValue[Trait], ...]
+
+
+def as_person_view(result: PersonTuple | None) -> PersonView | None:
+    return None if result is None else PersonView(*result)
+
 
 FIRST_NAMES = ["Alex", "Sam", ""]
 SURNAMES = ["Example", "Sample"]
@@ -170,15 +200,15 @@ def build_decoder(game_db: bytes, *, clock: date = CLOCK):
     name_pools = locate_name_pools(game_db, registered_name_pool_layout(), FILE_NAME)
     club_index = read_club_index(game_db, find_club_layouts(GAME_DB_SCHEMA, ""), FILE_NAME)
     return build_person_block_decoder(
-        registered_person_layout(), name_pools, club_index, clock, FILE_NAME, game_db
+        registered_person_layout(), name_pools, club_index, clock, FILE_NAME
     )
 
 
-def decode_block(block: bytes, *, clock: date = CLOCK):
+def decode_block(block: bytes, *, clock: date = CLOCK) -> PersonView | None:
     prefix = game_db_prefix()
     game_db = prefix + block
     decoder = build_decoder(game_db, clock=clock)
-    return decoder.decode(game_db, len(prefix), len(game_db))
+    return as_person_view(decoder.decode(game_db, len(prefix), len(game_db)))
 
 
 def test_player_a_names_birth_nation_relations_personality_and_traits() -> None:
@@ -318,7 +348,7 @@ def test_relation_present_zero_gives_empty_relations_even_with_a_nonzero_count()
     mutable_game_db[present_absolute] = 0
     game_db = bytes(mutable_game_db)
     decoder = build_decoder(game_db)
-    person = decoder.decode(game_db, len(prefix), len(game_db))
+    person = as_person_view(decoder.decode(game_db, len(prefix), len(game_db)))
     assert person is not None
     assert person.second_nation_ids == ()
     assert person.home_grown_nation_ids == ()
@@ -338,7 +368,7 @@ def test_relation_present_zero_with_an_overrunning_count_raises_no_error() -> No
     # The window ends right after the present byte: reading the count byte or any entry
     # would overrun it, but present is 0 so neither is ever read.
     truncated_window_end = present_absolute + 1
-    person = decoder.decode(game_db, len(prefix), truncated_window_end)
+    person = as_person_view(decoder.decode(game_db, len(prefix), truncated_window_end))
     assert person is not None
     assert person.second_nation_ids == ()
 
@@ -528,7 +558,6 @@ def test_full_player_decode_merges_person_fields_and_round_trips() -> None:
         CLOCK,
         registered_person_layout(),
         FILE_NAME,
-        game_db,
     )
     record_offset = player_records.record_offsets[0]
     record_window_end = window_end(player_records, 0, len(game_db))

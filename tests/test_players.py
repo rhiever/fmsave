@@ -258,7 +258,6 @@ def decode_all(game_db: bytes) -> list[Player]:
         CLOCK,
         registered_person_layout(),
         FILE_NAME,
-        game_db,
     )
     record_offsets = player_records.record_offsets
     game_db_length = len(game_db)
