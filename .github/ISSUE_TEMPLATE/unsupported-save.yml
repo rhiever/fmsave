@@ -1,5 +1,6 @@
 name: Unsupported save
 description: Report a save that fmsave refuses to open or cannot read, without attaching it.
+labels: ["unsupported-save"]
 body:
   - type: markdown
     attributes:

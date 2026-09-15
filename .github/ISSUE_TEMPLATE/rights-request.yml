@@ -1,5 +1,6 @@
 name: Rights holder or content removal request
 description: Ask for content in this repository to be removed.
+labels: ["rights-request"]
 body:
   - type: markdown
     attributes:

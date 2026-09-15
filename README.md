@@ -25,7 +25,10 @@ import fmsave
 
 with fmsave.open("career.fm") as career_save:
     save_info = career_save.info  # game, build, database version and in-game date
-    my_club = career_save.managed_clubs()[0]  # your club, such as "Northbridge FC"
+    managed_clubs = career_save.managed_clubs()  # empty when the manager is between jobs
+    if not managed_clubs:
+        raise SystemExit("This save has no managed club")
+    my_club = managed_clubs[0]  # your club, such as "Northbridge FC"
     squad_players = career_save.players().where(club_uid=my_club.club_uid)
     for squad_player in squad_players:
         contract = squad_player.contract  # None for a player without a contract
@@ -48,7 +51,7 @@ Records and tables are immutable and keep working after the save is closed.
 
 Each reader returns a `Table`, an immutable sequence of records with `where(...)`, `filter(...)`, `find(name=...)`, `by_uid(...)`, `get_by_uid(...)` and `coverage`, plus `to_dicts()`, `to_columns()`, `to_pandas()`, `to_polars()`, `write_csv(...)`, `write_json(...)` and `write_jsonl(...)`.
 
-Every field is either verified, meaning its meaning has been checked against the game, or unconfirmed; ask with `fmsave.field_status(fmsave.Player, "contract.wage")`.
+Every field is either verified (checked against the game) or unconfirmed; ask with `fmsave.field_status(fmsave.Player, "contract.wage")`.
 
 Every value comes from the save as stored. A value fmsave cannot read is `None`, never a guess. Wages and other money are kept exactly as the game stores them and are not converted.
 
@@ -73,7 +76,7 @@ fmsave validate career.fm --json
 - A missing group, such as a player without a contract, appears as all-null subfields in JSON.
 - Coded values give a label column plus a `_code` column, such as `contract_squad_status` and `contract_squad_status_code`. Tuples of coded values give two list columns, such as `traits` and `traits_code`.
 - Dates are ISO 8601.
-- In CSV, an empty list and a missing value both appear as an empty cell, and list items are joined with `;`. JSON is the lossless format.
+- In CSV, an empty list and a missing value both appear as an empty cell. Lists of plain values are joined with `;`, and lists of groups (such as `teams` or `clauses`) are written as compact JSON text. JSON is the lossless format.
 - fmsave does not escape cells that spreadsheet programs may read as formulas.
 
 ## What it cannot read (yet)
@@ -100,6 +103,8 @@ Using fmsave to gain an advantage in shared online careers may break platform or
 ## Support
 
 fmsave is a hobby project, maintained on a best-effort basis. Report problems through [GitHub issues](https://github.com/rhiever/fmsave/issues), and never attach save files. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to report a wrong value without sharing real data.
+
+Report security problems privately as described in [SECURITY.md](SECURITY.md), and follow the [Code of Conduct](CODE_OF_CONDUCT.md) when taking part.
 
 ## Rights holders
 
