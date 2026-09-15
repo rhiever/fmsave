@@ -596,8 +596,17 @@ def flat_rows[RecordT](
             value does not match its field's type.
         ValueError: Two fields give the same column name, or a record's unknown mapping holds
             an undeclared key.
+
+    An unsupported record_type raises when flat_rows is called; problems with the records
+    themselves raise while the rows are iterated.
     """
     class_plan = _class_plan(record_type)
+    return _flat_row_values(records, record_type, class_plan, json_ready=json_ready)
+
+
+def _flat_row_values(
+    records: Iterable[object], record_type: type, class_plan: _ClassPlan, *, json_ready: bool
+) -> Iterator[dict[str, object]]:
     columns = class_plan.columns
     for record in records:
         if type(record) is not record_type:

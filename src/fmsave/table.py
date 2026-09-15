@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import sys
 import unicodedata
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import Any, ClassVar, NoReturn, cast, overload
@@ -51,14 +52,30 @@ class Table[RecordT](Sequence[RecordT]):
             record_type: The dataclass the records are instances of.
 
         Raises:
-            TypeError: record_type is not a dataclass.
+            TypeError: record_type is not a dataclass, or a record is not exactly of record_type
+                (an instance of a subclass is rejected too).
         """
         if _dataclass_field_names(record_type) is None:
             raise TypeError(f"Table record_type must be a dataclass, not {record_type!r}")
-        object.__setattr__(self, "_records", tuple(records))
+        stored_records = tuple(records)
+        stray_types = set(map(type, stored_records))
+        stray_types.discard(record_type)
+        if stray_types:
+            stray_names = ", ".join(sorted(stray_type.__name__ for stray_type in stray_types))
+            raise TypeError(f"Table expected {record_type.__name__} records, not {stray_names}")
+        self._store(stored_records, record_type)
+
+    def _store(self, records: tuple[RecordT, ...], record_type: type[RecordT]) -> None:
+        object.__setattr__(self, "_records", records)
         object.__setattr__(self, "_record_type", record_type)
         object.__setattr__(self, "_uid_index", None)
         object.__setattr__(self, "_coverage", None)
+
+    def _from_checked_records(self, records: tuple[RecordT, ...]) -> Table[RecordT]:
+        """Build a table of this record type from records already checked by this table."""
+        table = cast("Table[RecordT]", object.__new__(Table))
+        table._store(records, self._record_type)
+        return table
 
     def __setattr__(self, name: str, value: object) -> NoReturn:
         raise AttributeError(f"Table is immutable: cannot set {name!r}")
@@ -83,7 +100,7 @@ class Table[RecordT](Sequence[RecordT]):
 
     def __getitem__(self, index: int | slice) -> RecordT | Table[RecordT]:
         if isinstance(index, slice):
-            return Table(self._records[index], self._record_type)
+            return self._from_checked_records(self._records[index])
         return self._records[index]
 
     def __len__(self) -> int:
@@ -91,6 +108,21 @@ class Table[RecordT](Sequence[RecordT]):
 
     def __iter__(self) -> Iterator[RecordT]:
         return iter(self._records)
+
+    def __reversed__(self) -> Iterator[RecordT]:
+        return reversed(self._records)
+
+    def index(self, value: object, start: int = 0, stop: int = sys.maxsize) -> int:
+        """Return the position of the first record equal to value between start and stop.
+
+        Raises:
+            ValueError: No such record.
+        """
+        return self._records.index(value, start, stop)
+
+    def count(self, value: object) -> int:
+        """Return how many records equal value."""
+        return self._records.count(value)
 
     def __contains__(self, value: object) -> bool:
         return value in self._records
@@ -120,6 +152,9 @@ class Table[RecordT](Sequence[RecordT]):
         """Return the records whose named top-level fields all equal the given values.
 
         Nested group columns such as "contract_wage" are not field names; use filter for them.
+        A coded-value field equals only a whole CodedValue with the same label and raw number,
+        so passing just the label matches nothing. To match on the label alone, use filter,
+        for example filter(lambda record: record.status.label is Status.FIRST_CHOICE).
 
         Raises:
             ValueError: A name is not a field of the record type. The message lists every such
@@ -142,7 +177,9 @@ class Table[RecordT](Sequence[RecordT]):
 
     def filter(self, predicate: Callable[[RecordT], bool]) -> Table[RecordT]:
         """Return the records for which predicate returns true, in order."""
-        return Table((record for record in self._records if predicate(record)), self._record_type)
+        return self._from_checked_records(
+            tuple(record for record in self._records if predicate(record))
+        )
 
     def find(self, *, name: str) -> Table[RecordT]:
         """Return the records whose name equals name, ignoring case and surrounding whitespace.

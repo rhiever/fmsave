@@ -4,14 +4,27 @@ import copy
 import csv
 import json
 import pickle
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
+from enum import IntEnum
 from pathlib import Path
 
 import pytest
 
-from fmsave import Table, export
+from fmsave import CodedValue, Table, export
 from fmsave._frozen import FrozenMapping
+
+
+class ExampleRole(IntEnum):
+    UNKNOWN = -1
+    FIRST_CHOICE = 3
+
+
+@dataclass(frozen=True, slots=True)
+class ExampleRoleHolder:
+    uid: int
+    role: CodedValue[ExampleRole]
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +108,66 @@ def test_record_type_must_be_a_dataclass() -> None:
         Table([1, 2], int)
     with pytest.raises(TypeError):
         Table(CLUB_RECORDS, CLUB_RECORDS[0])  # type: ignore[arg-type]
+
+
+def test_records_must_be_exactly_the_record_type() -> None:
+    @dataclass(frozen=True, slots=True)
+    class ExampleClubSubclass(ExampleClubRecord):
+        pass
+
+    with pytest.raises(TypeError, match="ExampleClubRecord.*ExampleNamelessRecord"):
+        Table([CLUB_RECORDS[0], ExampleNamelessRecord(1)], ExampleClubRecord)  # type: ignore[list-item]
+    with pytest.raises(TypeError, match="ExampleClubSubclass"):
+        Table([ExampleClubSubclass(1, "Northbridge FC", 3, None)], ExampleClubRecord)
+    with pytest.raises(TypeError, match="ExampleClubRecord"):
+        Table(iter([None]), ExampleClubRecord)  # type: ignore[list-item]
+    assert len(Table([], ExampleClubRecord)) == 0
+
+
+def test_slices_and_queries_keep_the_record_type() -> None:
+    table = example_table()
+    assert table[1:][0] == CLUB_RECORDS[1]
+    assert table.where(nation_id=3).record_type is ExampleClubRecord
+    assert table.filter(lambda club: club.uid == 9)[0] == CLUB_RECORDS[2]
+    assert table.find(name="southport example").record_type is ExampleClubRecord
+
+
+def test_index_count_and_reversed_use_the_record_tuple() -> None:
+    table = example_table()
+    for method_name in ("index", "count", "__reversed__"):
+        assert getattr(Table, method_name) is not getattr(Sequence, method_name), method_name
+    assert table.index(CLUB_RECORDS[2]) == 2
+    assert table.index(CLUB_RECORDS[2], 1, 3) == 2
+    assert table.index(CLUB_RECORDS[3], -1) == 3
+    with pytest.raises(ValueError):
+        table.index(CLUB_RECORDS[0], 1)
+    with pytest.raises(ValueError):
+        table.index(CLUB_RECORDS[2], 0, 2)
+    assert table.count(CLUB_RECORDS[1]) == 1
+    assert table.count(ExampleNamelessRecord(1)) == 0
+    assert type(reversed(table)) is type(reversed(()))
+    assert list(reversed(table)) == list(reversed(CLUB_RECORDS))
+
+
+def test_where_docstring_explains_coded_value_matching() -> None:
+    where_docstring = Table.where.__doc__ or ""
+    assert "CodedValue" in where_docstring
+    assert "raw" in where_docstring
+    assert "filter" in where_docstring
+
+
+def test_where_compares_coded_values_as_a_whole() -> None:
+    first_choice = CodedValue(ExampleRole.FIRST_CHOICE, 3)
+    unknown_role = CodedValue(ExampleRole.UNKNOWN, 7)
+    table = Table(
+        [ExampleRoleHolder(1, first_choice), ExampleRoleHolder(2, unknown_role)],
+        ExampleRoleHolder,
+    )
+    assert [holder.uid for holder in table.where(role=first_choice)] == [1]
+    assert len(table.where(role=ExampleRole.FIRST_CHOICE)) == 0
+    assert len(table.where(role=CodedValue(ExampleRole.UNKNOWN, 8))) == 0
+    label_matches = table.filter(lambda holder: holder.role.label is ExampleRole.UNKNOWN)
+    assert [holder.uid for holder in label_matches] == [2]
 
 
 def test_equality_needs_the_same_record_type_and_records() -> None:

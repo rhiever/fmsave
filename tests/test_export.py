@@ -635,6 +635,16 @@ def test_flat_rows_reject_records_of_another_type() -> None:
         list(flat_rows([FULL_RECORD], ExampleContractHolder, json_ready=True))
 
 
+def test_flat_rows_checks_the_record_type_when_called() -> None:
+    with pytest.raises(TypeError, match="not a record dataclass"):
+        flat_rows([], int)
+    with pytest.raises(TypeError, match="not a record dataclass"):
+        flat_rows(iter(()), CodedValue, json_ready=True)
+    unstarted_rows = flat_rows([FULL_RECORD], ExampleContractHolder)
+    with pytest.raises(TypeError, match="ExampleContractHolder"):
+        next(unstarted_rows)
+
+
 def test_group_type_error_names_the_expected_class() -> None:
     holder = replace(ExampleContractHolder(uid=6, ability=None), ability=ExampleClause(None, None))
     with pytest.raises(TypeError, match="is not an instance of ExampleGroup or None"):
