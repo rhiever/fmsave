@@ -191,7 +191,8 @@ def write_shared_fragment(fragment: ContainerFragment, file_path: Path) -> Path:
     """Write a fragment that several tests read, then make the file and its folder read-only.
 
     A test that tried to change the file or write beside it would fail at once instead of
-    changing what later tests read.
+    changing what later tests read. The guard is only advisory when tests run as root, which
+    ignores these modes, or on Windows, which does not stop writes into a read-only folder.
     """
     written_path = fragment.write(file_path)
     written_path.chmod(READ_ONLY_FILE_MODE)

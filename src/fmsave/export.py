@@ -563,7 +563,8 @@ def _append_csv_cells(cells: list[object], record: object, class_plan: _ClassPla
 
     A cell is either the text _csv_cell gives for the flat value, or a value the csv module
     writes as that same text: an int or str field's value, a coded value's label and code, a
-    text enum's value, an unknown mapping's values, and None for a missing or empty tuple.
+    text enum's value, an unknown mapping's values, and None for a missing tuple or an empty
+    tuple of records. An empty tuple of plain or coded values gives "".
     """
     field_values = class_plan.read_fields(record)
     for step in class_plan.csv_steps:
@@ -722,7 +723,9 @@ def _missing_counts(records: Sequence[object], class_plan: _ClassPlan) -> list[i
 
     The fields of all records are read at once into one tuple of values per field, and None
     is counted with tuple.count, so no flat column is built. Values are checked against their
-    field types as to_columns checks them.
+    field types, and a malformed value raises the same error to_columns raises for it. Checks
+    run one field at a time across all records, though, so when several values are malformed
+    the first error raised may differ from the one to_columns raises first.
     """
     record_count = len(records)
     if records:
@@ -802,13 +805,17 @@ def _missing_counts(records: Sequence[object], class_plan: _ClassPlan) -> list[i
     return missing_counts
 
 
-def present_counts(records: Iterable[object], record_type: type) -> dict[str, int]:
+def _present_counts(records: Iterable[object], record_type: type) -> dict[str, int]:  # pyright: ignore[reportUnusedFunction]
     """Count the records whose flat value is not None, for each column of record_type.
 
     Keys are column_names(record_type). Each count equals len(values) - values.count(None) for
     that column of to_columns(records, record_type), but no column is built. A present tuple
     counts as present even when it is empty, and every column of a missing group counts as
     missing.
+
+    Raises the errors to_columns raises, but every record's type is checked before any value,
+    and values one field at a time, so when several things are wrong the first error raised
+    may differ.
 
     Raises:
         TypeError: A record is not exactly of record_type, record_type is not supported, or a
@@ -820,7 +827,7 @@ def present_counts(records: Iterable[object], record_type: type) -> dict[str, in
     record_list = list(records)
     if set(map(type, record_list)) - {record_type}:
         stray_record = next(record for record in record_list if type(record) is not record_type)
-        raise _record_type_error("present_counts", record_type, stray_record)
+        raise _record_type_error("_present_counts", record_type, stray_record)
     record_count = len(record_list)
     missing_counts = _missing_counts(record_list, class_plan)
     return {
@@ -914,6 +921,7 @@ def _csv_cell(value: object) -> str:
     if isinstance(value, Mapping):
         return _compact_json(cast("Mapping[object, object]", value))
     if isinstance(value, (tuple, list)):
+        # Only tuple and list subclasses reach this; exact tuples and lists are handled above.
         return _csv_items_text(cast("Sequence[object]", value))
     return str(value)
 
@@ -976,7 +984,7 @@ def write_csv(
             )
 
 
-def write_records_csv[RecordT](
+def _write_records_csv[RecordT](  # pyright: ignore[reportUnusedFunction]
     records: Iterable[RecordT],
     record_type: type[RecordT],
     destination: str | os.PathLike[str] | TextIO,
@@ -1027,7 +1035,7 @@ def _csv_rows(
 ) -> Iterator[Sequence[object]]:
     for record in records:
         if type(record) is not record_type:
-            raise _record_type_error("write_records_csv", record_type, record)
+            raise _record_type_error("_write_records_csv", record_type, record)
         cells: list[object] = []
         _append_csv_cells(cells, record, class_plan)
         row: Sequence[object] = cells if read_cells is None else read_cells(cells)

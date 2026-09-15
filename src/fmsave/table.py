@@ -240,7 +240,7 @@ class Table[RecordT](Sequence[RecordT]):
         coverage = self._coverage
         if coverage is None:
             record_count = len(self._records)
-            present_counts = export.present_counts(self._records, self._record_type)
+            present_counts = export._present_counts(self._records, self._record_type)  # pyright: ignore[reportPrivateUsage]
             coverage = FrozenMapping(
                 {
                     column_name: present_count / record_count if record_count else 0.0
@@ -275,8 +275,8 @@ class Table[RecordT](Sequence[RecordT]):
         return export.to_polars(self.to_columns())
 
     def write_csv(self, path: str | os.PathLike[str]) -> None:
-        """Write every flat column as UTF-8 CSV; see export.write_records_csv."""
-        export.write_records_csv(self._records, self._record_type, path)
+        """Write every flat column as UTF-8 CSV; see export.write_csv for how cells are written."""
+        export._write_records_csv(self._records, self._record_type, path)  # pyright: ignore[reportPrivateUsage]
 
     def write_json(self, path: str | os.PathLike[str]) -> None:
         """Write the JSON-ready nested dicts as one JSON array; see export.write_json."""

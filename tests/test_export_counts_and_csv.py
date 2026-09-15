@@ -1,8 +1,9 @@
 """Coverage counts and CSV text built straight from records, checked against plain references.
 
-present_counts and Table.coverage are compared with counts taken from the columns to_columns
-builds. write_records_csv is compared with a copy of the CSV writer that converts each cell of
-the flat rows from flat_rows.
+_present_counts and Table.coverage are compared with counts taken from the columns to_columns
+builds. _write_records_csv is compared with a copy of the CSV writer that converts each cell of
+the flat rows from flat_rows. Two hand-written records are also checked against hard-coded
+coverage and CSV text, which share no code with the writer.
 """
 
 from __future__ import annotations
@@ -96,7 +97,7 @@ def written_csv_text(
     records: Sequence[object], record_type: type, columns: Sequence[str] | None
 ) -> str:
     stream = io.StringIO(newline="")
-    export.write_records_csv(records, record_type, stream, columns=columns)
+    export._write_records_csv(records, record_type, stream, columns=columns)
     return stream.getvalue()
 
 
@@ -150,7 +151,7 @@ def test_coverage_equals_the_share_of_present_values_in_the_built_columns(
         coverage = Table(chosen_records, record_type).coverage
         expected_coverage = reference_coverage(chosen_records, record_type)
         assert list(coverage.items()) == list(expected_coverage.items())
-        assert export.present_counts(chosen_records, record_type) == reference_present_counts(
+        assert export._present_counts(chosen_records, record_type) == reference_present_counts(
             chosen_records, record_type
         )
     assert any(0.0 < share < 1.0 for share in Table(records, record_type).coverage.values())
@@ -347,6 +348,90 @@ def test_counts_and_csv_match_the_references_on_sampled_records() -> None:
             ), seed
 
 
+def hand_written_records() -> tuple[ExampleSampledRecord, ExampleSampledRecord]:
+    """A full record with a partial unknown mapping and coded tuples, and a sparse record."""
+    full_record = ExampleSampledRecord(
+        uid=7,
+        name="Alex Example",
+        on_loan=True,
+        born=date(2001, 4, 28),
+        side=ExampleSide.LEFT,
+        mood=CodedValue.from_raw(ExampleMood, 2),
+        profile=ExampleProfile(150, False, ExampleSpell(date(2030, 1, 28), None)),
+        tags=("quick", None, "tall"),
+        dates=(date(2029, 3, 28),),
+        moods=(CodedValue.from_raw(ExampleMood, 1), CodedValue.from_raw(ExampleMood, 9)),
+        entries=(),
+        unknown={"x": 3, "z": -1},
+    )
+    sparse_record = ExampleSampledRecord(
+        uid=8,
+        name=None,
+        on_loan=None,
+        born=None,
+        side=None,
+        mood=None,
+        profile=None,
+        tags=None,
+        dates=(),
+        moods=(),
+        entries=(
+            ExampleEntry(CodedValue.from_raw(ExampleMood, 1), "comma, inside", None, {"b": 4}),
+        ),
+        unknown=FrozenMapping({"y": 0}),
+    )
+    return full_record, sparse_record
+
+
+HAND_WRITTEN_COVERAGE = {
+    "uid": 1.0,
+    "name": 0.5,
+    "on_loan": 0.5,
+    "born": 0.5,
+    "side": 0.5,
+    "mood": 0.5,
+    "mood_code": 0.5,
+    "profile_level": 0.5,
+    "profile_active": 0.5,
+    "profile_spell_start": 0.5,
+    "profile_spell_mood": 0.0,
+    "profile_spell_mood_code": 0.0,
+    "tags": 0.5,
+    "dates": 1.0,
+    "moods": 1.0,
+    "moods_code": 1.0,
+    "entries": 1.0,
+    "unknown_x": 0.5,
+    "unknown_y": 0.5,
+    "unknown_z": 0.5,
+}
+
+HAND_WRITTEN_CSV_TEXT = (
+    "uid,name,on_loan,born,side,mood,mood_code,profile_level,profile_active,"
+    "profile_spell_start,profile_spell_mood,profile_spell_mood_code,tags,dates,moods,"
+    "moods_code,entries,unknown_x,unknown_y,unknown_z\r\n"
+    "7,Alex Example,true,2001-04-28,left,bold,2,150,false,2030-01-28,,,quick;;tall,"
+    "2029-03-28,calm;unknown,1;9,,3,,-1\r\n"
+    '8,,,,,,,,,,,,,,,,"[{""kind"":""calm"",""kind_code"":1,""note"":""comma, inside"",'
+    '""spell"":{""start"":null,""mood"":null,""mood_code"":null},'
+    '""unknown"":{""a"":null,""b"":4}}]",,0,\r\n'
+)
+
+
+def test_hand_written_records_give_the_hard_coded_coverage_and_csv_text() -> None:
+    records = hand_written_records()
+    coverage = Table(records, ExampleSampledRecord).coverage
+    assert list(coverage.items()) == list(HAND_WRITTEN_COVERAGE.items())
+    assert export._present_counts(records, ExampleSampledRecord) == {
+        column_name: round(share * len(records))
+        for column_name, share in HAND_WRITTEN_COVERAGE.items()
+    }
+    assert written_csv_text(records, ExampleSampledRecord, None) == HAND_WRITTEN_CSV_TEXT
+    assert written_csv_text(records, ExampleSampledRecord, ["unknown_z", "moods_code"]) == (
+        "unknown_z,moods_code\r\n-1,1;9\r\n,\r\n"
+    )
+
+
 def test_a_single_column_of_none_is_written_as_a_quoted_empty_cell() -> None:
     record = replace(sampled_records(1)[0], name=None)
     expected_text = 'name\r\n""\r\n'
@@ -400,7 +485,7 @@ def test_counts_and_csv_reject_the_values_to_columns_rejects(changes: dict[str, 
         export.to_columns([record], ExampleSampledRecord)
     expected_message = re.escape(str(expected_error.value))
     with pytest.raises(expected_error.type, match=expected_message):
-        export.present_counts([record], ExampleSampledRecord)
+        export._present_counts([record], ExampleSampledRecord)
     with pytest.raises(expected_error.type, match=expected_message):
         _ = Table([record], ExampleSampledRecord).coverage
     with pytest.raises(expected_error.type, match=expected_message):
@@ -409,20 +494,20 @@ def test_counts_and_csv_reject_the_values_to_columns_rejects(changes: dict[str, 
 
 def test_records_of_another_type_are_rejected() -> None:
     wrong_records = [ExampleSpell(None, None)]
-    with pytest.raises(TypeError, match="present_counts expected ExampleSampledRecord"):
-        export.present_counts(wrong_records, ExampleSampledRecord)
-    with pytest.raises(TypeError, match="write_records_csv expected ExampleSampledRecord"):
+    with pytest.raises(TypeError, match="_present_counts expected ExampleSampledRecord"):
+        export._present_counts(wrong_records, ExampleSampledRecord)
+    with pytest.raises(TypeError, match="_write_records_csv expected ExampleSampledRecord"):
         written_csv_text(wrong_records, ExampleSampledRecord, None)
 
 
-def test_write_records_csv_checks_the_columns_before_writing() -> None:
+def test_the_csv_writer_checks_the_columns_before_writing() -> None:
     stream = io.StringIO(newline="")
     with pytest.raises(ValueError, match="unknown columns: nope, also_nope"):
-        export.write_records_csv(
+        export._write_records_csv(
             (), ExampleSampledRecord, stream, columns=["nope", "uid", "also_nope"]
         )
     with pytest.raises(TypeError, match="not a string"):
-        export.write_records_csv((), ExampleSampledRecord, stream, columns="uid")
+        export._write_records_csv((), ExampleSampledRecord, stream, columns="uid")
     assert stream.getvalue() == ""
-    export.write_records_csv((), ExampleSampledRecord, stream, columns=[])
+    export._write_records_csv((), ExampleSampledRecord, stream, columns=[])
     assert stream.getvalue() == reference_csv_text((), ExampleSampledRecord, [])
