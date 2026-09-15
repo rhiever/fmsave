@@ -33,7 +33,7 @@ _DATE_CACHE_MISS = object()
 
 _SCALE_TABLE = bytes(max(1, (raw_value + 2) // 5) for raw_value in range(256))
 
-# The Task 6 empty values for every person field, used when no person block validates.
+# The None/empty value for every person field, used when no person block validates.
 _EMPTY_PERSON_TUPLE: tuple[
     None,
     None,

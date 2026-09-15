@@ -68,8 +68,9 @@ _NAME_CACHE_MISS = object()
 # needle "_ZERO_MARKER then personality_count _IN_RANGE_MARKER bytes" can be found with
 # bytes.find instead of a regex. Chunks overlap by needle_length - 1 bytes so a run whose
 # leading zero byte falls in one chunk but whose in-range bytes spill into the next is still
-# found whole, and each chunk's un-owned trailing bytes are re-searched (and their matches
-# re-yielded) by the following chunk, so no match is double-counted.
+# found whole: a chunk only yields matches inside its own owned span, and any match starting
+# in its un-owned trailing bytes is yielded solely by the following chunk, which re-searches
+# that span, so no match is double-counted.
 _ZERO_MARKER = 1
 _IN_RANGE_MARKER = 2
 _CHUNK_BYTES = 1024
@@ -121,8 +122,8 @@ def _trait_codes() -> tuple[CodedValue[Trait], ...]:
     return tuple(CodedValue.from_raw(Trait, bit) for bit in range(_TRAIT_BIT_COUNT))
 
 
-# One struct per possible relation-entry count (0..255, the full range of a stored byte),
-# built once at import, so a relation read never calls through `functools.cache`.
+# A tuple of one struct per possible relation-entry count (0..255, the full range of a
+# stored byte), built once at import and indexed directly by count.
 _RELATION_STRUCTS_BY_COUNT: tuple[struct.Struct, ...] = tuple(
     struct.Struct("<" + _RELATION_ENTRY_FORMAT * count) for count in range(256)
 )
@@ -345,10 +346,6 @@ class PersonBlockDecoder:
         legal_name = self._decode_legal_name(game_db, legal_name_start, legal_name_length)
 
         if first_name is not None and last_name is not None:
-            # Two independent f-strings, not one reused object: `name` and `full_name` must
-            # stay distinct string objects so pickling never memo-references one from the
-            # other, which would change the serialized bytes (and so the equivalence digest)
-            # even though the values are equal.
             full_name = f"{first_name} {last_name}"
             joined_name = f"{first_name} {last_name}"
         elif first_name is not None:
@@ -407,8 +404,9 @@ class PersonBlockDecoder:
 
         The fast path reads all four with one guarded Struct; the slow path (the window ends
         before the count byte) reads nation and personality directly (always in bounds: the
-        search guarantees the personality run itself fits the window) and checks present's
-        and count's own bounds exactly as `_read_relation_entries`' overrun checks do.
+        search guarantees the personality run itself fits the window) and raises the same
+        `CorruptSaveError` as the entries read below whenever present's or count's own byte
+        lies past window_end.
 
         Raises:
             CorruptSaveError: On the slow path, present's or count's own byte lies past

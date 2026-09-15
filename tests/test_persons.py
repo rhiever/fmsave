@@ -17,6 +17,7 @@ from fmsave.models.players import Personality, Trait
 from fmsave.readers.clubs import find_club_layouts, read_club_index
 from fmsave.readers.names import locate_name_pools
 from fmsave.readers.persons import (
+    _CHUNK_BYTES,
     PersonTuple,
     _build_marker_needle,
     _build_marker_table,
@@ -341,7 +342,7 @@ def test_relation_count_byte_overrun_raises_corrupt_save_error() -> None:
     # beyond the window. Asserting the exact count-byte offset in the message, rather than
     # just "an error was raised", is what pins this specific bound: removing it changes the
     # offset the message names (to the entries list's, much larger, end offset) even though
-    # a CorruptSaveError still comes out. See the mutation evidence in the task report.
+    # a CorruptSaveError still comes out.
     prefix = game_db_prefix()
     game_db = prefix + PLAYER_A_BLOCK
     layout = registered_person_layout()
@@ -512,15 +513,19 @@ def test_chunked_search_matches_regex_on_many_seeded_synthetic_windows() -> None
 
 
 def test_chunked_search_matches_regex_for_a_match_straddling_a_chunk_boundary() -> None:
-    # _CHUNK_BYTES is 1024 and chunks overlap by 8 (personality_count) bytes, so a chunk's
-    # "owned" zone is bytes [0, 1016) relative to its own start. Put a real 9-byte run (one
-    # zero byte then 8 in-range bytes) so it starts a few bytes inside that boundary, straddling
-    # into the next chunk, with random filler everywhere else.
+    # A chunk overlaps the next by personality_count bytes, so a chunk's "owned" zone is
+    # bytes [0, _CHUNK_BYTES - personality_count) relative to its own start. Put a real
+    # 9-byte run (one zero byte then 8 in-range bytes) so it starts a few bytes either side
+    # of that boundary, straddling into the next chunk, with random filler everywhere else.
     random_generator = random.Random(4242)
     run = bytes([0]) + bytes([7] * _DIFFERENTIAL_PERSONALITY_COUNT)
+    owned_zone_boundary = _CHUNK_BYTES - _DIFFERENTIAL_PERSONALITY_COUNT
+    buffer_length = _CHUNK_BYTES + 200
     for straddle_offset in range(-3, 4):
-        run_start = 1016 + straddle_offset
-        buffer = bytearray(random_generator.choice(_DIFFERENTIAL_DECOY_BYTES) for _ in range(2200))
+        run_start = owned_zone_boundary + straddle_offset
+        buffer = bytearray(
+            random_generator.choice(_DIFFERENTIAL_DECOY_BYTES) for _ in range(buffer_length)
+        )
         buffer[run_start : run_start + len(run)] = run
         frozen_buffer = bytes(buffer)
         assert _chunked_run_starts(frozen_buffer, 0, len(frozen_buffer)) == _reference_run_starts(
@@ -531,7 +536,7 @@ def test_chunked_search_matches_regex_for_a_match_straddling_a_chunk_boundary() 
 def test_chunked_search_matches_regex_on_a_window_shorter_than_one_chunk() -> None:
     random_generator = random.Random(777)
     for _trial in range(50):
-        length = random_generator.randint(0, 500)  # well under _CHUNK_BYTES (1024)
+        length = random_generator.randint(0, _CHUNK_BYTES // 2)
         buffer = bytes(random_generator.choice(_DIFFERENTIAL_DECOY_BYTES) for _ in range(length))
         assert _chunked_run_starts(buffer, 0, length) == _reference_run_starts(buffer, 0, length)
 
