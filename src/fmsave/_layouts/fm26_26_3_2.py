@@ -9,6 +9,7 @@ from fmsave._layouts import (
     FULL_SAVE_MINIMUM_SPAN_BYTES,
     ClubRecordLayout,
     ClubStatusLayout,
+    CompetitionIdPairLayout,
     ContractLayout,
     FixtureCalendarLayout,
     GameInfoLayout,
@@ -445,6 +446,50 @@ STAGE_TABLE = StageTableLayout(
     resynchronisation_bytes=4_096,
 )
 
+# The id-pair marker is 16 `FF` bytes and a `01`, which hits about ten times as often as a
+# record occurs (roughly 72,000 hits against 7,400 records on every save measured), so the
+# structural checks and the constant bytes are what recognise a record, not the marker. Either
+# filter is very nearly sufficient alone: the constants by themselves reject about 64,500 of
+# those marker hits and leave the same 7,400 records.
+#
+# `constant_bytes` holds every offset whose byte takes one value on at least 99% of records on
+# all three saves measured, save two that are deliberately left out because they reject records
+# the save really does pair: -3 costs 16 competitions and one of the pairs an independent
+# source confirms, and +29 rejects two entities that deviate at that one offset alone. Of the
+# 17 kept, six cost a single record per save, and it is the same record that fails all six:
+# bytes that break six independent constants at once are far likelier a coincidence that
+# survived the marker than a competition, and a database id read from them would name the
+# wrong competition rather than leave it unnamed.
+COMPETITION_ID_PAIRS = CompetitionIdPairLayout(
+    marker=b"\xff" * 16 + b"\x01",
+    record_offset_from_marker=30,
+    entity_id_offset=0,
+    database_id_offset=4,
+    database_id_copy_offset=8,
+    # The entity id shares the stage id space, so it shares its bound.
+    entity_id_range=(1, 199_999),
+    database_id_range=(1, 2**31 - 1),
+    constant_bytes=(
+        (-8, 7),
+        (-6, 0),
+        (-4, 7),
+        (-1, 255),
+        (12, 0),
+        (13, 0),
+        (14, 0),
+        (15, 1),
+        (22, 0),
+        (23, 0),
+        (24, 0),
+        (25, 0),
+        (26, 1),
+        (32, 2),
+        (40, 3),
+        (55, 6),
+        (60, 7),
+    ),
+)
+
 # Bounds that depend on career stage (join dates, contract chains, bans) are kept wide, since a
 # failed check on the player pass stops players, contracts and suspensions together.
 GATE_BOUNDS = GateBounds(
@@ -516,6 +561,13 @@ GATE_BOUNDS = GateBounds(
     stage_trailing_sentinel=(0.95, None),
     stage_table_tail_bytes=(None, 2 * 1024 * 1024),
     competitions_minimum=(50, None),
+    # The id-pair records name 91.47% to 91.52% of the stage table's competitions across two
+    # careers and a live save, and no save leaves a single competition in conflict. The share
+    # is a property of the save's own records, so the bound leaves a career that pairs fewer of
+    # them well clear; it is still close enough to catch a constant that decayed from holding
+    # on 99.9% of records to holding on 90%, which would drop the share to about 0.82.
+    competition_database_ids_mapped=(0.85, None),
+    competition_database_id_conflicts=(None, 0.001),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (
@@ -531,6 +583,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CONTRACTS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=SUSPENSIONS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STAGE_TABLE),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=COMPETITION_ID_PAIRS),
     LayoutEntry(region="humans", schema=21, build=BUILD, layout=HUMANS),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=FIXTURE_CALENDAR),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=LEAGUE_TABLES),

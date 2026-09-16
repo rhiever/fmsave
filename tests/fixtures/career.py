@@ -28,6 +28,7 @@ from tests.fixtures.game_db import (
     STAGE_MISSING_VALUE,
     STUB_STATUS_KIND,
     club_record_bytes,
+    competition_id_pair_bytes,
     contract_bytes,
     fallback_contract_bytes,
     game_db_body,
@@ -79,6 +80,13 @@ STAGE_ROW_COUNT = 220
 FIRST_COMPETITION_ID = 900
 SECOND_COMPETITION_ID = 901
 THIRD_COMPETITION_ID = 902
+FIRST_COMPETITION_DATABASE_ID = 12_345
+SECOND_COMPETITION_DATABASE_ID = 12_346
+THIRD_COMPETITION_DATABASE_ID = 12_347
+# The id-pair records cover every entity of the stage id space, not only its competitions.
+# The stage table never calls this one a competition, so it must not reach the competitions.
+NON_COMPETITION_ENTITY_ID = 7
+NON_COMPETITION_DATABASE_ID = 999
 # A stage row of every save carries this id, which is far above any competition id and is a
 # marker or a malformed row rather than a competition, so the reader rejects it.
 OUT_OF_BAND_COMPETITION_ID = 16_777_216
@@ -142,7 +150,9 @@ SECOND_NORTHBRIDGE_CLUB = ExampleClub(
 )
 
 
-def clubs_region_bytes(clubs: tuple[ExampleClub, ...]) -> bytes:
+def clubs_region_bytes(
+    clubs: tuple[ExampleClub, ...], *, competition_id_pairs: bytes = b""
+) -> bytes:
     club_records = [
         club_record_bytes(
             club_index=club.club_index,
@@ -168,7 +178,27 @@ def clubs_region_bytes(clubs: tuple[ExampleClub, ...]) -> bytes:
         )
         for position, club in enumerate(clubs)
     ]
-    return game_db_body(club_records, status_records, gap_bytes=2000)
+    return game_db_body(
+        club_records,
+        status_records,
+        gap_bytes=2000,
+        competition_id_pairs=competition_id_pairs,
+    )
+
+
+def career_competition_id_pairs() -> bytes:
+    """One id-pair record per competition of the example stage table, and one for an entity
+    that the stage table never calls a competition.
+    """
+    return b"".join(
+        competition_id_pair_bytes(entity_id=entity_id, database_id=database_id)
+        for entity_id, database_id in (
+            (FIRST_COMPETITION_ID, FIRST_COMPETITION_DATABASE_ID),
+            (SECOND_COMPETITION_ID, SECOND_COMPETITION_DATABASE_ID),
+            (THIRD_COMPETITION_ID, THIRD_COMPETITION_DATABASE_ID),
+            (NON_COMPETITION_ENTITY_ID, NON_COMPETITION_DATABASE_ID),
+        )
+    )
 
 
 def manager_region_bytes() -> bytes:
@@ -443,7 +473,7 @@ def career_game_db(*, duplicate_club_name: bool = False) -> bytes:
     clubs = EXAMPLE_CLUBS + ((SECOND_NORTHBRIDGE_CLUB,) if duplicate_club_name else ())
     payload = (
         name_pools_bytes(FIRST_NAMES, SURNAMES, COMMON_NAMES)
-        + clubs_region_bytes(clubs)
+        + clubs_region_bytes(clubs, competition_id_pairs=career_competition_id_pairs())
         + bytes(64)
         + manager_region_bytes()
         + player_a_bytes()

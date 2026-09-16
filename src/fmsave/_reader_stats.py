@@ -137,11 +137,17 @@ class StageStats:
 class CompetitionStats:
     """What the competition index collected from the stage table.
 
-    `database_id_conflicts` counts editor database ids that more than one competition claims.
+    `with_database_id` counts the competitions the id-pair records give an editor database id,
+    of the `competitions` the stage table names. `database_id_conflicts` counts the competitions
+    left without one because another competition claims the same database id. A competition the
+    records themselves disagree about reaches neither count: the locator leaves an entity it
+    has two database ids for out of the map it hands over.
     """
 
     competitions: int
+    with_database_id: int
     database_id_conflicts: int
+    with_name: int
 
 
 @dataclass(frozen=True, slots=True)

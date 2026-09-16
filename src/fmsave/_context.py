@@ -19,7 +19,12 @@ from fmsave._layouts import NamePoolLayout, PlayerRecordLayout, find_layout
 from fmsave.models.meta import SaveInfo
 from fmsave.readers._common import GAME_DB_SECTION, SPAN_REGION
 from fmsave.readers.clubs import ClubIndex, find_club_layouts, read_club_index
-from fmsave.readers.competitions import CompetitionIndex, build_competition_index
+from fmsave.readers.competitions import (
+    CompetitionIndex,
+    build_competition_index,
+    find_competition_id_pair_layout,
+    locate_competition_database_ids,
+)
 from fmsave.readers.names import NAME_POOLS_CACHE_KEY, NamePools, locate_name_pools
 from fmsave.readers.player_scan import (
     PLAYER_RECORDS_CACHE_KEY,
@@ -211,10 +216,8 @@ class SaveContext:
             return read_stage_index(game_db, layout, save_info.file_name)
 
     def competition_index(self) -> CompetitionIndex:
-        """Every competition the stage table names, built once and then cached.
-
-        Database ids and names arrive in later releases, so every competition carries None for
-        both.
+        """Every competition with its database id and, when the user supplied a name map, its
+        name. Read from `game_db` once and then cached.
 
         Raises:
             SaveClosedError: The context is closed.
@@ -224,7 +227,17 @@ class SaveContext:
         return self.cached(COMPETITION_INDEX_CACHE_KEY, self._build_competition_index)
 
     def _build_competition_index(self) -> CompetitionIndex:
-        return build_competition_index(self.stage_index(), {}, {})
+        save_info = self._info
+        layout = find_competition_id_pair_layout(
+            save_info.section_schemas.get(GAME_DB_SECTION), save_info.build
+        )
+        with self.section(GAME_DB_SECTION) as game_db:
+            # stage_index() is called inside this borrow so its own borrow shares these bytes,
+            # and the id-pair records are read from the very same ones, so a cold call
+            # decompresses game_db once for both rather than once each.
+            stage_index = self.stage_index()
+            database_ids = locate_competition_database_ids(game_db, layout)
+        return build_competition_index(stage_index, database_ids, {})
 
     def close(self) -> None:
         """Drop cached values and section loans. Calling it again does nothing."""

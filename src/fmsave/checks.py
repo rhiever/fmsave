@@ -434,10 +434,27 @@ def evaluate_stages(
 def evaluate_competitions(
     stats: CompetitionStats, bounds: GateBounds, game_db_bytes: int
 ) -> tuple[GateResult, ...]:
-    """The competition reader's checks, in a fixed order."""
+    """The competition reader's checks, in a fixed order.
+
+    There is no check on the share of competitions named. No save stores a competition name,
+    so that share is zero unless the user supplies a name map, and zero is not a fault.
+    """
     applied = _applies(bounds, game_db_bytes)
+    competitions = stats.competitions
     return (
-        _gate("competitions_minimum", stats.competitions, bounds.competitions_minimum, applied),
+        _gate("competitions_minimum", competitions, bounds.competitions_minimum, applied),
+        _gate(
+            "competition_database_ids_mapped",
+            _rate(stats.with_database_id, competitions),
+            bounds.competition_database_ids_mapped,
+            applied,
+        ),
+        _gate(
+            "competition_database_id_conflicts",
+            _rate(stats.database_id_conflicts, competitions),
+            bounds.competition_database_id_conflicts,
+            applied,
+        ),
     )
 
 

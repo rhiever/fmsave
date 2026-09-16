@@ -435,6 +435,96 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'constant_bytes': tuple(
+          tuple(
+            -8,
+            7,
+          ),
+          tuple(
+            -6,
+            0,
+          ),
+          tuple(
+            -4,
+            7,
+          ),
+          tuple(
+            -1,
+            255,
+          ),
+          tuple(
+            12,
+            0,
+          ),
+          tuple(
+            13,
+            0,
+          ),
+          tuple(
+            14,
+            0,
+          ),
+          tuple(
+            15,
+            1,
+          ),
+          tuple(
+            22,
+            0,
+          ),
+          tuple(
+            23,
+            0,
+          ),
+          tuple(
+            24,
+            0,
+          ),
+          tuple(
+            25,
+            0,
+          ),
+          tuple(
+            26,
+            1,
+          ),
+          tuple(
+            32,
+            2,
+          ),
+          tuple(
+            40,
+            3,
+          ),
+          tuple(
+            55,
+            6,
+          ),
+          tuple(
+            60,
+            7,
+          ),
+        ),
+        'database_id_copy_offset': 8,
+        'database_id_offset': 4,
+        'database_id_range': tuple(
+          1,
+          2147483647,
+        ),
+        'entity_id_offset': 0,
+        'entity_id_range': tuple(
+          1,
+          199999,
+        ),
+        'marker': b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01',
+        'record_offset_from_marker': 30,
+      }),
+      'region': 'game_db',
+      'schema': 4000,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
         'first_selector_offset': 10,
         'human_count_offset': 8,
         'person_uid_copy_offset': 8,
@@ -590,6 +680,14 @@
         ),
         'clubs_minimum': tuple(
           5000,
+          None,
+        ),
+        'competition_database_id_conflicts': tuple(
+          None,
+          0.001,
+        ),
+        'competition_database_ids_mapped': tuple(
+          0.85,
           None,
         ),
         'competitions_minimum': tuple(

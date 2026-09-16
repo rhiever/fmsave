@@ -230,8 +230,10 @@ class Save:
     def competitions(self) -> Table[Competition]:
         """Every competition the save's stage table names, in ascending competition id.
 
-        Each row carries the ids of its stages. The save stores no competition names and no
-        editor database ids are read yet, so `name` and `database_id` are None on every row.
+        Each row carries the ids of its stages and, for about nine competitions in ten, the
+        competition's id in the game's own editor database, which is the same value on every
+        save and is what an external name source is keyed on. The save stores no competition
+        names, so `name` is None on every row until a name map is supplied.
         The table is read on the first call; later calls return the same table.
 
         Raises:

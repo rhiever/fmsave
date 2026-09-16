@@ -57,7 +57,11 @@ STAGE_GATE_NAMES = (
     "stage_trailing_sentinel",
     "stage_table_tail_bytes",
 )
-COMPETITION_GATE_NAMES = ("competitions_minimum",)
+COMPETITION_GATE_NAMES = (
+    "competitions_minimum",
+    "competition_database_ids_mapped",
+    "competition_database_id_conflicts",
+)
 
 # Rows of the example table that carry distinctive values.
 FINAL_STAGE_ID = 1
@@ -88,7 +92,7 @@ UNNAMED_ROUND_CODES = (5, 6, 9, 18, 20, 27, 41, 42, 43, 74, 75, 76, 77, 80, 148,
 # A row late in the example table, well past the 200 rows the locator chains to find it.
 BROKEN_ROW_STAGE_ID = 210
 EXAMPLE_DATABASE_ID = 4001
-SHARED_DATABASE_ID = 4002
+SECOND_EXAMPLE_DATABASE_ID = 4002
 
 
 def registered_gate_bounds() -> GateBounds:
@@ -120,7 +124,12 @@ def healthy_stage_stats() -> StageStats:
 
 
 def healthy_competition_stats() -> CompetitionStats:
-    return CompetitionStats(competitions=2_600, database_id_conflicts=0)
+    return CompetitionStats(
+        competitions=2_600,
+        with_database_id=2_380,
+        database_id_conflicts=0,
+        with_name=0,
+    )
 
 
 def failed_gate_names(results: tuple[GateResult, ...]) -> list[str]:
@@ -583,10 +592,9 @@ def test_a_competition_is_named_through_its_database_id_once_one_is_supplied() -
         example_stage_index(),
         {
             FIRST_COMPETITION_ID: EXAMPLE_DATABASE_ID,
-            SECOND_COMPETITION_ID: SHARED_DATABASE_ID,
-            THIRD_COMPETITION_ID: SHARED_DATABASE_ID,
+            SECOND_COMPETITION_ID: SECOND_EXAMPLE_DATABASE_ID,
         },
-        {EXAMPLE_DATABASE_ID: "Example League", SHARED_DATABASE_ID: "Example Cup"},
+        {EXAMPLE_DATABASE_ID: "Example League", SECOND_EXAMPLE_DATABASE_ID: "Example Cup"},
     )
 
     assert competition_index.competition_by_id[FIRST_COMPETITION_ID].database_id == (
@@ -594,10 +602,11 @@ def test_a_competition_is_named_through_its_database_id_once_one_is_supplied() -
     )
     assert competition_index.name_for(FIRST_COMPETITION_ID) == "Example League"
     assert competition_index.name_for(SECOND_COMPETITION_ID) == "Example Cup"
+    # A competition with no database id cannot be named, however full the map is.
+    assert competition_index.name_for(THIRD_COMPETITION_ID) is None
     assert competition_index.name_for(OUT_OF_BAND_COMPETITION_ID) is None
     assert competition_index.name_for(None) is None
-    assert competition_index.database_id_by_competition_id[THIRD_COMPETITION_ID] == (
-        SHARED_DATABASE_ID
-    )
-    # Two competitions claim the same database id, which is one id in conflict.
-    assert competition_index.stats.database_id_conflicts == 1
+    assert THIRD_COMPETITION_ID not in competition_index.database_id_by_competition_id
+    assert competition_index.stats.with_database_id == 2
+    assert competition_index.stats.with_name == 2
+    assert competition_index.stats.database_id_conflicts == 0

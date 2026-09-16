@@ -606,6 +606,41 @@ class RulesPreambleLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class CompetitionIdPairLayout:
+    """How to find the records in `game_db` that pair a stage-space id with a database id.
+
+    A record starts `record_offset_from_marker` bytes after the start of `marker`, and every
+    other offset counts from the record start, so the constants in front of it are negative.
+    The record holds the stage-space entity id at `entity_id_offset` and the editor database
+    id twice, at `database_id_offset` and `database_id_copy_offset`.
+
+    The marker is a run of `0xFF` bytes and a `0x01`, which is weak on its own: such a run is
+    common, and the marker alone hits about ten times as often as a record occurs. A candidate
+    is accepted only when the whole record lies inside `game_db`, the two database id words
+    are equal, the entity id and the database id lie inside their inclusive ranges, and every
+    `(offset, value)` pair in `constant_bytes` holds.
+
+    `constant_bytes` holds an offset only when its byte takes one value on at least 99% of the
+    records of every save measured **and** requiring it costs no competition its database id.
+    Several further offsets are that constant and are deliberately left out, because each of
+    them rejects records the save really does pair: a lost pair is worse than a kept false one,
+    and the records they reject are ordinary competitions rather than noise.
+
+    The records cover the whole stage-space entity space, of which competitions are a subset,
+    so the map is restricted to competitions by its caller and is never a competition list.
+    """
+
+    marker: bytes
+    record_offset_from_marker: int
+    entity_id_offset: int
+    database_id_offset: int
+    database_id_copy_offset: int
+    entity_id_range: tuple[int, int]
+    database_id_range: tuple[int, int]
+    constant_bytes: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class StageTableLayout:
     """Where the stage table sits in `game_db`, and where a stage row's fields sit.
 
@@ -709,7 +744,12 @@ class GateBounds:
     is the missing value, of rows) and `stage_table_tail_bytes` (bytes of `game_db` after the
     table, which is near its end).
 
-    Competitions: `competitions_minimum` (distinct competitions the stage table names).
+    Competitions: `competitions_minimum` (distinct competitions the stage table names),
+    `competition_database_ids_mapped` (competitions the id-pair records give a database id, of
+    competitions) and `competition_database_id_conflicts` (competitions dropped because another
+    competition claims the same database id, of competitions). There is no gate on competitions
+    named: no save stores a competition name, so the share is zero unless the user supplies a
+    name map.
     """
 
     minimum_applies_from_bytes: int
@@ -764,6 +804,8 @@ class GateBounds:
     stage_trailing_sentinel: BoundPair
     stage_table_tail_bytes: BoundPair
     competitions_minimum: BoundPair
+    competition_database_ids_mapped: BoundPair
+    competition_database_id_conflicts: BoundPair
 
 
 type Layout = (
@@ -779,6 +821,7 @@ type Layout = (
     | ContractLayout
     | SuspensionLayout
     | StageTableLayout
+    | CompetitionIdPairLayout
     | HumansLayout
     | FixtureCalendarLayout
     | LeagueTableLayout

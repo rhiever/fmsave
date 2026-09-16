@@ -150,9 +150,11 @@ def game_db_body(
     status_records: Sequence[bytes],
     *,
     gap_bytes: int = 70_000,
+    competition_id_pairs: bytes = b"",
     stage_table: bytes = b"",
 ) -> bytes:
-    """64 zero bytes, the club records, `gap_bytes` zero bytes, the status records, the stages.
+    """64 zero bytes, the club records, `gap_bytes` zero bytes, the status records, the id
+    pairs, then the stages.
 
     `stage_table` is appended last, as the save keeps its stage table near the end of `game_db`.
     """
@@ -161,6 +163,7 @@ def game_db_body(
         + b"".join(club_records)
         + bytes(gap_bytes)
         + b"".join(status_records)
+        + competition_id_pairs
         + stage_table
     )
 
@@ -213,6 +216,85 @@ def stage_table_bytes(
 ) -> bytes:
     """Zero padding, the rows back to back, then zero padding."""
     return bytes(leading_bytes) + b"".join(rows) + bytes(trailing_bytes)
+
+
+# Competition id-pair records: the marker, the constant bytes and the three words, written
+# directly here (never imported from fmsave) so a wrong offset inside fmsave has to fail a
+# test built from this module.
+COMPETITION_ID_PAIR_MARKER = b"\xff" * 16 + b"\x01"
+# How far the record start sits past the marker start, so also the number of bytes the marker
+# and the constants in front of the record take up.
+COMPETITION_ID_PAIR_RECORD_OFFSET = 30
+# Every byte the format holds constant, as (record-relative offset, value). Four sit in front
+# of the record and the rest after its three words.
+COMPETITION_ID_PAIR_CONSTANTS = (
+    (-8, 7),
+    (-6, 0),
+    (-4, 7),
+    (-1, 255),
+    (12, 0),
+    (13, 0),
+    (14, 0),
+    (15, 1),
+    (22, 0),
+    (23, 0),
+    (24, 0),
+    (25, 0),
+    (26, 1),
+    (32, 2),
+    (40, 3),
+    (55, 6),
+    (60, 7),
+)
+# What fills every byte no constant pins, so a reader looking for a constant one byte out of
+# place finds this instead of the value it expects.
+COMPETITION_ID_PAIR_FILLER_BYTE = 0x5A
+COMPETITION_ID_PAIR_WORD_BYTES = 12
+_COMPETITION_ID_PAIR_LEADING_BYTES = 13
+# Enough bytes after the three words to reach the furthest constant the format holds.
+_COMPETITION_ID_PAIR_TRAILING_BYTES = 49
+
+
+def competition_id_pair_bytes(
+    *,
+    entity_id: int,
+    database_id: int,
+    database_id_copy: int | None = None,
+    marker_bytes: bytes | None = None,
+    trailing: bytes = b"",
+) -> bytes:
+    """One id-pair record: the marker, the constants, the three words, then `trailing`.
+
+    Written forward in the order the format lays it out: the 17-byte marker, the 13 bytes in
+    front of the record, the u32 stage-space entity id, the u32 database id and its copy, and
+    the 49 bytes after them that the constants reach into. The record itself starts
+    `COMPETITION_ID_PAIR_RECORD_OFFSET` bytes into the result, so a test that wants to break
+    one constant counts from there.
+
+    `database_id_copy=None` repeats `database_id`. `marker_bytes` writes a marker of its own,
+    which lets a test write a broken one.
+    """
+    leading = bytearray([COMPETITION_ID_PAIR_FILLER_BYTE] * _COMPETITION_ID_PAIR_LEADING_BYTES)
+    following = bytearray([COMPETITION_ID_PAIR_FILLER_BYTE] * _COMPETITION_ID_PAIR_TRAILING_BYTES)
+    for offset, value in COMPETITION_ID_PAIR_CONSTANTS:
+        if offset < 0:
+            leading[_COMPETITION_ID_PAIR_LEADING_BYTES + offset] = value
+        else:
+            following[offset - COMPETITION_ID_PAIR_WORD_BYTES] = value
+
+    output = bytearray(COMPETITION_ID_PAIR_MARKER if marker_bytes is None else marker_bytes)
+    output.extend(leading)
+    output.extend(
+        struct.pack(
+            "<III",
+            entity_id,
+            database_id,
+            database_id if database_id_copy is None else database_id_copy,
+        )
+    )
+    output.extend(following)
+    output.extend(trailing)
+    return bytes(output)
 
 
 PLAYER_RECORD_MARKER = bytes.fromhex("01006c07")
