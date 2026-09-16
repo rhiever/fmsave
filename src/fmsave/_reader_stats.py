@@ -82,15 +82,17 @@ class ContractStats:
 class ClubStats:
     """What the club pass counted: records, team lists, status records and affiliate teams.
 
-    `affiliate_refs` counts every team id listed in a club record's affiliated-team list, and
-    `affiliate_refs_linked` those that were linked to a parent, which needs every id of the
-    list to name a team of another club that no other club has already claimed.
+    `affiliate_lists` counts club records holding an affiliated-team list, `affiliate_refs`
+    every team id those lists hold, and `affiliate_refs_linked` the ids linked to a
+    controlling club, which needs an id to name a team of another club that no other club has
+    already claimed.
     """
 
     records: int
     team_lists_found: int
     status_normal: int
     status_confirmed: int
+    affiliate_lists: int
     affiliate_refs: int
     affiliate_refs_linked: int
 

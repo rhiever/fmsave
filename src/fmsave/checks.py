@@ -333,6 +333,12 @@ def evaluate_clubs(
             applied,
         ),
         _gate(
+            "affiliate_lists_found",
+            _rate(stats.affiliate_lists, records),
+            bounds.affiliate_lists_found,
+            applied,
+        ),
+        _gate(
             "affiliate_teams_linked",
             _rate(stats.affiliate_refs_linked, stats.affiliate_refs),
             bounds.affiliate_teams_linked,

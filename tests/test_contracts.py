@@ -76,6 +76,7 @@ EMPTY_CLUB_INDEX = ClubIndex(
         team_lists_found=0,
         status_normal=0,
         status_confirmed=0,
+        affiliate_lists=0,
         affiliate_refs=0,
         affiliate_refs_linked=0,
     ),

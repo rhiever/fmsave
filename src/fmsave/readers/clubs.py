@@ -115,13 +115,15 @@ class _AffiliateLinks:
             follow that club's own teams.
         team_to_club: (parent club uid, slot in the parent's team list) per affiliate team.
         parent_by_club_uid: The controlling club of each club an affiliate team belongs to.
-        listed: How many team ids the affiliated-team lists hold.
-        linked: How many of those were linked to a parent.
+        lists: How many club records hold an affiliated-team list.
+        listed: How many team ids those lists hold.
+        linked: How many of those were linked to a controlling club.
     """
 
     teams_by_record: tuple[tuple[Team, ...], ...]
     team_to_club: Mapping[int, tuple[int, int]]
     parent_by_club_uid: Mapping[int, int]
+    lists: int
     listed: int
     linked: int
 
@@ -179,6 +181,7 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         team_lists_found=sum(1 for teams in teams_by_record if teams),
         status_normal=normal_status_count,
         status_confirmed=confirmed_status_count,
+        affiliate_lists=affiliates.lists,
         affiliate_refs=affiliates.listed,
         affiliate_refs_linked=affiliates.linked,
     )
@@ -355,20 +358,24 @@ def _link_affiliate_teams(
 ) -> _AffiliateLinks:
     """Link each club record's affiliated-team list to the clubs that store those teams.
 
-    A list is used only when every one of its ids names a team of another club that no
-    earlier list has claimed, so a stray count byte after a team list cannot invent an
-    affiliate. A linked team follows the controlling club's own slots, in stored order.
+    An id counts as linked only when it names a team of another club that no earlier list has
+    claimed, so a stray count byte after a team list cannot invent an affiliate. An id that
+    does not is left out and stays in the listed count, where the club checks can see it; the
+    ids that do link keep their order and follow the controlling club's own slots.
     """
     teams_by_affiliate_record: list[tuple[Team, ...]] = []
     affiliate_team_to_club: dict[int, tuple[int, int]] = {}
     parent_by_club_uid: dict[int, int] = {}
+    list_count = 0
     listed_count = 0
     linked_count = 0
     for record, team_list, own_teams in zip(records, team_lists, teams_by_record, strict=True):
         affiliate_team_ids = team_list.affiliate_team_ids
         listed_count += len(affiliate_team_ids)
+        if affiliate_team_ids:
+            list_count += 1
         affiliate_teams: list[Team] = []
-        for slot, team_id in enumerate(affiliate_team_ids, start=len(own_teams)):
+        for team_id in affiliate_team_ids:
             storing_club = team_to_club.get(team_id)
             if (
                 storing_club is None
@@ -376,10 +383,14 @@ def _link_affiliate_teams(
                 or team_id in affiliate_team_to_club
                 or any(listed_team.team_id == team_id for listed_team in affiliate_teams)
             ):
-                affiliate_teams.clear()
-                break
+                continue
             affiliate_teams.append(
-                Team(team_id=team_id, slot=slot, club_uid=storing_club[0], affiliate=True)
+                Team(
+                    team_id=team_id,
+                    slot=len(own_teams) + len(affiliate_teams),
+                    club_uid=storing_club[0],
+                    affiliate=True,
+                )
             )
         for affiliate_team in affiliate_teams:
             affiliate_team_to_club[affiliate_team.team_id] = (record.uid, affiliate_team.slot)
@@ -390,6 +401,7 @@ def _link_affiliate_teams(
         teams_by_record=tuple(teams_by_affiliate_record),
         team_to_club=affiliate_team_to_club,
         parent_by_club_uid=parent_by_club_uid,
+        lists=list_count,
         listed=listed_count,
         linked=linked_count,
     )

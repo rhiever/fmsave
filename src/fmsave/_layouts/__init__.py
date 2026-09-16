@@ -480,9 +480,11 @@ class GateBounds:
     way a clause table can go missing or stop short.
 
     Clubs: `clubs_minimum` (records), `team_lists_found` and `status_normal` (of clubs),
-    `status_confirmation` (of normal status records) and `affiliate_teams_linked` (listed
-    affiliate teams that belong to one other club, of listed affiliate teams; not applied
-    when no club lists one).
+    `status_confirmation` (of normal status records), `affiliate_lists_found` (club records
+    holding an affiliated-team list, of club records) and `affiliate_teams_linked` (listed
+    affiliate teams that belong to one other club, of listed affiliate teams). The second is
+    not applied when no club lists a team, so the first is what fails when the affiliate
+    decode finds nothing at all.
 
     Suspensions: `suspension_share_of_players` (players with an entry, of players; not applied
     without players) and `issued_after_clock` (entries issued after the in-game date, of
@@ -527,6 +529,7 @@ class GateBounds:
     team_lists_found: BoundPair
     status_normal: BoundPair
     status_confirmation: BoundPair
+    affiliate_lists_found: BoundPair
     affiliate_teams_linked: BoundPair
     suspension_share_of_players: BoundPair
     issued_after_clock: BoundPair

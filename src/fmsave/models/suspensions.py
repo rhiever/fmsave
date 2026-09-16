@@ -1,10 +1,10 @@
 """Unserved suspensions: bans a player has been given and has not yet served.
 
 The save keeps a player's suspension only while it is unserved. Every unserved ban it holds is
-listed here, including bans the game no longer shows because no fixture is left to serve them,
-for example after a cup exit; the save stores no flag that tells those apart. A suspension's
-competition id belongs to the suspension id space, not to the id space of fixture stages, so
-the two do not join; competition names arrive in a later release.
+listed here, including bans the game no longer displays; the save stores no flag that tells
+those apart, and why the game stops displaying one is not confirmed. A suspension's competition
+id belongs to the suspension id space, not to the id space of fixture stages, so the two do not
+join; competition names arrive in a later release.
 """
 
 from __future__ import annotations
@@ -36,8 +36,7 @@ class PlayerSuspension:
 class Suspension:
     """One unserved suspension, with its player and the club the player belongs to.
 
-    A ban the game no longer shows, because no fixture is left to serve it, is listed here
-    too.
+    A ban the game no longer displays is listed here too.
 
     Attributes:
         player_uid: Uid of the suspended player.

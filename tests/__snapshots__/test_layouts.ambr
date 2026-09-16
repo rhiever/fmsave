@@ -420,6 +420,10 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'affiliate_lists_found': tuple(
+          0.005,
+          None,
+        ),
         'affiliate_teams_linked': tuple(
           0.99,
           None,

@@ -335,8 +335,7 @@ class Player:
         contract: The player's assembled contract, or None when no chain record and no
             fallback dates were found.
         suspensions: The player's unserved suspensions, in the order the save stores them,
-            including bans the game no longer shows because no fixture is left to serve
-            them; () when the player has none.
+            including bans the game no longer displays; () when the player has none.
     """
 
     uid: int

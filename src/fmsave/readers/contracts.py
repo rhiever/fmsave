@@ -944,10 +944,12 @@ class ContractDecoder:
         """The one record the contract in effect comes from, or None when none has started.
 
         A record whose tail parsed wins over one whose did not, since only a tail carries a
-        contract's own fields; among those, one at the player's own club that has not ended
-        wins, and otherwise the latest start does. A record starting after the in-game date
-        is an agreed future move, such as a pre-contract or a completed transfer that takes
-        effect later, and is never the contract in effect.
+        contract's own fields; that holds even when the record without a tail is the one at
+        the player's own club, or started later. Among the records of the kind that wins,
+        one at the player's own club that has not ended is taken, and otherwise the latest
+        start. A record starting after the in-game date is an agreed future move, such as a
+        pre-contract or a completed transfer that takes effect later, and is never the
+        contract in effect.
         """
         in_effect = self._latest_started(chain_records, player_club_uid, with_tail=True)
         if in_effect is None:
@@ -1003,7 +1005,7 @@ class ContractDecoder:
         """
         first_candidate = chain_tag_offset - self.tail_base_offset
         count_offset = self.tail_event_count_offset
-        if first_candidate < 0 or first_candidate + count_offset >= len(game_db):
+        if first_candidate < 0 or first_candidate + count_offset + _U32.size > len(game_db):
             return None
         step_bytes = self.tail_step_bytes
         end_offset = self.tail_end_offset
@@ -1012,8 +1014,9 @@ class ContractDecoder:
             block_offset = first_candidate - step_bytes * block_count
             if block_offset < 0:
                 return None
-            # The stored count is a u32, and its low byte alone tells these blocks apart.
-            if game_db[block_offset + count_offset] != block_count:
+            # The stored count is read whole, as `_locate_tail` reads a tail's, so a stray
+            # byte equal to the step cannot end the search early.
+            if _U32.unpack_from(game_db, block_offset + count_offset)[0] != block_count:
                 continue
             end_at = block_offset + end_offset
             raw_end: int = _U32.unpack_from(game_db, end_at)[0]

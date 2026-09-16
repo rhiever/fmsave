@@ -440,6 +440,7 @@ def test_an_affiliate_team_keeps_its_stored_club_and_gains_a_fielding_club() -> 
     assert club_index.team_to_club[ACADEMY_TEAM_ID] == (5005, 0)
     assert club_index.affiliate_team_to_club[ACADEMY_TEAM_ID] == (5001, 2)
     assert 70001 not in club_index.affiliate_team_to_club
+    assert club_index.stats.affiliate_lists == 1
     assert club_index.stats.affiliate_refs == 1
     assert club_index.stats.affiliate_refs_linked == 1
 
@@ -449,10 +450,9 @@ def test_an_affiliate_team_keeps_its_stored_club_and_gains_a_fielding_club() -> 
     [
         pytest.param((79999,), id="team of no club"),
         pytest.param((70002,), id="the club's own team"),
-        pytest.param((ACADEMY_TEAM_ID, 79999), id="one of two does not resolve"),
     ],
 )
-def test_an_affiliate_list_that_does_not_resolve_is_left_out_whole(
+def test_an_affiliate_id_that_does_not_resolve_is_left_out(
     affiliate_team_ids: tuple[int, ...],
 ) -> None:
     club_index = index_with_affiliate(affiliate_team_ids)
@@ -462,8 +462,33 @@ def test_an_affiliate_list_that_does_not_resolve_is_left_out_whole(
     )
     assert club_index.club_by_uid[5005].parent_club_uid is None
     assert club_index.affiliate_team_to_club == {}
-    assert club_index.stats.affiliate_refs == len(affiliate_team_ids)
+    # The list is still counted, so the club checks see the id it lost.
+    assert club_index.stats.affiliate_lists == 1
+    assert club_index.stats.affiliate_refs == 1
     assert club_index.stats.affiliate_refs_linked == 0
+
+
+@pytest.mark.parametrize(
+    "affiliate_team_ids",
+    [
+        pytest.param((ACADEMY_TEAM_ID, 79999), id="the id that resolves comes first"),
+        pytest.param((79999, ACADEMY_TEAM_ID), id="the id that resolves comes second"),
+    ],
+)
+def test_an_id_that_does_not_resolve_does_not_cost_the_rest_of_its_list(
+    affiliate_team_ids: tuple[int, ...],
+) -> None:
+    club_index = index_with_affiliate(affiliate_team_ids)
+    assert club_index.club_by_uid[5001].teams == (
+        Team(70001, 0, 5001, False),
+        Team(70002, 1, 5001, False),
+        Team(ACADEMY_TEAM_ID, 2, 5005, True),
+    )
+    assert club_index.club_by_uid[5005].parent_club_uid == 5001
+    assert club_index.affiliate_team_to_club[ACADEMY_TEAM_ID] == (5001, 2)
+    assert club_index.stats.affiliate_lists == 1
+    assert club_index.stats.affiliate_refs == 2
+    assert club_index.stats.affiliate_refs_linked == 1
 
 
 def test_a_team_two_clubs_list_keeps_only_the_first_parent() -> None:
@@ -484,6 +509,7 @@ def test_an_affiliate_count_above_the_range_leaves_the_list_unread() -> None:
         Team(70001, 0, 5001, False),
         Team(70002, 1, 5001, False),
     )
+    assert club_index.stats.affiliate_lists == 0
     assert club_index.stats.affiliate_refs == 0
 
 

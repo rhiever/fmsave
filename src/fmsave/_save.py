@@ -156,8 +156,8 @@ class Save:
     def suspensions(self) -> Table[Suspension]:
         """Every unserved suspension in the save's game database, in player order.
 
-        Every unserved ban the save holds is listed, including bans the game no longer shows
-        because no fixture is left to serve them, for example after a cup exit. Each player's
+        Every unserved ban the save holds is listed, including bans the game no longer
+        displays. Each player's
         suspensions keep the order the save stores them in, and each row carries the club the
         player belongs to, which for a player registered with a team another club controls is
         that controlling club. The table is read on the first call to

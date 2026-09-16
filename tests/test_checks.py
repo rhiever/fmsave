@@ -114,6 +114,7 @@ CLUB_GATE_NAMES = (
     "team_lists_found",
     "status_normal",
     "status_confirmation",
+    "affiliate_lists_found",
     "affiliate_teams_linked",
 )
 SUSPENSION_GATE_NAMES = ("suspension_share_of_players", "issued_after_clock")
@@ -197,6 +198,7 @@ def healthy_club_stats() -> ClubStats:
         team_lists_found=50_000,
         status_normal=49_950,
         status_confirmed=49_500,
+        affiliate_lists=950,
         affiliate_refs=1_000,
         affiliate_refs_linked=1_000,
     )
@@ -403,12 +405,24 @@ def test_club_gates_pass_healthy_stats_and_fail_below_the_club_minimum() -> None
         team_lists_found=4_999,
         status_normal=4_990,
         status_confirmed=4_950,
-        affiliate_refs=0,
-        affiliate_refs_linked=0,
+        affiliate_lists=95,
+        affiliate_refs=100,
+        affiliate_refs_linked=100,
     )
     assert failed_gate_names(evaluate_clubs(few_clubs, BOUNDS, FULL_SIZE_GAME_DB_BYTES)) == [
         "clubs_minimum"
     ]
+
+
+def test_an_affiliate_decode_that_finds_nothing_fails_instead_of_switching_off() -> None:
+    nothing_found = dataclasses.replace(
+        healthy_club_stats(), affiliate_lists=0, affiliate_refs=0, affiliate_refs_linked=0
+    )
+    results = evaluate_clubs(nothing_found, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert failed_gate_names(results) == ["affiliate_lists_found"]
+    # The share of linked ids has lost its denominator, so the share of lists is what fails.
+    linked_share = next(result for result in results if result.name == "affiliate_teams_linked")
+    assert not linked_share.applied
 
 
 def test_healthy_suspension_stats_pass() -> None:
@@ -844,6 +858,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         "team_lists_found": 1.0,
         "status_normal": 1.0,
         "status_confirmation": 0.5,
+        "affiliate_lists_found": 0.5,
         "affiliate_teams_linked": 1.0,
     }
     assert observed_by_gate(readers["players"]) == {

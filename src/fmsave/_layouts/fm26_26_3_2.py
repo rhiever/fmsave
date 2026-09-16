@@ -372,6 +372,7 @@ GATE_BOUNDS = GateBounds(
     team_lists_found=(0.999, None),
     status_normal=(0.98, None),
     status_confirmation=(0.95, None),
+    affiliate_lists_found=(0.005, None),
     affiliate_teams_linked=(0.99, None),
     suspension_share_of_players=(None, 0.10),
     issued_after_clock=(None, 0.01),
