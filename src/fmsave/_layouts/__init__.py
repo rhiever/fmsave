@@ -678,6 +678,79 @@ class StageTableLayout:
     resynchronisation_bytes: int
 
 
+@dataclass(frozen=True, slots=True)
+class TaggedStreamLayout:
+    """The repeating record shape of the game's tagged stream.
+
+    One record is `<tag_bytes bytes: the tag, byte-reversed><separator_value><type><value>`.
+    The type byte says how the value is stored: `u8_types` one byte, `u16_types` two,
+    `u32_types` four, `string_type` a `u32` byte length of at most `max_string_bytes`
+    followed by that many UTF-8 bytes, `list_type` a `u32` count that opens a sub-list of
+    that many following records, and `nil_type` no value bytes at all.
+
+    Any other type byte ends a walk, as does a tag byte outside printable ASCII, a
+    separator that is not `separator_value`, and a value that would run past the walk's end.
+    The walk is deliberately strict and never resynchronises: a walk that stepped over bytes
+    it could not read would turn a layout that has moved into a shorter, quietly wrong
+    result instead of a visibly empty one.
+    """
+
+    tag_bytes: int
+    separator_value: int
+    u8_types: tuple[int, ...]
+    u16_types: tuple[int, ...]
+    u32_types: tuple[int, ...]
+    string_type: int
+    list_type: int
+    nil_type: int
+    max_string_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class TransferWindowLayout:
+    """How to find a transfer window in the tagged stream of `game_db`.
+
+    A window record opens with its start-date sub-list, so `marker` is that list's own stored
+    bytes: the `start_tag` reversed, the separator and the list type. From each hit the reader
+    walks tagged values forward for at most `window_scan_bytes` and collects the `start_tag`
+    and `end_tag` sub-lists, each carrying `day_tag`, `month_tag` and `year_tag`, and then the
+    `close_time_tag` value, which ends the record.
+
+    A sub-list holds more members than the three dates (an id and a day-of-week among them,
+    and the day-of-week is sometimes the nil type), so the reader counts nothing down: it
+    keeps the date tags it sees while a sub-list is open and lets the next sub-list or the
+    closing time close it.
+
+    **The closing time is what makes a window a window.** The date tags alone are shared by
+    many kinds of record in this stream: on the saves measured 1,766 start-date sub-lists
+    carry a complete date pair and only 54 of them also carry a closing time. Accepting on the
+    dates alone would return every dated record in the rules database, so a record without a
+    closing time is not a window.
+
+    Acceptance is structural and never textual. The window carries no description of its own,
+    and an English word in a nearby string would be a localisation risk besides.
+
+    A record is kept only when both sub-lists were found, each holds all three of day, month
+    and year, and each value lies inside `day_range`, `month_range` and `year_range`
+    (inclusive). `season_year_base` is the stored year that means the season's own start year,
+    so a stored year becomes an offset by subtracting it.
+    """
+
+    marker: bytes
+    start_tag: str
+    end_tag: str
+    day_tag: str
+    month_tag: str
+    year_tag: str
+    close_time_tag: str
+    window_type_tag: str
+    window_scan_bytes: int
+    day_range: tuple[int, int]
+    month_range: tuple[int, int]
+    year_range: tuple[int, int]
+    season_year_base: int
+
+
 type BoundPair = tuple[float | None, float | None]
 
 
@@ -770,6 +843,14 @@ class GateBounds:
     when the calendar shatters into fragments; the stray count falls to zero when nothing is
     separated from the calendar at all, which the share cannot see, because a reader that kept
     every stray copy scores a perfect 1.0 on it.
+
+    Transfer windows: `transfer_windows_minimum` (windows decoded) and `transfer_window_dates`
+    (windows whose two date groups both decoded inside their ranges, of the records that
+    carried a closing time). Windows are database content rather than career state, so both
+    bounds rest on two saves of **one** installed database and are kept loose: a database with
+    fewer nations loaded legitimately carries fewer windows. A decode that finds nothing fails
+    the count on its lower bound, and one that has moved only inside the date groups leaves
+    the count alone and drops the share instead.
     """
 
     minimum_applies_from_bytes: int
@@ -832,6 +913,8 @@ class GateBounds:
     fixture_strays_minimum: BoundPair
     fixture_stage_resolved: BoundPair
     fixture_teams_resolved: BoundPair
+    transfer_windows_minimum: BoundPair
+    transfer_window_dates: BoundPair
 
 
 type Layout = (
@@ -852,6 +935,8 @@ type Layout = (
     | FixtureCalendarLayout
     | LeagueTableLayout
     | RulesPreambleLayout
+    | TaggedStreamLayout
+    | TransferWindowLayout
     | GateBounds
 )
 

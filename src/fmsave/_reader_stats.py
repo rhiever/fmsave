@@ -181,6 +181,23 @@ class FixtureStats:
 
 
 @dataclass(frozen=True, slots=True)
+class TransferWindowStats:
+    """What the transfer-window pass counted over the tagged stream.
+
+    `markers` counts the start-date sub-lists the search anchored on, of which only a small
+    share open a transfer window at all; `windows` counts the records that decoded into one,
+    and `incomplete` those that carried a closing time but whose two date groups were missing
+    a value or held one outside its range. A decode that has moved leaves `windows` at zero,
+    which fails the count check, and one that has moved only inside the date groups pushes
+    records from `windows` into `incomplete`, which fails the date-group check.
+    """
+
+    markers: int
+    windows: int
+    incomplete: int
+
+
+@dataclass(frozen=True, slots=True)
 class ManagedStats:
     """What the managed-club reader found: human managers, resolved routes (0 or 1) and rows."""
 

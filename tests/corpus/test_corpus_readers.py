@@ -44,6 +44,7 @@ EXPECTED_READERS = (
     "stages",
     "competitions",
     "fixtures",
+    "transfer_windows",
 )
 
 

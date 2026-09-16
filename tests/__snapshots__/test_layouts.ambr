@@ -525,6 +525,61 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'list_type': 10,
+        'max_string_bytes': 4096,
+        'nil_type': 0,
+        'separator_value': 1,
+        'string_type': 26,
+        'tag_bytes': 4,
+        'u16_types': tuple(
+          18,
+        ),
+        'u32_types': tuple(
+          1,
+          2,
+          3,
+          11,
+          15,
+        ),
+        'u8_types': tuple(
+          17,
+        ),
+      }),
+      'region': 'game_db',
+      'schema': 4000,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
+        'close_time_tag': 'wnCT',
+        'day_range': tuple(
+          1,
+          31,
+        ),
+        'day_tag': 'dyom',
+        'end_tag': 'endt',
+        'marker': b'tdts\x01\n',
+        'month_range': tuple(
+          1,
+          12,
+        ),
+        'month_tag': 'mont',
+        'season_year_base': 2000,
+        'start_tag': 'stdt',
+        'window_scan_bytes': 256,
+        'window_type_tag': 'wnty',
+        'year_range': tuple(
+          2000,
+          2016,
+        ),
+        'year_tag': 'year',
+      }),
+      'region': 'game_db',
+      'schema': 4000,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
         'first_selector_offset': 10,
         'human_count_offset': 8,
         'person_uid_copy_offset': 8,
@@ -863,6 +918,14 @@
         ),
         'team_resolved': tuple(
           0.98,
+          None,
+        ),
+        'transfer_window_dates': tuple(
+          0.9,
+          None,
+        ),
+        'transfer_windows_minimum': tuple(
+          10,
           None,
         ),
         'with_natural_position': tuple(

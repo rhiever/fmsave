@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import struct
 from datetime import date, timedelta
 
 import pytest
@@ -7,15 +8,32 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from fmsave._errors import CorruptSaveError
+from fmsave._layouts import TaggedStreamLayout, find_layout
 from fmsave._scan import (
+    TaggedValue,
     decode_date,
     decode_time_slot,
     find_marker,
+    iter_tagged_values,
     read_length_prefixed_string,
     read_u16,
     read_u32,
     read_u64,
 )
+from tests.fixtures.game_db import (
+    TAGGED_LIST_TYPE,
+    TAGGED_NIL_TYPE,
+    TAGGED_SEPARATOR,
+    TAGGED_STRING_TYPE,
+    TAGGED_U8_TYPE,
+    TAGGED_U16_TYPE,
+    TAGGED_U32_TYPES,
+    tagged_value_bytes,
+)
+
+TAGGED_STREAM_LAYOUT = find_layout(TaggedStreamLayout, "game_db", 4000, "").layout
+# A type byte the format does not define, which has to end a walk.
+UNKNOWN_TYPE_BYTE = 0x7F
 
 
 def test_integer_reads_are_little_endian() -> None:
@@ -136,3 +154,128 @@ def test_reads_only_raise_corrupt_save_error(buffer: bytes, offset: int) -> None
         read_length_prefixed_string(buffer, offset, 16)
     except CorruptSaveError:
         pass
+
+
+def walk(encoded: bytes, start: int = 0, end: int | None = None) -> list[TaggedValue]:
+    return list(
+        iter_tagged_values(
+            encoded, start, len(encoded) if end is None else end, TAGGED_STREAM_LAYOUT
+        )
+    )
+
+
+def test_a_tagged_value_reverses_its_tag() -> None:
+    """The stored bytes `tnom` are the tag `mont`, which is what the corpus confirmed."""
+    encoded = tagged_value_bytes("mont", TAGGED_U8_TYPE, 7)
+
+    assert encoded.startswith(b"tnom")
+    assert walk(encoded) == [
+        TaggedValue(tag="mont", kind=TAGGED_U8_TYPE, value=7, offset=0, end=len(encoded))
+    ]
+
+
+def test_every_defined_type_decodes_and_the_records_chain() -> None:
+    """One value of every type the format defines, written as a single stream.
+
+    A list yields its count as a plain int, the nil type yields None and writes no value
+    bytes, and the string is non-ASCII so the UTF-8 decode is covered here too. Chaining them
+    rather than walking each alone also proves every record's length: one wrong width would
+    derail every record after it.
+    """
+    written: list[tuple[str, int, int | str | None]] = [
+        ("dyom", TAGGED_U8_TYPE, 200),
+        ("year", TAGGED_U16_TYPE, 40_000),
+        *[
+            (f"u3{position}x", u32_type, 3_000_000_000)
+            for position, u32_type in enumerate(TAGGED_U32_TYPES)
+        ],
+        ("stdt", TAGGED_LIST_TYPE, 5),
+        ("desc", TAGGED_STRING_TYPE, "Fen\u00eatre \u00c9xample"),
+        ("dyow", TAGGED_NIL_TYPE, None),
+    ]
+    encoded = b"".join(tagged_value_bytes(tag, kind, value) for tag, kind, value in written)
+
+    assert [(value.tag, value.kind, value.value) for value in walk(encoded)] == written
+
+
+def test_a_walk_ends_at_anything_that_is_not_a_record() -> None:
+    """Every way a walk can end, each on its own stream.
+
+    Whatever ends it, the values before it are already yielded and nothing raises. The walk is
+    strict and never resynchronises, so a layout that has moved goes visibly empty rather than
+    quietly short.
+    """
+    first = tagged_value_bytes("mont", TAGGED_U8_TYPE, 7)
+    endings = {
+        "unknown-type-byte": tagged_value_bytes("stop", UNKNOWN_TYPE_BYTE),
+        "string-length-past-the-end": (
+            b"nmnm" + bytes([TAGGED_SEPARATOR, TAGGED_STRING_TYPE]) + struct.pack("<I", 100)
+        ),
+        "string-longer-than-the-maximum": (
+            b"gnol" + bytes([TAGGED_SEPARATOR, TAGGED_STRING_TYPE]) + struct.pack("<I", 5_000)
+        ),
+        "zero-tag-byte": b"\x00bcd" + bytes([TAGGED_SEPARATOR, TAGGED_U8_TYPE, 1]),
+        "wrong-separator": b"abcd" + bytes([0x02, TAGGED_U8_TYPE, 1]),
+    }
+
+    tags_before_the_end = {
+        reason: [value.tag for value in walk(first + trailing)]
+        for reason, trailing in endings.items()
+    }
+
+    assert tags_before_the_end == {reason: ["mont"] for reason in endings}
+
+
+def test_a_walk_never_resynchronises_past_what_it_cannot_read() -> None:
+    """A good record behind a gap is never picked up: the walk ends at the gap and stays ended.
+
+    This is the guarantee the readers' counts rest on. A walk that stepped over bytes it could
+    not read would hunt on down the stream and yield whatever the bytes happened to line up
+    into further along, turning a layout that has moved into a short, plausible result instead
+    of a visibly empty one. Every stream here holds a perfectly good record behind the gap, so
+    a walk that resynchronised would yield two tags where a strict one yields the first alone.
+    """
+    first = tagged_value_bytes("mont", TAGGED_U8_TYPE, 7)
+    behind_the_gap = tagged_value_bytes("year", TAGGED_U16_TYPE, 2030)
+    gaps = {
+        "unknown-type-byte": tagged_value_bytes("stop", UNKNOWN_TYPE_BYTE),
+        "string-length-past-the-end": (
+            b"nmnm" + bytes([TAGGED_SEPARATOR, TAGGED_STRING_TYPE]) + struct.pack("<I", 1_000)
+        ),
+        "string-longer-than-the-maximum": (
+            b"gnol" + bytes([TAGGED_SEPARATOR, TAGGED_STRING_TYPE]) + struct.pack("<I", 5_000)
+        ),
+        "zero-tag-byte": b"\x00bcd" + bytes([TAGGED_SEPARATOR, TAGGED_U8_TYPE, 1]),
+        "wrong-separator": b"abcd" + bytes([0x02, TAGGED_U8_TYPE, 1]),
+        "a-run-of-zero-bytes": bytes(64),
+    }
+
+    tags_yielded = {
+        reason: [value.tag for value in walk(first + gap + behind_the_gap)]
+        for reason, gap in gaps.items()
+    }
+
+    assert tags_yielded == {reason: ["mont"] for reason in gaps}
+    # The record behind each gap is readable on its own, so the walk ending at the gap is the
+    # only reason it never appears above; without this the assertion would also hold for a
+    # trailing record that was malformed to begin with.
+    assert [value.tag for value in walk(behind_the_gap)] == ["year"]
+
+
+def test_record_bounds_let_a_caller_resume_and_honour_the_end_bound() -> None:
+    """Each value's bounds are the record's own, so a second walk starts where the first ended.
+
+    The end bound is honoured as well, even when the buffer holds a whole record beyond it.
+    """
+    first = tagged_value_bytes("dyom", TAGGED_U8_TYPE, 20)
+    second = tagged_value_bytes("year", TAGGED_U16_TYPE, 2000)
+    encoded = first + second
+
+    values = walk(encoded)
+
+    assert [(value.offset, value.end) for value in values] == [
+        (0, len(first)),
+        (len(first), len(encoded)),
+    ]
+    assert walk(encoded, start=values[0].end) == [values[1]]
+    assert [value.tag for value in walk(encoded, end=len(first))] == ["dyom"]

@@ -23,6 +23,7 @@ from fmsave.models.players import (
     Reputation,
     Trait,
 )
+from fmsave.models.rules import TransferWindow
 from fmsave.models.suspensions import PlayerSuspension, Suspension
 
 __all__ = [
@@ -53,4 +54,5 @@ __all__ = [
     "Team",
     "Trait",
     "TransferValueState",
+    "TransferWindow",
 ]

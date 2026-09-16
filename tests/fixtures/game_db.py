@@ -151,10 +151,11 @@ def game_db_body(
     *,
     gap_bytes: int = 70_000,
     competition_id_pairs: bytes = b"",
+    tagged_stream: bytes = b"",
     stage_table: bytes = b"",
 ) -> bytes:
     """64 zero bytes, the club records, `gap_bytes` zero bytes, the status records, the id
-    pairs, then the stages.
+    pairs, the tagged stream, then the stages.
 
     `stage_table` is appended last, as the save keeps its stage table near the end of `game_db`.
     """
@@ -164,8 +165,102 @@ def game_db_body(
         + bytes(gap_bytes)
         + b"".join(status_records)
         + competition_id_pairs
+        + tagged_stream
         + stage_table
     )
+
+
+# The tagged stream: `<4-char tag, byte-reversed><01><type><value>`, written directly here
+# (never imported from fmsave) so a wrong type byte inside fmsave has to fail a test built
+# from this module.
+TAGGED_SEPARATOR = 0x01
+TAGGED_U8_TYPE = 0x11
+TAGGED_U16_TYPE = 0x12
+TAGGED_U32_TYPES = (0x01, 0x02, 0x03, 0x0B, 0x0F)
+TAGGED_STRING_TYPE = 0x1A
+TAGGED_LIST_TYPE = 0x0A
+TAGGED_NIL_TYPE = 0x00
+TAGGED_TAG_LENGTH = 4
+
+
+def tagged_value_bytes(tag: str, kind: int, value: int | str | None = None) -> bytes:
+    """One tagged record: the reversed tag, the separator, the type byte and the value.
+
+    A type byte the format does not define writes no value bytes, so a test can end a walk
+    with one. A `None` value writes nothing for any type, which is what the nil type stores.
+    """
+    encoded_tag = tag.encode("ascii")
+    if len(encoded_tag) != TAGGED_TAG_LENGTH:
+        raise ValueError(f"a tag is {TAGGED_TAG_LENGTH} characters, not {len(encoded_tag)}")
+    output = bytearray(encoded_tag[::-1])
+    output.append(TAGGED_SEPARATOR)
+    output.append(kind)
+    if value is None:
+        return bytes(output)
+    if kind == TAGGED_U8_TYPE:
+        output.append(cast(int, value))
+    elif kind == TAGGED_U16_TYPE:
+        output.extend(struct.pack("<H", cast(int, value)))
+    elif kind in TAGGED_U32_TYPES or kind == TAGGED_LIST_TYPE:
+        output.extend(struct.pack("<I", cast(int, value)))
+    elif kind == TAGGED_STRING_TYPE:
+        encoded_text = cast(str, value).encode("utf-8")
+        output.extend(struct.pack("<I", len(encoded_text)))
+        output.extend(encoded_text)
+    return bytes(output)
+
+
+# A transfer window: the `stdt` sub-list, the `endt` sub-list and the closing time, written
+# directly here in the order the format lays them out. Each date sub-list holds five members,
+# not three: an id and a day-of-week sit in front of the day, month and year, and the
+# day-of-week is sometimes the nil type, so a reader that counts list members down rather than
+# reading their tags has to fail a test built from this module.
+TRANSFER_WINDOW_LIST_MEMBERS = 5
+TRANSFER_WINDOW_ID_TYPE = 0x02
+
+
+def transfer_window_date_bytes(
+    tag: str, day: int, month: int, year: int, *, day_of_week: int | None = 3
+) -> bytes:
+    """One date sub-list: the list header, then its id, day of week, day, month and year."""
+    return (
+        tagged_value_bytes(tag, TAGGED_LIST_TYPE, TRANSFER_WINDOW_LIST_MEMBERS)
+        + tagged_value_bytes("id  ", TRANSFER_WINDOW_ID_TYPE, 1_234)
+        + tagged_value_bytes(
+            "dyow",
+            TAGGED_NIL_TYPE if day_of_week is None else TAGGED_U8_TYPE,
+            day_of_week,
+        )
+        + tagged_value_bytes("dyom", TAGGED_U8_TYPE, day)
+        + tagged_value_bytes("mont", TAGGED_U8_TYPE, month)
+        + tagged_value_bytes("year", TAGGED_U16_TYPE, year)
+    )
+
+
+def transfer_window_bytes(
+    *,
+    opens: tuple[int, int, int],
+    closes: tuple[int, int, int],
+    close_time: int | None = 2400,
+    window_type: int | None = None,
+    filler: bytes = b"",
+) -> bytes:
+    """One transfer window record.
+
+    `opens` and `closes` are `(day, month, year)` with the year already season-relative (2000
+    for the season's own start year, 2001 for the one after). `filler` is written between the
+    two date sub-lists and the closing time, so a test can push the closing time past the
+    layout's scan window. `close_time=None` writes no closing time at all, which is what a
+    dated record that is not a window looks like.
+    """
+    output = bytearray(transfer_window_date_bytes("stdt", *opens))
+    output.extend(transfer_window_date_bytes("endt", *closes))
+    output.extend(filler)
+    if window_type is not None:
+        output.extend(tagged_value_bytes("wnty", TAGGED_U8_TYPE, window_type))
+    if close_time is not None:
+        output.extend(tagged_value_bytes("wnCT", TAGGED_U16_TYPE, close_time))
+    return bytes(output)
 
 
 # Stage table rows: 33 bytes each, written directly here (never imported from fmsave) so a

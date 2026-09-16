@@ -2,12 +2,12 @@
 
 While a reader decodes, it counts what it sees into a stats record from `fmsave._reader_stats`
 (`PlayerStats`, `ContractStats`, `ClubStats`, `SuspensionStats`, `ManagedStats`, `StageStats`,
-`CompetitionStats` or `FixtureStats`). The `evaluate_*` functions compare those counts with the
-loose `GateBounds`
-registered for the save's layout and return one `GateResult` per check, and `enforce` raises
-`ReaderCheckError` when an applied check failed, before the reader caches its table. The checks
-apply only to a `game_db` of at least `GateBounds.minimum_applies_from_bytes`, since smaller
-sections come from fragments that cannot meet full-save counts.
+`CompetitionStats`, `FixtureStats` or `TransferWindowStats`). The `evaluate_*` functions compare
+those counts with the loose `GateBounds` registered for the save's layout and return one
+`GateResult` per check, and `enforce` raises `ReaderCheckError` when an applied check failed,
+before the reader caches its table. The checks apply only to a `game_db` of at least
+`GateBounds.minimum_applies_from_bytes`, since smaller sections come from fragments that cannot
+meet full-save counts.
 
 `validate_save` runs every reader and returns a `ValidationReport`, which holds only structural
 facts, counts and rates: never names, uids or other values from the save.
@@ -39,6 +39,7 @@ from fmsave._reader_stats import (
     PlayerStats,
     StageStats,
     SuspensionStats,
+    TransferWindowStats,
 )
 from fmsave._status import registered_statuses
 
@@ -71,6 +72,7 @@ MANAGED_CLUBS_READER = "managed_clubs"
 STAGES_READER = "stages"
 COMPETITIONS_READER = "competitions"
 FIXTURES_READER = "fixtures"
+TRANSFER_WINDOWS_READER = "transfer_windows"
 
 # Players, contracts and suspensions are decoded in one pass, so they fail or succeed together.
 _PLAYER_PASS_READERS = frozenset({PLAYERS_READER, CONTRACTS_READER, SUSPENSIONS_READER})
@@ -525,6 +527,30 @@ def evaluate_fixtures(
     )
 
 
+def evaluate_transfer_windows(
+    stats: TransferWindowStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The transfer-window reader's checks, in a fixed order.
+
+    Both apply whenever the section is large enough, including when the walk decoded nothing:
+    an empty result scores zero windows, which fails the count, and leaves the date share with
+    no denominator at all, which fails for want of a rate rather than passing quietly. That is
+    the point of the pair, since the tagged stream holds far more dated records than windows
+    and a decode that has moved would otherwise look like a save that simply has none.
+    """
+    applied = _applies(bounds, game_db_bytes)
+    windows = stats.windows
+    return (
+        _gate("transfer_windows_minimum", windows, bounds.transfer_windows_minimum, applied),
+        _gate(
+            "transfer_window_dates",
+            _rate(windows, windows + stats.incomplete),
+            bounds.transfer_window_dates,
+            applied,
+        ),
+    )
+
+
 def check_players(stats: PlayerStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
     """The player reader's checks, record count and anomaly counts."""
     return ReaderCheck(
@@ -666,6 +692,30 @@ def check_fixtures(stats: FixtureStats, bounds: GateBounds, span_bytes: int) -> 
     )
 
 
+def check_transfer_windows(
+    stats: TransferWindowStats, bounds: GateBounds, game_db_bytes: int
+) -> ReaderCheck:
+    """The transfer-window reader's checks, record count and anomaly counts.
+
+    The anomaly is the candidates the walk looked at and rejected for carrying no closing
+    time, which is most of them: the date tags a window uses are shared by many records of the
+    tagged stream, and only the closing time marks one as a window.
+    """
+    return ReaderCheck(
+        TRANSFER_WINDOWS_READER,
+        stats.windows,
+        evaluate_transfer_windows(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {
+                "dated_records_without_a_closing_time": (
+                    stats.markers - stats.windows - stats.incomplete
+                ),
+                "windows_with_unreadable_dates": stats.incomplete,
+            }
+        ),
+    )
+
+
 def _format_number(value: float | None) -> str:
     if value is None:
         return "none"
@@ -741,7 +791,7 @@ class ReaderValidation:
 
     Attributes:
         reader: The reader: "clubs", "players", "contracts", "suspensions", "managed_clubs",
-            "stages", "competitions" or "fixtures".
+            "stages", "competitions", "fixtures" or "transfer_windows".
         status: "ok" when the reader returned its table, "failed" when checks stopped it, and
             "error" when it raised another fmsave error.
         record_count: How many records the reader decoded, or None when it did not get far
@@ -834,11 +884,10 @@ def validate_save(career_save: Save) -> ValidationReport:
     """Run every reader on a save and report how each fared.
 
     Readers run in the order clubs, players, contracts, suspensions, managed clubs, stages,
-    competitions, fixtures. A reader
-    whose checks fail is reported "failed" with its checks, and one that raises another fmsave
-    error is reported "error" without the error's text; the remaining readers still run. The
-    report holds only structural facts, counts and rates, never names, uids or other values
-    from the save.
+    competitions, fixtures, transfer windows. A reader whose checks fail is reported "failed"
+    with its checks, and one that raises another fmsave error is reported "error" without the
+    error's text; the remaining readers still run. The report holds only structural facts,
+    counts and rates, never names, uids or other values from the save.
 
     Raises:
         SaveClosedError: The save is closed.
@@ -855,6 +904,7 @@ def validate_save(career_save: Save) -> ValidationReport:
         (STAGES_READER, career_save.stages),
         (COMPETITIONS_READER, career_save.competitions),
         (FIXTURES_READER, career_save.fixtures),
+        (TRANSFER_WINDOWS_READER, career_save.transfer_windows),
     )
     validations: list[ReaderValidation] = []
     player_pass_error: FmsaveError | None = None

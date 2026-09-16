@@ -337,6 +337,16 @@
         'unknown_e7',
         'unknown_e14',
       ]),
+      'TransferWindow': list([
+        'opens_day',
+        'opens_month',
+        'opens_season_year_offset',
+        'closes_day',
+        'closes_month',
+        'closes_season_year_offset',
+        'unknown_close_time',
+        'unknown_window_type',
+      ]),
     }),
   })
 # ---

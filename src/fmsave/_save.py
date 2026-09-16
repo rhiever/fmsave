@@ -29,6 +29,7 @@ from fmsave.models.fixtures import Fixture
 from fmsave.models.managed import ManagedClub
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
+from fmsave.models.rules import TransferWindow
 from fmsave.models.suspensions import Suspension
 from fmsave.name_maps import EMPTY_COMPETITION_NAMES, normalize_competition_names
 from fmsave.readers._common import (
@@ -41,6 +42,7 @@ from fmsave.readers.fixtures import build_fixtures
 from fmsave.readers.managed import find_managed_club_layouts, resolve_managed_clubs
 from fmsave.readers.player_scan import window_end
 from fmsave.readers.players import build_player_decoder, collect_player_stats
+from fmsave.readers.rules import find_transfer_window_layouts, read_transfer_windows
 from fmsave.readers.stages import named_stages
 from fmsave.readers.suspensions import (
     SuspensionEntry,
@@ -58,6 +60,7 @@ MANAGED_CLUBS_TABLE_CACHE_KEY = "table:managed_clubs"
 STAGES_TABLE_CACHE_KEY = "table:stages"
 COMPETITIONS_TABLE_CACHE_KEY = "table:competitions"
 FIXTURES_TABLE_CACHE_KEY = "table:fixtures"
+TRANSFER_WINDOWS_TABLE_CACHE_KEY = "table:transfer_windows"
 
 
 class _PlayerTables(NamedTuple):
@@ -322,6 +325,26 @@ class Save:
         self._store_reader_checks((fixture_check,))
         return Table(fixtures, Fixture)
 
+    def transfer_windows(self) -> Table[TransferWindow]:
+        """Every transfer window the save's rules database holds, in stored order.
+
+        A window says when a transfer window opens and closes in a season. It is database
+        content rather than career state: every save made from one installed database holds
+        the same windows, whatever has happened in the career. The dates are season-relative,
+        so each carries an offset from the season's start year rather than a calendar date,
+        and a window has no name of its own. The table is read on the first call; later calls
+        return the same table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: On a full-size save, fewer windows were decoded than the checks
+                allow, or the windows that were found did not decode their dates.
+        """
+        context = self._context
+        return context.cached(TRANSFER_WINDOWS_TABLE_CACHE_KEY, self._read_transfer_windows)
+
     def _reader_check(self, reader_name: str) -> ReaderCheck | None:
         """The checks a reader passed when its table was read, or None before it was read."""
         stored = self._context.cached_value(_check_cache_key(reader_name))
@@ -413,6 +436,21 @@ class Save:
         checks.enforce_checks((competition_check,))
         self._store_reader_checks((competition_check,))
         return Table(competition_index.competitions, Competition)
+
+    def _read_transfer_windows(self) -> Table[TransferWindow]:
+        context = self._context
+        save_info = context.info
+        gate_bounds = self._gate_bounds()
+        tagged_layout, window_layout = find_transfer_window_layouts(
+            save_info.section_schemas.get(GAME_DB_SECTION), save_info.build
+        )
+        with context.section(GAME_DB_SECTION) as game_db:
+            windows, window_stats = read_transfer_windows(game_db, tagged_layout, window_layout)
+            game_db_length = len(game_db)
+        window_check = checks.check_transfer_windows(window_stats, gate_bounds, game_db_length)
+        checks.enforce_checks((window_check,))
+        self._store_reader_checks((window_check,))
+        return Table(windows, TransferWindow)
 
     def _players_table_entry_point(self) -> Table[Player]:
         tables = self._decode_player_tables()

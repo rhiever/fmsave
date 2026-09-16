@@ -25,7 +25,9 @@ from fmsave._layouts import (
     StageTableLayout,
     SummaryStringsLayout,
     SuspensionLayout,
+    TaggedStreamLayout,
     TeamListLayout,
+    TransferWindowLayout,
 )
 
 BUILD = "26.3.2+2329565"
@@ -494,6 +496,50 @@ COMPETITION_ID_PAIRS = CompetitionIdPairLayout(
     ),
 )
 
+# The tag is stored byte-reversed, so the bytes `csed` are the tag `desc`. Confirmed by walking
+# every marker of both saves under each direction: read reversed the stream yields the tags the
+# format names (`stdt`, `endt`, `dyom`, `mont`, `year`, `wnCT`) and read as stored it yields
+# none of them.
+TAGGED_STREAM = TaggedStreamLayout(
+    tag_bytes=4,
+    separator_value=0x01,
+    u8_types=(0x11,),
+    u16_types=(0x12,),
+    u32_types=(0x01, 0x02, 0x03, 0x0B, 0x0F),
+    string_type=0x1A,
+    list_type=0x0A,
+    nil_type=0x00,
+    max_string_bytes=4096,
+)
+
+# A window record opens with its `stdt` sub-list, so the marker is that list's stored bytes.
+# Both saves measured agree exactly: 1,766 start-date sub-lists, of which 54 also carry a
+# closing time and decode into a window, and none of those 54 is incomplete. The 54 windows are
+# identical between the two, which is what makes them database content rather than career
+# state; both saves come from one installed database, so these counts rest on a single database
+# rather than on two independent ones, and the bounds below are loose for that reason.
+#
+# The longest record measured is 146 bytes and 16 tagged values, so the scan window is a little
+# over 1.7 times the longest seen. The decoded count is identical at 160, 256, 512 and 1,024
+# bytes, so nothing here depends on where the window is drawn.
+TRANSFER_WINDOWS = TransferWindowLayout(
+    marker=b"tdts\x01\x0a",
+    start_tag="stdt",
+    end_tag="endt",
+    day_tag="dyom",
+    month_tag="mont",
+    year_tag="year",
+    close_time_tag="wnCT",
+    window_type_tag="wnty",
+    window_scan_bytes=256,
+    day_range=(1, 31),
+    month_range=(1, 12),
+    # 2000 is the season's own start year and 2001 the calendar year after it. The upper bound
+    # leaves room for a window the save dates several seasons out.
+    year_range=(2000, 2016),
+    season_year_base=2000,
+)
+
 # Bounds that depend on career stage (join dates, contract chains, bans) are kept wide, since a
 # failed check on the player pass stops players, contracts and suspensions together.
 GATE_BOUNDS = GateBounds(
@@ -606,6 +652,16 @@ GATE_BOUNDS = GateBounds(
     # less 0.05, floored to two decimals, so a career carrying more of those stays well clear
     # while a team id read from the wrong offset, which resolves almost nothing, still fails.
     fixture_teams_resolved=(0.87, None),
+    # 54 windows on both saves measured. The floor sits over five times below that, which
+    # leaves a database carrying far fewer windows well clear while still failing a decode that
+    # finds none. Both saves come from one installed database, so this is a looser bound than
+    # its margin suggests.
+    transfer_windows_minimum=(10, None),
+    # Every record that carried a closing time decoded both date groups cleanly on both saves,
+    # so the share is 1.0 there. A date decode that moved would push records out of the count
+    # and into `incomplete`; one that found nothing at all leaves no rate at all, which fails
+    # the check rather than skipping it.
+    transfer_window_dates=(0.90, None),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (
@@ -622,6 +678,8 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=SUSPENSIONS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STAGE_TABLE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=COMPETITION_ID_PAIRS),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TAGGED_STREAM),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TRANSFER_WINDOWS),
     LayoutEntry(region="humans", schema=21, build=BUILD, layout=HUMANS),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=FIXTURE_CALENDAR),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=LEAGUE_TABLES),

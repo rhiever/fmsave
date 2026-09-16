@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import calendar
 import struct
+from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from fmsave._errors import CorruptSaveError
+from fmsave._layouts import TaggedStreamLayout
 
 type Buffer = bytes | bytearray | memoryview
 type SearchableBuffer = bytes | bytearray
@@ -24,6 +27,10 @@ DAY_OF_YEAR_MASK = 0x1FF
 TIME_SLOT_SHIFT = 9
 EARLIEST_GAME_YEAR = 1901
 LATEST_GAME_YEAR = 2200
+
+# A stored tag is four printable ASCII bytes; anything else is not a record.
+LOWEST_TAG_BYTE = 0x20
+HIGHEST_TAG_BYTE = 0x7E
 
 
 def _check_bounds(buffer: Buffer, offset: int, size: int) -> None:
@@ -98,3 +105,91 @@ def find_marker(buffer: SearchableBuffer, marker: bytes, start: int, end: int) -
     """Index of the first marker lying wholly inside [start, end), or -1."""
     _check_search(buffer, marker, start, end)
     return buffer.find(marker, start, end)
+
+
+@dataclass(frozen=True, slots=True)
+class TaggedValue:
+    """One record of the game's tagged stream.
+
+    Attributes:
+        tag: The four stored tag bytes reversed and decoded as ASCII, so `csed` reads `desc`.
+        kind: The type byte exactly as stored.
+        value: The decoded value: an int for the integer and list types (a list type's value
+            is its count), the text for the string type, and None for the nil type.
+        offset: Where the record starts.
+        end: One past the record's last byte, so a caller can resume from here.
+    """
+
+    tag: str
+    kind: int
+    value: int | str | None
+    offset: int
+    end: int
+
+
+def iter_tagged_values(
+    buffer: Buffer, start: int, end: int, layout: TaggedStreamLayout
+) -> Iterator[TaggedValue]:
+    """Walk the tagged stream from `start`, stopping at `end`, at an unknown type byte, or
+    at a value that would run past `end`. Every read is bounds-checked.
+
+    The walk is strict: it never steps over a byte it cannot read, so it stops at the first
+    thing that is not a record rather than hunting for the next one. A caller that wants the
+    records after a gap looks for its own anchor and walks again from there. Nothing here
+    raises: a malformed stream simply ends the walk, and the caller decides what that means.
+    """
+    tag_bytes = layout.tag_bytes
+    header_bytes = tag_bytes + 2
+    separator_value = layout.separator_value
+    u8_types = layout.u8_types
+    u16_types = layout.u16_types
+    u32_types = layout.u32_types
+    string_type = layout.string_type
+    list_type = layout.list_type
+    nil_type = layout.nil_type
+    max_string_bytes = layout.max_string_bytes
+    limit = min(end, len(buffer))
+    position = max(start, 0)
+    while position + header_bytes <= limit:
+        stored_tag = bytes(buffer[position : position + tag_bytes])
+        if any(byte < LOWEST_TAG_BYTE or byte > HIGHEST_TAG_BYTE for byte in stored_tag):
+            return
+        if buffer[position + tag_bytes] != separator_value:
+            return
+        kind = buffer[position + tag_bytes + 1]
+        value_start = position + header_bytes
+        value: int | str | None
+        if kind in u8_types:
+            if value_start + 1 > limit:
+                return
+            value = buffer[value_start]
+            value_end = value_start + 1
+        elif kind in u16_types:
+            if value_start + 2 > limit:
+                return
+            value = _U16.unpack_from(buffer, value_start)[0]
+            value_end = value_start + 2
+        elif kind in u32_types or kind == list_type:
+            if value_start + 4 > limit:
+                return
+            value = _U32.unpack_from(buffer, value_start)[0]
+            value_end = value_start + 4
+        elif kind == string_type:
+            if value_start + 4 > limit:
+                return
+            text_bytes: int = _U32.unpack_from(buffer, value_start)[0]
+            text_start = value_start + 4
+            if text_bytes > max_string_bytes or text_start + text_bytes > limit:
+                return
+            try:
+                value = bytes(buffer[text_start : text_start + text_bytes]).decode("utf-8")
+            except UnicodeDecodeError:
+                return
+            value_end = text_start + text_bytes
+        elif kind == nil_type:
+            value = None
+            value_end = value_start
+        else:
+            return
+        yield TaggedValue(stored_tag[::-1].decode("ascii"), kind, value, position, value_end)
+        position = value_end

@@ -42,6 +42,7 @@ from tests.fixtures.game_db import (
     stage_table_bytes,
     status_record_bytes,
     suspension_entry_bytes,
+    transfer_window_bytes,
 )
 from tests.fixtures.span import fixture_record_bytes, span_frames, span_payloads
 
@@ -644,11 +645,46 @@ def career_span_payload(
     )
 
 
+# Two transfer windows, and a third dated record that carries no closing time, which is what
+# most of the tagged stream's dated records look like and must not be read as a window.
+SUMMER_WINDOW_OPENS = (1, 7, 2000)
+SUMMER_WINDOW_CLOSES = (31, 8, 2000)
+SUMMER_WINDOW_CLOSE_TIME = 2400
+SUMMER_WINDOW_TYPE = 1
+# The winter window opens in the calendar year after the season starts, so its year is 2001.
+WINTER_WINDOW_OPENS = (1, 1, 2001)
+WINTER_WINDOW_CLOSES = (31, 1, 2001)
+WINTER_WINDOW_CLOSE_TIME = 2300
+DATED_RECORD_OPENS = (5, 3, 2000)
+DATED_RECORD_CLOSES = (6, 4, 2000)
+
+
+def career_tagged_stream() -> bytes:
+    """The rules database's tagged stream: two windows, then a dated record that is not one."""
+    return (
+        transfer_window_bytes(
+            opens=SUMMER_WINDOW_OPENS,
+            closes=SUMMER_WINDOW_CLOSES,
+            close_time=SUMMER_WINDOW_CLOSE_TIME,
+            window_type=SUMMER_WINDOW_TYPE,
+        )
+        + transfer_window_bytes(
+            opens=WINTER_WINDOW_OPENS,
+            closes=WINTER_WINDOW_CLOSES,
+            close_time=WINTER_WINDOW_CLOSE_TIME,
+        )
+        + transfer_window_bytes(
+            opens=DATED_RECORD_OPENS, closes=DATED_RECORD_CLOSES, close_time=None
+        )
+    )
+
+
 def career_game_db(*, duplicate_club_name: bool = False) -> bytes:
     clubs = EXAMPLE_CLUBS + ((SECOND_NORTHBRIDGE_CLUB,) if duplicate_club_name else ())
     payload = (
         name_pools_bytes(FIRST_NAMES, SURNAMES, COMMON_NAMES)
         + clubs_region_bytes(clubs, competition_id_pairs=career_competition_id_pairs())
+        + career_tagged_stream()
         + bytes(64)
         + manager_region_bytes()
         + player_a_bytes()
