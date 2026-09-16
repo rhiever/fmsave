@@ -44,10 +44,12 @@ Records and tables are immutable and keep working after the save is closed.
 
 - **Save info** (`career_save.info`): game, build, database version and in-game date.
 - **Players** (`players()`): names, birth date and age, nationality, club, positions, attributes, personality, traits, reputation, transfer value, contract and unserved suspensions.
-- **Contracts** (`contracts()`): wage, start and end dates, squad status, contract type, clauses and loan details for every player with a contract.
-- **Suspensions** (`suspensions()`): each unserved suspension with its player, club, competition id and date issued.
+- **Contracts** (`contracts()`): wage, start and end dates, squad status, contract type, clauses and loan details for every player with a contract. Each row is the contract in effect at the save's in-game date, never an agreed future move such as a pre-contract or a transfer that takes effect later.
+- **Suspensions** (`suspensions()`): each unserved suspension with its player, club, competition id and date issued, including bans the game no longer shows because no fixture is left to serve them.
 - **Clubs** (`clubs()`): name, short name, nation id, reputation, last league position and teams.
 - **Managed clubs** (`managed_clubs()`): the club the human manager runs. The list is empty when the manager is between jobs.
+
+A club's `teams` are its own team slots, in stored order, followed by the teams it controls at other clubs, such as a B team the save stores as a club of its own. A player registered with one of those teams counts as a player of the controlling club, keeps the club storing his team in `team_club_uid`, and is not on loan; `on_loan` marks a real loan, with the club of the contract in effect as the parent club.
 
 Each reader returns a `Table`, an immutable sequence of records with `where(...)`, `filter(...)`, `find(name=...)`, `by_uid(...)`, `get_by_uid(...)` and `coverage`, plus `to_dicts()`, `to_columns()`, `to_pandas()`, `to_polars()`, `write_csv(...)`, `write_json(...)` and `write_jsonl(...)`.
 
