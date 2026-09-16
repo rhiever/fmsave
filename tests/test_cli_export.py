@@ -129,7 +129,7 @@ def test_a_short_name_shared_by_two_clubs_is_ambiguous(
 
 
 def example_club(uid: int, short_name: str) -> Club:
-    return Club(uid, "Example Rovers", short_name, 3, 3, None, (), None, None)
+    return Club(uid, "Example Rovers", short_name, 3, 3, None, (), None, None, None)
 
 
 def test_a_path_like_value_is_reduced_in_the_ambiguity_header() -> None:
@@ -293,7 +293,10 @@ def test_clubs_nation_as_a_json_array(save_path: Path, capsys: pytest.CaptureFix
     clubs = json.loads(output_text)
     assert isinstance(clubs, list)
     assert [club["uid"] for club in clubs] == [5001, 5002]
-    assert clubs[0]["teams"] == [{"team_id": 70001, "slot": 0}, {"team_id": 70002, "slot": 1}]
+    assert clubs[0]["teams"] == [
+        {"team_id": 70001, "slot": 0, "club_uid": 5001, "affiliate": False},
+        {"team_id": 70002, "slot": 1, "club_uid": 5001, "affiliate": False},
+    ]
 
 
 def test_json_with_columns_writes_flat_objects(

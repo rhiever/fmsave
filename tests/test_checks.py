@@ -100,6 +100,8 @@ PLAYER_GATE_NAMES = (
 )
 CONTRACT_GATE_NAMES = (
     "players_with_chain",
+    "no_contract_in_effect",
+    "date_marked_chain_records",
     "tails_parsed",
     "tails_without_clause_table",
     "clause_terminator",
@@ -107,7 +109,13 @@ CONTRACT_GATE_NAMES = (
     "past_dated_tail_ends",
     "chain_teams_resolved",
 )
-CLUB_GATE_NAMES = ("clubs_minimum", "team_lists_found", "status_normal", "status_confirmation")
+CLUB_GATE_NAMES = (
+    "clubs_minimum",
+    "team_lists_found",
+    "status_normal",
+    "status_confirmation",
+    "affiliate_teams_linked",
+)
 SUSPENSION_GATE_NAMES = ("suspension_share_of_players", "issued_after_clock")
 MANAGED_GATE_NAMES = ("route_one_resolved", "route_two_resolved")
 
@@ -169,7 +177,9 @@ def healthy_contract_stats() -> ContractStats:
         players=20_000,
         contracts=19_500,
         players_with_chain=19_000,
+        without_contract_in_effect=100,
         chain_records=25_000,
+        date_marked_chain_records=100,
         tails_parsed=24_000,
         tails_without_clause_table=5,
         clause_tables=23_995,
@@ -183,7 +193,12 @@ def healthy_contract_stats() -> ContractStats:
 
 def healthy_club_stats() -> ClubStats:
     return ClubStats(
-        records=50_000, team_lists_found=50_000, status_normal=49_950, status_confirmed=49_500
+        records=50_000,
+        team_lists_found=50_000,
+        status_normal=49_950,
+        status_confirmed=49_500,
+        affiliate_refs=1_000,
+        affiliate_refs_linked=1_000,
     )
 
 
@@ -384,7 +399,12 @@ def test_club_gates_pass_healthy_stats_and_fail_below_the_club_minimum() -> None
     assert tuple(result.name for result in results) == CLUB_GATE_NAMES
     assert all(result.applied and result.passed for result in results)
     few_clubs = ClubStats(
-        records=4_999, team_lists_found=4_999, status_normal=4_990, status_confirmed=4_950
+        records=4_999,
+        team_lists_found=4_999,
+        status_normal=4_990,
+        status_confirmed=4_950,
+        affiliate_refs=0,
+        affiliate_refs_linked=0,
     )
     assert failed_gate_names(evaluate_clubs(few_clubs, BOUNDS, FULL_SIZE_GAME_DB_BYTES)) == [
         "clubs_minimum"
@@ -596,6 +616,7 @@ def counted_clubs_region() -> bytes:
             name="Northbridge FC",
             short_name="Northbridge",
             team_ids=(NORTHBRIDGE_TEAM_A, NORTHBRIDGE_TEAM_B),
+            affiliate_team_ids=(SOUTHPORT_TEAM,),
         ),
         club_record_bytes(
             club_index=2,
@@ -823,6 +844,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         "team_lists_found": 1.0,
         "status_normal": 1.0,
         "status_confirmation": 0.5,
+        "affiliate_teams_linked": 1.0,
     }
     assert observed_by_gate(readers["players"]) == {
         "players_minimum": 2,
@@ -847,6 +869,8 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
     contract_observed = observed_by_gate(readers["contracts"])
     assert contract_observed == {
         "players_with_chain": 0.5,
+        "no_contract_in_effect": 0.0,
+        "date_marked_chain_records": 0.0,
         "tails_parsed": pytest.approx(2 / 3),
         "tails_without_clause_table": 0.0,
         "clause_terminator": 0.5,
@@ -863,12 +887,14 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         "route_two_resolved": 1,
     }
     assert {name: dict(reader.anomalies) for name, reader in readers.items()} == {
-        "clubs": {},
+        "clubs": {"unlinked_affiliate_teams": 0},
         "players": {"markerless_players": 1, "unresolved_teams": 1},
         "contracts": {
             "past_dated_tail_ends": 1,
             "unparsed_tails": 1,
             "tails_without_clause_table": 0,
+            "date_marked_chain_records": 0,
+            "players_without_contract_in_effect": 0,
         },
         "suspensions": {"suspensions_after_clock": 1},
         "managed_clubs": {"humans_without_club": 0},
@@ -1052,8 +1078,18 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
             "team_resolved",
             "home_grown_club_refs_resolved",
         ],
-        # The fragment's parsed tails all have a clause table, so that one gate still passes.
-        "contracts": [name for name in CONTRACT_GATE_NAMES if name != "tails_without_clause_table"],
+        # The fragment's parsed tails all have a clause table, no record is marked with a
+        # date, and its one chain has a record in effect, so those three gates still pass.
+        "contracts": [
+            name
+            for name in CONTRACT_GATE_NAMES
+            if name
+            not in {
+                "tails_without_clause_table",
+                "date_marked_chain_records",
+                "no_contract_in_effect",
+            }
+        ],
         "suspensions": list(SUSPENSION_GATE_NAMES),
         "managed_clubs": [],
     }

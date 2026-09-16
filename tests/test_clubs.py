@@ -51,6 +51,7 @@ class ExampleClubSpec:
     fa_nation_id: int
     city_id: int
     team_ids: tuple[int, ...]
+    affiliate_team_ids: tuple[int, ...] = ()
     float_anchor_only: bool = False
 
     def record_bytes(self) -> bytes:
@@ -63,6 +64,7 @@ class ExampleClubSpec:
             name=self.name,
             short_name=self.short_name,
             team_ids=self.team_ids,
+            affiliate_team_ids=self.affiliate_team_ids,
             float_anchor_only=self.float_anchor_only,
         )
 
@@ -154,7 +156,11 @@ def test_reads_every_club_with_its_fields() -> None:
         nation_id=3,
         fa_nation_id=3,
         city_id=77,
-        teams=(Team(team_id=70001, slot=0), Team(team_id=70002, slot=1)),
+        teams=(
+            Team(team_id=70001, slot=0, club_uid=5001, affiliate=False),
+            Team(team_id=70002, slot=1, club_uid=5001, affiliate=False),
+        ),
+        parent_club_uid=None,
         reputation=6500,
         last_league_position=2,
     )
@@ -169,12 +175,16 @@ def test_cross_border_stub_club_has_no_reputation() -> None:
     assert southport.city_id == 78
     assert southport.reputation is None
     assert southport.last_league_position is None
-    assert southport.teams == (Team(70003, 0),)
+    assert southport.teams == (Team(70003, 0, 5002, False),)
 
 
 def test_team_ids_keep_their_stored_order() -> None:
     athletic = read_index(example_game_db()).club_by_uid[5004]
-    assert athletic.teams == (Team(70005, 0), Team(70004, 1), Team(70006, 2))
+    assert athletic.teams == (
+        Team(70005, 0, 5004, False),
+        Team(70004, 1, 5004, False),
+        Team(70006, 2, 5004, False),
+    )
     assert athletic.reputation == 1200
     assert athletic.last_league_position == 14
 
@@ -190,7 +200,7 @@ def test_city_id_stored_as_the_missing_id_is_none() -> None:
     club_index = read_index(example_game_db(club_records))
     assert club_uids(club_index) == [5001, 5002, 5004]
     assert club_index.club_by_uid[5002].city_id is None
-    assert club_index.club_by_uid[5002].teams == (Team(70003, 0),)
+    assert club_index.club_by_uid[5002].teams == (Team(70003, 0, 5002, False),)
     assert club_index.club_by_uid[5004].city_id == 0
     assert club_index.club_by_uid[5001].city_id == 77
 
@@ -234,7 +244,10 @@ def test_valid_rovers_record_is_accepted_and_clubs_follow_club_index_order() -> 
     assert club_uids(club_index) == [5001, 5002, 5003, 5004]
     assert dict(club_index.uid_by_club_index) == {1: 5001, 2: 5002, 3: 5003, 4: 5004}
     assert club_index.team_to_club[70009] == (5003, 0)
-    assert club_index.club_by_uid[5001].teams == (Team(70001, 0), Team(70002, 1))
+    assert club_index.club_by_uid[5001].teams == (
+        Team(70001, 0, 5001, False),
+        Team(70002, 1, 5001, False),
+    )
     assert club_index.club_by_uid[5004].reputation == 1200
 
 
@@ -275,7 +288,10 @@ def test_club_failing_a_check_is_not_accepted(offset: int, replacement: bytes) -
     rovers_record = patched(ROVERS.record_bytes(), offset, replacement)
     club_index = read_index(example_game_db(records_with_rovers_after_northbridge(rovers_record)))
     assert club_uids(club_index) == [5001, 5002, 5004]
-    assert club_index.club_by_uid[5001].teams == (Team(70001, 0), Team(70002, 1))
+    assert club_index.club_by_uid[5001].teams == (
+        Team(70001, 0, 5001, False),
+        Team(70002, 1, 5001, False),
+    )
 
 
 def test_club_after_a_gap_of_more_than_64_kib_is_not_accepted() -> None:
@@ -321,7 +337,11 @@ def test_last_club_team_list_is_found_beyond_20000_bytes() -> None:
     long_athletic_record = athletic_record[:names_end] + bytes(25_000) + athletic_record[names_end:]
     club_records = [NORTHBRIDGE.record_bytes(), SOUTHPORT.record_bytes(), long_athletic_record]
     athletic = read_index(example_game_db(club_records)).club_by_uid[5004]
-    assert athletic.teams == (Team(70005, 0), Team(70004, 1), Team(70006, 2))
+    assert athletic.teams == (
+        Team(70005, 0, 5004, False),
+        Team(70004, 1, 5004, False),
+        Team(70006, 2, 5004, False),
+    )
 
 
 def test_last_club_team_list_past_the_scan_stop_is_not_read() -> None:
@@ -352,7 +372,7 @@ def test_team_ids_at_the_range_limits_are_read() -> None:
     edge_club = replace(ATHLETIC, team_ids=(1, 3_000_000))
     club_records = [NORTHBRIDGE.record_bytes(), SOUTHPORT.record_bytes(), edge_club.record_bytes()]
     athletic = read_index(example_game_db(club_records)).club_by_uid[5004]
-    assert athletic.teams == (Team(1, 0), Team(3_000_000, 1))
+    assert athletic.teams == (Team(1, 0, 5004, False), Team(3_000_000, 1, 5004, False))
 
 
 def test_team_list_cut_off_by_the_section_end_gives_no_teams() -> None:
@@ -369,7 +389,102 @@ def test_float_anchor_is_tried_when_the_first_date_triple_does_not_parse() -> No
     decoy_record = patched(athletic_record, ATHLETIC.names_end(), NULL_DATE * 3)
     club_records = [NORTHBRIDGE.record_bytes(), SOUTHPORT.record_bytes(), decoy_record]
     athletic = read_index(example_game_db(club_records)).club_by_uid[5004]
-    assert athletic.teams == (Team(70005, 0), Team(70004, 1), Team(70006, 2))
+    assert athletic.teams == (
+        Team(70005, 0, 5004, False),
+        Team(70004, 1, 5004, False),
+        Team(70006, 2, 5004, False),
+    )
+
+
+ACADEMY = ExampleClubSpec(5, 5005, "Example Academy", "Academy", 3, 3, 81, (70011,))
+ACADEMY_TEAM_ID = 70011
+
+
+def index_with_affiliate(
+    affiliate_team_ids: tuple[int, ...] = (ACADEMY_TEAM_ID,),
+    *,
+    also_listed_by_athletic: tuple[int, ...] = (),
+) -> ClubIndex:
+    """Northbridge controls `affiliate_team_ids`; Academy (uid 5005) fields team 70011."""
+    club_records = [
+        replace(NORTHBRIDGE, affiliate_team_ids=affiliate_team_ids).record_bytes(),
+        SOUTHPORT.record_bytes(),
+        replace(ATHLETIC, affiliate_team_ids=also_listed_by_athletic).record_bytes(),
+        ACADEMY.record_bytes(),
+    ]
+    return read_index(example_game_db(club_records))
+
+
+def test_affiliate_teams_follow_the_clubs_own_slots() -> None:
+    club_index = index_with_affiliate()
+    parent = club_index.club_by_uid[5001]
+    # Every own slot is listed, including the second one no player is registered with, and
+    # the affiliate team takes the next slot.
+    assert parent.teams == (
+        Team(70001, 0, 5001, False),
+        Team(70002, 1, 5001, False),
+        Team(ACADEMY_TEAM_ID, 2, 5005, True),
+    )
+    assert parent.parent_club_uid is None
+
+
+def test_an_affiliate_club_keeps_its_row_its_own_slots_and_names_its_parent() -> None:
+    academy = index_with_affiliate().club_by_uid[5005]
+    assert academy.name == "Example Academy"
+    assert academy.teams == (Team(ACADEMY_TEAM_ID, 0, 5005, False),)
+    assert academy.parent_club_uid == 5001
+
+
+def test_an_affiliate_team_keeps_its_stored_club_and_gains_a_fielding_club() -> None:
+    club_index = index_with_affiliate()
+    assert club_index.team_to_club[ACADEMY_TEAM_ID] == (5005, 0)
+    assert club_index.affiliate_team_to_club[ACADEMY_TEAM_ID] == (5001, 2)
+    assert 70001 not in club_index.affiliate_team_to_club
+    assert club_index.stats.affiliate_refs == 1
+    assert club_index.stats.affiliate_refs_linked == 1
+
+
+@pytest.mark.parametrize(
+    "affiliate_team_ids",
+    [
+        pytest.param((79999,), id="team of no club"),
+        pytest.param((70002,), id="the club's own team"),
+        pytest.param((ACADEMY_TEAM_ID, 79999), id="one of two does not resolve"),
+    ],
+)
+def test_an_affiliate_list_that_does_not_resolve_is_left_out_whole(
+    affiliate_team_ids: tuple[int, ...],
+) -> None:
+    club_index = index_with_affiliate(affiliate_team_ids)
+    assert club_index.club_by_uid[5001].teams == (
+        Team(70001, 0, 5001, False),
+        Team(70002, 1, 5001, False),
+    )
+    assert club_index.club_by_uid[5005].parent_club_uid is None
+    assert club_index.affiliate_team_to_club == {}
+    assert club_index.stats.affiliate_refs == len(affiliate_team_ids)
+    assert club_index.stats.affiliate_refs_linked == 0
+
+
+def test_a_team_two_clubs_list_keeps_only_the_first_parent() -> None:
+    club_index = index_with_affiliate(also_listed_by_athletic=(ACADEMY_TEAM_ID,))
+    assert club_index.club_by_uid[5005].parent_club_uid == 5001
+    assert club_index.affiliate_team_to_club[ACADEMY_TEAM_ID] == (5001, 2)
+    assert [team.team_id for team in club_index.club_by_uid[5004].teams] == [70005, 70004, 70006]
+    assert club_index.stats.affiliate_refs == 2
+    assert club_index.stats.affiliate_refs_linked == 1
+
+
+def test_an_affiliate_count_above_the_range_leaves_the_list_unread() -> None:
+    lowest_count, highest_count = registered_club_layouts().team_lists.affiliate_count_range
+    assert (lowest_count, highest_count) == (0, 8)
+    too_many_ids = tuple(range(ACADEMY_TEAM_ID, ACADEMY_TEAM_ID + highest_count + 1))
+    club_index = index_with_affiliate(too_many_ids)
+    assert club_index.club_by_uid[5001].teams == (
+        Team(70001, 0, 5001, False),
+        Team(70002, 1, 5001, False),
+    )
+    assert club_index.stats.affiliate_refs == 0
 
 
 def test_team_claimed_by_two_clubs_raises_reader_check() -> None:
@@ -633,17 +748,21 @@ def test_field_statuses_follow_the_brief() -> None:
         "fa_nation_id",
         "city_id",
         "teams",
+        "parent_club_uid",
     ):
         assert fmsave.field_status(Club, unconfirmed_field) == "unconfirmed", unconfirmed_field
-    assert fmsave.field_status(Team, "team_id") == "unconfirmed"
-    assert fmsave.field_status(Team, "slot") == "unconfirmed"
+    for unconfirmed_team_field in ("team_id", "slot", "club_uid", "affiliate"):
+        assert fmsave.field_status(Team, unconfirmed_team_field) == "unconfirmed"
 
 
 def test_clubs_export_with_nested_teams() -> None:
     clubs_table = fmsave.Table(read_index(example_game_db()).clubs, Club)
     assert "teams" in export.column_names(Club)
     first_row = clubs_table.to_dicts(json_ready=True)[0]
-    assert first_row["teams"] == [{"team_id": 70001, "slot": 0}, {"team_id": 70002, "slot": 1}]
+    assert first_row["teams"] == [
+        {"team_id": 70001, "slot": 0, "club_uid": 5001, "affiliate": False},
+        {"team_id": 70002, "slot": 1, "club_uid": 5001, "affiliate": False},
+    ]
     assert first_row["reputation"] == 6500
 
 
@@ -666,6 +785,7 @@ def test_registered_club_layouts() -> None:
     assert team_list_layout.minimum_float_anchor_record_offset == 40
     assert team_list_layout.team_count_range == (1, 8)
     assert team_list_layout.team_id_range == (1, 3_000_000)
+    assert team_list_layout.affiliate_count_range == (0, 8)
     status_layout = status_match.layout
     assert status_layout.ordinal_limit == 200_000
     assert (status_layout.normal_kind, status_layout.stub_kind) == (0x0A, 0x0B)
@@ -706,7 +826,7 @@ def test_save_clubs_returns_a_cached_table(
         assert career_save._context.club_index() is career_save._context.club_index()
         assert career_save._context.club_index().clubs == tuple(clubs)
         assert clubs.find(name="northbridge fc")[0].uid == 5001
-        assert clubs.by_uid(5004).teams[1] == Team(70004, 1)
+        assert clubs.by_uid(5004).teams[1] == Team(70004, 1, 5004, False)
         assert section_reads == ["game_db"]
         assert career_save._context._loaned_sections == {}
         assert CLUB_INDEX_CACHE_KEY == "club_index"

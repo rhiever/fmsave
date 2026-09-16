@@ -58,8 +58,13 @@ class ClubIndex:
         uid_by_club_index: The club uid for each club index (the stored index plus 1). Club
             indexes are unique.
         club_by_uid: The club for each uid (the stored uid plus 1). Uids are unique.
-        team_to_club: (club uid, slot) for each team id. Team ids are exactly as stored, with
-            no +1, unlike club indexes and uids. Each team id belongs to one club and one slot.
+        team_to_club: (club uid, slot) of the club record storing each team id. Team ids are
+            exactly as stored, with no +1, unlike club indexes and uids. Each team id is
+            stored by one club record in one slot.
+        affiliate_team_to_club: (club uid, slot) of the club that fields each team another
+            club record controls, for those teams only: the parent club, and the team's slot
+            in the parent's team list, which follows the parent's own slots. A player
+            registered with such a team is a player of the parent club.
         stats: What the club pass counted, for the club checks.
         game_db_bytes: The length of the `game_db` the index was read from.
     """
@@ -68,6 +73,7 @@ class ClubIndex:
     uid_by_club_index: Mapping[int, int]
     club_by_uid: Mapping[int, Club]
     team_to_club: Mapping[int, tuple[int, int]]
+    affiliate_team_to_club: Mapping[int, tuple[int, int]]
     stats: ClubStats
     game_db_bytes: int
 
@@ -89,6 +95,37 @@ class _ClubRecord:
     short_name: str
 
 
+@dataclass(frozen=True, slots=True)
+class _TeamList:
+    """One club record's own team ids, then the ids of the teams it lists as affiliates."""
+
+    team_ids: tuple[int, ...]
+    affiliate_team_ids: tuple[int, ...]
+
+
+_NO_TEAM_LIST = _TeamList((), ())
+
+
+@dataclass(frozen=True, slots=True)
+class _AffiliateLinks:
+    """What the affiliated-team lists link together, and what they counted.
+
+    Attributes:
+        teams_by_record: The affiliate teams of each club record, in record order, ready to
+            follow that club's own teams.
+        team_to_club: (parent club uid, slot in the parent's team list) per affiliate team.
+        parent_by_club_uid: The controlling club of each club an affiliate team belongs to.
+        listed: How many team ids the affiliated-team lists hold.
+        linked: How many of those were linked to a parent.
+    """
+
+    teams_by_record: tuple[tuple[Team, ...], ...]
+    team_to_club: Mapping[int, tuple[int, int]]
+    parent_by_club_uid: Mapping[int, int]
+    listed: int
+    linked: int
+
+
 def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> ClubIndex:
     """Read every club record, its team list and its status into a ClubIndex.
 
@@ -102,11 +139,16 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
     _reject_repeated_club_keys(records, file_name)
     record_ends = [next_record.record_start for next_record in records[1:]]
     record_ends.append(scan_end)
-    teams_by_record = [
-        _read_teams(game_db, record.record_start, record_end, layouts.team_lists)
+    team_lists = [
+        _read_team_list(game_db, record.record_start, record_end, layouts.team_lists)
         for record, record_end in zip(records, record_ends, strict=True)
     ]
+    teams_by_record = [
+        _teams_in_slot_order(record.uid, team_list.team_ids)
+        for record, team_list in zip(records, team_lists, strict=True)
+    ]
     team_to_club = _map_teams_to_clubs(records, teams_by_record, file_name)
+    affiliates = _link_affiliate_teams(records, team_lists, teams_by_record, team_to_club)
     index_order = sorted(range(len(records)), key=lambda position: records[position].club_index)
     statuses, normal_status_count, confirmed_status_count = _read_statuses(
         game_db, [records[position] for position in index_order], layouts.statuses
@@ -124,7 +166,8 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
             nation_id=record.nation_id,
             fa_nation_id=record.fa_nation_id,
             city_id=record.city_id,
-            teams=teams_by_record[position],
+            teams=teams_by_record[position] + affiliates.teams_by_record[position],
+            parent_club_uid=affiliates.parent_by_club_uid.get(record.uid),
             reputation=reputation,
             last_league_position=last_league_position,
         )
@@ -136,12 +179,15 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         team_lists_found=sum(1 for teams in teams_by_record if teams),
         status_normal=normal_status_count,
         status_confirmed=confirmed_status_count,
+        affiliate_refs=affiliates.listed,
+        affiliate_refs_linked=affiliates.linked,
     )
     return ClubIndex(
         clubs=tuple(clubs),
         uid_by_club_index=uid_by_club_index,
         club_by_uid=club_by_uid,
         team_to_club=team_to_club,
+        affiliate_team_to_club=affiliates.team_to_club,
         stats=stats,
         game_db_bytes=len(game_db),
     )
@@ -272,35 +318,114 @@ def _accepted_record(
     )
 
 
-def _read_teams(
+def _read_team_list(
     game_db: bytes, record_start: int, record_end: int, layout: TeamListLayout
-) -> tuple[Team, ...]:
+) -> _TeamList:
     """Parse the record's team list from its date anchor, then from each float anchor."""
     triple_at = game_db.find(layout.null_date_triple, record_start, record_end)
     if triple_at >= 0:
-        team_ids = _parse_team_ids(game_db, triple_at, record_end, layout)
-        if team_ids is not None:
-            return _teams_in_slot_order(team_ids)
+        team_list = _parse_team_list(game_db, triple_at, record_end, layout)
+        if team_list is not None:
+            return team_list
     float_anchor = layout.float_anchor
     float_hit = game_db.find(
         float_anchor, record_start + layout.minimum_float_anchor_record_offset, record_end
     )
     while float_hit >= 0:
         team_list_start = float_hit - layout.float_anchor_offset
-        team_ids = _parse_team_ids(game_db, team_list_start, record_end, layout)
-        if team_ids is not None:
-            return _teams_in_slot_order(team_ids)
+        team_list = _parse_team_list(game_db, team_list_start, record_end, layout)
+        if team_list is not None:
+            return team_list
         float_hit = game_db.find(float_anchor, float_hit + 1, record_end)
-    return ()
+    return _NO_TEAM_LIST
 
 
-def _teams_in_slot_order(team_ids: tuple[int, ...]) -> tuple[Team, ...]:
-    return tuple(Team(team_id=team_id, slot=slot) for slot, team_id in enumerate(team_ids))
+def _teams_in_slot_order(club_uid: int, team_ids: tuple[int, ...]) -> tuple[Team, ...]:
+    return tuple(
+        Team(team_id=team_id, slot=slot, club_uid=club_uid, affiliate=False)
+        for slot, team_id in enumerate(team_ids)
+    )
 
 
-def _parse_team_ids(
+def _link_affiliate_teams(
+    records: Sequence[_ClubRecord],
+    team_lists: Sequence[_TeamList],
+    teams_by_record: Sequence[tuple[Team, ...]],
+    team_to_club: Mapping[int, tuple[int, int]],
+) -> _AffiliateLinks:
+    """Link each club record's affiliated-team list to the clubs that store those teams.
+
+    A list is used only when every one of its ids names a team of another club that no
+    earlier list has claimed, so a stray count byte after a team list cannot invent an
+    affiliate. A linked team follows the controlling club's own slots, in stored order.
+    """
+    teams_by_affiliate_record: list[tuple[Team, ...]] = []
+    affiliate_team_to_club: dict[int, tuple[int, int]] = {}
+    parent_by_club_uid: dict[int, int] = {}
+    listed_count = 0
+    linked_count = 0
+    for record, team_list, own_teams in zip(records, team_lists, teams_by_record, strict=True):
+        affiliate_team_ids = team_list.affiliate_team_ids
+        listed_count += len(affiliate_team_ids)
+        affiliate_teams: list[Team] = []
+        for slot, team_id in enumerate(affiliate_team_ids, start=len(own_teams)):
+            storing_club = team_to_club.get(team_id)
+            if (
+                storing_club is None
+                or storing_club[0] == record.uid
+                or team_id in affiliate_team_to_club
+                or any(listed_team.team_id == team_id for listed_team in affiliate_teams)
+            ):
+                affiliate_teams.clear()
+                break
+            affiliate_teams.append(
+                Team(team_id=team_id, slot=slot, club_uid=storing_club[0], affiliate=True)
+            )
+        for affiliate_team in affiliate_teams:
+            affiliate_team_to_club[affiliate_team.team_id] = (record.uid, affiliate_team.slot)
+            parent_by_club_uid.setdefault(affiliate_team.club_uid, record.uid)
+        linked_count += len(affiliate_teams)
+        teams_by_affiliate_record.append(tuple(affiliate_teams))
+    return _AffiliateLinks(
+        teams_by_record=tuple(teams_by_affiliate_record),
+        team_to_club=affiliate_team_to_club,
+        parent_by_club_uid=parent_by_club_uid,
+        listed=listed_count,
+        linked=linked_count,
+    )
+
+
+def _parse_affiliate_team_ids(
+    game_db: bytes, count_offset: int, record_end: int, layout: TeamListLayout
+) -> tuple[int, ...]:
+    """The ids of the affiliated-team list that follows a club's own team ids.
+
+    Empty when the count is outside `affiliate_count_range`, the list does not fit inside the
+    record, or an id lies outside `team_id_range`.
+    """
+    if count_offset >= record_end:
+        return ()
+    affiliate_count = game_db[count_offset]
+    lowest_count, highest_count = layout.affiliate_count_range
+    if not lowest_count <= affiliate_count <= highest_count or affiliate_count == 0:
+        return ()
+    affiliate_ids_struct = _team_ids_struct(affiliate_count)
+    affiliate_ids_start = count_offset + 1
+    if affiliate_ids_start + affiliate_ids_struct.size > record_end:
+        return ()
+    affiliate_team_ids: tuple[int, ...] = affiliate_ids_struct.unpack_from(
+        game_db, affiliate_ids_start
+    )
+    lowest_team_id, highest_team_id = layout.team_id_range
+    for team_id in affiliate_team_ids:
+        if not lowest_team_id <= team_id <= highest_team_id:
+            return ()
+    return affiliate_team_ids
+
+
+def _parse_team_list(
     game_db: bytes, team_list_start: int, record_end: int, layout: TeamListLayout
-) -> tuple[int, ...] | None:
+) -> _TeamList | None:
     """Read the team ids of a list starting at team_list_start; None when it does not fit."""
     cursor = team_list_start + layout.counts_offset
     for entry_bytes, lead_byte in (
@@ -333,7 +458,12 @@ def _parse_team_ids(
     for team_id in team_ids:
         if not lowest_team_id <= team_id <= highest_team_id:
             return None
-    return team_ids
+    return _TeamList(
+        team_ids,
+        _parse_affiliate_team_ids(
+            game_db, team_ids_start + team_ids_struct.size, record_end, layout
+        ),
+    )
 
 
 def _read_statuses(

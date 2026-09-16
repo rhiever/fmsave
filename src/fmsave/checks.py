@@ -261,6 +261,18 @@ def evaluate_contracts(
             applied,
         ),
         _gate(
+            "no_contract_in_effect",
+            _rate(stats.without_contract_in_effect, stats.players_with_chain),
+            bounds.no_contract_in_effect,
+            applied,
+        ),
+        _gate(
+            "date_marked_chain_records",
+            _rate(stats.date_marked_chain_records, stats.chain_records),
+            bounds.date_marked_chain_records,
+            applied,
+        ),
+        _gate(
             "tails_parsed",
             _rate(stats.tails_parsed, stats.chain_records),
             bounds.tails_parsed,
@@ -319,6 +331,12 @@ def evaluate_clubs(
             _rate(stats.status_confirmed, stats.status_normal),
             bounds.status_confirmation,
             applied,
+        ),
+        _gate(
+            "affiliate_teams_linked",
+            _rate(stats.affiliate_refs_linked, stats.affiliate_refs),
+            bounds.affiliate_teams_linked,
+            applied and stats.affiliate_refs > 0,
         ),
     )
 
@@ -388,15 +406,22 @@ def check_contracts(stats: ContractStats, bounds: GateBounds, game_db_bytes: int
                 "past_dated_tail_ends": stats.tail_ends_past,
                 "unparsed_tails": stats.chain_records - stats.tails_parsed,
                 "tails_without_clause_table": stats.tails_without_clause_table,
+                "date_marked_chain_records": stats.date_marked_chain_records,
+                "players_without_contract_in_effect": stats.without_contract_in_effect,
             }
         ),
     )
 
 
 def check_clubs(stats: ClubStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
-    """The club reader's checks and record count."""
+    """The club reader's checks, record count and anomaly counts."""
     return ReaderCheck(
-        CLUBS_READER, stats.records, evaluate_clubs(stats, bounds, game_db_bytes), _NO_ANOMALIES
+        CLUBS_READER,
+        stats.records,
+        evaluate_clubs(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {"unlinked_affiliate_teams": stats.affiliate_refs - stats.affiliate_refs_linked}
+        ),
     )
 
 

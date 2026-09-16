@@ -70,7 +70,15 @@ EMPTY_CLUB_INDEX = ClubIndex(
     uid_by_club_index={},
     club_by_uid={},
     team_to_club={},
-    stats=ClubStats(records=0, team_lists_found=0, status_normal=0, status_confirmed=0),
+    affiliate_team_to_club={},
+    stats=ClubStats(
+        records=0,
+        team_lists_found=0,
+        status_normal=0,
+        status_confirmed=0,
+        affiliate_refs=0,
+        affiliate_refs_linked=0,
+    ),
     game_db_bytes=0,
 )
 
@@ -157,13 +165,23 @@ PLAYER_E_UID = 900005  # no chain record and no fallback pair: contract stays No
 
 
 def _player_a_trailing() -> bytes:
+    """An ended spell at Northbridge, then the contract in effect at his own club."""
     record_one, _ = contract_bytes(
         selector=12,
         team_id=NORTHBRIDGE_TEAM_A,
         wage=12000,
         start=packed_date(183, 2028),  # 2028-07-01
+        tail={"end": packed_date(181, 2030), "status": 7},  # 2030-06-30, before the clock
+        head={"type": 1},
+        clauses=(),
+    )
+    record_two, _ = contract_bytes(
+        selector=12,
+        team_id=SOUTHPORT_TEAM_ID,
+        wage=3000,
+        start=packed_date(213, 2029),  # 2029-08-01
         tail={
-            "end": packed_date(181, 2030),  # 2030-06-30
+            "end": packed_date(182, 2032),  # 2032-06-30
             "status": 3,
             "e2": 0x0301,
             "e8": 4,
@@ -178,15 +196,6 @@ def _player_a_trailing() -> bytes:
         events=1,
         head={"type": 1, "money_a": 72000, "money_b": 5, "money_c": 9},
         clauses=((250000, 365, 0x12), (0xFFFFFFFF, 2, 0x16)),
-    )
-    record_two, _ = contract_bytes(
-        selector=12,
-        team_id=SOUTHPORT_TEAM_ID,
-        wage=3000,
-        start=packed_date(213, 2029),  # 2029-08-01
-        tail={"end": packed_date(151, 2030), "status": 7},  # 2030-05-31
-        head={"type": 1},
-        clauses=(),
     )
     decoy, _ = contract_bytes(
         selector=99,
@@ -335,9 +344,10 @@ def test_player_a_chain_record_assembly() -> None:
     decoded = decode_all(example_game_db())
     player, contract = by_uid(decoded, PLAYER_A_UID)
     assert contract is not None
-    assert contract.wage == 12000
-    assert contract.start == date(2028, 7, 1)
-    assert contract.end == date(2030, 6, 30)
+    # Every field comes from the record in effect, the one at the player's own club.
+    assert contract.wage == 3000
+    assert contract.start == date(2029, 8, 1)
+    assert contract.end == date(2032, 6, 30)
     assert contract.end_source == ContractEndSource.TAIL
     assert contract.squad_status is not None
     assert contract.squad_status.label is SquadStatus.REGULAR_STARTER
@@ -353,17 +363,19 @@ def test_player_a_chain_record_assembly() -> None:
     assert contract.event_count == 1
     assert contract.unknown["money_a"] == 72000
     assert contract.unknown["e39"] == 0x40
-    assert contract.club_uid == NORTHBRIDGE_CLUB_UID
-    assert contract.on_loan is True
-    assert contract.loan_parent_club_uid == NORTHBRIDGE_CLUB_UID
-    assert contract.loan_parent_club_name == "Northbridge FC"
+    assert contract.club_uid == SOUTHPORT_CLUB_UID
+    assert contract.on_loan is False
+    assert contract.loan_parent_club_uid is None
+    assert contract.loan_parent_club_name is None
+    # The ended spell at Northbridge stays in the chain.
     assert contract.chain_club_uids == (NORTHBRIDGE_CLUB_UID, SOUTHPORT_CLUB_UID)
     assert contract.tailed_chain_club_uids == (NORTHBRIDGE_CLUB_UID, SOUTHPORT_CLUB_UID)
     assert len(contract.chain) == 2
+    assert contract.chain[0].wage == 12000
     assert contract.chain[1].wage == 3000
-    assert player.on_loan is True
-    assert player.loan_parent_club_uid == NORTHBRIDGE_CLUB_UID
-    assert player.loan_parent_club_name == "Northbridge FC"
+    assert player.on_loan is False
+    assert player.loan_parent_club_uid is None
+    assert player.loan_parent_club_name is None
     assert player.contract is contract
 
 
@@ -596,6 +608,398 @@ def test_head_null_date_tag_is_not_mistaken_for_a_second_chain_record() -> None:
     assert contract.chain[0].wage == 4000
 
 
+def one_player_game_db(*, pindex: int, uid: int, team_id: int, trailing: bytes) -> bytes:
+    """The two example clubs and one player, with `trailing` bytes after his record."""
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body(
+            [NORTHBRIDGE_CLUB, SOUTHPORT_CLUB],
+            [NORTHBRIDGE_STATUS, SOUTHPORT_STATUS],
+            gap_bytes=2000,
+        )
+        + _player_bytes(pindex=pindex, uid=uid, team_id=team_id, trailing=trailing)
+    )
+    return section_body(".dat", GAME_DB_SCHEMA, payload)
+
+
+DATE_MARKED_PINDEX = 80
+DATE_MARKED_UID = 900080
+# A date on or before the fixture's clock, as every date-marked record in a real save holds.
+DATE_IN_THE_TAG_SLOT = packed_date(9, 2031)
+NOT_A_DATE_IN_THE_TAG_SLOT = bytes.fromhex("01020304")
+
+
+def date_marked_record(
+    *,
+    marker: bytes = DATE_IN_THE_TAG_SLOT,
+    team_id: int = NORTHBRIDGE_TEAM_A,
+    start: bytes = packed_date(1, 2029),
+) -> bytes:
+    """A chain record whose tag slot holds `marker`; no clause table, so no FF run.
+
+    Without an FF run the fallback reader finds no dates either, so a record this decoder
+    does not accept leaves the player with no contract at all.
+    """
+    record, _tag_offset = contract_bytes(
+        selector=DATE_MARKED_PINDEX + 1,
+        team_id=team_id,
+        wage=6000,
+        start=start,
+        tail={"end": packed_date(182, 2033), "status": 3},
+        clause_table=False,
+        marker=marker,
+    )
+    return record
+
+
+def test_a_chain_record_marked_with_a_date_is_found() -> None:
+    game_db = one_player_game_db(
+        pindex=DATE_MARKED_PINDEX,
+        uid=DATE_MARKED_UID,
+        team_id=NORTHBRIDGE_TEAM_A,
+        trailing=date_marked_record(),
+    )
+    _player, contract = by_uid(decode_all(game_db), DATE_MARKED_UID)
+    assert contract is not None
+    assert len(contract.chain) == 1
+    assert contract.wage == 6000
+    assert contract.start == date(2029, 1, 1)
+    assert contract.end == date(2033, 7, 1)
+    assert contract.club_uid == NORTHBRIDGE_CLUB_UID
+
+
+@pytest.mark.parametrize(
+    "record_changes",
+    [
+        pytest.param({"marker": NOT_A_DATE_IN_THE_TAG_SLOT}, id="neither the tag nor a date"),
+        pytest.param({"start": bytes(4)}, id="no start date"),
+        pytest.param({"team_id": UNREGISTERED_TEAM_ID}, id="team that resolves to no club"),
+    ],
+)
+def test_a_record_the_date_marked_checks_reject_is_not_a_chain_record(
+    record_changes: dict[str, object],
+) -> None:
+    game_db = one_player_game_db(
+        pindex=DATE_MARKED_PINDEX,
+        uid=DATE_MARKED_UID,
+        team_id=NORTHBRIDGE_TEAM_A,
+        trailing=date_marked_record(**record_changes),  # pyright: ignore[reportArgumentType]
+    )
+    _player, contract = by_uid(decode_all(game_db), DATE_MARKED_UID)
+    assert contract is None
+
+
+def test_date_marked_records_are_counted_for_the_checks() -> None:
+    game_db = one_player_game_db(
+        pindex=DATE_MARKED_PINDEX,
+        uid=DATE_MARKED_UID,
+        team_id=NORTHBRIDGE_TEAM_A,
+        trailing=date_marked_record(),
+    )
+    _name_pools, player_records, club_index = build_index(game_db)
+    decoder = build_contract_decoder(registered_contract_layout(), club_index, CLOCK, FILE_NAME)
+    decoder.decode(
+        game_db,
+        player_records.record_offsets[0],
+        len(game_db),
+        True,
+        DATE_MARKED_PINDEX,
+        DATE_MARKED_UID,
+        None,
+        NORTHBRIDGE_CLUB_UID,
+    )
+    stats = decoder.stats(player_count=1, contract_count=1)
+    assert stats.chain_records == 1
+    assert stats.date_marked_chain_records == 1
+
+
+SELECTION_PINDEX = 90
+SELECTION_UID = 900090
+# The fixture's clock is 2031-03-01 (day 60).
+BEFORE_THE_CLOCK = packed_date(183, 2028)  # 2028-07-01
+LATER_BEFORE_THE_CLOCK = packed_date(1, 2030)  # 2030-01-01
+AFTER_THE_CLOCK = packed_date(183, 2031)  # 2031-07-02
+ENDS_AFTER_THE_CLOCK = packed_date(182, 2032)  # 2032-06-30
+ENDED_BEFORE_THE_CLOCK = packed_date(181, 2030)  # 2030-06-30
+ENDS_LATER_STILL = packed_date(182, 2035)  # 2035-07-01
+
+
+def selection_record(
+    *, team_id: int, wage: int, start: bytes, end: bytes | None = None, with_tail: bool = True
+) -> bytes:
+    """One chain record with no clause table, so no FF run reaches the fallback reader."""
+    record, _tag_offset = contract_bytes(
+        selector=SELECTION_PINDEX + 1,
+        team_id=team_id,
+        wage=wage,
+        start=start,
+        tail={"end": end, "status": 3} if with_tail else None,
+        clause_table=False,
+    )
+    return record
+
+
+def selection_game_db(records: bytes, *, team_id: int = NORTHBRIDGE_TEAM_A) -> bytes:
+    return one_player_game_db(
+        pindex=SELECTION_PINDEX, uid=SELECTION_UID, team_id=team_id, trailing=records
+    )
+
+
+def selected_contract(records: bytes, *, team_id: int = NORTHBRIDGE_TEAM_A) -> Contract:
+    _player, contract = by_uid(
+        decode_all(selection_game_db(records, team_id=team_id)), SELECTION_UID
+    )
+    assert contract is not None
+    return contract
+
+
+def test_an_agreed_future_move_is_not_the_contract_in_effect() -> None:
+    in_effect = selection_record(
+        team_id=NORTHBRIDGE_TEAM_A, wage=12000, start=BEFORE_THE_CLOCK, end=ENDS_AFTER_THE_CLOCK
+    )
+    future_move = selection_record(
+        team_id=SOUTHPORT_TEAM_ID, wage=30000, start=AFTER_THE_CLOCK, end=ENDS_LATER_STILL
+    )
+    contract = selected_contract(in_effect + future_move)
+    assert contract.club_uid == NORTHBRIDGE_CLUB_UID
+    assert contract.wage == 12000
+    assert contract.start == date(2028, 7, 1)
+    assert contract.end == date(2032, 6, 30)
+    assert contract.end_source == ContractEndSource.TAIL
+    # The future move is still one of the chain records.
+    assert contract.chain_club_uids == (NORTHBRIDGE_CLUB_UID, SOUTHPORT_CLUB_UID)
+
+
+def test_the_record_at_the_players_own_club_beats_one_that_started_later_elsewhere() -> None:
+    at_own_club = selection_record(
+        team_id=NORTHBRIDGE_TEAM_A, wage=11000, start=BEFORE_THE_CLOCK, end=ENDS_AFTER_THE_CLOCK
+    )
+    later_elsewhere = selection_record(
+        team_id=SOUTHPORT_TEAM_ID,
+        wage=25000,
+        start=LATER_BEFORE_THE_CLOCK,
+        end=ENDS_LATER_STILL,
+    )
+    contract = selected_contract(at_own_club + later_elsewhere)
+    assert contract.club_uid == NORTHBRIDGE_CLUB_UID
+    assert contract.wage == 11000
+    assert contract.start == date(2028, 7, 1)
+    assert contract.end == date(2032, 6, 30)
+
+
+def test_an_ended_record_at_the_players_club_loses_to_a_current_one_elsewhere() -> None:
+    ended_at_own_club = selection_record(
+        team_id=NORTHBRIDGE_TEAM_A, wage=11000, start=BEFORE_THE_CLOCK, end=ENDED_BEFORE_THE_CLOCK
+    )
+    current_elsewhere = selection_record(
+        team_id=SOUTHPORT_TEAM_ID,
+        wage=25000,
+        start=LATER_BEFORE_THE_CLOCK,
+        end=ENDS_AFTER_THE_CLOCK,
+    )
+    contract = selected_contract(ended_at_own_club + current_elsewhere)
+    assert contract.club_uid == SOUTHPORT_CLUB_UID
+    assert contract.wage == 25000
+    assert contract.start == date(2030, 1, 1)
+
+
+def test_the_latest_start_wins_when_no_record_is_at_the_players_club() -> None:
+    earlier = selection_record(
+        team_id=NORTHBRIDGE_TEAM_A, wage=11000, start=BEFORE_THE_CLOCK, end=ENDS_LATER_STILL
+    )
+    later = selection_record(
+        team_id=SOUTHPORT_TEAM_ID,
+        wage=25000,
+        start=LATER_BEFORE_THE_CLOCK,
+        end=ENDS_AFTER_THE_CLOCK,
+    )
+    contract = selected_contract(earlier + later, team_id=UNREGISTERED_TEAM_ID)
+    assert contract.club_uid == SOUTHPORT_CLUB_UID
+    assert contract.wage == 25000
+
+
+def test_a_player_whose_records_all_start_after_the_clock_has_no_contract_in_effect() -> None:
+    contract = selected_contract(
+        selection_record(
+            team_id=NORTHBRIDGE_TEAM_A, wage=9000, start=AFTER_THE_CLOCK, end=ENDS_LATER_STILL
+        )
+    )
+    assert contract.club_uid is None
+    assert contract.club_name is None
+    assert contract.team_id is None
+    assert contract.wage is None
+    assert contract.start is None
+    assert contract.end is None
+    assert contract.end_source == ContractEndSource.NONE
+    assert contract.squad_status is None
+    assert contract.on_loan is None
+    assert contract.chain_club_uids == (NORTHBRIDGE_CLUB_UID,)
+
+
+def test_a_record_without_a_tail_is_in_effect_when_no_tailed_record_is() -> None:
+    contract = selected_contract(
+        selection_record(
+            team_id=NORTHBRIDGE_TEAM_A, wage=2500, start=BEFORE_THE_CLOCK, with_tail=False
+        )
+    )
+    assert contract.club_uid == NORTHBRIDGE_CLUB_UID
+    assert contract.wage == 2500
+    assert contract.start == date(2028, 7, 1)
+    assert contract.end is None
+    assert contract.end_source == ContractEndSource.NONE
+    assert contract.squad_status is None
+
+
+def test_players_with_no_contract_in_effect_are_counted_for_the_checks() -> None:
+    game_db = selection_game_db(
+        selection_record(
+            team_id=NORTHBRIDGE_TEAM_A, wage=9000, start=AFTER_THE_CLOCK, end=ENDS_LATER_STILL
+        )
+    )
+    _name_pools, player_records, club_index = build_index(game_db)
+    decoder = build_contract_decoder(registered_contract_layout(), club_index, CLOCK, FILE_NAME)
+    decoder.decode(
+        game_db,
+        player_records.record_offsets[0],
+        len(game_db),
+        True,
+        SELECTION_PINDEX,
+        SELECTION_UID,
+        None,
+        NORTHBRIDGE_CLUB_UID,
+    )
+    stats = decoder.stats(player_count=1, contract_count=1)
+    assert stats.players_with_chain == 1
+    assert stats.without_contract_in_effect == 1
+
+
+LOAN_PINDEX = 95
+LOAN_UID = 900095
+NORTHBRIDGE_WITH_AFFILIATE = club_record_bytes(
+    club_index=1,
+    uid=NORTHBRIDGE_CLUB_UID,
+    nation_id=3,
+    fa_nation_id=4,
+    city_id=70,
+    name="Northbridge FC",
+    short_name="Northbridge",
+    team_ids=(NORTHBRIDGE_TEAM_A, NORTHBRIDGE_TEAM_B),
+    affiliate_team_ids=(SOUTHPORT_TEAM_ID,),
+    float_anchor_only=True,
+)
+
+
+def loan_game_db(*, trailing: bytes, affiliate: bool) -> bytes:
+    """One player at Southport's team, which Northbridge controls when `affiliate`."""
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body(
+            [NORTHBRIDGE_WITH_AFFILIATE if affiliate else NORTHBRIDGE_CLUB, SOUTHPORT_CLUB],
+            [NORTHBRIDGE_STATUS, SOUTHPORT_STATUS],
+            gap_bytes=2000,
+        )
+        + _player_bytes(
+            pindex=LOAN_PINDEX, uid=LOAN_UID, team_id=SOUTHPORT_TEAM_ID, trailing=trailing
+        )
+    )
+    return section_body(".dat", GAME_DB_SCHEMA, payload)
+
+
+def contract_club_record(*, wage: int = 20000) -> bytes:
+    """The player's contract record at Northbridge: a tail, and a spell that has not ended."""
+    record, _tag_offset = contract_bytes(
+        selector=LOAN_PINDEX + 1,
+        team_id=NORTHBRIDGE_TEAM_A,
+        wage=wage,
+        start=BEFORE_THE_CLOCK,
+        tail={"end": ENDS_AFTER_THE_CLOCK, "status": 3},
+        clause_table=False,
+    )
+    return record
+
+
+def current_club_record(
+    *, block_end: bytes = ENDS_AFTER_THE_CLOCK, e24: int = 0xFFFFFFFF, with_tail: bool = False
+) -> bytes:
+    """The record at the club the player is registered with.
+
+    Its block carries the loan end at the tail's end position and the loan marker at the
+    tail's e24; `break_tail` keeps the block from parsing as a tail of its own.
+    """
+    record, _tag_offset = contract_bytes(
+        selector=LOAN_PINDEX + 1,
+        team_id=SOUTHPORT_TEAM_ID,
+        wage=1500,
+        start=LATER_BEFORE_THE_CLOCK,
+        tail={"end": block_end, "e24": e24, "status": 3, "break_tail": not with_tail},
+        clause_table=False,
+    )
+    return record
+
+
+def loan_decoded(*, trailing: bytes, affiliate: bool) -> tuple[Player, Contract]:
+    player, contract = by_uid(
+        decode_all(loan_game_db(trailing=trailing, affiliate=affiliate)), LOAN_UID
+    )
+    assert contract is not None
+    return player, contract
+
+
+def test_a_registration_at_an_affiliate_team_is_a_spell_at_the_parent_club_not_a_loan() -> None:
+    player, contract = loan_decoded(
+        trailing=contract_club_record() + current_club_record(), affiliate=True
+    )
+    assert player.club_uid == NORTHBRIDGE_CLUB_UID
+    assert player.club_name == "Northbridge FC"
+    assert player.team_id == SOUTHPORT_TEAM_ID
+    assert player.team_slot == 2
+    assert player.team_club_uid == SOUTHPORT_CLUB_UID
+    assert player.on_loan is False
+    assert player.loan_parent_club_uid is None
+    assert player.loan_parent_club_name is None
+    assert contract.club_uid == NORTHBRIDGE_CLUB_UID
+    assert contract.wage == 20000
+    assert contract.on_loan is False
+
+
+def test_a_loan_to_an_unrelated_club_is_a_loan_from_the_contract_club() -> None:
+    player, contract = loan_decoded(
+        trailing=contract_club_record() + current_club_record(), affiliate=False
+    )
+    assert player.club_uid == SOUTHPORT_CLUB_UID
+    assert player.team_club_uid is None
+    assert player.on_loan is True
+    assert player.loan_parent_club_uid == NORTHBRIDGE_CLUB_UID
+    assert player.loan_parent_club_name == "Northbridge FC"
+    # The contract in effect stays the one at the club the player is on loan from.
+    assert contract.club_uid == NORTHBRIDGE_CLUB_UID
+    assert contract.wage == 20000
+    assert contract.end == date(2032, 6, 30)
+    assert contract.on_loan is True
+    assert contract.loan_parent_club_uid == NORTHBRIDGE_CLUB_UID
+
+
+@pytest.mark.parametrize(
+    "current_club_changes",
+    [
+        pytest.param({"block_end": ENDED_BEFORE_THE_CLOCK}, id="block ended before the clock"),
+        pytest.param({"e24": 1234}, id="block marker is a team id"),
+        pytest.param({"with_tail": True}, id="the record has a tail of its own"),
+    ],
+)
+def test_a_player_away_from_his_contract_club_without_a_live_loan_block_is_not_on_loan(
+    current_club_changes: dict[str, object],
+) -> None:
+    player, contract = loan_decoded(
+        trailing=contract_club_record() + current_club_record(**current_club_changes),  # pyright: ignore[reportArgumentType]
+        affiliate=False,
+    )
+    assert player.club_uid == SOUTHPORT_CLUB_UID
+    assert player.on_loan is False
+    assert player.loan_parent_club_uid is None
+    assert contract.on_loan is False
+
+
 def _test_contract_decoder(layout: ContractLayout) -> ContractDecoder:
     return build_contract_decoder(layout, EMPTY_CLUB_INDEX, date(2031, 1, 1), FILE_NAME)
 
@@ -826,7 +1230,8 @@ def test_last_record_chain_window_reaches_the_end_of_game_db_not_end_minus_30() 
         bytes(game_db), 0, game_db_length, True, 7, 1, None, None
     )
     assert contract is not None
-    assert contract.wage == 999
+    # The record carries no start date, so it fills the chain but is not in effect.
+    assert [entry.wage for entry in contract.chain] == [999]
 
 
 def test_last_player_chain_window_integration_through_fmsave_open(tmp_path: Path) -> None:
@@ -869,7 +1274,7 @@ def test_last_player_chain_window_integration_through_fmsave_open(tmp_path: Path
             contract for contract in contracts_table if contract.player_uid == 900020
         ]
         assert len(matching_contracts) == 1
-        assert matching_contracts[0].wage == 7000
+        assert [entry.wage for entry in matching_contracts[0].chain] == [7000]
 
 
 def test_negative_chain_search_start_is_clamped_to_zero() -> None:
@@ -887,7 +1292,7 @@ def test_negative_chain_search_start_is_clamped_to_zero() -> None:
         bytes(game_db), record_offset, game_db_length, True, 7, 1, None, None
     )
     assert contract is not None
-    assert contract.wage == 111
+    assert [entry.wage for entry in contract.chain] == [111]
 
 
 def _reference_locate_tail(
@@ -1470,12 +1875,12 @@ def test_contracts_returns_uids_in_player_order_and_filters_by_club(
             PLAYER_C_UID,
             PLAYER_D_UID,
         ]
-        filtered = contracts_table.where(club_uid=NORTHBRIDGE_CLUB_UID)
-        assert [contract.player_uid for contract in filtered] == [
-            PLAYER_A_UID,
-            PLAYER_C_UID,
-            PLAYER_D_UID,
+        # Each row's club is the club of its contract in effect.
+        assert [contract.player_uid for contract in contracts_table.where(club_uid=5002)] == [
+            PLAYER_A_UID
         ]
+        filtered = contracts_table.where(club_uid=NORTHBRIDGE_CLUB_UID)
+        assert [contract.player_uid for contract in filtered] == [PLAYER_C_UID, PLAYER_D_UID]
 
 
 def _counting_player_decode(monkeypatch: pytest.MonkeyPatch) -> list[int]:

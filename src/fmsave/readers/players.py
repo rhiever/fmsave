@@ -30,8 +30,17 @@ from fmsave.readers.persons import PersonBlockDecoder, build_person_block_decode
 from fmsave.readers.player_scan import HeaderLayout, build_header_layout, indexed_struct
 from fmsave.readers.suspensions import SuspensionEntry, player_suspensions
 
+# The club fields, team slot and stored registration club of one team id, in Player's order.
 _TeamFields = tuple[
-    int, "str | None", "str | None", "int | None", "int | None", "int | None", "int | None", int
+    int,
+    "str | None",
+    "str | None",
+    "int | None",
+    "int | None",
+    "int | None",
+    "int | None",
+    int,
+    "int | None",
 ]
 
 _DATE_CACHE_MISS = object()
@@ -199,6 +208,7 @@ class PlayerDecoder:
             club_nation_id = club_fa_nation_id = None
             club_reputation = club_last_league_position = None
             team_slot = None
+            team_club_uid = None
         else:
             (
                 club_uid,
@@ -209,6 +219,7 @@ class PlayerDecoder:
                 club_reputation,
                 club_last_league_position,
                 team_slot,
+                team_club_uid,
             ) = team_fields
 
         ratings_start = record_offset + layout.ratings_offset
@@ -309,6 +320,7 @@ class PlayerDecoder:
             club_last_league_position,
             team_id,
             team_slot,
+            team_club_uid,
             club_join_date,
             natural_positions,
             accomplished_positions,
@@ -477,7 +489,16 @@ def build_player_decoder(
 ) -> PlayerDecoder:
     """Build the per-save decoder from the save's layout, its ClubIndex, name pools and clock."""
     team_fields: dict[int, _TeamFields] = {}
-    for team_id, (club_uid, team_slot) in club_index.team_to_club.items():
+    affiliate_team_to_club = club_index.affiliate_team_to_club
+    for team_id, (storing_club_uid, stored_slot) in club_index.team_to_club.items():
+        # A team another club controls is fielded by that club, in a slot of its team list.
+        fielding_club = affiliate_team_to_club.get(team_id)
+        if fielding_club is None:
+            club_uid, team_slot = storing_club_uid, stored_slot
+            registration_club_uid: int | None = None
+        else:
+            club_uid, team_slot = fielding_club
+            registration_club_uid = storing_club_uid
         club = club_index.club_by_uid[club_uid]
         team_fields[team_id] = (
             club_uid,
@@ -488,6 +509,7 @@ def build_player_decoder(
             club.reputation,
             club.last_league_position,
             team_slot,
+            registration_club_uid,
         )
     person_decoder = build_person_block_decoder(
         person_layout, name_pools, club_index, clock, file_name

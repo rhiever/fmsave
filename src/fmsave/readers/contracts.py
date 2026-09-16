@@ -381,6 +381,7 @@ class ContractDecoder:
     # Chain record fixed fields (team id, wage) and the start date.
     team_wage_struct: struct.Struct
     team_wage_struct_offset: int
+    team_id_offset: int
     start_offset: int
 
     # Tail locator.
@@ -391,7 +392,9 @@ class ContractDecoder:
     tail_signature_offset: int
     tail_event_count_offset: int
     tail_end_offset: int
+    tail_e24_offset: int
     tail_struct: struct.Struct
+    loan_block_max_event_count: int
 
     # Clause locator and reader.
     clause_step_bytes: int
@@ -452,7 +455,9 @@ class ContractDecoder:
 
     # Counts for the contract checks, added to as chain records are decoded.
     players_with_chain_count: int = 0
+    without_contract_in_effect_count: int = 0
     chain_record_count: int = 0
+    date_marked_record_count: int = 0
     chain_teams_resolved_count: int = 0
     tails_parsed_count: int = 0
     tail_ends_count: int = 0
@@ -468,7 +473,9 @@ class ContractDecoder:
             players=player_count,
             contracts=contract_count,
             players_with_chain=self.players_with_chain_count,
+            without_contract_in_effect=self.without_contract_in_effect_count,
             chain_records=self.chain_record_count,
+            date_marked_chain_records=self.date_marked_record_count,
             tails_parsed=self.tails_parsed_count,
             tails_without_clause_table=self.tails_without_clause_table_count,
             clause_tables=self.clause_table_count,
@@ -865,6 +872,28 @@ class ContractDecoder:
             unknown,
         )
 
+    def _is_date_marked_record(self, game_db: bytes, chain_tag_offset: int) -> bool:
+        """Whether a record whose tag slot `M` holds a date instead of the tag is a real one.
+
+        The save marks some chain records with a date where the tag belongs; what the date
+        means is not known. Such a record counts only when `M` and the record's own start
+        date both decode as game dates and its team resolves to a club, which no stretch of
+        unrelated bytes carrying the player's selector has been seen to do.
+        """
+        start_offset = chain_tag_offset + self.start_offset
+        if start_offset < 0 or chain_tag_offset + 4 > len(game_db):
+            return False
+        if decode_date(game_db, chain_tag_offset) is None:
+            return False
+        if decode_date(game_db, start_offset) is None:
+            return False
+        team_id_at = chain_tag_offset + self.team_id_offset
+        if team_id_at + 4 > len(game_db):
+            return False
+        team_id: int = _U32.unpack_from(game_db, team_id_at)[0]
+        club = self.club_by_team_id.get(team_id)
+        return club is not None and club[0] is not None
+
     def _find_chain_records(
         self,
         game_db: bytes,
@@ -872,10 +901,13 @@ class ContractDecoder:
         record_window_end: int,
         is_last_record: bool,
         pindex: int,
-    ) -> list[_ChainRecordTuple] | None:
-        """Every chain record whose selector matches pindex, in file order, or None when
-        there is none. Searches the tag inline (no intermediate hit list) and advances past
-        each hit by 4 bytes, since the tag cannot overlap itself.
+    ) -> tuple[list[int], list[_ChainRecordTuple]] | None:
+        """Every chain record whose selector matches pindex, in file order, with the tag
+        offset of each, or None when there is none.
+
+        Searches for the selector itself, since a record's tag slot holds either the tag or
+        a date (see `_is_date_marked_record`), and advances one byte past each hit, since a
+        selector's four bytes may repeat inside themselves.
         """
         search_start = record_offset + self.chain_window_start_offset
         search_start = max(search_start, 0)
@@ -887,22 +919,146 @@ class ContractDecoder:
         search_end = max(search_end, search_start)
         selector_bytes = _U32.pack(pindex + 1)
         selector_offset = self.selector_offset
-        game_db_length = len(game_db)
         find = game_db.find
         startswith = game_db.startswith
         tag = self.tag
-        records: list[_ChainRecordTuple] | None = None
-        hit = find(tag, search_start, search_end)
+        offsets: list[int] = []
+        records: list[_ChainRecordTuple] = []
+        hit = find(selector_bytes, search_start + selector_offset, search_end + selector_offset)
         while hit >= 0:
-            selector_at = hit + selector_offset
-            if selector_at + 4 <= game_db_length and startswith(selector_bytes, selector_at):
-                decoded_record = self.decode_chain_record(game_db, hit)
-                if records is None:
-                    records = [decoded_record]
-                else:
-                    records.append(decoded_record)
-            hit = find(tag, hit + 4, search_end)
-        return records
+            chain_tag_offset = hit - selector_offset
+            if search_start <= chain_tag_offset < search_end:
+                if startswith(tag, chain_tag_offset):
+                    offsets.append(chain_tag_offset)
+                    records.append(self.decode_chain_record(game_db, chain_tag_offset))
+                elif self._is_date_marked_record(game_db, chain_tag_offset):
+                    self.date_marked_record_count += 1
+                    offsets.append(chain_tag_offset)
+                    records.append(self.decode_chain_record(game_db, chain_tag_offset))
+            hit = find(selector_bytes, hit + 1, search_end + selector_offset)
+        return (offsets, records) if records else None
+
+    def _in_effect_record(
+        self, chain_records: list[_ChainRecordTuple], player_club_uid: int | None
+    ) -> _ChainRecordTuple | None:
+        """The one record the contract in effect comes from, or None when none has started.
+
+        A record whose tail parsed wins over one whose did not, since only a tail carries a
+        contract's own fields; among those, one at the player's own club that has not ended
+        wins, and otherwise the latest start does. A record starting after the in-game date
+        is an agreed future move, such as a pre-contract or a completed transfer that takes
+        effect later, and is never the contract in effect.
+        """
+        in_effect = self._latest_started(chain_records, player_club_uid, with_tail=True)
+        if in_effect is None:
+            in_effect = self._latest_started(chain_records, player_club_uid, with_tail=False)
+        return in_effect
+
+    def _latest_started(
+        self,
+        chain_records: list[_ChainRecordTuple],
+        player_club_uid: int | None,
+        *,
+        with_tail: bool,
+    ) -> _ChainRecordTuple | None:
+        """The record to take among those with, or without, a tail that have started.
+
+        Ties on the start date go to the latest end, and then to the first in file order.
+        """
+        clock = self.clock
+        at_own_club: _ChainRecordTuple | None = None
+        at_own_club_key: tuple[date, date] | None = None
+        elsewhere: _ChainRecordTuple | None = None
+        elsewhere_key: tuple[date, date] | None = None
+        for record in chain_records:
+            if record[6] is not with_tail:
+                continue
+            start = record[4]
+            if start is None or start > clock:
+                continue
+            end = record[5]
+            key = (start, start if end is None else end)
+            if (
+                player_club_uid is not None
+                and record[0] == player_club_uid
+                and (end is None or end >= clock)
+            ):
+                if at_own_club_key is None or key > at_own_club_key:
+                    at_own_club, at_own_club_key = record, key
+            elif elsewhere_key is None or key > elsewhere_key:
+                elsewhere, elsewhere_key = record, key
+        return at_own_club if at_own_club is not None else elsewhere
+
+    def _locate_block(
+        self, game_db: bytes, chain_tag_offset: int
+    ) -> tuple[int, date | None] | None:
+        """(the block's e24, its end date) for the block before a chain record, or None.
+
+        Every chain record is preceded by a tail-shaped block that stores, where a tail
+        stores its event count, how many `tail_step_bytes` blocks lie between it and the
+        record. The nearest candidate whose stored count matches its own distance and whose
+        end is a game date or the missing-date marker is the record's block. Unlike
+        `_locate_tail` this accepts a block whose tail sentinels do not check, which is what
+        a record with no contract tail of its own, such as a loan record, carries.
+        """
+        first_candidate = chain_tag_offset - self.tail_base_offset
+        count_offset = self.tail_event_count_offset
+        if first_candidate < 0 or first_candidate + count_offset >= len(game_db):
+            return None
+        step_bytes = self.tail_step_bytes
+        end_offset = self.tail_end_offset
+        marker_offset = self.tail_e24_offset
+        for block_count in range(self.loan_block_max_event_count + 1):
+            block_offset = first_candidate - step_bytes * block_count
+            if block_offset < 0:
+                return None
+            # The stored count is a u32, and its low byte alone tells these blocks apart.
+            if game_db[block_offset + count_offset] != block_count:
+                continue
+            end_at = block_offset + end_offset
+            raw_end: int = _U32.unpack_from(game_db, end_at)[0]
+            block_end = self._cached_date(game_db, raw_end, end_at)
+            if block_end is None and raw_end != _MISSING_U32:
+                continue
+            block_marker: int = _U32.unpack_from(game_db, block_offset + marker_offset)[0]
+            return block_marker, block_end
+        return None
+
+    def _has_loan_block(
+        self,
+        game_db: bytes,
+        chain_offsets: list[int],
+        chain_records: list[_ChainRecordTuple],
+        player_club_uid: int,
+    ) -> bool:
+        """Whether the save holds a live loan for the player at the club he is registered with.
+
+        The record at that club, the latest to have started, must carry no contract tail of
+        its own, and the block before it must hold the loan marker and an end on or after the
+        in-game date.
+        """
+        clock = self.clock
+        current: tuple[int, _ChainRecordTuple] | None = None
+        current_key: tuple[date, int] | None = None
+        for chain_offset, record in zip(chain_offsets, chain_records, strict=True):
+            if record[0] != player_club_uid:
+                continue
+            start = record[4]
+            if start is not None and start > clock:
+                continue
+            key = (clock if start is None else start, chain_offset)
+            if current_key is None or key > current_key:
+                current, current_key = (chain_offset, record), key
+        if current is None:
+            return False
+        current_offset, current_record = current
+        if current_record[6]:
+            return False
+        block = self._locate_block(game_db, current_offset)
+        if block is None:
+            return False
+        block_marker, block_end = block
+        return block_marker == _MISSING_U32 and block_end is not None and block_end >= clock
 
     def _find_fallback_dates(
         self, game_db: bytes, record_offset: int, record_window_end: int
@@ -972,8 +1128,12 @@ class ContractDecoder:
         Raises:
             CorruptSaveError: A chain record's team id or wage runs past the end of game_db.
         """
-        chain_records = self._find_chain_records(
+        found_chain = self._find_chain_records(
             game_db, record_offset, record_window_end, is_last_record, pindex
+        )
+        chain_offsets: list[int] = [] if found_chain is None else found_chain[0]
+        chain_records: list[_ChainRecordTuple] | None = (
+            None if found_chain is None else found_chain[1]
         )
 
         any_tail_parsed = False
@@ -998,9 +1158,9 @@ class ContractDecoder:
         if chain_records is None:
             wage: int | None = None
             start = fallback_start
-            live_club_uid: int | None = None
-            live_club_name: str | None = None
-            live_team_id: int | None = None
+            contract_club_uid: int | None = None
+            contract_club_name: str | None = None
+            contract_team_id: int | None = None
             squad_status: CodedValue[SquadStatus] | None = None
             event_count: int | None = None
             contract_type: CodedValue[ContractType] | None = None
@@ -1019,77 +1179,76 @@ class ContractDecoder:
                 end, end_source = None, ContractEndSource.NONE
         else:
             self.players_with_chain_count += 1
-            first_record = chain_records[0]
-            first_club_uid = first_record[0]
-            first_club_name = first_record[1]
-            wage = first_record[3]
-            start = first_record[4]
+            in_effect_record = self._in_effect_record(chain_records, player_club_uid)
 
-            if len(chain_records) == 1:
-                live_record = chain_records[0]
-            else:
-                live_record = None
-                best_end: date | None = None
-                for candidate_record in chain_records:
-                    candidate_end = candidate_record[5]
-                    if (
-                        candidate_record[6]
-                        and candidate_end is not None
-                        and (best_end is None or candidate_end > best_end)
-                    ):
-                        live_record = candidate_record
-                        best_end = candidate_end
-                if live_record is None:
-                    live_record = chain_records[-1]
-
-            (
-                live_club_uid,
-                live_club_name,
-                live_team_id,
-                _live_wage,
-                _live_start,
-                live_end,
-                live_has_tail,
-                live_squad_status_raw,
-                live_event_count,
-                live_clauses,
-                live_contract_type_raw,
-                live_unknown,
-            ) = live_record
-
-            if live_end is not None:
-                end, end_source = live_end, ContractEndSource.TAIL
-            elif not any_tail_parsed and fallback_end is not None and fallback_end >= clock:
-                end, end_source = fallback_end, ContractEndSource.FALLBACK
-            else:
-                end, end_source = None, ContractEndSource.NONE
-
-            if live_has_tail:
-                # A tail-bearing record's tail fields are never None; see decode_chain_record.
-                squad_status = self._cached_squad_status(cast(int, live_squad_status_raw))
-                event_count = live_event_count
-                clauses = live_clauses
-                contract_type = (
-                    self._cached_contract_type(live_contract_type_raw)
-                    if live_contract_type_raw is not None
-                    else None
-                )
-                unknown = FrozenMapping(live_unknown) if live_unknown else self.empty_unknown
-            else:
+            if in_effect_record is None:
+                self.without_contract_in_effect_count += 1
+                contract_club_uid = None
+                contract_club_name = None
+                contract_team_id = None
+                wage = None
+                start = None
+                in_effect_end: date | None = None
                 squad_status = None
                 event_count = None
                 contract_type = None
                 clauses = ()
                 unknown = self.empty_unknown
+            else:
+                (
+                    contract_club_uid,
+                    contract_club_name,
+                    contract_team_id,
+                    wage,
+                    start,
+                    in_effect_end,
+                    in_effect_has_tail,
+                    in_effect_squad_status_raw,
+                    in_effect_event_count,
+                    in_effect_clauses,
+                    in_effect_contract_type_raw,
+                    in_effect_unknown,
+                ) = in_effect_record
+                if in_effect_has_tail:
+                    # A tail-bearing record's tail fields are never None; see
+                    # decode_chain_record.
+                    squad_status = self._cached_squad_status(cast(int, in_effect_squad_status_raw))
+                    event_count = in_effect_event_count
+                    clauses = in_effect_clauses
+                    contract_type = (
+                        self._cached_contract_type(in_effect_contract_type_raw)
+                        if in_effect_contract_type_raw is not None
+                        else None
+                    )
+                    unknown = (
+                        FrozenMapping(in_effect_unknown)
+                        if in_effect_unknown
+                        else self.empty_unknown
+                    )
+                else:
+                    squad_status = None
+                    event_count = None
+                    contract_type = None
+                    clauses = ()
+                    unknown = self.empty_unknown
+
+            if in_effect_end is not None:
+                end, end_source = in_effect_end, ContractEndSource.TAIL
+            elif not any_tail_parsed and fallback_end is not None and fallback_end >= clock:
+                end, end_source = fallback_end, ContractEndSource.FALLBACK
+            else:
+                end, end_source = None, ContractEndSource.NONE
 
             on_loan = None
             loan_parent_club_uid = None
             loan_parent_club_name = None
-            if player_club_uid is not None and first_club_uid is not None:
-                on_loan = player_club_uid != first_club_uid
+            if player_club_uid is not None and contract_club_uid is not None:
+                on_loan = contract_club_uid != player_club_uid and self._has_loan_block(
+                    game_db, chain_offsets, chain_records, player_club_uid
+                )
                 if on_loan:
-                    loan_parent_club_uid = first_club_uid
-                    loan_parent_club_name = first_club_name
+                    loan_parent_club_uid = contract_club_uid
+                    loan_parent_club_name = contract_club_name
 
             if len(chain_records) == 1:
                 only_record = chain_records[0]
@@ -1118,9 +1277,9 @@ class ContractDecoder:
         contract = Contract(
             player_uid,
             player_name,
-            live_club_uid,
-            live_club_name,
-            live_team_id,
+            contract_club_uid,
+            contract_club_name,
+            contract_team_id,
             wage,
             start,
             end,
@@ -1157,7 +1316,11 @@ def build_contract_decoder(
             immediately follow the sentinel byte, or a fallback_nonzero_length below 1.
     """
     club_by_team_id: dict[int, tuple[int | None, str | None]] = {}
-    for team_id, (club_uid, _slot) in club_index.team_to_club.items():
+    affiliate_team_to_club = club_index.affiliate_team_to_club
+    for team_id, (storing_club_uid, _slot) in club_index.team_to_club.items():
+        # A record at a team another club controls is a record with the controlling club.
+        fielding_club = affiliate_team_to_club.get(team_id)
+        club_uid = storing_club_uid if fielding_club is None else fielding_club[0]
         club = club_index.club_by_uid.get(club_uid)
         club_by_team_id[team_id] = (club_uid, club.name if club is not None else None)
 
@@ -1179,6 +1342,7 @@ def build_contract_decoder(
         selector_offset=layout.selector_offset,
         team_wage_struct=team_wage_struct,
         team_wage_struct_offset=team_wage_struct_offset,
+        team_id_offset=layout.team_id_offset,
         start_offset=layout.start_offset,
         tail_base_offset=layout.tail_base_offset,
         tail_step_bytes=layout.tail_step_bytes,
@@ -1187,7 +1351,9 @@ def build_contract_decoder(
         tail_signature_offset=tail_signature_offset,
         tail_event_count_offset=layout.tail_event_count_offset,
         tail_end_offset=layout.tail_end_offset,
+        tail_e24_offset=layout.tail_e24_offset,
         tail_struct=_build_tail_struct(layout),
+        loan_block_max_event_count=layout.loan_block_max_event_count,
         clause_step_bytes=layout.clause_step_bytes,
         clause_max_count=layout.clause_max_count,
         clause_ff_offset=layout.clause_ff_offset,

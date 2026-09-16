@@ -51,7 +51,11 @@ class PlayerStats:
 class ContractStats:
     """What one decode pass counted over the players' contract chain records.
 
-    `tails_without_clause_table` counts parsed tails where no clause table is found, and
+    `without_contract_in_effect` counts players with chain records none of which is the
+    contract in effect at the in-game date, because every one of them starts after it.
+    `date_marked_chain_records` counts the chain records found by a date in their tag slot
+    rather than by the tag itself. `tails_without_clause_table` counts parsed tails where no
+    clause table is found, and
     `clause_tables` those where one is. `clause_tables_ending_at_tail` counts clause tables whose
     bonus lists and zero trailer end exactly at the tail start. `tail_ends` counts parsed tails
     with an end date, and `tail_ends_past` those whose end date is before the save's in-game
@@ -61,7 +65,9 @@ class ContractStats:
     players: int
     contracts: int
     players_with_chain: int
+    without_contract_in_effect: int
     chain_records: int
+    date_marked_chain_records: int
     tails_parsed: int
     tails_without_clause_table: int
     clause_tables: int
@@ -74,12 +80,19 @@ class ContractStats:
 
 @dataclass(frozen=True, slots=True)
 class ClubStats:
-    """What the club pass counted: records, team lists and normal status records."""
+    """What the club pass counted: records, team lists, status records and affiliate teams.
+
+    `affiliate_refs` counts every team id listed in a club record's affiliated-team list, and
+    `affiliate_refs_linked` those that were linked to a parent, which needs every id of the
+    list to name a team of another club that no other club has already claimed.
+    """
 
     records: int
     team_lists_found: int
     status_normal: int
     status_confirmed: int
+    affiliate_refs: int
+    affiliate_refs_linked: int
 
 
 @dataclass(frozen=True, slots=True)

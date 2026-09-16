@@ -285,8 +285,9 @@ class Player:
         height_cm: Height in centimetres (unconfirmed).
         ability: Current and potential ability.
         reputation: Reputation figures; never threshold on reputation.bucket.
-        club_uid: Uid of the club fielding the player's registered team, or None for a free
-            agent or an unresolved team (unconfirmed).
+        club_uid: Uid of the club the player belongs to: the club fielding his registered
+            team, which for a team an affiliate club stores is the club controlling it.
+            None for a free agent or an unresolved team (unconfirmed).
         club_name: Denormalised full name of club_uid (unconfirmed).
         club_short_name: Denormalised short name of club_uid (unconfirmed).
         club_nation_id: Denormalised league nation id of club_uid (unconfirmed).
@@ -296,8 +297,11 @@ class Player:
             club_uid.
         team_id: Id of the player's registered team, or None for a free agent
             (unconfirmed).
-        team_slot: The team's slot in its club's team list, or None when team_id does not
-            resolve to a club (unconfirmed).
+        team_slot: The team's slot in club_uid's team list, which counts that club's own
+            slots first and then the teams it controls at affiliate clubs; None when
+            team_id does not resolve to a club (unconfirmed).
+        team_club_uid: Uid of the club whose record stores the player's registered team,
+            when another club controls that team, else None (unconfirmed).
         club_join_date: Date the player joined his current club; it disagrees with the
             contract start date for about half of players, so it is not a substitute for it
             (unconfirmed).
@@ -320,14 +324,19 @@ class Player:
         traits: Named player traits; an unnamed bit is Trait.UNKNOWN with raw set to the
             bit number.
         trait_bits: The raw trait bitmask, or None when no person block validates.
-        on_loan: Whether the player is on loan: True or False when both the player's team
-            and the first contract chain record's team resolve to clubs, else None.
-        loan_parent_club_uid: Uid of the loaning-out club when on_loan is True, else None.
+        on_loan: Whether the player is on loan from the club of his contract in effect:
+            True when he is registered with another club's team and the save holds a loan
+            for him there that has not ended, False when it does not, and None when his
+            club or his contract in effect is unknown. A player registered with a team his
+            own club controls, such as a B team, is a player of that club, not on loan.
+        loan_parent_club_uid: Uid of the club of the contract in effect when on_loan is
+            True, else None.
         loan_parent_club_name: Denormalised name of loan_parent_club_uid.
         contract: The player's assembled contract, or None when no chain record and no
             fallback dates were found.
-        suspensions: The player's unserved suspensions, in the order the save stores them;
-            () when the player has none.
+        suspensions: The player's unserved suspensions, in the order the save stores them,
+            including bans the game no longer shows because no fixture is left to serve
+            them; () when the player has none.
     """
 
     uid: int
@@ -356,6 +365,7 @@ class Player:
     club_last_league_position: int | None
     team_id: int | None
     team_slot: int | None
+    team_club_uid: int | None
     club_join_date: date | None
     natural_positions: tuple[str, ...]
     accomplished_positions: tuple[str, ...]
@@ -516,6 +526,7 @@ register_field_statuses(
         "club_fa_nation_id",
         "team_id",
         "team_slot",
+        "team_club_uid",
         "club_join_date",
         "transfer_value_state",
     ),

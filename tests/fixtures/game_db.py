@@ -49,12 +49,18 @@ def name_pools_bytes(
     return bytes(output)
 
 
-def team_list_bytes(team_ids: Sequence[int], *, float_anchor_only: bool = False) -> bytes:
-    """The block that ends in a club's team ids.
+def team_list_bytes(
+    team_ids: Sequence[int],
+    *,
+    affiliate_team_ids: Sequence[int] = (),
+    float_anchor_only: bool = False,
+) -> bytes:
+    """The block that ends in a club's team ids and its affiliated-team ids.
 
     Three dates, 5 unknown bytes, five floats, one 25-byte entry, one 12-byte entry, 9 filler
-    bytes, the team count and the ids. The dates are null unless `float_anchor_only`, in which
-    case only the fifth float (1.0) can locate the block.
+    bytes, the team count and the ids, then the affiliated-team count and those ids. The dates
+    are null unless `float_anchor_only`, in which case only the fifth float (1.0) can locate
+    the block.
     """
     output = bytearray()
     if float_anchor_only:
@@ -68,6 +74,8 @@ def team_list_bytes(team_ids: Sequence[int], *, float_anchor_only: bool = False)
     output.extend(TEAM_LIST_FILLER)
     output.append(len(team_ids))
     output.extend(struct.pack(f"<{len(team_ids)}I", *team_ids))
+    output.append(len(affiliate_team_ids))
+    output.extend(struct.pack(f"<{len(affiliate_team_ids)}I", *affiliate_team_ids))
     return bytes(output)
 
 
@@ -86,12 +94,13 @@ def club_record_bytes(
     name: str,
     short_name: str,
     team_ids: Sequence[int],
+    affiliate_team_ids: Sequence[int] = (),
     float_anchor_only: bool = False,
 ) -> bytes:
     """One club record: fixed header, both names, 16 zero bytes, then the team list block.
 
     The index and uid are stored minus 1, the league nation twice, and the anchor sits at
-    record offset 17.
+    record offset 17. `affiliate_team_ids` are the teams of other clubs this club controls.
     """
     output = bytearray()
     output.extend(struct.pack("<III", club_index - 1, uid - 1, uid - 1))
@@ -103,7 +112,13 @@ def club_record_bytes(
     output.extend(length_prefixed(name))
     output.extend(length_prefixed(short_name))
     output.extend(bytes(16))
-    output.extend(team_list_bytes(team_ids, float_anchor_only=float_anchor_only))
+    output.extend(
+        team_list_bytes(
+            team_ids,
+            affiliate_team_ids=affiliate_team_ids,
+            float_anchor_only=float_anchor_only,
+        )
+    )
     return bytes(output)
 
 
@@ -324,6 +339,7 @@ def contract_bytes(
     clause_table: bool = True,
     clause_marker: bytes = CONTRACT_CLAUSE_MARKER,
     clause_suffix: bytes | None = None,
+    marker: bytes = CONTRACT_TAG,
 ) -> tuple[bytes, int]:
     """One contract chain record: the blob, and the offset of its tag (`M`) inside it.
 
@@ -347,7 +363,9 @@ def contract_bytes(
     `money_a`, `money_b`, `money_c`. Pass `tail=None` for a record with no tail at all;
     pass `clause_table=False` to omit the clause table even with a tail. `clause_marker`
     is written as given (`FF` x 8 by default, or a u32 team id and a zero u32), and so is
-    `clause_suffix`, so a test can write a malformed marker or bonus list.
+    `clause_suffix`, so a test can write a malformed marker or bonus list. `marker` is the
+    4 bytes written at `M` itself, the chain tag by default, or a `date4` for a record the
+    save marks with a date instead.
     """
     if len(clause_marker) != 8:
         raise ValueError("clause_marker must be 8 bytes")
@@ -403,7 +421,9 @@ def contract_bytes(
     buffer.extend(bytes(3))  # the flags byte at M-3, and two more zero bytes
 
     tag_offset = len(buffer)
-    buffer.extend(CONTRACT_TAG)
+    if len(marker) != 4:
+        raise ValueError("marker must be 4 bytes")
+    buffer.extend(marker)
     buffer.append(0)
     buffer.extend(struct.pack("<II", selector, team_id))
     buffer.extend(bytes(4))

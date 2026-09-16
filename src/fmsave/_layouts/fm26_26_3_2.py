@@ -88,6 +88,8 @@ TEAM_LISTS = TeamListLayout(
     filler_bytes=9,
     team_count_range=(1, 8),
     team_id_range=(1, 3_000_000),
+    # At most 3 affiliated teams have been seen on one club; the cap leaves room for more.
+    affiliate_count_range=(0, 8),
 )
 
 CLUB_STATUSES = ClubStatusLayout(
@@ -271,6 +273,8 @@ CONTRACTS = ContractLayout(
     tail_e38_offset=38,
     tail_e39_offset=39,
     tail_event_count_offset=42,
+    # The loan blocks seen sit at most a few steps back; the cap leaves room for far more.
+    loan_block_max_event_count=60,
     clause_step_bytes=8,
     clause_max_count=23,
     clause_ff_offset=-16,
@@ -356,6 +360,8 @@ GATE_BOUNDS = GateBounds(
     team_resolved=(0.98, None),
     home_grown_club_refs_resolved=(0.98, None),
     players_with_chain=(0.70, None),
+    no_contract_in_effect=(None, 0.05),
+    date_marked_chain_records=(None, 0.05),
     tails_parsed=(0.70, None),
     tails_without_clause_table=(None, 0.001),
     clause_terminator=(0.999, None),
@@ -366,6 +372,7 @@ GATE_BOUNDS = GateBounds(
     team_lists_found=(0.999, None),
     status_normal=(0.98, None),
     status_confirmation=(0.95, None),
+    affiliate_teams_linked=(0.99, None),
     suspension_share_of_players=(None, 0.10),
     issued_after_clock=(None, 0.01),
 )

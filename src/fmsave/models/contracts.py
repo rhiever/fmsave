@@ -117,32 +117,43 @@ class ContractChainEntry:
 
 @dataclass(frozen=True, slots=True)
 class Contract:
-    """A player's assembled contract.
+    """A player's contract as it stands at the save's in-game date.
+
+    Every field below that a chain record fills comes from one record: the contract in
+    effect, which is the record at the player's own club that has started and has not
+    ended, or else the record with the latest start on or before the in-game date. Records
+    that start later are agreed future moves, such as pre-contracts and completed transfers
+    that take effect later; they stay in `chain` but never fill these fields. When no record
+    has started, those fields are None or empty and `chain` still lists every record.
 
     Attributes:
         player_uid: Uid of the player this contract belongs to (unconfirmed).
         player_name: Denormalised name of player_uid (unconfirmed).
-        club_uid: Uid of the contracting club of the live chain record, or None
-            (unconfirmed).
+        club_uid: Uid of the contracting club of the record in effect, or None when no
+            record is in effect or its team does not resolve (unconfirmed).
         club_name: Denormalised name of club_uid (unconfirmed).
-        team_id: Id of the contracting team of the live chain record, or None
+        team_id: Id of the contracting team of the record in effect, or None
             (unconfirmed).
-        wage: Weekly wage from the first chain record, in the save's base currency
+        wage: Weekly wage from the record in effect, in the save's base currency
             (unconfirmed).
-        start: Contract start date.
+        start: Contract start date, from the record in effect.
         end: Contract end date.
         end_source: Where end was read from.
-        squad_status: Squad status from the live chain record's tail, or None when it has
-            no parsed tail.
-        type: Contract type from the live chain record's tail, or None when it has no
+        squad_status: Squad status from the tail of the record in effect, or None when it
+            has no parsed tail.
+        type: Contract type from the tail of the record in effect, or None when it has no
             parsed tail.
-        clauses: Clauses from the live chain record's tail, or () when it has no parsed
-            tail.
-        on_loan: Whether the player is on loan: True or False when both the player's team
-            and the first chain record's team resolve to clubs, else None.
-        loan_parent_club_uid: Uid of the loaning-out club when on_loan is True, else None.
+        clauses: Clauses from the tail of the record in effect, or () when it has no
+            parsed tail.
+        on_loan: Whether the player is on loan from the club of the contract in effect:
+            True when he is registered with another club's team and the save holds a loan
+            for him there that has not ended, False when it does not, and None when his
+            club or the contract in effect is unknown. A player registered with a team his
+            own club controls, such as a B team, is a player of that club, not on loan.
+        loan_parent_club_uid: Uid of the club of the contract in effect when on_loan is
+            True, else None.
         loan_parent_club_name: Denormalised name of loan_parent_club_uid.
-        event_count: Contract event count from the live chain record's tail, or None
+        event_count: Contract event count from the tail of the record in effect, or None
             (unconfirmed).
         chain: Every chain record, oldest first (unconfirmed).
         chain_club_uids: Uid of the contracting club for each chain record, in the same
@@ -151,8 +162,8 @@ class Contract:
             (unconfirmed).
         tailed_chain_club_uids: Uids of the clubs of chain records whose tail parsed and
             whose team resolves, in chain order (unconfirmed).
-        unknown: Numeric fields with no known meaning, from the live chain record's tail;
-            a key is present only when its value was read (unconfirmed).
+        unknown: Numeric fields with no known meaning, from the tail of the record in
+            effect; a key is present only when its value was read (unconfirmed).
     """
 
     player_uid: int

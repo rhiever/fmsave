@@ -156,8 +156,11 @@ class Save:
     def suspensions(self) -> Table[Suspension]:
         """Every unserved suspension in the save's game database, in player order.
 
-        Each player's suspensions keep the order the save stores them in, and each row
-        carries the player's current club. The table is read on the first call to
+        Every unserved ban the save holds is listed, including bans the game no longer shows
+        because no fixture is left to serve them, for example after a cup exit. Each player's
+        suspensions keep the order the save stores them in, and each row carries the club the
+        player belongs to, which for a player registered with a team another club controls is
+        that controlling club. The table is read on the first call to
         `players()`, `contracts()` or `suspensions()`, from one decode pass; later calls to
         any of them return the same tables. When a check of that pass fails, none of the
         three tables is kept, so each of them raises.

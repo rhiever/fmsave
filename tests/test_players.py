@@ -44,6 +44,7 @@ from tests.fixtures.container import (
     section_body,
 )
 from tests.fixtures.game_db import (
+    NORMAL_STATUS_KIND,
     STUB_STATUS_KIND,
     club_record_bytes,
     game_db_body,
@@ -66,6 +67,11 @@ _A_RAW_ATTRIBUTES[24] = 88
 _A_RAW_ATTRIBUTES[25] = 33
 A_RAW_ATTRIBUTES = tuple(_A_RAW_ATTRIBUTES)
 
+NORTHBRIDGE_CLUB_UID = 5001
+NORTHBRIDGE_TEAM_A = 70001
+NORTHBRIDGE_TEAM_B = 70002  # an own slot no player is registered with
+ACADEMY_CLUB_UID = 5005
+ACADEMY_TEAM_ID = 70011
 SOUTHPORT_CLUB_UID = 5002
 SOUTHPORT_TEAM_ID = 70003
 SOUTHPORT_CLUB = club_record_bytes(
@@ -86,6 +92,44 @@ SOUTHPORT_STATUS = status_record_bytes(
     kind=STUB_STATUS_KIND,
     last_league_position=5,
     reputation=3000,
+)
+
+NORTHBRIDGE_CLUB = club_record_bytes(
+    club_index=2,
+    uid=NORTHBRIDGE_CLUB_UID,
+    nation_id=3,
+    fa_nation_id=9,
+    city_id=71,
+    name="Northbridge FC",
+    short_name="Northbridge",
+    team_ids=(NORTHBRIDGE_TEAM_A, NORTHBRIDGE_TEAM_B),
+    affiliate_team_ids=(ACADEMY_TEAM_ID,),
+)
+NORTHBRIDGE_STATUS = status_record_bytes(
+    ordinal=52,
+    club_index=2,
+    uid=NORTHBRIDGE_CLUB_UID,
+    kind=NORMAL_STATUS_KIND,
+    last_league_position=2,
+    reputation=6500,
+)
+ACADEMY_CLUB = club_record_bytes(
+    club_index=3,
+    uid=ACADEMY_CLUB_UID,
+    nation_id=3,
+    fa_nation_id=3,
+    city_id=72,
+    name="Example Academy",
+    short_name="Academy",
+    team_ids=(ACADEMY_TEAM_ID,),
+)
+ACADEMY_STATUS = status_record_bytes(
+    ordinal=53,
+    club_index=3,
+    uid=ACADEMY_CLUB_UID,
+    kind=NORMAL_STATUS_KIND,
+    last_league_position=14,
+    reputation=1200,
 )
 
 PLAYER_A = {
@@ -560,6 +604,51 @@ def test_player_a_ability_positions_and_attributes() -> None:
     assert player_a.club_last_league_position is None
     assert player_a.club_join_date == date(2029, 3, 1)
     assert player_a.height_cm == 181
+
+
+AFFILIATE_PLAYER_UID = 900070
+
+
+def affiliate_game_db() -> bytes:
+    """Southport, Northbridge (which controls the Academy's team) and the Academy, with one
+    player registered with the Academy's team.
+    """
+    affiliate_player = dict(PLAYER_A)
+    affiliate_player["pindex"] = 70
+    affiliate_player["uid"] = AFFILIATE_PLAYER_UID
+    affiliate_player["team_id"] = ACADEMY_TEAM_ID
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body(
+            [SOUTHPORT_CLUB, NORTHBRIDGE_CLUB, ACADEMY_CLUB],
+            [SOUTHPORT_STATUS, NORTHBRIDGE_STATUS, ACADEMY_STATUS],
+            gap_bytes=2000,
+        )
+        + player_record_bytes(**affiliate_player)
+    )
+    return section_body(".dat", GAME_DB_SCHEMA, payload)
+
+
+def test_a_player_at_an_affiliate_team_takes_the_parent_clubs_fields() -> None:
+    player = by_uid(decode_all(affiliate_game_db()), AFFILIATE_PLAYER_UID)
+    assert player.club_uid == NORTHBRIDGE_CLUB_UID
+    assert player.club_name == "Northbridge FC"
+    assert player.club_short_name == "Northbridge"
+    assert player.club_nation_id == 3
+    assert player.club_fa_nation_id == 9
+    assert player.club_reputation == 6500
+    assert player.club_last_league_position == 2
+    # The team id is the stored one, and its slot follows the parent's own slots.
+    assert player.team_id == ACADEMY_TEAM_ID
+    assert player.team_slot == 2
+    assert player.team_club_uid == ACADEMY_CLUB_UID
+
+
+def test_a_player_at_his_clubs_own_team_has_no_registration_club() -> None:
+    player = by_uid(decode_all(example_game_db()), 900001)
+    assert player.club_uid == SOUTHPORT_CLUB_UID
+    assert player.team_slot == 0
+    assert player.team_club_uid is None
 
 
 def test_player_b_negative_potential_and_free_agent() -> None:

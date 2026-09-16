@@ -125,7 +125,9 @@ class TeamListLayout:
     the list start. At `counts_offset` comes a count of `first_entry_bytes`-byte entries that
     each begin with `first_entry_lead_byte`, then a count of `second_entry_bytes`-byte entries
     that each begin with `second_entry_lead_byte`, then `filler_bytes` bytes, then the team
-    count and that many u32 team ids. Ranges are inclusive (lowest, highest).
+    count and that many u32 team ids. Right after those ids comes the affiliated-team list:
+    a count within `affiliate_count_range` and that many u32 team ids, each a team another
+    club record stores. Ranges are inclusive (lowest, highest).
     """
 
     null_date_triple: bytes
@@ -140,6 +142,7 @@ class TeamListLayout:
     filler_bytes: int
     team_count_range: tuple[int, int]
     team_id_range: tuple[int, int]
+    affiliate_count_range: tuple[int, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,6 +302,13 @@ class ContractLayout:
     is always `tail_sentinel_byte_offset + 1`, so the two sentinels form one contiguous
     signature) and the stored event count at `tail_event_count_offset` matches.
 
+    A record whose tail does not parse is still preceded by a tail-shaped block, which is
+    where a loan's end date and marker sit. That block is looked for the same way, without
+    the sentinel checks and only up to `loan_block_max_event_count` steps back, and is
+    accepted when the count byte at `tail_event_count_offset` matches the step and the end
+    at `tail_end_offset` is a game date or the missing-date marker; its `tail_e24_offset`
+    word marks a loan.
+
     A clause table holds, from `base + clause_ff_offset`: an 8-byte marker
     (`clause_ff_count` bytes), `clause_zero_count` zero bytes, the clause count byte at
     `base + clause_count_offset`, and that many entries from `base + clause_entries_offset`,
@@ -359,6 +369,7 @@ class ContractLayout:
     tail_e38_offset: int
     tail_e39_offset: int
     tail_event_count_offset: int
+    loan_block_max_event_count: int
 
     clause_step_bytes: int
     clause_max_count: int
@@ -455,7 +466,10 @@ class GateBounds:
     `home_near_current`, `team_resolved` (of players with a team) and
     `home_grown_club_refs_resolved` (of home-grown club references).
 
-    Contracts: `players_with_chain` (of players), `tails_parsed` (of chain records),
+    Contracts: `players_with_chain` (of players), `no_contract_in_effect` (players whose
+    chain records all start after the in-game date, of players with a chain),
+    `date_marked_chain_records` (chain records
+    found by a date in their tag slot, of chain records), `tails_parsed` (of chain records),
     `tails_without_clause_table` (parsed tails where no clause table is found, of parsed tails),
     `clause_terminator` (clause tables whose bonus lists and zero trailer end exactly at the
     tail start, of clause tables), `contract_head` (of clause tables), `past_dated_tail_ends`
@@ -465,8 +479,10 @@ class GateBounds:
     at all counts towards `tails_without_clause_table` instead, so the two together cover every
     way a clause table can go missing or stop short.
 
-    Clubs: `clubs_minimum` (records), `team_lists_found` and `status_normal` (of clubs), and
-    `status_confirmation` (of normal status records).
+    Clubs: `clubs_minimum` (records), `team_lists_found` and `status_normal` (of clubs),
+    `status_confirmation` (of normal status records) and `affiliate_teams_linked` (listed
+    affiliate teams that belong to one other club, of listed affiliate teams; not applied
+    when no club lists one).
 
     Suspensions: `suspension_share_of_players` (players with an entry, of players; not applied
     without players) and `issued_after_clock` (entries issued after the in-game date, of
@@ -499,6 +515,8 @@ class GateBounds:
     team_resolved: BoundPair
     home_grown_club_refs_resolved: BoundPair
     players_with_chain: BoundPair
+    no_contract_in_effect: BoundPair
+    date_marked_chain_records: BoundPair
     tails_parsed: BoundPair
     tails_without_clause_table: BoundPair
     clause_terminator: BoundPair
@@ -509,6 +527,7 @@ class GateBounds:
     team_lists_found: BoundPair
     status_normal: BoundPair
     status_confirmation: BoundPair
+    affiliate_teams_linked: BoundPair
     suspension_share_of_players: BoundPair
     issued_after_clock: BoundPair
 
