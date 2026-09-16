@@ -276,6 +276,7 @@ CONTRACTS = ContractLayout(
     tail_e20_offset=20,
     tail_e24_offset=24,
     tail_end_offset=28,
+    tail_printed_start_offset=32,
     tail_squad_status_offset=36,
     tail_e37_offset=37,
     tail_e38_offset=38,

@@ -443,6 +443,48 @@ def test_affiliate_registrations_are_not_loans(corpus_saves: dict[str, fmsave.Sa
 
 
 @pytest.mark.corpus_full
+def test_loans_carry_their_dates_and_other_players_carry_none(
+    corpus_saves: dict[str, fmsave.Save],
+) -> None:
+    """Every loan the save holds runs to a date on or after the in-game date, and only loans
+    have loan dates at all.
+    """
+    mismatches = CorpusMismatches()
+    for relative_name, career_save in corpus_saves.items():
+        label = save_label(relative_name)
+        game_date = career_save.info.game_date
+        if game_date is None:
+            mismatches.note(f"{label}: no in-game date")
+            continue
+        loans = 0
+        loans_without_an_end = 0
+        loans_without_a_start = 0
+        ends_before_the_game_date = 0
+        starts_after_the_game_date = 0
+        dates_without_a_loan = 0
+        for player in career_save.players():
+            if player.on_loan:
+                loans += 1
+                if player.loan_end is None:
+                    loans_without_an_end += 1
+                elif player.loan_end < game_date:
+                    ends_before_the_game_date += 1
+                if player.loan_start is None:
+                    loans_without_a_start += 1
+                elif player.loan_start > game_date:
+                    starts_after_the_game_date += 1
+            elif player.loan_start is not None or player.loan_end is not None:
+                dates_without_a_loan += 1
+        mismatches.check(label, "loans read", loans > 0)
+        mismatches.check(label, "loans carry an end date", loans_without_an_end == 0)
+        mismatches.check(label, "loans carry a start date", loans_without_a_start == 0)
+        mismatches.check(label, "loan ends are not past", ends_before_the_game_date == 0)
+        mismatches.check(label, "loan starts have arrived", starts_after_the_game_date == 0)
+        mismatches.check(label, "only loans carry loan dates", dates_without_a_loan == 0)
+    mismatches.fail_if_any()
+
+
+@pytest.mark.corpus_full
 def test_suspension_rows_match_the_players_they_belong_to(
     corpus_saves: dict[str, fmsave.Save],
 ) -> None:

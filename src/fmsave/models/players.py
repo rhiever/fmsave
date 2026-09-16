@@ -332,6 +332,9 @@ class Player:
         loan_parent_club_uid: Uid of the club of the contract in effect when on_loan is
             True, else None.
         loan_parent_club_name: Denormalised name of loan_parent_club_uid.
+        loan_start: Date the loan began when on_loan is True, else None. It is also None on
+            the few loans whose stored start does not read as a date.
+        loan_end: Date the loan ends when on_loan is True, else None.
         contract: The player's assembled contract, or None when no chain record and no
             fallback dates were found.
         suspensions: The player's unserved suspensions, in the order the save stores them,
@@ -385,6 +388,8 @@ class Player:
     on_loan: bool | None
     loan_parent_club_uid: int | None
     loan_parent_club_name: str | None
+    loan_start: date | None
+    loan_end: date | None
     contract: Contract | None
     suspensions: tuple[PlayerSuspension, ...]
 
@@ -504,6 +509,8 @@ register_field_statuses(
         "on_loan",
         "loan_parent_club_uid",
         "loan_parent_club_name",
+        "loan_start",
+        "loan_end",
         "suspensions",
     ),
     unconfirmed=(

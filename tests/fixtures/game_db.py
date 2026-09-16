@@ -419,7 +419,8 @@ def contract_bytes(
     chain-record tag inside the record; its selector (the 4 bytes right after it) is
     whatever clause-table byte follows, never the player's own selector.
 
-    `tail` keys: `end` (bytes, default the null date), `status`, `e2`, `e8`, `e12`, `e16`,
+    `tail` keys: `end` (bytes, default the null date), `printed_start` (bytes, the date four
+    bytes after the end date, left as zeros by default), `status`, `e2`, `e8`, `e12`, `e16`,
     `e20`, `e24`, `e37`, `e38`, `e39` (defaulting to 0 except `e2`, which defaults to
     0x0300), and `break_tail` (bool; when true, the u32 that the tail locator requires to
     be 4 is written 5 instead, so no candidate offset parses). `head` keys: `type`,
@@ -470,6 +471,9 @@ def contract_bytes(
         struct.pack_into("<I", buffer, tail_offset + 24, cast(int, tail.get("e24", 0)))
         end_bytes = cast("bytes | None", tail.get("end")) or CONTRACT_NULL_DATE
         buffer[tail_offset + 28 : tail_offset + 32] = end_bytes
+        printed_start_bytes = cast("bytes | None", tail.get("printed_start"))
+        if printed_start_bytes is not None:
+            buffer[tail_offset + 32 : tail_offset + 36] = printed_start_bytes
         buffer[tail_offset + 36] = cast(int, tail.get("status", 0))
         buffer[tail_offset + 37] = cast(int, tail.get("e37", 0))
         buffer[tail_offset + 38] = cast(int, tail.get("e38", 0))

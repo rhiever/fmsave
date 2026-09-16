@@ -303,11 +303,13 @@ class ContractLayout:
     signature) and the stored event count at `tail_event_count_offset` matches.
 
     A record whose tail does not parse is still preceded by a tail-shaped block, which is
-    where a loan's end date and marker sit. That block is looked for the same way, without
+    where a loan's dates and marker sit. That block is looked for the same way, without
     the sentinel checks and only up to `loan_block_max_event_count` steps back, and is
     accepted when the count byte at `tail_event_count_offset` matches the step and the end
     at `tail_end_offset` is a game date or the missing-date marker; its `tail_e24_offset`
-    word marks a loan.
+    word marks a loan, and its `tail_printed_start_offset` date is the loan's start. A
+    parsed tail stores a printed start date in the same place, which the contract fields
+    take from the record itself instead, so the tail struct skips it.
 
     A clause table holds, from `base + clause_ff_offset`: an 8-byte marker
     (`clause_ff_count` bytes), `clause_zero_count` zero bytes, the clause count byte at
@@ -364,6 +366,7 @@ class ContractLayout:
     tail_e20_offset: int
     tail_e24_offset: int
     tail_end_offset: int
+    tail_printed_start_offset: int
     tail_squad_status_offset: int
     tail_e37_offset: int
     tail_e38_offset: int

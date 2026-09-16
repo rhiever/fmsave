@@ -277,7 +277,7 @@ class PlayerDecoder:
             traits,
         ) = _EMPTY_PERSON_TUPLE if person is None else person
 
-        contract, on_loan, loan_parent_club_uid, loan_parent_club_name = (
+        contract, on_loan, loan_parent_club_uid, loan_parent_club_name, loan_start, loan_end = (
             self.contract_decoder.decode(
                 game_db,
                 record_offset,
@@ -341,6 +341,8 @@ class PlayerDecoder:
             on_loan,
             loan_parent_club_uid,
             loan_parent_club_name,
+            loan_start,
+            loan_end,
             contract,
             suspensions,
         )

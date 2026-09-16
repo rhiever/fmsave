@@ -356,6 +356,7 @@
         'tail_end_offset': 28,
         'tail_event_count_offset': 42,
         'tail_max_event_count': 200,
+        'tail_printed_start_offset': 32,
         'tail_sentinel_byte_offset': 3,
         'tail_sentinel_byte_value': 3,
         'tail_sentinel_word_offset': 4,

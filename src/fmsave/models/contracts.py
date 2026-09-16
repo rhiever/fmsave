@@ -21,7 +21,13 @@ from fmsave.models.common import CodedValue, ContractEndSource
 
 
 class SquadStatus(IntEnum):
-    """A player's squad-status code, as shown on the contract screen."""
+    """The squad status agreed in a player's contract, as shown on the contract screen.
+
+    It is the role the club agreed to, not a record of how much the player actually plays: a
+    player on CUP_GOALKEEPER terms, for example, can still make league appearances all
+    season. Only codes whose meaning is confirmed in game are named; every other code is
+    UNKNOWN and keeps its raw number.
+    """
 
     UNKNOWN = -1
     STAR_PLAYER = 1
@@ -48,8 +54,14 @@ class ContractType(IntEnum):
 class ClauseKind(IntEnum):
     """A contract clause's kind.
 
-    Only kinds whose meaning is confirmed are named; every other code is UNKNOWN and keeps its
-    raw number. Each code is a distinct kind: MINIMUM_FEE_RELEASE_DOMESTIC is code 0x12 only.
+    Only kinds whose meaning is confirmed in game are named; every other code is UNKNOWN and
+    keeps its raw number. Each code is a distinct kind: MINIMUM_FEE_RELEASE_DOMESTIC is code
+    0x12 only, and the neighbouring code 0x11 stays unnamed because the game truncates its
+    label on screen, which leaves it indistinguishable from 0x12.
+
+    RELEGATION_RELEASE and NON_PROMOTION_RELEASE are the clauses the game calls a relegation
+    release clause and a non promotion release clause; what their value and parameter hold is
+    not confirmed.
 
     A clause's value is the release fee for MINIMUM_FEE_RELEASE, MINIMUM_FEE_RELEASE_FOREIGN
     and MINIMUM_FEE_RELEASE_DOMESTIC, and the amount paid for APPEARANCE_FEE, SHUTOUT_BONUS,
@@ -63,6 +75,8 @@ class ClauseKind(IntEnum):
 
     UNKNOWN = -1
     MINIMUM_FEE_RELEASE = 0x00
+    RELEGATION_RELEASE = 0x01
+    NON_PROMOTION_RELEASE = 0x02
     TOP_DIVISION_RELEGATION_SALARY_DROP = 0x0F
     MINIMUM_FEE_RELEASE_FOREIGN = 0x10
     MINIMUM_FEE_RELEASE_DOMESTIC = 0x12
@@ -139,8 +153,9 @@ class Contract:
         start: Contract start date, from the record in effect.
         end: Contract end date.
         end_source: Where end was read from.
-        squad_status: Squad status from the tail of the record in effect, or None when it
-            has no parsed tail.
+        squad_status: Squad status from the tail of the record in effect, the role agreed in
+            the contract rather than how much the player plays, or None when the record has
+            no parsed tail.
         type: Contract type from the tail of the record in effect, or None when it has no
             parsed tail.
         clauses: Clauses from the tail of the record in effect, or () when it has no
@@ -153,6 +168,9 @@ class Contract:
         loan_parent_club_uid: Uid of the club of the contract in effect when on_loan is
             True, else None.
         loan_parent_club_name: Denormalised name of loan_parent_club_uid.
+        loan_start: Date the loan began when on_loan is True, else None. It is also None on
+            the few loans whose stored start does not read as a date.
+        loan_end: Date the loan ends when on_loan is True, else None.
         event_count: Contract event count from the tail of the record in effect, or None
             (unconfirmed).
         chain: Every chain record, oldest first (unconfirmed).
@@ -181,6 +199,8 @@ class Contract:
     on_loan: bool | None
     loan_parent_club_uid: int | None
     loan_parent_club_name: str | None
+    loan_start: date | None
+    loan_end: date | None
     event_count: int | None
     chain: tuple[ContractChainEntry, ...]
     chain_club_uids: tuple[int | None, ...]
@@ -224,6 +244,8 @@ register_field_statuses(
         "on_loan",
         "loan_parent_club_uid",
         "loan_parent_club_name",
+        "loan_start",
+        "loan_end",
     ),
     unconfirmed=(
         "player_uid",
