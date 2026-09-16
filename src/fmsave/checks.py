@@ -1066,7 +1066,7 @@ class ReaderValidation:
 
     Attributes:
         reader: The reader: "clubs", "players", "contracts", "suspensions", "managed_clubs",
-            "stages", "competitions", "fixtures", "transfer_windows", "league_tables" or
+            "stages", "competitions", "fixtures", "transfer_windows", "league_tables",
             "competition_rules" or "player_match_stats".
         status: "ok" when the reader returned its table, "failed" when checks stopped it, and
             "error" when it raised another fmsave error.
