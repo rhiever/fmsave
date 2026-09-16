@@ -65,7 +65,7 @@ from fmsave.readers.rules import (
     find_transfer_window_layouts,
     read_transfer_windows,
 )
-from fmsave.readers.span import SpanRecords
+from fmsave.readers.span import SPAN_RECORDS_CACHE_KEY, SpanRecords
 from fmsave.readers.stages import StageIndex, named_stages
 from fmsave.readers.suspensions import (
     SuspensionEntry,
@@ -87,6 +87,13 @@ TRANSFER_WINDOWS_TABLE_CACHE_KEY = "table:transfer_windows"
 LEAGUE_TABLES_TABLE_CACHE_KEY = "table:league_tables"
 COMPETITION_RULES_TABLE_CACHE_KEY = "table:competition_rules"
 PLAYER_MATCH_STATS_TABLE_CACHE_KEY = "table:player_match_stats"
+
+# What each shared decode is kept under. While nothing is stored there the decode has not
+# finished, which is what tells a failed pass from a failed reader of a pass that ran.
+_SHARED_PASS_CACHE_KEYS: Mapping[str, str] = {
+    checks.PLAYER_PASS: PLAYERS_TABLE_CACHE_KEY,
+    checks.SPAN_PASS: SPAN_RECORDS_CACHE_KEY,
+}
 
 
 class _PlayerTables(NamedTuple):
@@ -627,6 +634,19 @@ class Save:
         """The checks a reader passed when its table was read, or None before it was read."""
         stored = self._context.cached_value(_check_cache_key(reader_name))
         return stored if isinstance(stored, ReaderCheck) else None
+
+    def _shared_pass_cached(self, pass_name: str) -> bool:
+        """Whether the decode the readers of a pass share has finished and been kept.
+
+        A failure raised before it finished is a failure of the pass: every other reader of
+        that pass would run the same decode again only to raise the same error, which for the
+        span means streaming it once per reader. A failure raised after it was kept is the
+        reader's own, and the rest of the pass still has its own work to do.
+        """
+        cache_key = _SHARED_PASS_CACHE_KEYS.get(pass_name)
+        if cache_key is None:
+            return False
+        return self._context.cached_value(cache_key) is not None
 
     def _gate_bounds(self) -> GateBounds:
         save_info = self._context.info

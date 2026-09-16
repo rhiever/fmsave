@@ -30,10 +30,15 @@ from fmsave._errors import (
 from fmsave._package import __version__
 from fmsave.checks import ValidationReport, validate_save
 from fmsave.models.clubs import Club
+from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
+from fmsave.models.fixtures import Fixture
+from fmsave.models.league_tables import LeagueTable
 from fmsave.models.managed import ManagedClub
+from fmsave.models.matches import PlayerMatchStats
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
+from fmsave.models.rules import CompetitionRules, TransferWindow
 from fmsave.models.suspensions import Suspension
 from fmsave.table import Table
 
@@ -47,20 +52,34 @@ PATH_SEPARATORS = "/\\"
 UNNAMED_PATH_ARGUMENT = "path"
 GENERIC_USAGE_MESSAGE = "invalid arguments; run 'fmsave --help' for usage"
 
-TABLE_RECORD_TYPES: dict[str, type[object]] = {
-    "players": Player,
-    "contracts": Contract,
-    "suspensions": Suspension,
-    "clubs": Club,
-    "managed-clubs": ManagedClub,
-}
 OUTPUT_FORMATS = ("csv", "json", "jsonl")
 NATION_NAME_MESSAGE = "nation names arrive in a later release; pass a nation id"
-COMPETITION_SCOPE_MESSAGE = "competition scopes arrive with competition tables in a later release"
-MANAGED_CLUBS_NATION_MESSAGE = (
-    "managed-clubs cannot be exported by nation; use --club, --managed-club or --all"
-)
 NO_MANAGED_CLUB_MESSAGE = "no managed club found in this save"
+NO_COMPETITION_NAMES_MESSAGE = (
+    "competition names come from --competition-names, and the save stores none"
+)
+COMPETITION_RULES_NOTE = "no rules block names a competition, so --competition returns no rows"
+
+CLUB_SCOPE = "club"
+MANAGED_CLUB_SCOPE = "managed-club"
+COMPETITION_SCOPE = "competition"
+NATION_SCOPE = "nation"
+EVERY_ROW_SCOPE = "all"
+# Every scope, in the order messages and the help text list them, with the option asking for it.
+SCOPE_OPTIONS: dict[str, str] = {
+    CLUB_SCOPE: "--club",
+    MANAGED_CLUB_SCOPE: "--managed-club",
+    COMPETITION_SCOPE: "--competition",
+    NATION_SCOPE: "--nation",
+    EVERY_ROW_SCOPE: "--all",
+}
+# What a message calls each scope it turns down. Every row is never turned down, so it has none.
+SCOPE_WORDS: dict[str, str] = {
+    CLUB_SCOPE: "club",
+    MANAGED_CLUB_SCOPE: "managed club",
+    COMPETITION_SCOPE: "competition",
+    NATION_SCOPE: "nation",
+}
 
 
 def error_file_name(filename: object) -> str:
@@ -179,6 +198,22 @@ def add_save_argument(command_parser: argparse.ArgumentParser) -> None:
     command_parser.add_argument("save_path", metavar="SAVE", help="path to a .fm save file")
 
 
+def table_argument_help() -> str:
+    """The tables to choose from, and the note any one of them carries about its own scopes.
+
+    A note belongs to the single table it is true of. On the shared --competition help it would
+    tell every table that a competition scope returns no rows, which is true of one of them.
+    """
+    table_notes = [
+        f"{table_name} ({export_table.note})"
+        for table_name, export_table in EXPORT_TABLES.items()
+        if export_table.note
+    ]
+    listed_tables = ", ".join(EXPORT_TABLES)
+    noted_tables = f"; {'; '.join(table_notes)}" if table_notes else ""
+    return f"the table to write: {listed_tables}{noted_tables}"
+
+
 def build_parser() -> CommandLineParser:
     parser = CommandLineParser(
         prog="fmsave",
@@ -210,8 +245,8 @@ def build_parser() -> CommandLineParser:
     export_parser.add_argument(
         "table",
         metavar="TABLE",
-        choices=tuple(TABLE_RECORD_TYPES),
-        help=f"the table to write: {', '.join(TABLE_RECORD_TYPES)}",
+        choices=tuple(EXPORT_TABLES),
+        help=table_argument_help(),
     )
     scope_group = export_parser.add_mutually_exclusive_group(required=True)
     scope_group.add_argument(
@@ -225,7 +260,8 @@ def build_parser() -> CommandLineParser:
     scope_group.add_argument(
         "--competition",
         metavar="VALUE",
-        help="rows of one competition (arrives with competition tables in a later release)",
+        help="rows of one competition, given as a competition id, or as a name once "
+        "--competition-names supplies one",
     )
     scope_group.add_argument("--nation", metavar="VALUE", help="rows of one nation, by nation id")
     scope_group.add_argument("--all", action="store_true", help="every row")
@@ -236,6 +272,11 @@ def build_parser() -> CommandLineParser:
         "--columns",
         metavar="NAMES",
         help="comma-separated flat column names to write, in this order",
+    )
+    export_parser.add_argument(
+        "--competition-names",
+        metavar="PATH",
+        help="a UTF-8 CSV of database_id,name naming competitions, which no save stores",
     )
     export_parser.add_argument(
         "-o", "--output", metavar="PATH", help="write to this file instead of standard output"
@@ -367,41 +408,115 @@ def resolve_club(clubs: Table[Club], club_value: str) -> Club:
     return name_matches[0]
 
 
+def ambiguous_competition_message(competition_value: str, candidates: Iterable[Competition]) -> str:
+    return "\n".join(
+        [
+            f'more than one competition matches "{redact_argument(competition_value)}":',
+            *(
+                f"  id {competition.id}  {competition.name} (database id {competition.database_id})"
+                for competition in candidates
+            ),
+            "use the id to choose one",
+        ]
+    )
+
+
+def resolve_competition(competitions: Table[Competition], competition_value: str) -> Competition:
+    """Find the one competition a --competition value names: an id, else a supplied name.
+
+    A name matches only when the save was opened with a name map, since no save stores a
+    competition name of its own.
+
+    Raises:
+        CommandUsageError: No competition has the id or the name.
+        AmbiguousNameError: More than one competition has the name.
+    """
+    if is_ascii_digits(competition_value):
+        competition_id = int(competition_value)
+        id_matches = competitions.where(id=competition_id)
+        if not id_matches:
+            raise CommandUsageError(f"no competition with id {competition_id}")
+        return id_matches[0]
+    name_matches = competitions.find(name=competition_value)
+    if not name_matches:
+        raise CommandUsageError(
+            f'no competition named "{redact_argument(competition_value)}"; '
+            f"{NO_COMPETITION_NAMES_MESSAGE}"
+        )
+    if len(name_matches) > 1:
+        raise AmbiguousNameError(ambiguous_competition_message(competition_value, name_matches))
+    return name_matches[0]
+
+
 @dataclass(frozen=True, slots=True)
 class ExportScope:
-    """The rows an export keeps: rows of these clubs, rows of this nation, or every row.
+    """The rows an export keeps: rows of these clubs, this nation, this competition, or every row.
 
     Attributes:
         club_uids: Keep rows of these clubs, or None to not scope by club.
         nation_id: Keep rows of this nation, or None to not scope by nation.
+        competition_id: Keep rows of this competition, or None to not scope by competition.
     """
 
     club_uids: frozenset[int] | None = None
     nation_id: int | None = None
+    competition_id: int | None = None
+
+
+def chosen_scope(arguments: argparse.Namespace) -> str:
+    """Which scope the arguments ask for; the parser has already required exactly one."""
+    if arguments.club is not None:
+        return CLUB_SCOPE
+    if arguments.managed_club:
+        return MANAGED_CLUB_SCOPE
+    if arguments.competition is not None:
+        return COMPETITION_SCOPE
+    if arguments.nation is not None:
+        return NATION_SCOPE
+    return EVERY_ROW_SCOPE
+
+
+def scope_offer(scopes: frozenset[str]) -> str:
+    """ "use --competition or --all": the scopes a table does take, in the options' own order."""
+    options = [SCOPE_OPTIONS[scope_name] for scope_name in SCOPE_OPTIONS if scope_name in scopes]
+    if len(options) == 1:
+        return f"use {options[0]}"
+    return f"use {', '.join(options[:-1])} or {options[-1]}"
+
+
+def unscoped_message(table_name: str, scope_name: str, table: ExportTable) -> str:
+    """Why a table takes no such scope, which scopes it does take, and any note it carries."""
+    table_words = table_name.replace("-", " ")
+    note = f" ({table.note})" if table.note else ""
+    if table.scopes == EVERY_ROW_ONLY:
+        reason = f"{table_words} are not scoped to a club, competition or nation"
+    else:
+        reason = f"{table_words} cannot be scoped by {SCOPE_WORDS[scope_name]}"
+    return f"{reason}; {scope_offer(table.scopes)}{note}"
 
 
 def check_scope_arguments(arguments: argparse.Namespace) -> None:
-    """Reject scopes that no save can answer, before the save is read.
+    """Reject a scope the table does not take, or one no save can answer, before it is read.
 
     Raises:
-        CommandUsageError: The scope is a competition, a nation name, or a nation for the
-            managed-clubs table.
+        CommandUsageError: The table takes no such scope, or the nation is given as a name.
     """
-    if arguments.competition is not None:
-        raise CommandUsageError(COMPETITION_SCOPE_MESSAGE)
-    if arguments.nation is not None:
-        if arguments.table == "managed-clubs":
-            raise CommandUsageError(MANAGED_CLUBS_NATION_MESSAGE)
-        if not is_ascii_digits(arguments.nation):
-            raise CommandUsageError(NATION_NAME_MESSAGE)
+    table_name: str = arguments.table
+    export_table = EXPORT_TABLES[table_name]
+    scope_name = chosen_scope(arguments)
+    if scope_name not in export_table.scopes:
+        raise CommandUsageError(unscoped_message(table_name, scope_name, export_table))
+    if scope_name == NATION_SCOPE and not is_ascii_digits(arguments.nation):
+        raise CommandUsageError(NATION_NAME_MESSAGE)
 
 
 def resolve_scope(career_save: fmsave.Save, arguments: argparse.Namespace) -> ExportScope:
-    """Turn the scope arguments into the clubs or nation whose rows are kept.
+    """Turn the scope arguments into the clubs, nation or competition whose rows are kept.
 
     Raises:
-        CommandUsageError: The club does not exist, or the save has no managed club.
-        AmbiguousNameError: More than one club has the given name.
+        CommandUsageError: The club or competition does not exist, or the save has no managed
+            club.
+        AmbiguousNameError: More than one club, or more than one competition, has the name.
     """
     if arguments.managed_club:
         managed_club_uids = frozenset(row.club_uid for row in career_save.managed_clubs())
@@ -411,6 +526,9 @@ def resolve_scope(career_save: fmsave.Save, arguments: argparse.Namespace) -> Ex
     if arguments.club is not None:
         club = resolve_club(career_save.clubs(), arguments.club)
         return ExportScope(club_uids=frozenset((club.uid,)))
+    if arguments.competition is not None:
+        competition = resolve_competition(career_save.competitions(), arguments.competition)
+        return ExportScope(competition_id=competition.id)
     if arguments.nation is not None:
         return ExportScope(nation_id=int(arguments.nation))
     return ExportScope()
@@ -433,45 +551,202 @@ def scoped_player_uids(
     return {player.uid for player in career_save.players() if keeps_player(player)}
 
 
-def scoped_records(
-    career_save: fmsave.Save, table_name: str, scope: ExportScope
-) -> Iterable[object]:
-    """Read a table and return the rows the scope keeps, filtered lazily, in table order.
+def club_uid_filter(career_save: fmsave.Save, scope: ExportScope) -> Callable[[int | None], bool]:
+    """Whether a club uid is in the scope: one of its clubs, or a club of its nation.
 
-    Every table the rows depend on is read here, so the rows can be written after the save
-    is closed.
+    A club's nation comes from the club table, read through the reader that enforces the club
+    checks, so no nation reaches a row from an index whose checks have not run. A row naming no
+    club is in no club's scope.
     """
     club_uids = scope.club_uids
+    if club_uids is not None:
+        return lambda club_uid: club_uid in club_uids
     nation_id = scope.nation_id
-    if table_name == "clubs":
-        clubs = career_save.clubs()
-        if club_uids is not None:
-            return (club for club in clubs if club.uid in club_uids)
-        if nation_id is not None:
-            return (club for club in clubs if club.nation_id == nation_id)
-        return clubs
-    if table_name == "managed-clubs":
-        managed_clubs = career_save.managed_clubs()
-        if club_uids is not None:
-            return (row for row in managed_clubs if row.club_uid in club_uids)
-        return managed_clubs
+    if nation_id is None:
+        return lambda club_uid: True
+    nation_by_club_uid = {club.uid: club.nation_id for club in career_save.clubs()}
+    return lambda club_uid: club_uid is not None and nation_by_club_uid.get(club_uid) == nation_id
+
+
+def club_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    clubs = career_save.clubs()
+    club_uids = scope.club_uids
+    if club_uids is not None:
+        return (club for club in clubs if club.uid in club_uids)
+    nation_id = scope.nation_id
+    if nation_id is not None:
+        return (club for club in clubs if club.nation_id == nation_id)
+    return clubs
+
+
+def managed_club_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    managed_clubs = career_save.managed_clubs()
+    club_uids = scope.club_uids
+    if club_uids is not None:
+        return (row for row in managed_clubs if row.club_uid in club_uids)
+    return managed_clubs
+
+
+def player_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    players = career_save.players()
     keeps_player = player_filter(scope)
-    if table_name == "players":
-        players = career_save.players()
-        return players if keeps_player is None else filter(keeps_player, players)
-    if table_name == "contracts":
-        contracts = career_save.contracts()
-        if keeps_player is None:
-            return contracts
-        player_uids = scoped_player_uids(career_save, keeps_player)
-        return (contract for contract in contracts if contract.player_uid in player_uids)
+    return players if keeps_player is None else filter(keeps_player, players)
+
+
+def contract_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    contracts = career_save.contracts()
+    keeps_player = player_filter(scope)
+    if keeps_player is None:
+        return contracts
+    player_uids = scoped_player_uids(career_save, keeps_player)
+    return (contract for contract in contracts if contract.player_uid in player_uids)
+
+
+def suspension_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
     suspensions = career_save.suspensions()
+    club_uids = scope.club_uids
     if club_uids is not None:
         return (suspension for suspension in suspensions if suspension.club_uid in club_uids)
+    keeps_player = player_filter(scope)
     if keeps_player is None:
         return suspensions
     player_uids = scoped_player_uids(career_save, keeps_player)
     return (suspension for suspension in suspensions if suspension.player_uid in player_uids)
+
+
+def stage_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    stages = career_save.stages()
+    competition_id = scope.competition_id
+    if competition_id is None:
+        return stages
+    return (stage for stage in stages if stage.competition_id == competition_id)
+
+
+def competition_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    competitions = career_save.competitions()
+    competition_id = scope.competition_id
+    if competition_id is None:
+        return competitions
+    return (competition for competition in competitions if competition.id == competition_id)
+
+
+def fixture_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """A club or nation scope keeps a match either side of which is in it."""
+    fixtures = career_save.fixtures()
+    competition_id = scope.competition_id
+    if competition_id is not None:
+        return (fixture for fixture in fixtures if fixture.competition_id == competition_id)
+    if scope.club_uids is None and scope.nation_id is None:
+        return fixtures
+    keeps_club = club_uid_filter(career_save, scope)
+    return (
+        fixture
+        for fixture in fixtures
+        if keeps_club(fixture.home_club_uid) or keeps_club(fixture.away_club_uid)
+    )
+
+
+def league_table_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """A club or nation scope keeps a whole table holding a row of such a club.
+
+    A table is one record with its rows nested inside it, so there is no half a table to
+    write: a scope either keeps the standings a club sits in or it does not.
+    """
+    league_tables = career_save.league_tables()
+    competition_id = scope.competition_id
+    if competition_id is not None:
+        return (
+            league_table
+            for league_table in league_tables
+            if league_table.competition_id == competition_id
+        )
+    if scope.club_uids is None and scope.nation_id is None:
+        return league_tables
+    keeps_club = club_uid_filter(career_save, scope)
+    return (
+        league_table
+        for league_table in league_tables
+        if any(keeps_club(row.club_uid) for row in league_table.rows)
+    )
+
+
+def transfer_window_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """Every window the save holds. A window belongs to no club, competition or nation fmsave
+    can read, so the table takes no scope of its own.
+    """
+    return career_save.transfer_windows()
+
+
+def competition_rules_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """Every rules block, or the blocks of one competition, which is none of them today.
+
+    No block names the competition it belongs to, so a competition scope writes an empty table
+    rather than a wrong one.
+    """
+    competition_rules = career_save.competition_rules()
+    competition_id = scope.competition_id
+    if competition_id is None:
+        return competition_rules
+    return (block for block in competition_rules if block.competition_id == competition_id)
+
+
+def player_match_stats_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """A club or nation scope keeps the matches of the players in it, as suspensions does."""
+    match_stats = career_save.player_match_stats()
+    competition_id = scope.competition_id
+    if competition_id is not None:
+        return (row for row in match_stats if row.competition_id == competition_id)
+    keeps_player = player_filter(scope)
+    if keeps_player is None:
+        return match_stats
+    player_uids = scoped_player_uids(career_save, keeps_player)
+    return (row for row in match_stats if row.player_uid in player_uids)
+
+
+@dataclass(frozen=True, slots=True)
+class ExportTable:
+    """One table `export` writes: its record type, the scopes it takes and how it reads rows.
+
+    Attributes:
+        record_type: The record dataclass, whose flat columns are the table's columns.
+        scopes: The scopes this table takes; every other scope is a usage error.
+        rows: Reads the table and returns the rows the scope keeps, in table order. Every
+            table the rows depend on is read there, so the rows can be written after the save
+            is closed, and every one of them is read through the reader that enforces its own
+            checks.
+        note: A fact about this table's scopes that both its message and its help text carry.
+    """
+
+    record_type: type[object]
+    scopes: frozenset[str]
+    rows: Callable[[fmsave.Save, ExportScope], Iterable[object]]
+    note: str = ""
+
+
+EVERY_SCOPE = frozenset(SCOPE_OPTIONS)
+EVERY_ROW_ONLY = frozenset({EVERY_ROW_SCOPE})
+# A competition names no club and a club table names no competition, so each takes the scopes
+# its rows can answer and turns the others down rather than writing every row regardless.
+CLUB_AND_NATION_SCOPES = frozenset({CLUB_SCOPE, MANAGED_CLUB_SCOPE, NATION_SCOPE, EVERY_ROW_SCOPE})
+CLUB_SCOPES = frozenset({CLUB_SCOPE, MANAGED_CLUB_SCOPE, EVERY_ROW_SCOPE})
+COMPETITION_SCOPES = frozenset({COMPETITION_SCOPE, EVERY_ROW_SCOPE})
+
+EXPORT_TABLES: dict[str, ExportTable] = {
+    "players": ExportTable(Player, CLUB_AND_NATION_SCOPES, player_rows),
+    "contracts": ExportTable(Contract, CLUB_AND_NATION_SCOPES, contract_rows),
+    "suspensions": ExportTable(Suspension, CLUB_AND_NATION_SCOPES, suspension_rows),
+    "clubs": ExportTable(Club, CLUB_AND_NATION_SCOPES, club_rows),
+    "managed-clubs": ExportTable(ManagedClub, CLUB_SCOPES, managed_club_rows),
+    "stages": ExportTable(Stage, COMPETITION_SCOPES, stage_rows),
+    "competitions": ExportTable(Competition, COMPETITION_SCOPES, competition_rows),
+    "fixtures": ExportTable(Fixture, EVERY_SCOPE, fixture_rows),
+    "league-tables": ExportTable(LeagueTable, EVERY_SCOPE, league_table_rows),
+    "transfer-windows": ExportTable(TransferWindow, EVERY_ROW_ONLY, transfer_window_rows),
+    "competition-rules": ExportTable(
+        CompetitionRules, COMPETITION_SCOPES, competition_rules_rows, note=COMPETITION_RULES_NOTE
+    ),
+    "player-match-stats": ExportTable(PlayerMatchStats, EVERY_SCOPE, player_match_stats_rows),
+}
 
 
 def selected_column_names(columns_text: str | None, record_type: type[object]) -> list[str] | None:
@@ -588,18 +863,36 @@ def write_records(
         export.write_jsonl(json_rows, stream)
 
 
+def competition_name_map(names_path: str | None) -> dict[int, str] | None:
+    """The names a --competition-names file holds, or None when the option was not given.
+
+    The file is read before the save is opened, so a mistake in it costs none of that work.
+
+    Raises:
+        CommandUsageError: The file is malformed. The message names the file and not its folder.
+        OSError: The file cannot be opened or read.
+    """
+    if names_path is None:
+        return None
+    try:
+        return fmsave.read_competition_names(names_path)
+    except ValueError as error:
+        raise CommandUsageError(str(error)) from error
+
+
 def run_export(arguments: argparse.Namespace) -> int:
-    table_name: str = arguments.table
-    record_type = TABLE_RECORD_TYPES[table_name]
+    export_table = EXPORT_TABLES[arguments.table]
+    record_type = export_table.record_type
     column_names = selected_column_names(arguments.columns, record_type)
     check_scope_arguments(arguments)
+    competition_names = competition_name_map(arguments.competition_names)
     save_path = Path(arguments.save_path)
     output_path = None if arguments.output is None else Path(arguments.output)
     if output_path is not None:
         check_output_path(output_path, save_path)
-    with fmsave.open(save_path) as career_save:
+    with fmsave.open(save_path, competition_names=competition_names) as career_save:
         scope = resolve_scope(career_save, arguments)
-        records = scoped_records(career_save, table_name, scope)
+        records = export_table.rows(career_save, scope)
     with (
         output_write_errors(to_standard_output=output_path is None),
         output_stream(output_path) as stream,

@@ -14,18 +14,51 @@ from typing import NoReturn
 import pytest
 
 import fmsave
-from fmsave import AmbiguousNameError, Club, Table, cli, export
+from fmsave import AmbiguousNameError, Club, Stage, Table, cli, export
 from fmsave.checks import GateResult
 from fmsave.models.players import Player
 from tests.fixtures.career import (
+    ATHLETIC_NATION_ID,
+    FIRST_COMPETITION_DATABASE_ID,
+    FIRST_COMPETITION_ID,
+    NORTHBRIDGE_UID,
     PLAYER_A_UID,
     PLAYER_D_LEGAL_NAME,
     PLAYER_D_UID,
+    PLAYER_NATION_ID,
+    SECOND_COMPETITION_DATABASE_ID,
+    SECOND_COMPETITION_ID,
+    SOUTHPORT_UID,
+    STAGE_ROW_COUNT,
     career_fragment,
 )
 
 FILE_NAME = "career example.fm"
 PRIVATE_FOLDER = "Private Folder"
+COMPETITION_NAMES_FILE_NAME = "competition names.csv"
+EXAMPLE_COMPETITION_NAME = "Example League"
+UNKNOWN_COMPETITION_ID = 999
+# What the shared career fragment holds, counted from the fixture rather than from a reader.
+EXAMPLE_COMPETITION_COUNT = 3
+FIXTURE_COUNT = 6
+FIRST_COMPETITION_FIXTURE_COUNT = 4
+NORTHBRIDGE_FIXTURE_COUNT = 6
+SOUTHPORT_FIXTURE_COUNT = 3
+ATHLETIC_FIXTURE_COUNT = 3
+FIRST_COMPETITION_STAGE_COUNT = 2
+LEAGUE_TABLE_COUNT = 2
+TRANSFER_WINDOW_COUNT = 2
+COMPETITION_RULES_COUNT = 2
+MATCH_STATS_COUNT = 4
+FIRST_COMPETITION_MATCH_STATS_COUNT = 3
+
+
+def write_competition_names(names_path: Path, rows: list[tuple[int, str]]) -> Path:
+    """A two-column name file with a header row, as read_competition_names reads them."""
+    named_rows = "".join(f"{database_id},{name}\n" for database_id, name in rows)
+    names_path.parent.mkdir(parents=True, exist_ok=True)
+    names_path.write_text(f"database_id,name\n{named_rows}", encoding="utf-8")
+    return names_path
 
 
 def write_career(
@@ -206,13 +239,73 @@ def test_a_nation_name_exits_2(save_path: Path, capsys: pytest.CaptureFixture[st
     assert "nation names arrive in a later release; pass a nation id" in error_text
 
 
-def test_a_competition_scope_exits_2(save_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+@pytest.mark.parametrize(
+    ("table_name", "scope_arguments", "expected_fragments"),
+    [
+        pytest.param(
+            "players",
+            ["--competition", str(FIRST_COMPETITION_ID)],
+            ("players cannot be scoped by competition", "--club, --managed-club, --nation"),
+            id="players-competition",
+        ),
+        pytest.param(
+            "competitions",
+            ["--club", str(NORTHBRIDGE_UID)],
+            ("competitions cannot be scoped by club", "use --competition or --all"),
+            id="competitions-club",
+        ),
+        pytest.param(
+            "competitions",
+            ["--nation", "3"],
+            ("competitions cannot be scoped by nation",),
+            id="competitions-nation",
+        ),
+        pytest.param(
+            "stages",
+            ["--managed-club"],
+            ("stages cannot be scoped by managed club", "use --competition or --all"),
+            id="stages-managed-club",
+        ),
+        pytest.param(
+            "transfer-windows",
+            ["--club", str(NORTHBRIDGE_UID)],
+            ("transfer windows are not scoped to a club, competition or nation", "use --all"),
+            id="transfer-windows-club",
+        ),
+        pytest.param(
+            "transfer-windows",
+            ["--competition", str(FIRST_COMPETITION_ID)],
+            ("transfer windows are not scoped", "use --all"),
+            id="transfer-windows-competition",
+        ),
+        pytest.param(
+            "competition-rules",
+            ["--nation", "3"],
+            ("competition rules cannot be scoped by nation", cli.COMPETITION_RULES_NOTE),
+            id="competition-rules-nation",
+        ),
+        pytest.param(
+            "managed-clubs",
+            ["--nation", "3"],
+            ("managed clubs cannot be scoped by nation", "use --club, --managed-club or --all"),
+            id="managed-clubs-nation",
+        ),
+    ],
+)
+def test_a_scope_a_table_does_not_take_exits_2(
+    save_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    table_name: str,
+    scope_arguments: list[str],
+    expected_fragments: tuple[str, ...],
+) -> None:
     exit_code, output_text, error_text = run_export(
-        capsys, str(save_path), "players", "--competition", "12"
+        capsys, str(save_path), table_name, *scope_arguments
     )
     assert exit_code == cli.EXIT_USAGE
     assert output_text == ""
-    assert "later release" in error_text
+    for expected_fragment in expected_fragments:
+        assert expected_fragment in error_text
 
 
 @pytest.mark.parametrize(
@@ -743,6 +836,10 @@ def test_a_standard_output_file_that_cannot_grow_gives_one_write_message(
         pytest.param(["players", "--all", "-o{folder}/x.csv", "extra"], id="glued-output-extra"),
         pytest.param(["badtable", "--all", "--columns", "{folder}/uid"], id="columns-bad-table"),
         pytest.param(["players", "--club", "{folder}/Nowhere", "--all"], id="club-two-scopes"),
+        pytest.param(
+            ["badtable", "--all", "--competition-names", "{folder}/names.csv"],
+            id="competition-names-bad-table",
+        ),
     ],
 )
 def test_usage_errors_hide_folders_in_option_values(
@@ -820,6 +917,11 @@ def test_usage_errors_that_quote_a_path_like_value_keep_the_message_without_the_
         pytest.param(
             ["--all", "--columns", "uid,{folder}/nope"], "unknown columns: nope", id="columns"
         ),
+        pytest.param(
+            ["--all", "--competition-names", "{folder}/missing.csv"],
+            "file not found: missing.csv",
+            id="competition-names-missing",
+        ),
     ],
 )
 def test_messages_about_path_like_values_hide_folders(
@@ -851,3 +953,324 @@ def test_errors_name_the_save_file_but_not_its_folder(
     assert output_text == ""
     assert "missing.fm" in error_text
     assert PRIVATE_FOLDER not in error_text
+
+
+def test_stages_all_writes_every_column_and_row(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(capsys, str(save_path), "stages", "--all")
+    assert exit_code == cli.EXIT_OK, error_text
+    rows = csv_rows(output_text)
+    assert tuple(rows[0]) == export.column_names(Stage)
+    assert len(rows) - 1 == STAGE_ROW_COUNT
+
+
+def test_stages_competition_selects_that_competitions_stages(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "stages", "--competition", str(FIRST_COMPETITION_ID)
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    records = csv_records(output_text)
+    assert len(records) == FIRST_COMPETITION_STAGE_COUNT
+    assert {record["competition_id"] for record in records} == {str(FIRST_COMPETITION_ID)}
+
+
+def test_competitions_all_and_by_id(save_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code, output_text, error_text = run_export(capsys, str(save_path), "competitions", "--all")
+    assert exit_code == cli.EXIT_OK, error_text
+    assert len(csv_records(output_text)) == EXAMPLE_COMPETITION_COUNT
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "competitions", "--competition", str(SECOND_COMPETITION_ID)
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert [record["id"] for record in csv_records(output_text)] == [str(SECOND_COMPETITION_ID)]
+
+
+def test_an_unknown_competition_id_exits_2(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "competitions", "--competition", str(UNKNOWN_COMPETITION_ID)
+    )
+    assert exit_code == cli.EXIT_USAGE
+    assert output_text == ""
+    assert f"fmsave: error: no competition with id {UNKNOWN_COMPETITION_ID}" in error_text
+
+
+@pytest.mark.parametrize(
+    ("scope_arguments", "expected_count"),
+    [
+        pytest.param(["--all"], FIXTURE_COUNT, id="all"),
+        pytest.param(
+            ["--competition", str(FIRST_COMPETITION_ID)],
+            FIRST_COMPETITION_FIXTURE_COUNT,
+            id="competition",
+        ),
+        pytest.param(["--club", str(NORTHBRIDGE_UID)], NORTHBRIDGE_FIXTURE_COUNT, id="club"),
+        pytest.param(["--club", str(SOUTHPORT_UID)], SOUTHPORT_FIXTURE_COUNT, id="other-club"),
+        pytest.param(
+            ["--nation", str(ATHLETIC_NATION_ID)], ATHLETIC_FIXTURE_COUNT, id="club-nation"
+        ),
+    ],
+)
+def test_fixture_scopes_keep_the_matches_they_cover(
+    save_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    scope_arguments: list[str],
+    expected_count: int,
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "fixtures", *scope_arguments
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert len(csv_records(output_text)) == expected_count
+
+
+def test_fixtures_managed_club_keeps_only_the_managed_clubs_matches(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "fixtures", "--managed-club"
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    records = csv_records(output_text)
+    assert len(records) == NORTHBRIDGE_FIXTURE_COUNT
+    assert all(
+        str(NORTHBRIDGE_UID) in (record["home_club_uid"], record["away_club_uid"])
+        for record in records
+    )
+
+
+def test_league_tables_all_as_json_nests_its_rows(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "league-tables", "--all", "--format", "json"
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    league_tables = json.loads(output_text)
+    assert isinstance(league_tables, list)
+    assert len(league_tables) == LEAGUE_TABLE_COUNT
+    for league_table in league_tables:
+        assert isinstance(league_table["rows"], list)
+    assert league_tables[0]["rows"][0]["club_uid"] == NORTHBRIDGE_UID
+
+
+@pytest.mark.parametrize(
+    ("scope_arguments", "expected_count"),
+    [
+        pytest.param(["--club", str(SOUTHPORT_UID)], 1, id="club"),
+        pytest.param(["--nation", str(ATHLETIC_NATION_ID)], 1, id="club-nation"),
+        pytest.param(["--competition", str(FIRST_COMPETITION_ID)], 1, id="competition"),
+        pytest.param(["--managed-club"], LEAGUE_TABLE_COUNT, id="managed-club"),
+    ],
+)
+def test_league_table_scopes_keep_whole_tables(
+    save_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    scope_arguments: list[str],
+    expected_count: int,
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "league-tables", *scope_arguments, "--format", "jsonl"
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert len(output_text.splitlines()) == expected_count
+
+
+def test_transfer_windows_all_writes_every_window(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "transfer-windows", "--all"
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert len(csv_records(output_text)) == TRANSFER_WINDOW_COUNT
+
+
+def test_competition_rules_all_and_the_empty_competition_scope(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "competition-rules", "--all"
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert len(csv_records(output_text)) == COMPETITION_RULES_COUNT
+    # No rules block names a competition, so a competition scope writes a header and no rows.
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "competition-rules", "--competition", str(FIRST_COMPETITION_ID)
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert csv_records(output_text) == []
+
+
+@pytest.mark.parametrize(
+    ("scope_arguments", "expected_count"),
+    [
+        pytest.param(["--all"], MATCH_STATS_COUNT, id="all"),
+        pytest.param(
+            ["--competition", str(FIRST_COMPETITION_ID)],
+            FIRST_COMPETITION_MATCH_STATS_COUNT,
+            id="competition",
+        ),
+        pytest.param(["--club", str(SOUTHPORT_UID)], MATCH_STATS_COUNT, id="player-club"),
+        pytest.param(["--club", str(NORTHBRIDGE_UID)], 0, id="other-club"),
+        pytest.param(["--nation", str(PLAYER_NATION_ID)], MATCH_STATS_COUNT, id="player-nation"),
+        pytest.param(["--managed-club"], 0, id="managed-club"),
+    ],
+)
+def test_player_match_stats_scopes_follow_the_player(
+    save_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    scope_arguments: list[str],
+    expected_count: int,
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "player-match-stats", *scope_arguments, "--format", "jsonl"
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert len(output_text.splitlines()) == expected_count
+
+
+def test_a_name_map_names_the_competitions_it_covers(
+    save_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    names_path = write_competition_names(
+        tmp_path / COMPETITION_NAMES_FILE_NAME,
+        [(FIRST_COMPETITION_DATABASE_ID, EXAMPLE_COMPETITION_NAME)],
+    )
+    exit_code, output_text, error_text = run_export(
+        capsys,
+        str(save_path),
+        "competitions",
+        "--all",
+        "--competition-names",
+        str(names_path),
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    names = [record["name"] for record in csv_records(output_text)]
+    assert names == [EXAMPLE_COMPETITION_NAME, "", ""]
+
+
+def test_a_competition_name_selects_its_competition(
+    save_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    names_path = write_competition_names(
+        tmp_path / COMPETITION_NAMES_FILE_NAME,
+        [(FIRST_COMPETITION_DATABASE_ID, EXAMPLE_COMPETITION_NAME)],
+    )
+    exit_code, output_text, error_text = run_export(
+        capsys,
+        str(save_path),
+        "competitions",
+        "--competition",
+        EXAMPLE_COMPETITION_NAME,
+        "--competition-names",
+        str(names_path),
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert [record["id"] for record in csv_records(output_text)] == [str(FIRST_COMPETITION_ID)]
+
+
+def test_a_competition_name_without_a_map_exits_2(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "competitions", "--competition", EXAMPLE_COMPETITION_NAME
+    )
+    assert exit_code == cli.EXIT_USAGE
+    assert output_text == ""
+    assert f'no competition named "{EXAMPLE_COMPETITION_NAME}"' in error_text
+    assert "--competition-names" in error_text
+
+
+def test_one_name_on_two_competitions_lists_both_ids_and_exits_2(
+    save_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    names_path = write_competition_names(
+        tmp_path / COMPETITION_NAMES_FILE_NAME,
+        [
+            (FIRST_COMPETITION_DATABASE_ID, EXAMPLE_COMPETITION_NAME),
+            (SECOND_COMPETITION_DATABASE_ID, EXAMPLE_COMPETITION_NAME),
+        ],
+    )
+    exit_code, output_text, error_text = run_export(
+        capsys,
+        str(save_path),
+        "competitions",
+        "--competition",
+        EXAMPLE_COMPETITION_NAME,
+        "--competition-names",
+        str(names_path),
+    )
+    assert exit_code == cli.EXIT_USAGE
+    assert output_text == ""
+    error_lines = error_text.splitlines()
+    first_candidate_line = (
+        f"  id {FIRST_COMPETITION_ID}  {EXAMPLE_COMPETITION_NAME} "
+        f"(database id {FIRST_COMPETITION_DATABASE_ID})"
+    )
+    second_candidate_line = (
+        f"  id {SECOND_COMPETITION_ID}  {EXAMPLE_COMPETITION_NAME} "
+        f"(database id {SECOND_COMPETITION_DATABASE_ID})"
+    )
+    assert error_lines[1:3] == [first_candidate_line, second_candidate_line]
+    assert error_lines[-1].endswith("use the id to choose one")
+
+
+def test_a_missing_name_file_exits_2_and_names_only_the_file(
+    save_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    missing_path = tmp_path / PRIVATE_FOLDER / "missing.csv"
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "competitions", "--all", "--competition-names", str(missing_path)
+    )
+    assert exit_code == cli.EXIT_USAGE
+    assert output_text == ""
+    assert "fmsave: error: file not found: missing.csv" in error_text
+    assert PRIVATE_FOLDER not in error_text
+
+
+def test_a_malformed_name_file_exits_2_and_names_only_the_file(
+    save_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bad_path = tmp_path / PRIVATE_FOLDER / "bad.csv"
+    bad_path.parent.mkdir(parents=True, exist_ok=True)
+    bad_path.write_text("database_id,name\n12345\n", encoding="utf-8")
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "competitions", "--all", "--competition-names", str(bad_path)
+    )
+    assert exit_code == cli.EXIT_USAGE
+    assert output_text == ""
+    assert "bad.csv" in error_text
+    assert PRIVATE_FOLDER not in error_text
+
+
+def test_fixtures_to_a_file_in_a_unicode_folder(
+    save_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    output_folder = tmp_path / "Ünïcode folder"
+    output_folder.mkdir()
+    output_path = output_folder / "fixtures.csv"
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "fixtures", "--all", "-o", str(output_path)
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert output_text == ""
+    file_text = output_path.read_bytes().decode("utf-8")
+    assert len(csv_rows(file_text)) - 1 == FIXTURE_COUNT
+
+
+def test_a_failed_fixture_check_exits_3(
+    save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def failing_fixture_gates(*arguments: object) -> tuple[GateResult, ...]:
+        return (GateResult("fixtures_minimum", FIXTURE_COUNT, 90_000, None, False, True),)
+
+    monkeypatch.setattr("fmsave.checks.evaluate_fixtures", failing_fixture_gates)
+    exit_code, output_text, error_text = run_export(capsys, str(save_path), "fixtures", "--all")
+    assert exit_code == cli.EXIT_UNSUPPORTED
+    assert output_text == ""
+    assert "fixtures_minimum" in error_text

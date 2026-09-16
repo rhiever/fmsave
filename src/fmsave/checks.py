@@ -81,8 +81,22 @@ LEAGUE_TABLES_READER = "league_tables"
 COMPETITION_RULES_READER = "competition_rules"
 PLAYER_MATCH_STATS_READER = "player_match_stats"
 
+# Several readers are built from one decode. A reader whose shared decode did not finish would
+# have every other reader of the same pass redo that decode only to fail the same way, so the
+# first failure is carried to the rest of the pass instead of being raised again.
+PLAYER_PASS = "player"
+SPAN_PASS = "span"
 # Players, contracts and suspensions are decoded in one pass, so they fail or succeed together.
 _PLAYER_PASS_READERS = frozenset({PLAYERS_READER, CONTRACTS_READER, SUSPENSIONS_READER})
+# Fixtures, league tables and competition rules read one streamed pass over the unnamed span,
+# which is far the most expensive read fmsave makes.
+_SPAN_PASS_READERS = frozenset({FIXTURES_READER, LEAGUE_TABLES_READER, COMPETITION_RULES_READER})
+_READER_PASSES: FrozenMapping[str, str] = FrozenMapping(
+    {
+        **dict.fromkeys(_PLAYER_PASS_READERS, PLAYER_PASS),
+        **dict.fromkeys(_SPAN_PASS_READERS, SPAN_PASS),
+    }
+)
 
 _REPORT_REQUEST = f"Please report it at {ISSUES_URL} with the output of fmsave validate."
 _NO_ANOMALIES: FrozenMapping[str, int] = FrozenMapping({})
@@ -1062,11 +1076,12 @@ class ReaderValidation:
     Players, contracts and suspensions are decoded in one pass. When a check of any of the three
     fails, all three are reported "failed" and none of their tables is read, and each of them
     still lists its own gates: a reader can be "failed" while every one of its own gates
-    passed.
+    passed. Fixtures, league tables and competition rules share the one streamed pass over the
+    span the same way, and are reported together when that pass itself is what failed.
 
     Attributes:
         reader: The reader: "clubs", "players", "contracts", "suspensions", "managed_clubs",
-            "stages", "competitions", "fixtures", "transfer_windows", "league_tables",
+            "stages", "competitions", "fixtures", "league_tables", "transfer_windows",
             "competition_rules" or "player_match_stats".
         status: "ok" when the reader returned its table, "failed" when checks stopped it, and
             "error" when it raised another fmsave error.
@@ -1160,12 +1175,19 @@ def validate_save(career_save: Save) -> ValidationReport:
     """Run every reader on a save and report how each fared.
 
     Readers run in the order clubs, players, contracts, suspensions, managed clubs, stages,
-    competitions, fixtures, transfer windows, league tables, competition rules, per-match
+    competitions, fixtures, league tables, transfer windows, competition rules, per-match
     player stats. A reader whose checks fail is reported "failed" with its checks, and one
     that raises another fmsave error
     is reported "error" without the error's text; the remaining readers still run. The report
     holds only structural facts, counts and rates, never names, uids or other values from the
     save.
+
+    Some readers share one decode: the players, contracts and suspensions of the player pass,
+    and the fixtures, league tables and competition rules built from the one streamed pass over
+    the span. When that shared decode is what failed, its error is reported for every reader of
+    the pass and the decode is not attempted again, so the span is streamed once however many of
+    its readers report it. A reader that failed after its pass had been decoded failed on its
+    own, and the others still run.
 
     Raises:
         SaveClosedError: The save is closed.
@@ -1182,24 +1204,34 @@ def validate_save(career_save: Save) -> ValidationReport:
         (STAGES_READER, career_save.stages),
         (COMPETITIONS_READER, career_save.competitions),
         (FIXTURES_READER, career_save.fixtures),
-        (TRANSFER_WINDOWS_READER, career_save.transfer_windows),
         (LEAGUE_TABLES_READER, career_save.league_tables),
+        (TRANSFER_WINDOWS_READER, career_save.transfer_windows),
         (COMPETITION_RULES_READER, career_save.competition_rules),
         (PLAYER_MATCH_STATS_READER, career_save.player_match_stats),
     )
     validations: list[ReaderValidation] = []
-    player_pass_error: FmsaveError | None = None
+    failed_passes: dict[str, FmsaveError] = {}
     for reader_name, read_table in reader_tables:
-        shares_player_pass = reader_name in _PLAYER_PASS_READERS
-        if shares_player_pass and player_pass_error is not None:
-            # The shared pass would decode everything again only to raise the same error.
-            validations.append(_unsuccessful_validation(reader_name, player_pass_error))
+        shared_pass = _READER_PASSES.get(reader_name)
+        carried_error = None if shared_pass is None else failed_passes.get(shared_pass)
+        if carried_error is not None:
+            # The shared decode would run again only to raise the same error.
+            validations.append(_unsuccessful_validation(reader_name, carried_error))
             continue
         try:
             table = read_table()
         except FmsaveError as error:
-            if shares_player_pass:
-                player_pass_error = error
+            # Only a failure of the shared decode itself is carried to the rest of its pass.
+            # A reader that raised after that decode was kept failed on its own account: the
+            # decode is cached, so the readers after it repeat none of it, and reporting them
+            # failed would call a table unreadable that reads perfectly well. This is narrow on
+            # purpose, and widening it to carry every failure of any reader of a pass would not
+            # be the safe direction: it would report the competition rules unreadable because
+            # the league tables missed a gate, which is a different wrong answer rather than a
+            # cautious one. The span is still streamed once, because the case that costs a
+            # second streaming is the one where nothing was cached, which is the case carried.
+            if shared_pass is not None and not career_save._shared_pass_cached(shared_pass):  # pyright: ignore[reportPrivateUsage]
+                failed_passes[shared_pass] = error
             validations.append(_unsuccessful_validation(reader_name, error))
             continue
         reader_check = career_save._reader_check(reader_name)  # pyright: ignore[reportPrivateUsage]
