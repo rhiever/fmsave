@@ -624,6 +624,57 @@ class RulesPreambleLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class StageResultLayout:
+    """How to recognise a stage-keyed result record, and where its fields sit.
+
+    One record is `record_bytes` long and carries one match's score. Every offset counts from
+    the record start, where the lead byte sits. The same record occurs in the unnamed span and
+    in the sections `regions` names, and one locator reads it in both.
+
+    The locator anchors on the two-byte `sentinel_value` at `sentinel_offset`, which is far
+    more selective than the single lead byte, and then requires `lead_byte_value` at
+    `lead_byte_offset` and a zero byte at `zero_byte_offset`. **`zero_byte_offset` is a locator
+    constraint and nothing more.** It is required because it is zero on every record the corpus
+    accepted and so costs no record while rejecting look-alikes; it is not evidence about what
+    that byte means, and it must not be described as such.
+
+    A candidate is accepted when the whole record lies inside the window, those three locator
+    bytes hold, both team ids lie inside the inclusive `team_id_range`, neither goal byte is
+    above `goals_maximum`, and the date at `date_offset` decodes. Those tests are structural, so
+    the span pass can apply them before any other reader has run.
+
+    Two further tests decide whether an accepted record is in scope, and they are not part of
+    this layout because neither is known until the fixture calendar and the stage table have
+    been read: the stage id at `stage_id_offset` must be one the stage table holds, and the
+    match date must fall inside the calendar's own first and last date. **The acceptance window
+    is the calendar's own range, so this layout carries no year window of its own.** A record
+    dated outside the range the calendar covers can never join a fixture, whatever the reader
+    does with it.
+
+    `regions` names the sections scanned besides the span. A section a save does not list is
+    skipped. The layout itself is registered under the span, which is the one region it is
+    always scanned in.
+    """
+
+    record_bytes: int
+    lead_byte_offset: int
+    lead_byte_value: int
+    date_offset: int
+    stage_id_offset: int
+    sentinel_offset: int
+    sentinel_value: int
+    zero_byte_offset: int
+    home_team_id_offset: int
+    away_team_id_offset: int
+    home_goals_offset: int
+    away_goals_offset: int
+    r22_offset: int
+    team_id_range: tuple[int, int]
+    goals_maximum: int
+    regions: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class CompetitionIdPairLayout:
     """How to find the records in `game_db` that pair a stage-space id with a database id.
 
@@ -859,6 +910,19 @@ class GateBounds:
     separated from the calendar at all, which the share cannot see, because a reader that kept
     every stray copy scores a perfect 1.0 on it.
 
+    Stage-keyed results: `result_records_minimum` (records accepted in the regions scanned),
+    `results_joined` (accepted records that found a fixture on their date and two team ids, of
+    accepted records) and `results_for_unplayed` (records whose one fixture is not marked
+    played, of joined records). These judge the same pass the calendar does, so they apply from
+    `span_minimum_applies_from_bytes` alongside the fixture bounds.
+
+    `results_joined` is the one that says the record shape is still being read correctly. The
+    records are found by one locator and the calendar by an entirely different one, in another
+    region, so a decode that has moved stops matching a calendar it never shared an offset
+    with: joining on a key wrong by a single day, or with the two sides swapped, was measured at
+    zero joins. The bound is a floor under a rate observed near 0.97, low enough that a career
+    holding more unjoinable history clears it.
+
     Transfer windows: `transfer_windows_minimum` (windows decoded) and `transfer_window_dates`
     (windows whose two date groups both decoded inside their ranges, of the records that
     carried a closing time). Windows are database content rather than career state, so both
@@ -943,6 +1007,9 @@ class GateBounds:
     fixture_strays_minimum: BoundPair
     fixture_stage_resolved: BoundPair
     fixture_teams_resolved: BoundPair
+    result_records_minimum: BoundPair
+    results_joined: BoundPair
+    results_for_unplayed: BoundPair
     transfer_windows_minimum: BoundPair
     transfer_window_dates: BoundPair
     table_blocks_minimum: BoundPair
@@ -968,6 +1035,7 @@ type Layout = (
     | CompetitionIdPairLayout
     | HumansLayout
     | FixtureCalendarLayout
+    | StageResultLayout
     | LeagueTableLayout
     | RulesPreambleLayout
     | TaggedStreamLayout

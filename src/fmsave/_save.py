@@ -18,9 +18,11 @@ from fmsave._layouts import (
     GateBounds,
     LeagueTableLayout,
     PersonBlockLayout,
+    StageResultLayout,
     SuspensionLayout,
     find_layout,
 )
+from fmsave._reader_stats import ResultStats
 from fmsave._version import read_save_info
 from fmsave.checks import ReaderCheck
 from fmsave.models.clubs import Club
@@ -45,8 +47,16 @@ from fmsave.readers.league_tables import build_league_tables
 from fmsave.readers.managed import find_managed_club_layouts, resolve_managed_clubs
 from fmsave.readers.player_scan import window_end
 from fmsave.readers.players import build_player_decoder, collect_player_stats
+from fmsave.readers.results import (
+    apply_results,
+    calendar_dates,
+    find_result_layout,
+    locate_stage_results,
+    result_in_scope,
+)
 from fmsave.readers.rules import find_transfer_window_layouts, read_transfer_windows
-from fmsave.readers.stages import named_stages
+from fmsave.readers.span import SpanRecords
+from fmsave.readers.stages import StageIndex, named_stages
 from fmsave.readers.suspensions import (
     SuspensionEntry,
     locate_suspensions,
@@ -280,9 +290,14 @@ class Save:
         The save holds several copies of the calendar; only the largest is returned, so the
         block of template matches every save carries is left out. Each row joins to its
         competition through its stage, and to a club through each team id; an id the save does
-        not resolve leaves its fields empty rather than being guessed. `home_goals` and
-        `away_goals` are empty in this release. The table is read on the first call; later
-        calls return the same table.
+        not resolve leaves its fields empty rather than being guessed.
+
+        `home_goals` and `away_goals` carry the score of a played match the save still holds
+        one for, which is about a quarter of them: the calendar itself stores no score, and the
+        separate records that do are kept for only part of a career. A played match with empty
+        goals means the save no longer holds that result, not that it finished goalless.
+
+        The table is read on the first call; later calls return the same table.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -291,9 +306,10 @@ class Save:
             ReaderCheckError: No club record is accepted, a club uid or club index appears in
                 two records, a team id is listed twice, no stage table was found in the tail of
                 the game database, a stage id appears in two rows, the save's in-game date is
-                unreadable, or, on a full-size span, the calendar falls outside the checks'
-                bounds. With a competition name map, the competition checks run first and
-                raise here too, so no row is named from a table whose checks did not pass.
+                unreadable, or, on a full-size span, the calendar or the scores joined onto it
+                fall outside the checks' bounds. With a competition name map, the competition
+                checks run first and raise here too, so no row is named from a table whose
+                checks did not pass.
         """
         context = self._context
         return context.cached(FIXTURES_TABLE_CACHE_KEY, self._read_fixtures)
@@ -324,10 +340,70 @@ class Save:
         fixtures, fixture_stats = build_fixtures(
             span_records, stage_index, competition_index, club_index, layout
         )
-        fixture_check = checks.check_fixtures(fixture_stats, gate_bounds, span_records.span_bytes)
+        fixtures, result_stats = self._scored_fixtures(
+            fixtures, span_records, stage_index, find_result_layout(save_info.build)
+        )
+        fixture_check = checks.check_fixtures(
+            fixture_stats, result_stats, gate_bounds, span_records.span_bytes
+        )
         checks.enforce_checks((fixture_check,))
         self._store_reader_checks((fixture_check,))
         return Table(fixtures, Fixture)
+
+    def _scored_fixtures(
+        self,
+        fixtures: tuple[Fixture, ...],
+        span_records: SpanRecords,
+        stage_index: StageIndex,
+        layout: StageResultLayout,
+    ) -> tuple[tuple[Fixture, ...], ResultStats]:
+        """Join the stage-keyed results onto the calendar and fill the scores they carry.
+
+        The records come from the span pass, which collected them on what each one settles by
+        itself, and from the sections the layout names, read one at a time. Both routes are
+        then judged by the one `result_in_scope` predicate, so neither can accept what the
+        other would not.
+
+        The window a record is accepted in is the calendar's own first and last date, taken
+        from the calendar this very call built. A calendar holding no dated match at all
+        therefore accepts nothing, rather than falling back on some wider rule: with no fixture
+        to join, no score could be attributed anyway.
+
+        A section the save does not list is skipped rather than raising, since a save need not
+        carry every one of them.
+        """
+        context = self._context
+        # The stage table is a rejection filter here and nothing else: this join asks only
+        # whether a record's stage id is one the table holds, and copies no value out of it, so
+        # no score it produces carries anything of that index. That is why this reads the
+        # cached index instead of going through `stages()`, which would enforce that reader's
+        # checks. Taking only a membership test is what fails safe: a stage table that had
+        # moved would cost scores here and could never invent one, which is the opposite of the
+        # defect the rule about handing another reader's data out unchecked exists to stop.
+        # A fixture row does carry stage-derived fields, its competition and round among them,
+        # but `build_fixtures` puts them there; they do not arrive through this join.
+        stage_by_id = stage_index.stage_by_id
+        covered_dates = calendar_dates(fixtures)
+        if covered_dates is None:
+            return apply_results(fixtures, (), candidates=span_records.result_candidates)
+        earliest_date, latest_date = covered_dates
+        candidates = span_records.result_candidates
+        collected = [
+            raw_result
+            for raw_result in span_records.results
+            if result_in_scope(raw_result, stage_by_id, earliest_date, latest_date)
+        ]
+        listed_sections = self._require_open().sections
+        for section_name in layout.regions:
+            if section_name not in listed_sections:
+                continue
+            with context.section(section_name) as section_bytes:
+                located = locate_stage_results(
+                    section_bytes, layout, stage_by_id, earliest_date, latest_date
+                )
+            candidates += located.candidates
+            collected.extend(located.results)
+        return apply_results(fixtures, collected, candidates=candidates)
 
     def transfer_windows(self) -> Table[TransferWindow]:
         """Every transfer window the save's rules database holds, in stored order.

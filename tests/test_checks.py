@@ -1032,6 +1032,10 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "undated_fixtures": 0,
             "bad_kick_off_slots": 0,
             "neutral_venue_votes": 0,
+            "unjoined_results": 0,
+            "ambiguous_results": 0,
+            "score_disagreements": 0,
+            "scored_fixtures": 0,
         },
         "transfer_windows": {
             "dated_records_without_a_closing_time": 0,
@@ -1291,13 +1295,18 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         ],
         # An empty calendar misses the record floor, holds no stray to separate from it, and
         # leaves all three shares without a denominator, so every fixture gate fails instead
-        # of passing for want of a rate.
+        # of passing for want of a rate. The result gates go the same way: this fragment holds
+        # no score record either, so the count fails on its floor and both shares fail for
+        # want of a rate rather than passing on an empty join.
         "fixtures": [
             "fixtures_minimum",
             "fixture_cluster_share",
             "fixture_strays_minimum",
             "fixture_stage_resolved",
             "fixture_teams_resolved",
+            "result_records_minimum",
+            "results_joined",
+            "results_for_unplayed",
         ],
         # This fragment holds no tagged stream, so no window is decoded and there is no date
         # share to take either: the count fails on its floor and the share fails for want of a

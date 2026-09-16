@@ -15,6 +15,7 @@ from tests.fixtures.span import (
     rules_preamble_bytes,
     span_frames,
     span_payloads,
+    stage_result_bytes,
     table_block_bytes,
 )
 
@@ -46,6 +47,17 @@ TABLE_HEAD_INDEX = 23
 TABLE_MATCHES_OFFSET = 87
 FULL_SEASON_ROUNDS = 40
 FULL_SEASON_BLOCK_BYTES = 1470
+
+# A stage-keyed result record: 27 bytes carrying one match's score.
+RESULT_STAGE_ID = 4101
+RESULT_HOME_TEAM_ID = 70001
+RESULT_AWAY_TEAM_ID = 70003
+RESULT_DAY = 51
+RESULT_YEAR = 2031
+RESULT_HOME_GOALS = 2
+RESULT_AWAY_GOALS = 1
+RESULT_R22 = 0x5A
+RESULT_RECORD_BYTES = 27
 
 
 def span_layouts() -> SpanLayouts:
@@ -140,6 +152,22 @@ def unplayed_slots_table_block() -> bytes:
         "points": 3,
     }
     return example_table_block(rounds_per_venue=FULL_SEASON_ROUNDS, matches=match_slots)
+
+
+def example_result_record(**overrides: int) -> bytes:
+    """One sound result record, with any field overridden."""
+    fields: dict[str, int] = {
+        "stage_id": RESULT_STAGE_ID,
+        "home_team_id": RESULT_HOME_TEAM_ID,
+        "away_team_id": RESULT_AWAY_TEAM_ID,
+        "day_of_year": RESULT_DAY,
+        "year": RESULT_YEAR,
+        "home_goals": RESULT_HOME_GOALS,
+        "away_goals": RESULT_AWAY_GOALS,
+        "r22": RESULT_R22,
+    }
+    fields.update(overrides)
+    return stage_result_bytes(**fields)
 
 
 def example_rules_block(
@@ -417,15 +445,102 @@ def test_round_records_are_read_across_the_moved_match_blocks_between_them() -> 
     assert block.fully_parsed is True
 
 
-# All three together
+# Stage-keyed results
 
 
-def test_all_three_structures_are_collected_in_one_pass() -> None:
+def test_one_result_record_decodes_its_date_score_and_stage() -> None:
+    records = scan([example_result_record()])
+
+    assert len(records.results) == 1
+    result = records.results[0]
+    assert result.date == date(RESULT_YEAR, 2, 20)
+    assert result.stage_id == RESULT_STAGE_ID
+    assert result.home_team_id == RESULT_HOME_TEAM_ID
+    assert result.away_team_id == RESULT_AWAY_TEAM_ID
+    assert result.home_goals == RESULT_HOME_GOALS
+    assert result.away_goals == RESULT_AWAY_GOALS
+    assert result.r22 == RESULT_R22
+
+
+def test_the_span_pass_keeps_a_result_it_cannot_yet_place() -> None:
+    """Scope is not this pass's job, and a record it cannot judge must not be dropped here.
+
+    The calendar and the stage table decide whether a record is in scope, and neither has been
+    read while the span is being scanned. A pass that turned records away on a stage id or a
+    date of its own would be a second acceptance rule, out of step with the one the sections
+    are judged by, and whichever of the two was narrower would silently lose scores.
+    """
+    records = scan([example_result_record(stage_id=999_999, year=1999)])
+
+    assert len(records.results) == 1
+    assert records.results[0].stage_id == 999_999
+    assert records.results[0].date == date(1999, 2, 20)
+
+
+def test_a_result_record_keeps_no_span_offset() -> None:
+    """Nothing downstream separates these records by position, so none is carried."""
+    records = scan([example_result_record()])
+
+    assert not hasattr(records.results[0], "span_offset")
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        pytest.param({"lead_byte": 0x02}, id="a-decoy-lead-byte"),
+        pytest.param({"home_goals": 41}, id="more-goals-than-the-maximum"),
+        pytest.param({"away_goals": 41}, id="more-away-goals-than-the-maximum"),
+        pytest.param({"home_team_id": 0}, id="a-home-team-id-below-the-range"),
+        pytest.param({"away_team_id": 3_000_000}, id="an-away-team-id-above-the-range"),
+    ],
+)
+def test_a_result_the_record_itself_rules_out_is_judged_and_turned_away(
+    overrides: dict[str, int],
+) -> None:
+    """These are the tests a record answers alone, so the span pass applies them itself."""
+    records = scan([example_result_record(**overrides)])
+
+    assert records.results == ()
+    assert records.result_candidates > 0
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        pytest.param({"sentinel": 2}, id="a-sentinel-that-is-not-one"),
+        pytest.param({"zero_byte": 1}, id="a-byte-the-locator-needs-zero"),
+    ],
+)
+def test_a_record_the_locator_does_not_match_is_never_even_a_candidate(
+    overrides: dict[str, int],
+) -> None:
+    """The sentinel and the zero byte are in the pattern, so these never reach a judgement."""
+    records = scan([example_result_record(**overrides)])
+
+    assert records.results == ()
+    assert records.result_candidates == 0
+
+
+def test_a_result_record_straddling_a_frame_boundary_is_found_exactly_once() -> None:
+    record = example_result_record()
+    payload = span_payloads(record, record, separator_bytes=SEPARATOR_BYTES)
+
+    for split_at in (5, 12, 20, RESULT_RECORD_BYTES + 10):
+        records = scan([payload[:split_at], payload[split_at:]])
+
+        assert len(records.results) == 2, split_at
+
+
+# All four together
+
+
+def test_all_four_structures_are_collected_in_one_pass() -> None:
     table_block = example_table_block()
     payload = span_payloads(
         example_fixture_blob(0),
         table_block,
         example_rules_block(),
+        example_result_record(),
         separator_bytes=SEPARATOR_BYTES,
     )
     table_block_start = FIXTURE_BLOB_BYTES + SEPARATOR_BYTES
@@ -436,31 +551,46 @@ def test_all_three_structures_are_collected_in_one_pass() -> None:
     assert len(records.fixtures) == 1
     assert len(records.table_blocks) == 1
     assert len(records.rules_blocks) == 1
+    assert len(records.results) == 1
 
 
 # Counters
 
 
 def test_counters_report_the_span_size_the_frames_and_every_candidate() -> None:
-    frames = [three_fixture_payload(), example_table_block(), example_rules_block()]
+    frames = [
+        three_fixture_payload(),
+        example_table_block(),
+        example_rules_block(),
+        example_result_record(),
+    ]
 
     records = scan(frames)
 
     assert records.span_bytes == sum(len(frame) for frame in frames)
-    assert records.frame_count == 3
+    assert records.frame_count == 4
     assert records.fixture_candidates >= len(records.fixtures)
     assert records.table_block_candidates >= len(records.table_blocks)
     assert records.rules_markers >= len(records.rules_blocks)
+    assert records.result_candidates >= len(records.results)
 
 
-def test_repr_shows_the_three_counts_and_no_offsets() -> None:
-    records = scan([three_fixture_payload(), example_table_block(), example_rules_block()])
+def test_repr_shows_the_counts_and_no_offsets() -> None:
+    records = scan(
+        [
+            three_fixture_payload(),
+            example_table_block(),
+            example_rules_block(),
+            example_result_record(),
+        ]
+    )
 
     description = repr(records)
     assert "3" in description
     assert "fixtures" in description
     assert "table blocks" in description
     assert "rules blocks" in description
+    assert "results" in description
     for fixture in records.fixtures:
         assert str(fixture.span_offset) not in description
 
@@ -482,7 +612,12 @@ def span_fragment_path(tmp_path: Path, payloads: Sequence[bytes]) -> Path:
 
 
 def test_span_records_are_read_once_through_the_save_context(tmp_path: Path) -> None:
-    payloads = [three_fixture_payload(), example_table_block(), example_rules_block()]
+    payloads = [
+        three_fixture_payload(),
+        example_table_block(),
+        example_rules_block(),
+        example_result_record(),
+    ]
     fragment_path = span_fragment_path(tmp_path, payloads)
 
     career_save = fmsave.open(fragment_path)
@@ -491,7 +626,8 @@ def test_span_records_are_read_once_through_the_save_context(tmp_path: Path) -> 
     assert len(records.fixtures) == 3
     assert len(records.table_blocks) == 1
     assert len(records.rules_blocks) == 1
-    assert records.frame_count == 3
+    assert len(records.results) == 1
+    assert records.frame_count == 4
     assert career_save._context.span_records() is records
 
     career_save.close()

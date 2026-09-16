@@ -45,9 +45,13 @@ from tests.fixtures.game_db import (
     transfer_window_bytes,
 )
 from tests.fixtures.span import (
+    STAGE_RESULT_LEAD_BYTE,
+    STAGE_RESULT_R22,
+    STAGE_RESULT_SENTINEL,
     fixture_record_bytes,
     span_frames,
     span_payloads,
+    stage_result_bytes,
     table_block_bytes,
 )
 
@@ -631,6 +635,62 @@ def fixture_blob(example: ExampleFixture, match_record_id: int) -> bytes:
     )
 
 
+# Stage-keyed results: the records that fill a fixture's goals. They sit in the span after the
+# league tables, and in a `news` section the fragment carries only when a test writes results
+# into it, so every save built without them holds no score at all.
+NEWS_SECTION_NAME = "news"
+NEWS_SECTION_SCHEMA = 11
+RESULT_SEPARATOR_BYTES = 32
+RESULT_R22 = STAGE_RESULT_R22
+
+
+@dataclass(frozen=True)
+class ExampleResult:
+    """One stage-keyed result record to write into a save.
+
+    `lead_byte`, `sentinel` and `zero_byte` carry the values a sound record holds, so a test
+    that overrides one of them writes a record the locator has to turn away.
+    """
+
+    stage_id: int
+    home_team_id: int
+    away_team_id: int
+    day_of_year: int
+    home_goals: int
+    away_goals: int
+    year: int = FIXTURE_KICK_OFF_YEAR
+    r22: int = STAGE_RESULT_R22
+    lead_byte: int = STAGE_RESULT_LEAD_BYTE
+    sentinel: int = STAGE_RESULT_SENTINEL
+    zero_byte: int = 0
+
+
+def result_blob(example: ExampleResult) -> bytes:
+    """One 27-byte stage-keyed result record."""
+    return stage_result_bytes(
+        stage_id=example.stage_id,
+        home_team_id=example.home_team_id,
+        away_team_id=example.away_team_id,
+        day_of_year=example.day_of_year,
+        year=example.year,
+        home_goals=example.home_goals,
+        away_goals=example.away_goals,
+        r22=example.r22,
+        lead_byte=example.lead_byte,
+        sentinel=example.sentinel,
+        zero_byte=example.zero_byte,
+    )
+
+
+def results_payload(results: Sequence[ExampleResult]) -> bytes:
+    """The result records back to back, separated so each reads as its own record."""
+    if not results:
+        return b""
+    return span_payloads(
+        *(result_blob(example) for example in results), separator_bytes=RESULT_SEPARATOR_BYTES
+    )
+
+
 # Extra calendar records the league-table tests add, so every club of the example table plays
 # in the same competition. Without them the vote sees competitions 900 and 901 covering two of
 # the three members each and settles the tie on the lower id, which is a poor thing for a test
@@ -1029,8 +1089,9 @@ def career_span_payload(
     *,
     table_duplicate_head_bytes: Sequence[bytes] = (),
     extra_table_groups: Sequence[Sequence[bytes]] = (),
+    span_results: Sequence[ExampleResult] = (),
 ) -> bytes:
-    """The fixture calendar, a wide gap, a stray copy of two more, then the league tables."""
+    """The calendar, a wide gap, a stray copy of two more, the tables, then any results."""
     calendar_blobs = [
         fixture_blob(example, FIRST_MATCH_RECORD_ID + position)
         for position, example in enumerate((*MAIN_CLUSTER_FIXTURES, *extra_fixtures))
@@ -1039,7 +1100,7 @@ def career_span_payload(
         fixture_blob(example, STRAY_MATCH_RECORD_ID + position)
         for position, example in enumerate((*STRAY_FIXTURES, *extra_strays))
     ]
-    return (
+    payload = (
         span_payloads(*calendar_blobs, separator_bytes=FIXTURE_SEPARATOR_BYTES)
         + bytes(STRAY_CLUSTER_GAP_BYTES)
         + span_payloads(*stray_blobs, separator_bytes=FIXTURE_SEPARATOR_BYTES)
@@ -1048,6 +1109,9 @@ def career_span_payload(
             duplicate_head_bytes=table_duplicate_head_bytes, extra_groups=extra_table_groups
         )
     )
+    if span_results:
+        payload += bytes(RESULT_SEPARATOR_BYTES) + results_payload(span_results)
+    return payload
 
 
 # Two transfer windows, and a third dated record that carries no closing time, which is what
@@ -1084,12 +1148,19 @@ def career_tagged_stream() -> bytes:
     )
 
 
-def career_game_db(*, duplicate_club_name: bool = False) -> bytes:
+def career_game_db(
+    *, duplicate_club_name: bool = False, game_db_results: Sequence[ExampleResult] = ()
+) -> bytes:
+    """The game database. `game_db_results` writes result records into a region no result
+    reader may scan, so a reader that widened its regions is caught by the score appearing.
+    """
     clubs = EXAMPLE_CLUBS + ((SECOND_NORTHBRIDGE_CLUB,) if duplicate_club_name else ())
     payload = (
         name_pools_bytes(FIRST_NAMES, SURNAMES, COMMON_NAMES)
         + clubs_region_bytes(clubs, competition_id_pairs=career_competition_id_pairs())
         + career_tagged_stream()
+        + bytes(64)
+        + results_payload(game_db_results)
         + bytes(64)
         + manager_region_bytes()
         + player_a_bytes()
@@ -1124,6 +1195,9 @@ def career_fragment(
     extra_strays: Sequence[ExampleFixture] = (),
     table_duplicate_head_bytes: Sequence[bytes] = (),
     extra_table_groups: Sequence[Sequence[bytes]] = (),
+    span_results: Sequence[ExampleResult] = (),
+    news_results: Sequence[ExampleResult] = (),
+    game_db_results: Sequence[ExampleResult] = (),
 ) -> ContainerFragment:
     """The whole career fragment.
 
@@ -1139,10 +1213,18 @@ def career_fragment(
             belongs to.
         extra_table_groups: Further league tables, each written after the two the span already
             holds and each starting its own run of stored indexes at zero.
+        span_results: Stage-keyed result records to write into the span, after the tables.
+        news_results: Stage-keyed result records to write into a `news` section, which the
+            fragment carries only when this is given, so every other save holds no such
+            section and every reader of one has to skip it.
+        game_db_results: Stage-keyed result records to write into `game_db`, which no result
+            reader may scan; a score from one of these means a reader widened its regions.
     """
     selector = UNMATCHED_MANAGER_SELECTOR if manager_between_jobs else MANAGER_SELECTOR
     replacements = {
-        "game_db": career_game_db(duplicate_club_name=duplicate_club_name),
+        "game_db": career_game_db(
+            duplicate_club_name=duplicate_club_name, game_db_results=game_db_results
+        ),
         "humans": humans_body(count=1, selector=selector),
         "save_game_summary": career_summary(linked=not manager_between_jobs),
     }
@@ -1153,6 +1235,7 @@ def career_fragment(
                 extra_strays,
                 table_duplicate_head_bytes=table_duplicate_head_bytes,
                 extra_table_groups=extra_table_groups,
+                span_results=span_results,
             )
         ]
     )
@@ -1165,4 +1248,11 @@ def career_fragment(
         )
         for section in default_sections()
     ]
+    if news_results:
+        sections.append(
+            SectionFrame(
+                NEWS_SECTION_NAME,
+                section_body(".dat", NEWS_SECTION_SCHEMA, results_payload(news_results)),
+            )
+        )
     return build_container_fragment(sections)

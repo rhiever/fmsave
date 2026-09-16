@@ -1,6 +1,6 @@
-"""One streamed pass over the unnamed span: fixtures, league-table blocks, rules preambles.
+"""One streamed pass over the unnamed span: fixtures, tables, rules preambles, results.
 
-All three structures share one unnamed region, around 200 MB decompressed on a full save, so
+All four structures share one unnamed region, around 200 MB decompressed on a full save, so
 they are collected together instead of one pass each. The region is never buffered whole:
 frames arrive one at a time and each is scanned as `carry + frame`, where the carry is the
 last `SPAN_CARRY_OVER_BYTES` of the previous window and is far longer than the longest
@@ -20,6 +20,12 @@ Each search's pattern, struct, offsets and bounds are derived from its layout on
 layout, so the scan loops never read a layout. The pass keeps raw words: it decodes no
 kick-off time and joins no id, which is what the fixtures, league-tables and rules readers
 are for. Region-relative offsets stay on these private records and are never public.
+
+The result search is the one that cannot finish its job here. Whether a result record is in
+scope depends on the fixture calendar's dates and on the stage table, and neither exists while
+this pass runs, so it collects only what a record settles by itself and the results reader
+applies the rest. That is why these records carry no span offset: nothing downstream separates
+them by position.
 """
 
 from __future__ import annotations
@@ -38,10 +44,17 @@ from fmsave._layouts import (
     FixtureCalendarLayout,
     LeagueTableLayout,
     RulesPreambleLayout,
+    StageResultLayout,
     find_layout,
 )
 from fmsave._scan import decode_date
 from fmsave.readers._common import MISSING_REFERENCE, SPAN_REGION, build_gap_padded_struct
+from fmsave.readers.results import (
+    RawStageResult,
+    collect_results,
+    find_result_layout,
+    result_search,
+)
 
 SPAN_RECORDS_CACHE_KEY = "span_records"
 
@@ -165,7 +178,7 @@ class RawRulesBlock:
 class SpanRecords:
     """What one pass over the unnamed span found. The repr gives counts only.
 
-    The three counters count the candidates each search judged, accepted or not, so a reader
+    The four counters count the candidates each search judged, accepted or not, so a reader
     that gates on an accept rate divides by them instead of walking the span a second time.
     They are not counts of raw pattern matches: a candidate whose bytes run past the end of
     the last window is never judged, so it is never counted either.
@@ -174,21 +187,29 @@ class SpanRecords:
     it always equals `len(rules_blocks)` and an accept rate built from it is 1 by
     construction; it is the denominator for the share of blocks that fully parsed, not for a
     rejection rate.
+
+    `results` is the other exception, in the opposite direction. These records are collected on
+    what each one settles by itself, because the calendar and the stage table that decide the
+    rest have not been read when this pass runs, so the tuple holds candidates the results
+    reader may still turn away. It is not a set of accepted records.
     """
 
     fixtures: tuple[RawFixture, ...]
     table_blocks: tuple[RawTableBlock, ...]
     rules_blocks: tuple[RawRulesBlock, ...]
+    results: tuple[RawStageResult, ...]
     fixture_candidates: int
     table_block_candidates: int
     rules_markers: int
+    result_candidates: int
     span_bytes: int
     frame_count: int
 
     def __repr__(self) -> str:
         return (
             f"<fmsave SpanRecords {len(self.fixtures)} fixtures, "
-            f"{len(self.table_blocks)} table blocks, {len(self.rules_blocks)} rules blocks>"
+            f"{len(self.table_blocks)} table blocks, {len(self.rules_blocks)} rules blocks, "
+            f"{len(self.results)} results>"
         )
 
 
@@ -199,15 +220,17 @@ class SpanLayouts:
     fixtures: FixtureCalendarLayout
     tables: LeagueTableLayout
     rules: RulesPreambleLayout
+    results: StageResultLayout
     carry_over_bytes: int
 
 
 def find_span_layouts(build: str) -> SpanLayouts:
-    """Look up the three span layouts for a build. The span carries no schema number."""
+    """Look up the four span layouts for a build. The span carries no schema number."""
     return SpanLayouts(
         fixtures=find_layout(FixtureCalendarLayout, SPAN_REGION, None, build).layout,
         tables=find_layout(LeagueTableLayout, SPAN_REGION, None, build).layout,
         rules=find_layout(RulesPreambleLayout, SPAN_REGION, None, build).layout,
+        results=find_result_layout(build),
         carry_over_bytes=SPAN_CARRY_OVER_BYTES,
     )
 
@@ -952,7 +975,7 @@ def _collect_rules_blocks(
 def scan_span(
     frames: Iterable[bytes], layouts: SpanLayouts, clock: datetime.date, file_name: str
 ) -> SpanRecords:
-    """Collect fixtures, league-table blocks and rules preambles from one pass over the span.
+    """Collect fixtures, table blocks, rules preambles and results from one pass over the span.
 
     `frames` are the region's decompressed frames in file order. Only one frame plus the
     carry-over is held at a time. A candidate that fails an acceptance check is not emitted
@@ -966,17 +989,21 @@ def scan_span(
     fixture_search = _fixture_search(layouts.fixtures, clock.year)
     table_search = _table_search(layouts.tables)
     rules_search = _rules_search(layouts.rules)
+    results_search = result_search(layouts.results)
     carry_over_bytes = layouts.carry_over_bytes
 
     fixtures: list[RawFixture] = []
     table_blocks: list[RawTableBlock] = []
     rules_blocks: list[RawRulesBlock] = []
+    results: list[RawStageResult] = []
     fixture_candidates = 0
     table_block_candidates = 0
     rules_markers = 0
+    result_candidates = 0
     fixtures_considered_to = -1
     tables_considered_to = -1
     rules_considered_to = -1
+    results_considered_to = -1
 
     carry = b""
     window_origin = 0
@@ -1012,11 +1039,20 @@ def scan_span(
                 rules_considered_to,
                 rules_blocks,
             )
+            results_considered_to, found_results = collect_results(
+                window,
+                window_origin,
+                max(0, carry_length - results_search.search_back_bytes),
+                results_search,
+                results_considered_to,
+                results,
+            )
         except (struct.error, IndexError, CorruptSaveError) as error:
             raise _span_decode_error(file_name, error) from error
         fixture_candidates += found_fixtures
         table_block_candidates += found_blocks
         rules_markers += found_markers
+        result_candidates += found_results
 
         window_end = window_origin + len(window)
         carry = window[-carry_over_bytes:] if len(window) > carry_over_bytes else window
@@ -1025,9 +1061,11 @@ def scan_span(
         fixtures=tuple(fixtures),
         table_blocks=tuple(table_blocks),
         rules_blocks=tuple(rules_blocks),
+        results=tuple(results),
         fixture_candidates=fixture_candidates,
         table_block_candidates=table_block_candidates,
         rules_markers=rules_markers,
+        result_candidates=result_candidates,
         span_bytes=span_bytes,
         frame_count=frame_count,
     )

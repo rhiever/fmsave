@@ -638,6 +638,37 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'away_goals_offset': 21,
+        'away_team_id_offset': 16,
+        'date_offset': 1,
+        'goals_maximum': 40,
+        'home_goals_offset': 20,
+        'home_team_id_offset': 11,
+        'lead_byte_offset': 0,
+        'lead_byte_value': 1,
+        'r22_offset': 22,
+        'record_bytes': 27,
+        'regions': tuple(
+          'tc_record_man',
+          'tc_extended_club_records_history_dt',
+          'news',
+          'extended_comp_records_dt',
+        ),
+        'sentinel_offset': 9,
+        'sentinel_value': 1,
+        'stage_id_offset': 5,
+        'team_id_range': tuple(
+          1,
+          2999999,
+        ),
+        'zero_byte_offset': 15,
+      }),
+      'region': 'unlisted_after_non_pl_hist_ls',
+      'schema': None,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
         'aggregate_count': 5,
         'division_club_range': tuple(
           18,
@@ -867,6 +898,18 @@
         'reputation_median': tuple(
           200,
           3000,
+        ),
+        'result_records_minimum': tuple(
+          100,
+          None,
+        ),
+        'results_for_unplayed': tuple(
+          None,
+          0.01,
+        ),
+        'results_joined': tuple(
+          0.9,
+          None,
         ),
         'second_nation_qualifier': tuple(
           0.995,

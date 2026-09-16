@@ -3,8 +3,9 @@
 This module must never import fmsave: a wrong offset inside fmsave has to fail tests
 built here. Every id, date and value below is fictional.
 
-Three structures share the span and are built here: the fixture calendar record, the
-league-table block, and the competition-rules preamble block.
+Four structures share the span and are built here: the fixture calendar record, the
+league-table block, the competition-rules preamble block, and the stage-keyed result record,
+which also occurs in several named sections and is built here for those too.
 """
 
 from __future__ import annotations
@@ -44,9 +45,15 @@ RULES_BODY_OFFSET = 16
 ROUND_RECORD_BYTES = 15
 ROUND_NO_NUMBER = 0xFF
 ROUND_SENTINEL_BYTE = 0xFF
-# Legacy's anchor for the club count; fmsave does not read it, because no fixed offset
-# from the marker carries it on both corpus saves (see the task's measurement).
+# Legacy's anchor for the club count; fmsave does not read it, because no fixed offset from
+# the marker carries that value on either corpus save measured.
 CLUB_COUNT_MARKER = bytes.fromhex("000202")
+
+# Stage-keyed result: a 27-byte record carrying one match's score.
+STAGE_RESULT_BYTES = 27
+STAGE_RESULT_LEAD_BYTE = 0x01
+STAGE_RESULT_SENTINEL = 1
+STAGE_RESULT_R22 = 0x5A
 
 SPAN_SEPARATOR_BYTES = 64
 
@@ -108,6 +115,44 @@ def fixture_record_bytes(
     struct.pack_into("<Q", record, 47, r47_54)
     record[55] = 1 if played else 0
     return bytes(lead_in) + bytes(record)
+
+
+def stage_result_bytes(
+    *,
+    stage_id: int,
+    home_team_id: int,
+    away_team_id: int,
+    day_of_year: int,
+    year: int,
+    home_goals: int,
+    away_goals: int,
+    r22: int = STAGE_RESULT_R22,
+    lead_byte: int = STAGE_RESULT_LEAD_BYTE,
+    sentinel: int = STAGE_RESULT_SENTINEL,
+    zero_byte: int = 0,
+) -> bytes:
+    """One 27-byte stage-keyed result record, carrying one match's score.
+
+    The lead byte sits at +0, the match date4 at +1, the u32 stage id at +5, the u16 sentinel
+    at +9, the u32 home team id at +11, the byte the locator requires to be zero at +15, the
+    u32 away team id at +16, the home and away goal bytes at +20 and +21, and five
+    unidentified bytes from +22, of which only the first is read.
+
+    `lead_byte`, `sentinel` and `zero_byte` are settable so a test can write a record the
+    locator must turn away.
+    """
+    record = bytearray(STAGE_RESULT_BYTES)
+    record[0] = lead_byte
+    record[1:5] = packed_date(day_of_year, year)
+    struct.pack_into("<I", record, 5, stage_id)
+    struct.pack_into("<H", record, 9, sentinel)
+    struct.pack_into("<I", record, 11, home_team_id)
+    record[15] = zero_byte
+    struct.pack_into("<I", record, 16, away_team_id)
+    record[20] = home_goals
+    record[21] = away_goals
+    record[22] = r22
+    return bytes(record)
 
 
 def table_row_bytes(

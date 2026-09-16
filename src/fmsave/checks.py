@@ -38,6 +38,7 @@ from fmsave._reader_stats import (
     LeagueTableStats,
     ManagedStats,
     PlayerStats,
+    ResultStats,
     StageStats,
     SuspensionStats,
     TransferWindowStats,
@@ -529,6 +530,41 @@ def evaluate_fixtures(
     )
 
 
+def evaluate_results(
+    stats: ResultStats, bounds: GateBounds, span_bytes: int
+) -> tuple[GateResult, ...]:
+    """The stage-keyed result checks, in a fixed order.
+
+    These judge the same pass over the span the calendar's own checks do, so they apply from
+    the span's size threshold. All three apply whenever the span is large enough, including
+    when nothing was accepted at all: an empty result scores below the record floor and leaves
+    both shares without a denominator, so a locator that has moved fails here rather than
+    reporting a career whose matches were never scored.
+
+    `results_joined` is what says the record is still being read correctly. The scores are found
+    by one locator and the calendar they join by another, in a different region, so the two
+    agree on a date and both team ids only if both are being decoded right; the same records
+    joined on a key wrong by one day, or with the two sides swapped, joined nothing at all on
+    every save measured. A decode that drifted would keep finding records and stop matching.
+
+    `results_for_unplayed` is the tripwire for the opposite failure, a join loose enough to
+    attach scores to matches the calendar says have not been played. That is wrong however many
+    of them it finds, and no rate of joining can see it.
+    """
+    applied = _span_applies(bounds, span_bytes)
+    accepted = stats.accepted
+    return (
+        _gate("result_records_minimum", accepted, bounds.result_records_minimum, applied),
+        _gate("results_joined", _rate(stats.joined, accepted), bounds.results_joined, applied),
+        _gate(
+            "results_for_unplayed",
+            _rate(stats.score_for_unplayed, stats.joined),
+            bounds.results_for_unplayed,
+            applied,
+        ),
+    )
+
+
 def evaluate_transfer_windows(
     stats: TransferWindowStats, bounds: GateBounds, game_db_bytes: int
 ) -> tuple[GateResult, ...]:
@@ -722,8 +758,15 @@ def check_competitions(
     )
 
 
-def check_fixtures(stats: FixtureStats, bounds: GateBounds, span_bytes: int) -> ReaderCheck:
+def check_fixtures(
+    stats: FixtureStats, result_stats: ResultStats, bounds: GateBounds, span_bytes: int
+) -> ReaderCheck:
     """The fixture reader's checks, record count and anomaly counts.
+
+    The scores are fields of a fixture rather than a table of their own, so the result checks
+    are reported here beside the calendar's, and the two sets of counts are kept apart: the
+    calendar's own gates never see a result count, and the result gates never see a fixture
+    count.
 
     `stray_records` and `stray_clusters` count what the span held outside the calendar, which
     every save carries some of, and `strays_without_a_copy` those of them the calendar holds
@@ -731,12 +774,20 @@ def check_fixtures(stats: FixtureStats, bounds: GateBounds, span_bytes: int) -> 
     fixtures a join or a decode left incomplete. `neutral_venue_votes` counts the clubs and
     seasons whose usual ground was decided: none of them on a full-size span means the venue
     vote never ran at all.
+
+    `unjoined_results` counts the score records that named no match in this calendar, which is
+    most of what a save holds: several seasons of history whose fixtures are long gone.
+    `ambiguous_results` counts those naming more than one fixture at once, which fill none of
+    them. `score_disagreements` counts matches two records gave two different scores, which no
+    save measured has held, and `scored_fixtures` the played matches that ended up carrying a
+    score, about a quarter of them.
     """
     cluster_records = stats.cluster_records
     return ReaderCheck(
         FIXTURES_READER,
         cluster_records,
-        evaluate_fixtures(stats, bounds, span_bytes),
+        evaluate_fixtures(stats, bounds, span_bytes)
+        + evaluate_results(result_stats, bounds, span_bytes),
         FrozenMapping(
             {
                 "stray_records": stats.span_records - cluster_records,
@@ -750,6 +801,10 @@ def check_fixtures(stats: FixtureStats, bounds: GateBounds, span_bytes: int) -> 
                 "undated_fixtures": stats.undated,
                 "bad_kick_off_slots": stats.bad_kick_off_slots,
                 "neutral_venue_votes": stats.neutral_venue_votes,
+                "unjoined_results": result_stats.unjoined,
+                "ambiguous_results": result_stats.ambiguous,
+                "score_disagreements": result_stats.score_disagreements,
+                "scored_fixtures": result_stats.scored_fixtures,
             }
         ),
     )

@@ -22,6 +22,7 @@ from fmsave._layouts import (
     PlayerRecordLayout,
     RulesPreambleLayout,
     SaveSummaryLayout,
+    StageResultLayout,
     StageTableLayout,
     SummaryStringsLayout,
     SuspensionLayout,
@@ -374,6 +375,47 @@ FIXTURE_CALENDAR = FixtureCalendarLayout(
     neutral_venue_minimum_home_fixtures=4,
 )
 
+# A stage-keyed result record is 27 bytes carrying one match's score. The locator anchors on the
+# two-byte sentinel rather than the lead byte, which gives the search a far more selective
+# literal; the lead byte and the zero byte are checked after it.
+#
+# The zero byte at +15 holds on 100% of the records accepted on all three saves measured, so
+# requiring it costs nothing and turns away look-alikes. That is the whole of its justification:
+# it is a locator constraint, not a finding about what the byte holds.
+#
+# Acceptance is weak on its own and is not the evidence for this record. Of 671,258 candidates on
+# one save, 477,702 are turned away on the date alone and only 546 by the stage table, the team
+# range and the goal ceiling together. What carries the shape is the join: 43,000 to 54,000 of
+# these records match a fixture the calendar found in another region under another locator, while
+# the same records joined with the two sides swapped, or with the date moved one day, match
+# nothing at all on any save.
+STAGE_RESULTS = StageResultLayout(
+    record_bytes=27,
+    lead_byte_offset=0,
+    lead_byte_value=0x01,
+    date_offset=1,
+    stage_id_offset=5,
+    sentinel_offset=9,
+    sentinel_value=1,
+    zero_byte_offset=15,
+    home_team_id_offset=11,
+    away_team_id_offset=16,
+    home_goals_offset=20,
+    away_goals_offset=21,
+    r22_offset=22,
+    # The team ids share the fixture calendar's range, since they name the same teams.
+    team_id_range=(1, 2_999_999),
+    # Far above any score a match has ever finished on, so this turns away noise rather than
+    # any real result.
+    goals_maximum=40,
+    regions=(
+        "tc_record_man",
+        "tc_extended_club_records_history_dt",
+        "news",
+        "extended_comp_records_dt",
+    ),
+)
+
 # A league-table block opens with five aggregate rows, each keyed FF FF FF FF.
 LEAGUE_TABLES = LeagueTableLayout(
     row_bytes=17,
@@ -666,6 +708,24 @@ GATE_BOUNDS = GateBounds(
     # less 0.05, floored to two decimals, so a career carrying more of those stays well clear
     # while a team id read from the wrong offset, which resolves almost nothing, still fails.
     fixture_teams_resolved=(0.87, None),
+    # 44,351 / 55,414 / 42,608 records accepted on the three saves measured, counted under the
+    # rule this reader applies: inside the calendar's own dates. A wider window accepts several
+    # times that, so a count quoted here has to say which window produced it. The floor sits
+    # more than four hundred times below the smallest of these, which leaves a young career
+    # holding a fraction of them well clear while still failing a locator that has stopped
+    # finding records at all.
+    result_records_minimum=(100, None),
+    # 0.9707 / 0.9717 / 0.9689 of accepted records join a fixture. This is the gate that says
+    # the record is still being read correctly, because the calendar it joins is found by
+    # another locator in another region: the same records joined with the sides swapped, or
+    # with the date moved one day, joined 0 times on every save. The remaining 3% are in range
+    # and still do not join, so the floor leaves room for a career carrying more of them.
+    results_joined=(0.90, None),
+    # 0.000023 / 0.000056 / 0.000121 of joined records name a fixture the calendar does not mark
+    # played, which is 1, 3 and 5 records. A ceiling nearly two orders of magnitude above the
+    # worst of those still fails a join that has started attaching scores to matches not yet
+    # played.
+    results_for_unplayed=(None, 0.01),
     # 54 windows on both saves measured. The floor sits over five times below that, which
     # leaves a database carrying far fewer windows well clear while still failing a decode that
     # finds none. Both saves come from one installed database, so this is a looser bound than
@@ -719,6 +779,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TRANSFER_WINDOWS),
     LayoutEntry(region="humans", schema=21, build=BUILD, layout=HUMANS),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=FIXTURE_CALENDAR),
+    LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=STAGE_RESULTS),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=LEAGUE_TABLES),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=RULES_PREAMBLES),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=GATE_BOUNDS),

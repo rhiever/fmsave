@@ -17,7 +17,7 @@ from fmsave._layouts import (
     GateBounds,
     find_layout,
 )
-from fmsave._reader_stats import FixtureStats
+from fmsave._reader_stats import FixtureStats, ResultStats
 from fmsave._save import FIXTURES_TABLE_CACHE_KEY
 from fmsave._status import field_status
 from fmsave.checks import GateResult, check_fixtures, enforce, evaluate_fixtures
@@ -72,6 +72,9 @@ BOUNDS: GateBounds = find_layout(GateBounds, GAME_DB_SECTION, 4000, "").layout
 
 CALENDAR_FIXTURE_COUNT = 6
 STRAY_FIXTURE_COUNT = 2
+# Four of the six calendar records are marked played; the cup tie and the unresolved-stage
+# match are not.
+PLAYED_FIXTURE_COUNT = 4
 # The calendar in the order the reader must return it: the six records sorted by date.
 EXPECTED_DATES = (
     date(2031, 2, 6),
@@ -211,6 +214,21 @@ def failed_gate_names(results: tuple[GateResult, ...]) -> list[str]:
     return [result.name for result in results if result.applied and not result.passed]
 
 
+# This save carries no result record, so every result count is zero and only the calendar's own
+# counts are under test here. The result gates are judged in tests/test_results.py.
+NO_RESULT_STATS = ResultStats(
+    candidates=0,
+    accepted=0,
+    joined=0,
+    unjoined=0,
+    ambiguous=0,
+    score_for_unplayed=0,
+    score_disagreements=0,
+    played_fixtures=PLAYED_FIXTURE_COUNT,
+    scored_fixtures=0,
+)
+
+
 def with_gate_bounds(monkeypatch: pytest.MonkeyPatch, bounds: GateBounds) -> None:
     """Judge the next save's readers against these bounds instead of the registered ones."""
     monkeypatch.setattr(fmsave.Save, "_gate_bounds", lambda career_save: bounds)
@@ -241,7 +259,7 @@ def test_only_the_largest_run_of_records_becomes_the_calendar(career_save_path: 
     assert stats.span_records == CALENDAR_FIXTURE_COUNT + STRAY_FIXTURE_COUNT
     assert stats.cluster_records == CALENDAR_FIXTURE_COUNT
     assert STRAY_FIXTURE_STAGE_ID not in {fixture.stage_id for fixture in fixtures_table}
-    # Task 6 fills the scores; until then every match has none, played or not.
+    # This save carries no result record at all, so no match has a score, played or not.
     assert all(
         fixture.home_goals is None and fixture.away_goals is None for fixture in fixtures_table
     )
@@ -475,7 +493,7 @@ def test_a_calendar_with_no_name_map_never_runs_the_competition_checks(
 
 
 def test_the_unknown_words_carry_the_undecoded_fields(career_save_path: Path) -> None:
-    """The bytes with no known meaning ship as they are, and the score word waits for Task 6."""
+    """The bytes with no known meaning ship as they are; the score word needs a result record."""
     with fmsave.open(career_save_path) as career_save:
         league_match = career_save.fixtures()[FIRST_LEAGUE_MATCH]
 
@@ -488,7 +506,7 @@ def test_the_unknown_words_carry_the_undecoded_fields(career_save_path: Path) ->
     }
     assert league_match.match_rules_template == FIXTURE_MATCH_RULES_TEMPLATE
     assert league_match.season_start_year == FIXTURE_SEASON_START_YEAR
-    # The result word is declared and stays empty until the stage-keyed results are read.
+    # The result word is declared, and stays empty on a save carrying no result record.
     assert Fixture.UNKNOWN_KEYS[-1] == "result_r22"
     assert record_to_dict(league_match, json_ready=True)["unknown"] == {
         "date2": FIXTURE_DATE2,
@@ -659,7 +677,7 @@ def test_the_build_counts_exactly_what_the_checks_read(career_save_path: Path) -
         bad_kick_off_slots=0,
         neutral_venue_votes=1,
     )
-    reader_check = check_fixtures(stats, BOUNDS, SMALL_SPAN_BYTES)
+    reader_check = check_fixtures(stats, NO_RESULT_STATS, BOUNDS, SMALL_SPAN_BYTES)
     assert reader_check.reader == "fixtures"
     assert reader_check.record_count == CALENDAR_FIXTURE_COUNT
     assert dict(reader_check.anomalies) == {
@@ -672,4 +690,8 @@ def test_the_build_counts_exactly_what_the_checks_read(career_save_path: Path) -
         "undated_fixtures": 0,
         "bad_kick_off_slots": 0,
         "neutral_venue_votes": 1,
+        "unjoined_results": 0,
+        "ambiguous_results": 0,
+        "score_disagreements": 0,
+        "scored_fixtures": 0,
     }

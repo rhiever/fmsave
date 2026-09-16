@@ -20,6 +20,7 @@ from fmsave._layouts import (
     NamePoolLayout,
     RulesPreambleLayout,
     SaveSummaryLayout,
+    StageResultLayout,
     find_layout,
     known_builds,
     registered_layouts,
@@ -60,10 +61,47 @@ def test_gate_bounds_are_registered_for_game_db_with_the_full_save_threshold() -
 
 
 def test_span_layouts_are_registered_for_the_span_region_without_a_schema() -> None:
-    for layout_type in (FixtureCalendarLayout, LeagueTableLayout, RulesPreambleLayout):
+    for layout_type in (
+        FixtureCalendarLayout,
+        StageResultLayout,
+        LeagueTableLayout,
+        RulesPreambleLayout,
+    ):
         match = find_layout(layout_type, SPAN_REGION, None, FALLBACK_BUILD)
         assert match.exact, layout_type.__name__
         assert isinstance(match.layout, layout_type)
+
+
+def test_every_stage_result_field_sits_inside_the_record() -> None:
+    """A field reaching past the record would read another record's bytes as this one's."""
+    layout = find_layout(StageResultLayout, SPAN_REGION, None, FALLBACK_BUILD).layout
+    single_byte_offsets = (
+        layout.lead_byte_offset,
+        layout.zero_byte_offset,
+        layout.home_goals_offset,
+        layout.away_goals_offset,
+        layout.r22_offset,
+    )
+    for offset in single_byte_offsets:
+        assert 0 <= offset < layout.record_bytes, offset
+    for offset in (layout.date_offset, layout.stage_id_offset):
+        assert 0 <= offset and offset + WORD_BYTES <= layout.record_bytes, offset
+    for offset in (layout.home_team_id_offset, layout.away_team_id_offset):
+        assert 0 <= offset and offset + WORD_BYTES <= layout.record_bytes, offset
+    assert layout.sentinel_offset + 2 <= layout.zero_byte_offset
+
+
+def test_the_stage_result_window_is_the_calendars_own_dates_not_a_year_knob() -> None:
+    """The acceptance window comes from the calendar, so no year window may live here.
+
+    A year window of its own would be a second, wider rule that could be widened back to the
+    nine years the records were first read under, where 78% of what it accepted could never
+    join a fixture at all.
+    """
+    layout = find_layout(StageResultLayout, SPAN_REGION, None, FALLBACK_BUILD).layout
+    field_names = {field.name for field in dataclasses.fields(layout)}
+    assert not any("year" in field_name for field_name in field_names), field_names
+    assert not any("clock" in field_name for field_name in field_names), field_names
 
 
 def test_the_span_carry_over_is_far_longer_than_the_longest_span_record() -> None:

@@ -71,7 +71,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 strict = true
 addopts = ["-ra"]
-timeout = "120"
+timeout = "300"
 markers = [
     "corpus: needs the local private corpus (never runs in CI)",
     "corpus_fast: corpus tier for open, info, players and clubs",

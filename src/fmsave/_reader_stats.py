@@ -181,6 +181,38 @@ class FixtureStats:
 
 
 @dataclass(frozen=True, slots=True)
+class ResultStats:
+    """What joining the stage-keyed results onto the calendar counted.
+
+    `candidates` counts every record the locator judged in the span and in the named sections,
+    accepted or not, and `accepted` those that passed the record's own tests and fall inside the
+    calendar's dates and the stage table. `joined` counts accepted records that found at least
+    one fixture on their date and two team ids, so `ambiguous` and `score_for_unplayed` are both
+    parts of it and `unjoined` is the rest of `accepted`.
+
+    The same match is stored about 1.8 times over, so far more records join than there are
+    fixtures to fill: a later copy carrying the score already written is ordinary and is counted
+    in `joined` like any other. `score_disagreements` counts the copies that carry a *different*
+    score for a fixture already filled, which is the one case arrival order must not settle;
+    such a fixture keeps no score at all. No save measured has held one.
+
+    `played_fixtures` counts the played matches in the calendar and `scored_fixtures` those that
+    came out of this pass carrying a score, which is the share of a career's results the save
+    still holds: about a quarter.
+    """
+
+    candidates: int
+    accepted: int
+    joined: int
+    unjoined: int
+    ambiguous: int
+    score_for_unplayed: int
+    score_disagreements: int
+    played_fixtures: int
+    scored_fixtures: int
+
+
+@dataclass(frozen=True, slots=True)
 class TransferWindowStats:
     """What the transfer-window pass counted over the tagged stream.
 
