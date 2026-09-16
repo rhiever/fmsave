@@ -446,8 +446,11 @@ def test_affiliate_registrations_are_not_loans(corpus_saves: dict[str, fmsave.Sa
 def test_loans_carry_their_dates_and_other_players_carry_none(
     corpus_saves: dict[str, fmsave.Save],
 ) -> None:
-    """Every loan the save holds runs to a date on or after the in-game date, and only loans
-    have loan dates at all.
+    """Every loan the save holds runs from a date to a later one on or after the in-game
+    date, and only loans have loan dates at all.
+
+    A loan whose stored start does not decode keeps its loan and carries no start, so the
+    count of loans without a start is the tripwire for that case: no save has held one yet.
     """
     mismatches = CorpusMismatches()
     for relative_name, career_save in corpus_saves.items():
@@ -461,6 +464,7 @@ def test_loans_carry_their_dates_and_other_players_carry_none(
         loans_without_a_start = 0
         ends_before_the_game_date = 0
         starts_after_the_game_date = 0
+        starts_after_their_own_end = 0
         dates_without_a_loan = 0
         for player in career_save.players():
             if player.on_loan:
@@ -473,6 +477,12 @@ def test_loans_carry_their_dates_and_other_players_carry_none(
                     loans_without_a_start += 1
                 elif player.loan_start > game_date:
                     starts_after_the_game_date += 1
+                if (
+                    player.loan_start is not None
+                    and player.loan_end is not None
+                    and player.loan_start > player.loan_end
+                ):
+                    starts_after_their_own_end += 1
             elif player.loan_start is not None or player.loan_end is not None:
                 dates_without_a_loan += 1
         mismatches.check(label, "loans read", loans > 0)
@@ -480,6 +490,7 @@ def test_loans_carry_their_dates_and_other_players_carry_none(
         mismatches.check(label, "loans carry a start date", loans_without_a_start == 0)
         mismatches.check(label, "loan ends are not past", ends_before_the_game_date == 0)
         mismatches.check(label, "loan starts have arrived", starts_after_the_game_date == 0)
+        mismatches.check(label, "loan starts precede their end", starts_after_their_own_end == 0)
         mismatches.check(label, "only loans carry loan dates", dates_without_a_loan == 0)
     mismatches.fail_if_any()
 

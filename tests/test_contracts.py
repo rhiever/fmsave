@@ -915,6 +915,61 @@ def test_a_record_that_has_ended_does_not_pick_the_club() -> None:
     assert contract.wage == 25000
 
 
+def test_a_record_with_no_wage_end_or_type_does_not_pick_the_club() -> None:
+    """A record holding none of a contract's content is an offer, and names no club.
+
+    Starting first is otherwise enough to win, which would hand the contract in effect to a
+    record with no end date and leave the player's own end date missing.
+    """
+    offer_shaped_but_earlier = selection_record(
+        team_id=NORTHBRIDGE_TEAM_A, wage=0, start=BEFORE_THE_CLOCK, end=None
+    )
+    real_contract = selection_record(
+        team_id=EASTVALE_TEAM_ID,
+        wage=25000,
+        start=LATER_BEFORE_THE_CLOCK,
+        end=ENDS_AFTER_THE_CLOCK,
+    )
+    contract = away_selected_contract(offer_shaped_but_earlier + real_contract)
+    assert contract.club_uid == EASTVALE_CLUB_UID
+    assert contract.wage == 25000
+    assert contract.start == date(2030, 1, 1)
+    assert contract.end == date(2032, 6, 30)
+
+
+def test_the_earliest_record_picks_the_club_when_none_of_them_carries_a_contract() -> None:
+    """With every running record offer-shaped, the oldest one still names the club."""
+    earlier = selection_record(team_id=NORTHBRIDGE_TEAM_A, wage=0, start=BEFORE_THE_CLOCK, end=None)
+    later = selection_record(
+        team_id=EASTVALE_TEAM_ID, wage=0, start=LATER_BEFORE_THE_CLOCK, end=None
+    )
+    contract = away_selected_contract(earlier + later)
+    assert contract.club_uid == NORTHBRIDGE_CLUB_UID
+    assert contract.start == date(2028, 7, 1)
+
+
+def test_a_record_that_has_ended_at_the_chosen_club_is_not_the_contract_in_effect() -> None:
+    """Inside the chosen club an expired record loses, however late it started.
+
+    Its later start would otherwise beat the record the player is really on, putting a dead
+    record's wage, end and squad status in effect.
+    """
+    still_running = selection_record(
+        team_id=NORTHBRIDGE_TEAM_A, wage=11000, start=BEFORE_THE_CLOCK, end=ENDS_AFTER_THE_CLOCK
+    )
+    ended_but_later = selection_record(
+        team_id=NORTHBRIDGE_TEAM_A,
+        wage=19000,
+        start=LATER_BEFORE_THE_CLOCK,
+        end=ENDED_BEFORE_THE_CLOCK,
+    )
+    contract = away_selected_contract(still_running + ended_but_later)
+    assert contract.club_uid == NORTHBRIDGE_CLUB_UID
+    assert contract.wage == 11000
+    assert contract.start == date(2028, 7, 1)
+    assert contract.end == date(2032, 6, 30)
+
+
 def test_the_latest_start_wins_when_every_record_has_ended() -> None:
     earlier = selection_record(
         team_id=NORTHBRIDGE_TEAM_A, wage=11000, start=BEFORE_THE_CLOCK, end=ENDED_BEFORE_THE_CLOCK
@@ -1999,6 +2054,8 @@ def test_clause_kinds_confirmed_in_game_are_named(raw_kind: int, expected_name: 
         (16, "CUP_GOALKEEPER"),
         (14, "UNKNOWN"),
         (15, "UNKNOWN"),
+        # No in-game label confirms 20; an outside name table is not evidence for one.
+        (20, "UNKNOWN"),
     ],
 )
 def test_squad_statuses_confirmed_in_game_are_named(raw_status: int, expected_name: str) -> None:

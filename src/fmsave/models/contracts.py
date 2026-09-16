@@ -25,8 +25,9 @@ class SquadStatus(IntEnum):
 
     It is the role the club agreed to, not a record of how much the player actually plays: a
     player on CUP_GOALKEEPER terms, for example, can still make league appearances all
-    season. Only codes whose meaning is confirmed in game are named; every other code is
-    UNKNOWN and keeps its raw number.
+    season. A code is named only where an in-game label confirms that exact code; a code an
+    outside name table would name is not named on that basis alone. Every code that is not
+    named is UNKNOWN and keeps its raw number.
     """
 
     UNKNOWN = -1
@@ -40,7 +41,6 @@ class SquadStatus(IntEnum):
     FUTURE_PROSPECT = 11
     YOUNGSTER = 13
     CUP_GOALKEEPER = 16
-    BACKUP = 20
 
 
 class ContractType(IntEnum):
@@ -168,8 +168,10 @@ class Contract:
         loan_parent_club_uid: Uid of the club of the contract in effect when on_loan is
             True, else None.
         loan_parent_club_name: Denormalised name of loan_parent_club_uid.
-        loan_start: Date the loan began when on_loan is True, else None. It is also None on
-            the few loans whose stored start does not read as a date.
+        loan_start: Date the loan began when on_loan is True, else None. It is also None
+            when the loan's stored start does not decode as a game date, which keeps an
+            unreadable start from costing the player his loan; no save read so far holds
+            such a loan.
         loan_end: Date the loan ends when on_loan is True, else None.
         event_count: Contract event count from the tail of the record in effect, or None
             (unconfirmed).

@@ -332,8 +332,10 @@ class Player:
         loan_parent_club_uid: Uid of the club of the contract in effect when on_loan is
             True, else None.
         loan_parent_club_name: Denormalised name of loan_parent_club_uid.
-        loan_start: Date the loan began when on_loan is True, else None. It is also None on
-            the few loans whose stored start does not read as a date.
+        loan_start: Date the loan began when on_loan is True, else None. It is also None
+            when the loan's stored start does not decode as a game date, which keeps an
+            unreadable start from costing the player his loan; no save read so far holds
+            such a loan.
         loan_end: Date the loan ends when on_loan is True, else None.
         contract: The player's assembled contract, or None when no chain record and no
             fallback dates were found.

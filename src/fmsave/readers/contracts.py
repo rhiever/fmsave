@@ -77,6 +77,17 @@ CHAIN_RECORD_END = 5
 CHAIN_RECORD_HAS_TAIL = 6
 
 
+def _carries_no_contract(record: _ChainRecordTuple) -> bool:
+    """Whether a tailed record holds none of the content a contract is made of.
+
+    A tail is where a record keeps its end date and its contract type, so a tailed record
+    with no wage, no end and no type holds nothing of its own: that is the shape a club's
+    offer takes while it is still only an offer, not a spell the player is paid for. A
+    record with no tail is never judged this way, since it has nowhere to keep either field.
+    """
+    return record[6] and record[3] == 0 and record[5] is None and record[10] is None
+
+
 def _build_unpack_ordered_struct(
     struct_description: str,
     fields: list[tuple[int, str, str]],
@@ -974,10 +985,22 @@ class ContractDecoder:
         start still wins, so a renewal is never passed over for the deal it replaces. When
         no record is still running, the latest start wins outright.
 
+        A record carrying none of a contract's own content -- no wage, no end date and no
+        contract type -- never names the club, however early it starts: an offer made days
+        before a real deal would otherwise take the club from it and leave the contract in
+        effect with no end date at all. Such a record names the club only when no running
+        record carries any content, where it is the only thing left to go on.
+
         Choosing the club that way needs a club to be away from, so a player whose own club
         is unknown keeps the latest start, as does one whose records have all ended.
 
-        Ties on the start date go to the latest end, and then to the first in file order.
+        Records whose team resolves to no club count as one club of their own, whose uid is
+        None, and the latest start among them is taken as it is for any named club.
+
+        Ties on the start date go to the latest end, and then to the first in file order,
+        for the record taken inside a club. The club the earliest record names is settled
+        the other way up: an equal start goes to the nearer end, and then to the first in
+        file order.
         """
         clock = self.clock
         at_own_club: _ChainRecordTuple | None = None
@@ -986,6 +1009,8 @@ class ContractDecoder:
         latest_key: tuple[date, date] | None = None
         earliest_running_key: tuple[date, date] | None = None
         earliest_running_club_uid: int | None = None
+        earliest_filled_key: tuple[date, date] | None = None
+        earliest_filled_club_uid: int | None = None
         for record in chain_records:
             if record[6] is not with_tail:
                 continue
@@ -1001,15 +1026,21 @@ class ContractDecoder:
             if player_club_uid is not None and record[0] == player_club_uid:
                 if at_own_club_key is None or key > at_own_club_key:
                     at_own_club, at_own_club_key = record, key
-            elif earliest_running_key is None or key < earliest_running_key:
+                continue
+            if earliest_running_key is None or key < earliest_running_key:
                 earliest_running_key, earliest_running_club_uid = key, record[0]
+            if not _carries_no_contract(record) and (
+                earliest_filled_key is None or key < earliest_filled_key
+            ):
+                earliest_filled_key, earliest_filled_club_uid = key, record[0]
         if at_own_club is not None:
             return at_own_club
         if player_club_uid is None or earliest_running_key is None:
             return latest
-        return self._latest_started_at_club(
-            chain_records, earliest_running_club_uid, with_tail=with_tail
+        club_uid = (
+            earliest_running_club_uid if earliest_filled_key is None else earliest_filled_club_uid
         )
+        return self._latest_started_at_club(chain_records, club_uid, with_tail=with_tail)
 
     def _latest_started_at_club(
         self,
@@ -1096,7 +1127,8 @@ class ContractDecoder:
         The record at that club, the latest to have started, must carry no contract tail of
         its own, and the block before it must hold the loan marker and an end on or after the
         in-game date. That block's own start date is the loan's start; it decides nothing, so
-        a loan whose stored start does not read as a date still counts, with a start of None.
+        a loan whose stored start does not decode as a game date still counts, with a start
+        of None.
         """
         clock = self.clock
         current: tuple[int, _ChainRecordTuple] | None = None
