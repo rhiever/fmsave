@@ -15,8 +15,10 @@ from typing import cast
 
 from fmsave._container import ContainerIndex, read_region_frames, read_section
 from fmsave._errors import SaveClosedError
+from fmsave._frozen import FrozenMapping
 from fmsave._layouts import NamePoolLayout, PlayerRecordLayout, find_layout
 from fmsave.models.meta import SaveInfo
+from fmsave.name_maps import EMPTY_COMPETITION_NAMES
 from fmsave.readers._common import GAME_DB_SECTION, SPAN_REGION
 from fmsave.readers.clubs import ClubIndex, find_club_layouts, read_club_index
 from fmsave.readers.competitions import (
@@ -55,15 +57,23 @@ class SaveContext:
     __slots__ = (
         "_cache",
         "_closed",
+        "_competition_names",
         "_container_index",
         "_info",
         "_loan_counts",
         "_loaned_sections",
     )
 
-    def __init__(self, container_index: ContainerIndex, info: SaveInfo) -> None:
+    def __init__(
+        self,
+        container_index: ContainerIndex,
+        info: SaveInfo,
+        *,
+        competition_names: FrozenMapping[int, str] = EMPTY_COMPETITION_NAMES,
+    ) -> None:
         self._container_index = container_index
         self._info = info
+        self._competition_names = competition_names
         self._closed = False
         self._cache: dict[str, object] = {}
         self._loaned_sections: dict[str, bytes] = {}
@@ -76,6 +86,16 @@ class SaveContext:
     @property
     def info(self) -> SaveInfo:
         return self._info
+
+    @property
+    def competition_names(self) -> FrozenMapping[int, str]:
+        """The names the save was opened with, keyed on the editor database id.
+
+        Empty unless a name map was passed to `fmsave.open`, because no save stores a
+        competition name. It is fixed for the life of the save: tables are cached, so a
+        different map means opening the save again.
+        """
+        return self._competition_names
 
     def section(self, name: str) -> AbstractContextManager[bytes]:
         """Borrow the decompressed bytes of section `name` for the length of a `with` block.
@@ -237,7 +257,7 @@ class SaveContext:
             # decompresses game_db once for both rather than once each.
             stage_index = self.stage_index()
             database_ids = locate_competition_database_ids(game_db, layout)
-        return build_competition_index(stage_index, database_ids, {})
+        return build_competition_index(stage_index, database_ids, self._competition_names)
 
     def close(self) -> None:
         """Drop cached values and section loans. Calling it again does nothing."""

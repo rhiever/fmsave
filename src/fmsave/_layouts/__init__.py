@@ -746,10 +746,12 @@ class GateBounds:
 
     Competitions: `competitions_minimum` (distinct competitions the stage table names),
     `competition_database_ids_mapped` (competitions the id-pair records give a database id, of
-    competitions) and `competition_database_id_conflicts` (competitions dropped because another
-    competition claims the same database id, of competitions). There is no gate on competitions
-    named: no save stores a competition name, so the share is zero unless the user supplies a
-    name map.
+    competitions), `competition_database_id_conflicts` (competitions dropped because another
+    competition claims the same database id, of competitions) and
+    `competition_names_within_database_ids` (competitions a user-supplied name map named, of
+    competitions that have a database id). There is no lower bound on competitions named,
+    because no save stores a competition name and the share is zero until a reader supplies a
+    map; the upper bound is what holds a name to the only key it may arrive through.
     """
 
     minimum_applies_from_bytes: int
@@ -806,6 +808,7 @@ class GateBounds:
     competitions_minimum: BoundPair
     competition_database_ids_mapped: BoundPair
     competition_database_id_conflicts: BoundPair
+    competition_names_within_database_ids: BoundPair
 
 
 type Layout = (

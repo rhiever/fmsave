@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from types import TracebackType
 from typing import NamedTuple, Self
 
@@ -11,6 +11,7 @@ from fmsave import checks
 from fmsave._container import ContainerIndex, read_index, read_section
 from fmsave._context import SaveContext, closed_save_error
 from fmsave._errors import ReaderCheckError
+from fmsave._frozen import FrozenMapping
 from fmsave._layouts import (
     ContractLayout,
     GateBounds,
@@ -27,10 +28,12 @@ from fmsave.models.managed import ManagedClub
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
 from fmsave.models.suspensions import Suspension
+from fmsave.name_maps import EMPTY_COMPETITION_NAMES, normalize_competition_names
 from fmsave.readers._common import GAME_DB_SECTION, HUMANS_SECTION, SAVE_SUMMARY_SECTION
 from fmsave.readers.managed import find_managed_club_layouts, resolve_managed_clubs
 from fmsave.readers.player_scan import window_end
 from fmsave.readers.players import build_player_decoder, collect_player_stats
+from fmsave.readers.stages import named_stages
 from fmsave.readers.suspensions import (
     SuspensionEntry,
     locate_suspensions,
@@ -78,10 +81,16 @@ class Save:
 
     __slots__ = ("_container_index", "_context", "_info")
 
-    def __init__(self, container_index: ContainerIndex, info: SaveInfo) -> None:
+    def __init__(
+        self,
+        container_index: ContainerIndex,
+        info: SaveInfo,
+        *,
+        competition_names: FrozenMapping[int, str] = EMPTY_COMPETITION_NAMES,
+    ) -> None:
         self._container_index = container_index
         self._info = info
-        self._context = SaveContext(container_index, info)
+        self._context = SaveContext(container_index, info, competition_names=competition_names)
 
     @property
     def info(self) -> SaveInfo:
@@ -212,8 +221,9 @@ class Save:
 
         A stage is one part of a competition: a league season is one stage, a cup round is one,
         and each leg of a two-legged tie is its own stage carrying the same round. Stage ids are
-        what fixtures, league-table groups and per-match records join through. Competition
-        names are not stored in the save, so `competition_name` is None. The table is read on
+        what fixtures, league-table groups and per-match records join through. No save stores a
+        competition name, so `competition_name` is None unless the save was opened with a name
+        map, and then it is filled in for the competitions that map names. The table is read on
         the first call; later calls return the same table.
 
         Raises:
@@ -304,13 +314,18 @@ class Save:
     def _read_stages(self) -> Table[Stage]:
         context = self._context
         gate_bounds = self._gate_bounds()
-        # This reader needs no part of game_db beyond the cached index, and the index opens its
-        # own borrow, so a cold call decompresses game_db once and a warm one not at all.
+        # With a name map the competition index comes first: it opens one game_db borrow and
+        # builds the stage index inside it, so both come out of a single decompression. Without
+        # one every competition_name would be None anyway, so the stage index is read on its own
+        # and the id-pair pass that names competitions is never paid for. Either way this reader
+        # needs no part of game_db beyond the cached indexes, so a warm call decompresses nothing.
+        name_for = context.competition_index().name_for if context.competition_names else None
         stage_index = context.stage_index()
         stage_check = checks.check_stages(stage_index.stats, gate_bounds, stage_index.game_db_bytes)
         checks.enforce_checks((stage_check,))
         self._store_reader_checks((stage_check,))
-        return Table(stage_index.stages, Stage)
+        stages = stage_index.stages
+        return Table(stages if name_for is None else named_stages(stages, name_for), Stage)
 
     def _read_competitions(self) -> Table[Competition]:
         context = self._context
@@ -477,8 +492,21 @@ class Save:
         return read_section(self._require_open(), name)
 
 
-def open_save(path: str | os.PathLike[str]) -> Save:
+def open_save(
+    path: str | os.PathLike[str],
+    *,
+    competition_names: Mapping[int, str] | str | os.PathLike[str] | None = None,
+) -> Save:
     """Open a Football Manager 26 save file for reading.
+
+    Args:
+        path: The save file to read.
+        competition_names: Names for competitions, keyed on `Competition.database_id`, either
+            as a mapping or as the path of a two-column CSV that
+            `fmsave.read_competition_names` reads. No save stores a competition name and fmsave
+            ships none, so without this every `Competition.name` and every denormalised
+            `competition_name` is None. Tables are read once and then kept, so the map cannot be
+            changed afterwards: open the save again to read it under a different one.
 
     Raises:
         FileNotFoundError: The file does not exist.
@@ -486,9 +514,16 @@ def open_save(path: str | os.PathLike[str]) -> Save:
         CorruptSaveError: The save is damaged or was being written.
         UnsupportedGameError: The save is from another Football Manager version.
         ReaderCheckError: The save metadata does not match the expected layout.
+        OSError: A competition name CSV cannot be opened or read.
+        TypeError: A competition name mapping holds a key that is not an int, or a name that is
+            not a str.
+        ValueError: A competition name CSV is malformed, or a supplied name is empty.
 
     Warns:
         UnknownBuildWarning: The save comes from an FM26 build without layout tables.
     """
+    # The map is checked before the file is touched, so a mistake in it costs none of the work
+    # of opening a save.
+    names = normalize_competition_names(competition_names)
     container_index = read_index(path)
-    return Save(container_index, read_save_info(container_index))
+    return Save(container_index, read_save_info(container_index), competition_names=names)

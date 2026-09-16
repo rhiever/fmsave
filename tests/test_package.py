@@ -53,9 +53,15 @@ def test_all_names_exist() -> None:
 
 
 def test_public_api_names() -> None:
-    assert {"open", "Save", "SaveInfo", "SectionInfo", "CodedValue", "field_status"} <= set(
-        fmsave.__all__
-    )
+    assert {
+        "open",
+        "Save",
+        "SaveInfo",
+        "SectionInfo",
+        "CodedValue",
+        "field_status",
+        "read_competition_names",
+    } <= set(fmsave.__all__)
 
 
 def test_all_model_names_exist() -> None:

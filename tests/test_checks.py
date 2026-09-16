@@ -1225,8 +1225,14 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "managed_clubs": [],
         # The example table is a fraction of a career's, and names three competitions.
         "stages": ["stage_rows_minimum"],
-        # This fragment writes no id-pair records at all, so no competition has a database id.
-        "competitions": ["competitions_minimum", "competition_database_ids_mapped"],
+        # This fragment writes no id-pair records at all, so no competition has a database id,
+        # and with none there is no share of them to name: the last gate fails for want of a
+        # rate rather than because a name went astray.
+        "competitions": [
+            "competitions_minimum",
+            "competition_database_ids_mapped",
+            "competition_names_within_database_ids",
+        ],
     }
 
 

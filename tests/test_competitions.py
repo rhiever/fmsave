@@ -46,6 +46,7 @@ COMPETITION_GATE_NAMES = (
     "competitions_minimum",
     "competition_database_ids_mapped",
     "competition_database_id_conflicts",
+    "competition_names_within_database_ids",
 )
 # A database id no record of the example save carries, for the record that contradicts one.
 CONTRADICTING_DATABASE_ID = 55_555
@@ -306,6 +307,26 @@ def test_the_competition_gates_fail_one_at_a_time(
     results = evaluate_competitions(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
 
     assert failed_gate_names(results) == expected_failures
+
+
+def test_a_name_that_escaped_the_database_ids_fails_the_gate() -> None:
+    """A name arrives only through a database id, so more names than database ids is a fault.
+
+    It is what naming a competition the save left without a database id looks like from the
+    counts: the id-pair records disagreed about it, or a second competition claims the same
+    database id, and naming it anyway would put a different competition's name on it.
+    """
+    escaped_names = dataclasses.replace(
+        healthy_competition_stats(), with_database_id=2_380, with_name=2_381
+    )
+
+    results = evaluate_competitions(escaped_names, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+
+    assert failed_gate_names(results) == ["competition_names_within_database_ids"]
+    named_gate = results[COMPETITION_GATE_NAMES.index("competition_names_within_database_ids")]
+    assert named_gate.applied
+    assert named_gate.observed is not None
+    assert named_gate.observed > 1.0
 
 
 def test_a_small_game_db_applies_no_competition_gate() -> None:

@@ -49,7 +49,7 @@ Records and tables are immutable and keep working after the save is closed.
 - **Clubs** (`clubs()`): name, short name, nation id, reputation, last league position and teams.
 - **Managed clubs** (`managed_clubs()`): the club the human manager runs. The list is empty when the manager is between jobs.
 - **Stages** (`stages()`): every stage of every competition, with the stage id that fixtures, league tables and per-match records join through, plus the competition id, group and round. A league season is one stage, a cup round is one, and each leg of a two-legged tie is its own stage.
-- **Competitions** (`competitions()`): every competition the stage table names, with the ids of its stages. The save stores no competition names, so every row's `name` is empty. Stages and competitions are read in Python; `export` writes the five tables above.
+- **Competitions** (`competitions()`): every competition the stage table names, with the ids of its stages and, for about nine competitions in ten, the competition's id in the game's own editor database. The save stores no competition names, so every row's `name` is empty until you supply a name map; see [Competition names](#competition-names). Stages and competitions are read in Python; `export` writes the five tables above.
 
 A club's `teams` are its own team slots, in stored order, followed by the teams it controls at other clubs, such as a B team the save stores as a club of its own. A player registered with one of those teams counts as a player of the controlling club, keeps the club storing his team in `team_club_uid`, and is not on loan; `on_loan` marks a real loan, with the club of the contract in effect as the parent club and the loan's own dates in `loan_start` and `loan_end`. How the save stores those links is read from the file and not checked against the game: `team_club_uid`, `parent_club_uid` and a team's `club_uid` and `affiliate` mark are all unconfirmed, so ask `field_status` before relying on them.
 
@@ -58,6 +58,33 @@ Each reader returns a `Table`, an immutable sequence of records with `where(...)
 Every field is either verified (checked against the game) or unconfirmed; ask with `fmsave.field_status(fmsave.Player, "contract.wage")`.
 
 Every value comes from the save as stored. A value fmsave cannot read is `None`, never a guess. Wages and other money are kept exactly as the game stores them and are not converted.
+
+## Competition names
+
+No save holds a competition name: the game renders them from its own installed database. fmsave ships none, never reads your game install, and makes no network call. What every competition row does carry is `database_id`, the competition's id in the game's editor database, which is the same value in every save and is what name sources outside a save are keyed on.
+
+Supply your own map to fill the names in:
+
+```python
+import fmsave
+
+competition_names = fmsave.read_competition_names("competition-names.csv")
+with fmsave.open("career.fm", competition_names=competition_names) as career_save:
+    for competition in career_save.competitions():
+        print(competition.database_id, competition.name)  # 12345 "Example League"
+```
+
+`competition_names` also takes the path itself, or any mapping of database id to name. Tables are read once and then kept, so the map cannot be changed after opening: open the save again to read it under a different one. Without a map, `name` and every denormalised `competition_name` is `None`. A competition the save gives no database id can never be named, which is why about one competition in ten stays empty however complete your map is.
+
+The file is UTF-8 with two columns, `database_id` then `name`. A first row whose first cell is not a number is treated as a header and skipped, blank lines are skipped, and surrounding spaces are trimmed:
+
+```
+database_id,name
+12345,Example League
+12346,Example Cup
+```
+
+Building one is up to you, and one source is your own installation: the game's database folder holds plain tab-separated UTF-8 `.lnc` files whose `COMP_LONG_NAME_CHANGE`, `COMP_SHORT_NAME_CHANGE` and `COMP_3LETTER_NAME_CHANGE` lines are keyed on the same database id. fmsave neither locates nor reads those files.
 
 ## Command line
 
@@ -86,7 +113,7 @@ fmsave validate career.fm --json
 ## What it cannot read (yet)
 
 - Planned for later releases: nation names; fixtures, league tables and per-match records, which reach a competition through the stage ids that already ship; finances, staff, injuries and tactics.
-- Not stored in the save at all: competition and league names. The game renders them from its own installed database, so fmsave ships none.
+- Not stored in the save at all: competition and league names. The game renders them from its own installed database, so fmsave ships none; supply your own map to fill them in, as [Competition names](#competition-names) describes.
 - Not stored in a readable way in the save: today's injuries and availability, staff attribute values, card counts, scouting budget and asking prices.
 
 ## Where saves live

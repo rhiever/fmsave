@@ -436,8 +436,12 @@ def evaluate_competitions(
 ) -> tuple[GateResult, ...]:
     """The competition reader's checks, in a fixed order.
 
-    There is no check on the share of competitions named. No save stores a competition name,
-    so that share is zero unless the user supplies a name map, and zero is not a fault.
+    Nothing bounds how many competitions are named from below: no save stores a competition
+    name, so that share is zero until a reader supplies a name map, and zero is not a fault.
+    What is checked is that no name reached a competition the save gives no database id, since
+    the map is keyed on that id alone. A competition two competitions' records claim, or whose
+    database id another competition also claims, is left without one and must stay unnamed;
+    naming it anyway would put a different competition's name on it.
     """
     applied = _applies(bounds, game_db_bytes)
     competitions = stats.competitions
@@ -453,6 +457,12 @@ def evaluate_competitions(
             "competition_database_id_conflicts",
             _rate(stats.database_id_conflicts, competitions),
             bounds.competition_database_id_conflicts,
+            applied,
+        ),
+        _gate(
+            "competition_names_within_database_ids",
+            _rate(stats.with_name, stats.with_database_id),
+            bounds.competition_names_within_database_ids,
             applied,
         ),
     )

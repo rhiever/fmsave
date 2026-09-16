@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import functools
 import struct
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, replace
 
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import StageTableLayout, find_layout
@@ -356,4 +356,19 @@ def read_stage_index(game_db: bytes, layout: StageTableLayout, file_name: str) -
         },
         stats=stats,
         game_db_bytes=len(game_db),
+    )
+
+
+def named_stages(
+    stages: tuple[Stage, ...], name_for: Callable[[int | None], str | None]
+) -> tuple[Stage, ...]:
+    """The same stage rows with `competition_name` filled in.
+
+    `name_for` is `CompetitionIndex.name_for`, the one lookup that names a competition, so a
+    stage is named by exactly the rule that names its competition and this module repeats none
+    of it. The bound method is passed rather than the index holding it, which keeps this module
+    free of an import back from the competitions reader, which already imports this one.
+    """
+    return tuple(
+        replace(stage, competition_name=name_for(stage.competition_id)) for stage in stages
     )

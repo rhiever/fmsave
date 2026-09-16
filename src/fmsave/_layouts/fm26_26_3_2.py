@@ -568,6 +568,13 @@ GATE_BOUNDS = GateBounds(
     # on 99.9% of records to holding on 90%, which would drop the share to about 0.82.
     competition_database_ids_mapped=(0.85, None),
     competition_database_id_conflicts=(None, 0.001),
+    # A name arrives only through a database id, so the named competitions can never be more
+    # than the ones that have one. Without a name map the share is 0.0 on every save, and with
+    # one it is however much of the save the reader's map covers, so only the ceiling can be
+    # bounded. Passing it means a name reached a competition the save gives no database id,
+    # such as one whose database id another competition also claims, which would put a
+    # different competition's name on it.
+    competition_names_within_database_ids=(None, 1.0),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (

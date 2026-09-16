@@ -40,6 +40,7 @@ from fmsave.models.players import (
     Trait,
 )
 from fmsave.models.suspensions import PlayerSuspension, Suspension
+from fmsave.name_maps import read_competition_names
 from fmsave.table import Table
 
 OUTPUT_SCHEMA_VERSION = 1
@@ -89,5 +90,6 @@ __all__ = [
     "__version__",
     "field_status",
     "open",
+    "read_competition_names",
     "validate_save",
 ]

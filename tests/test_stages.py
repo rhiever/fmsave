@@ -61,6 +61,7 @@ COMPETITION_GATE_NAMES = (
     "competitions_minimum",
     "competition_database_ids_mapped",
     "competition_database_id_conflicts",
+    "competition_names_within_database_ids",
 )
 
 # Rows of the example table that carry distinctive values.

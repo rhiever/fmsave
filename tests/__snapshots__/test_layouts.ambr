@@ -690,6 +690,10 @@
           0.85,
           None,
         ),
+        'competition_names_within_database_ids': tuple(
+          None,
+          1.0,
+        ),
         'competitions_minimum': tuple(
           50,
           None,
