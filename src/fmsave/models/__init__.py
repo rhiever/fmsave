@@ -21,6 +21,7 @@ from fmsave.models.league_tables import (
     Venue,
 )
 from fmsave.models.managed import ManagedClub
+from fmsave.models.matches import MatchPosition, PlayerMatchStats
 from fmsave.models.meta import SaveInfo, SectionInfo
 from fmsave.models.players import (
     Ability,
@@ -60,8 +61,10 @@ __all__ = [
     "LeagueTableSplit",
     "ManagedClub",
     "MatchOutcome",
+    "MatchPosition",
     "Personality",
     "Player",
+    "PlayerMatchStats",
     "PlayerSuspension",
     "Positions",
     "Reputation",

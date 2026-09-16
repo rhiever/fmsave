@@ -438,6 +438,66 @@ class SuspensionLayout:
     competition_id_exclusive_range: tuple[int, int]
 
 
+@dataclass(frozen=True, slots=True)
+class MatchRecordLayout:
+    """How to find a player's per-match records in `game_db`, and where their fields sit.
+
+    Every offset counts from a record's start, where `lead_byte_value` sits. Records are found
+    by a pattern built from this layout and the save's in-game date: the lead byte, the bytes up
+    to the low byte of the match year, which must be one of the years from `years_before_clock`
+    before the in-game year to `years_after_clock` after it, and then the high byte all those
+    years share. A candidate is accepted when its date decodes, the opponent's first-team id and
+    the competition id lie inside the inclusive `team_id_range` and `competition_id_range`, the
+    byte at `body_flag_offset` is 0 or 1, and the whole record lies inside the section.
+
+    **A record whose body flag is 0 is `header_bytes` long, not `record_bytes`.** Every field
+    from `position_mask_offset` on then belongs to the *next* record, so a reader must read none
+    of them: a body read off a record that has none is not a wrong value but another match's.
+
+    One search runs from `owner_back_offset` bytes before the first player record's start to the
+    end of `game_db`. A record belongs to the player with the greatest record start
+    `record_offset` for which `record_offset - owner_back_offset` is at or before the record's
+    own start; a record before the first player's window belongs to no player.
+
+    `position_bits` names the bits of the u16 at `position_mask_offset`, as `(bit index, enum
+    member name)` pairs. The mask belongs to this structure alone and shares its meanings with
+    no other: a bit named here says nothing about the same bit anywhere else. Every bit the
+    pairs leave out stays unnamed and keeps its raw mask.
+
+    `maximum_minutes`, `maximum_rating` and `maximum_goals` bound what fmsave's own sanity flag
+    accepts as a sound body, and `rating_scale` is what the stored rating is divided by.
+    """
+
+    lead_byte_offset: int
+    lead_byte_value: int
+    date_offset: int
+    opponent_team_id_offset: int
+    competition_id_offset: int
+    tag_offset: int
+    body_flag_offset: int
+    position_mask_offset: int
+    role_code_offset: int
+    goals_offset: int
+    assists_offset: int
+    left_at_offset: int
+    minutes_offset: int
+    rating_offset: int
+    passes_attempted_offset: int
+    passes_completed_offset: int
+    header_bytes: int
+    record_bytes: int
+    owner_back_offset: int
+    team_id_range: tuple[int, int]
+    competition_id_range: tuple[int, int]
+    years_before_clock: int
+    years_after_clock: int
+    maximum_minutes: int
+    maximum_rating: int
+    maximum_goals: int
+    rating_scale: int
+    position_bits: tuple[tuple[int, str], ...]
+
+
 # Count and distribution checks on the unnamed span apply only to a span at least this
 # large; a smaller span comes from a fragment that cannot meet full-save counts.
 FULL_SAVE_MINIMUM_SPAN_BYTES = 16 * 1024 * 1024
@@ -955,6 +1015,17 @@ class GateBounds:
     next: the copies pad the gaps between tables, so grouping them ungrouped collapses dozens
     of tables into one run that is division shaped no longer. Neither failure is visible to
     `table_groups_resolved`, which a single huge group scores 1.0 on.
+
+    Per-match player stats: `per_match_competition_in_stage_space` (records whose competition id
+    the stage table names, of records) and `per_match_minutes_in_range` and
+    `per_match_rating_in_range` (records with a body whose minutes and whose stored rating are
+    at most the layout's maximum, of records with a body). There is deliberately **no** count
+    bound: the search is held to a window of years around the save's own clock, so the number of
+    records moves with the window and with how long the career has run rather than with the
+    layout, and a bound on it would say nothing. The three shares judge each record's shape
+    instead, and all three apply whenever the section is large enough, so a search that finds
+    nothing leaves every one of them without a denominator and fails here rather than reporting
+    a career whose players have played no matches.
     """
 
     minimum_applies_from_bytes: int
@@ -1029,6 +1100,9 @@ class GateBounds:
     double_round_robin_divisions: BoundPair
     rules_markers_minimum: BoundPair
     rules_fully_parsed: BoundPair
+    per_match_competition_in_stage_space: BoundPair
+    per_match_minutes_in_range: BoundPair
+    per_match_rating_in_range: BoundPair
 
 
 type Layout = (
@@ -1043,6 +1117,7 @@ type Layout = (
     | PersonBlockLayout
     | ContractLayout
     | SuspensionLayout
+    | MatchRecordLayout
     | StageTableLayout
     | CompetitionIdPairLayout
     | HumansLayout

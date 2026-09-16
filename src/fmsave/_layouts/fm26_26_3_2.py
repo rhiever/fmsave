@@ -17,6 +17,7 @@ from fmsave._layouts import (
     HumansLayout,
     LayoutEntry,
     LeagueTableLayout,
+    MatchRecordLayout,
     NamePoolLayout,
     PersonBlockLayout,
     PlayerRecordLayout,
@@ -337,6 +338,60 @@ SUSPENSIONS = SuspensionLayout(
     competition_id_offset=16,
     owner_back_offset=30,
     competition_id_exclusive_range=(0, 60_000),
+)
+
+# A per-match player record is 15 bytes when the save keeps no performance body for the match
+# and 43 bytes when it does. The search is held to matches dated from four years before the
+# save's clock to one after, which is where the records a save still holds fall; how many that
+# window yields moves with the career, so no check bounds the count.
+MATCH_RECORDS = MatchRecordLayout(
+    lead_byte_offset=0,
+    lead_byte_value=0x01,
+    date_offset=1,
+    opponent_team_id_offset=5,
+    competition_id_offset=9,
+    tag_offset=13,
+    body_flag_offset=14,
+    position_mask_offset=17,
+    role_code_offset=23,
+    goals_offset=24,
+    assists_offset=28,
+    left_at_offset=36,
+    minutes_offset=39,
+    rating_offset=40,
+    passes_attempted_offset=41,
+    passes_completed_offset=42,
+    header_bytes=15,
+    record_bytes=43,
+    owner_back_offset=30,
+    team_id_range=(1, 2_999_999),
+    competition_id_range=(1, 65_535),
+    years_before_clock=4,
+    years_after_clock=1,
+    maximum_minutes=130,
+    maximum_rating=100,
+    maximum_goals=20,
+    rating_scale=10,
+    # The mask carries exactly one bit on all but a handful of the 47,000 records measured
+    # across three saves: none at all carries two, and at most four per save carry none.
+    # Fourteen of its sixteen bits are in use, so it covers a full set of positions, and one of
+    # them is named.
+    #
+    # Bit 0 is the goalkeeper. Every record of a player the game's own screen labels "GK"
+    # carries it, and all but one of the records carrying it belongs to a player the save rates
+    # a natural goalkeeper: 958 of 958, 1,177 of 1,178 and 912 of 912 records on the three
+    # saves, so one record out of 3,048 does not.
+    #
+    # No other bit is named, for want of a label that separates one bit from its neighbours.
+    # The players whose displayed label the corpus can reach play several positions each, so
+    # the label fits several bits at once: one such label lands on three bits together and says
+    # they are the three defensive ones without saying which is which. The evidence left is how
+    # often a player with a single natural position is picked in a given position, and it tops
+    # out at 0.77 to 0.86 for those bits, because where a player is picked is not what he is
+    # rated at. A name resting on that would be a guess wearing a label, and it would be
+    # invisibly wrong; a raw mask is plainly incomplete instead, and groups records just as
+    # well. The in-game check that shows one player's last five matches would settle the lot.
+    position_bits=((0, "GOALKEEPER"),),
 )
 
 # The fixture calendar record is 68 bytes from the home team id, with the locator byte, the
@@ -770,6 +825,17 @@ GATE_BOUNDS = GateBounds(
     # of the two observed values clears the floor by 22% of the bound's width, which is thin:
     # a third save measured under the strict definition may warrant lowering it.
     rules_fully_parsed=(0.80, None),
+    # Every per-match record the search accepts carries a competition id the stage table names
+    # on two of the three saves measured and 0.9988 of them on the third, and every record with
+    # a body has minutes and a rating inside the layout's bounds on all three. The floors sit
+    # far below those, because the shares rest on how much of a career the save still holds
+    # records for rather than on the layout; what they catch is a record read from the wrong
+    # offset, whose competition id then falls outside the stage table and whose minutes and
+    # rating fall anywhere at all. Nothing bounds the count: the search is held to a window of
+    # years around the save's clock, so the number of records moves with that window.
+    per_match_competition_in_stage_space=(0.95, None),
+    per_match_minutes_in_range=(0.99, None),
+    per_match_rating_in_range=(0.99, None),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (
@@ -784,6 +850,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=PERSON_BLOCKS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CONTRACTS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=SUSPENSIONS),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=MATCH_RECORDS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STAGE_TABLE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=COMPETITION_ID_PAIRS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TAGGED_STREAM),

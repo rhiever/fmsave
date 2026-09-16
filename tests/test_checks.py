@@ -152,6 +152,7 @@ READER_ORDER = (
     "transfer_windows",
     "league_tables",
     "competition_rules",
+    "player_match_stats",
 )
 EXAMPLE_COMPETITION_COUNT = 3
 
@@ -946,6 +947,8 @@ def test_validate_save_reports_every_reader_ok_with_gates_not_applied(
         "league_tables": 0,
         # Nor any rules preamble block, since its span carries nothing at all.
         "competition_rules": 0,
+        # This fragment's players carry no match records at all.
+        "player_match_stats": 0,
     }
     assert report.game == save_info.game
     assert report.build == save_info.build
@@ -1056,6 +1059,13 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "blocks_not_fully_parsed": 0,
             "blocks_without_a_doubled_quad": 0,
         },
+        "player_match_stats": {
+            "records_without_a_body": 0,
+            "unresolved_opponents": 0,
+            "competitions_outside_the_stage_table": 0,
+            "bodies_outside_their_ranges": 0,
+            "records_without_an_owner": 0,
+        },
     }
 
 
@@ -1146,6 +1156,11 @@ def test_a_failing_reader_is_reported_failed_and_the_others_still_run(
     league_tables = readers["league_tables"]
     assert league_tables.status == "failed"
     assert league_tables.gates == ()
+    # The per-match reader takes the club table through that same checked reader, and for the
+    # same reason: it puts an opponent club's name on every row it returns.
+    player_match_stats = readers["player_match_stats"]
+    assert player_match_stats.status == "failed"
+    assert player_match_stats.gates == ()
 
 
 def test_a_failing_contract_check_fails_the_shared_player_pass_and_caches_nothing(
@@ -1176,7 +1191,10 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_caches_nothin
                 assert cache_key not in career_save._context._cache
         assert len(evaluations) == 3
         report = validate_save(career_save)
-    assert len(evaluations) == 4
+    # Once for the player pass itself, which the two readers sharing it then skip, and once more
+    # for the per-match reader, which decodes the players to name its rows and so pays for that
+    # pass again before raising the same error.
+    assert len(evaluations) == 5
     readers = reader_by_name(report)
     assert {name: reader.status for name, reader in readers.items()} == {
         "clubs": "ok",
@@ -1190,6 +1208,8 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_caches_nothin
         "transfer_windows": "ok",
         "league_tables": "ok",
         "competition_rules": "ok",
+        # This reader decodes the players to name its rows, so the failed player pass stops it.
+        "player_match_stats": "failed",
     }
     assert readers["contracts"].gates == (failing_gate("tails_parsed"),)
     assert tuple(gate.name for gate in readers["players"].gates) == PLAYER_GATE_NAMES
@@ -1262,6 +1282,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # Its span holds no rules preamble block either, which has to fail once the gates
         # apply rather than report a career with no competition rules of its own.
         "competition_rules": "failed",
+        "player_match_stats": "failed",
     }
     assert {name: failed_gate_names(reader.gates) for name, reader in readers.items()} == {
         "clubs": ["clubs_minimum", "status_confirmation", "reputation_median"],
@@ -1332,6 +1353,10 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # An empty span holds no marker to count and leaves the parsed share without a
         # denominator, so both gates fail rather than one passing quietly.
         "competition_rules": ["rules_markers_minimum", "rules_fully_parsed"],
+        # This reader decodes the players to name its rows, so the failed player pass stops it
+        # before it reaches a gate of its own. Its three gates are judged on their own counts in
+        # the per-match tests, where a search that found nothing fails all three.
+        "player_match_stats": [],
     }
 
 

@@ -34,6 +34,7 @@ from tests.fixtures.game_db import (
     fallback_contract_bytes,
     game_db_body,
     humans_body,
+    match_record_bytes,
     name_pools_bytes,
     person_block_bytes,
     player_record_bytes,
@@ -231,6 +232,91 @@ def manager_region_bytes() -> bytes:
     return person_header + bytes(64) + chain_record + bytes(64)
 
 
+# Per-match player records. The four matches sit inside player A's own window; player B plays
+# none. Every date falls in the window a scan builds from the in-game date of 1 March 2031.
+MATCH_YEAR = 2031
+FIRST_MATCH_DAY = 51
+UNPLAYED_MATCH_DAY = 44
+UNLISTED_COMPETITION_MATCH_DAY = 37
+OUT_OF_RANGE_MATCH_DAY = 30
+# A competition id the example stage table never names, so it is outside the stage id space.
+UNLISTED_MATCH_COMPETITION_ID = 4242
+# The one mask bit a displayed in-game label names, so this match carries a named position.
+FIRST_MATCH_POSITION_MASK = 1 << 0
+# A bit no displayed label names, which has to read as unknown with its raw mask kept.
+UNNAMED_POSITION_MASK = 1 << 12
+FIRST_MATCH_ROLE_CODE = 5
+FIRST_MATCH_GOALS = 2
+FIRST_MATCH_ASSISTS = 1
+FIRST_MATCH_MINUTES = 90
+FIRST_MATCH_LEFT_AT = 90
+FIRST_MATCH_RATING_X10 = 78
+FIRST_MATCH_PASSES_ATTEMPTED = 40
+FIRST_MATCH_PASSES_COMPLETED = 35
+UNLISTED_COMPETITION_MATCH_MINUTES = 45
+UNLISTED_COMPETITION_MATCH_RATING_X10 = 65
+# Past every bound the body's own sanity flag holds a match to.
+OUT_OF_RANGE_MATCH_MINUTES = 200
+OUT_OF_RANGE_MATCH_RATING_X10 = 120
+OUT_OF_RANGE_MATCH_GOALS = 30
+PLAYER_A_MATCH_COUNT = 4
+
+
+def player_a_match_records() -> bytes:
+    """Player A's four matches, in the order the save stores them.
+
+    The first carries a filled-in body, the second is the 15-byte header the save keeps for a
+    match with no body at all, the third names a competition the stage table does not hold, and
+    the fourth is played against a team no club lists with a body past every range. The fourth
+    opponent is the team id the fixture calendar below leaves unlisted as well.
+    """
+    return (
+        match_record_bytes(
+            day_of_year=FIRST_MATCH_DAY,
+            year=MATCH_YEAR,
+            opponent_team_id=NORTHBRIDGE_TEAM_A,
+            competition_id=FIRST_COMPETITION_ID,
+            played=True,
+            position_mask=FIRST_MATCH_POSITION_MASK,
+            role_code=FIRST_MATCH_ROLE_CODE,
+            goals=FIRST_MATCH_GOALS,
+            assists=FIRST_MATCH_ASSISTS,
+            left_at=FIRST_MATCH_LEFT_AT,
+            minutes=FIRST_MATCH_MINUTES,
+            rating_x10=FIRST_MATCH_RATING_X10,
+            passes_attempted=FIRST_MATCH_PASSES_ATTEMPTED,
+            passes_completed=FIRST_MATCH_PASSES_COMPLETED,
+        )
+        + match_record_bytes(
+            day_of_year=UNPLAYED_MATCH_DAY,
+            year=MATCH_YEAR,
+            opponent_team_id=ATHLETIC_TEAM_A,
+            competition_id=FIRST_COMPETITION_ID,
+            played=False,
+        )
+        + match_record_bytes(
+            day_of_year=UNLISTED_COMPETITION_MATCH_DAY,
+            year=MATCH_YEAR,
+            opponent_team_id=NORTHBRIDGE_TEAM_A,
+            competition_id=UNLISTED_MATCH_COMPETITION_ID,
+            played=True,
+            position_mask=UNNAMED_POSITION_MASK,
+            minutes=UNLISTED_COMPETITION_MATCH_MINUTES,
+            rating_x10=UNLISTED_COMPETITION_MATCH_RATING_X10,
+        )
+        + match_record_bytes(
+            day_of_year=OUT_OF_RANGE_MATCH_DAY,
+            year=MATCH_YEAR,
+            opponent_team_id=UNREGISTERED_FIXTURE_TEAM_ID,
+            competition_id=FIRST_COMPETITION_ID,
+            played=True,
+            goals=OUT_OF_RANGE_MATCH_GOALS,
+            minutes=OUT_OF_RANGE_MATCH_MINUTES,
+            rating_x10=OUT_OF_RANGE_MATCH_RATING_X10,
+        )
+    )
+
+
 def player_bytes(
     *,
     pindex: int,
@@ -242,6 +328,7 @@ def player_bytes(
     height_cm: int,
     trailing: bytes,
     marker: bytes = PLAYER_RECORD_MARKER,
+    match_records: bytes = b"",
 ) -> bytes:
     return player_record_bytes(
         pindex=pindex,
@@ -262,11 +349,14 @@ def player_bytes(
         height_cm=height_cm,
         marker=marker,
         trailing=trailing,
+        match_records=match_records,
     )
 
 
 def player_a_bytes() -> bytes:
-    """At Southport: two suspensions, a full person block and two contract chain records."""
+    """At Southport: two suspensions, a full person block, two contract chain records and the
+    four matches `player_a_match_records` writes at the end of his window.
+    """
     pindex = 11
     suspensions = suspension_entry_bytes(
         competition_id=1234, issued=packed_date(51, 2031), e7=3, e14=1
@@ -331,6 +421,7 @@ def player_a_bytes() -> bytes:
         transfer_value_raw=4_500_000,
         height_cm=181,
         trailing=suspensions + person_block + first_record + second_record + decoy_record,
+        match_records=player_a_match_records(),
     )
 
 

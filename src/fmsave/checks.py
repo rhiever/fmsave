@@ -2,7 +2,7 @@
 
 While a reader decodes, it counts what it sees into a stats record from `fmsave._reader_stats`
 (`PlayerStats`, `ContractStats`, `ClubStats`, `SuspensionStats`, `ManagedStats`, `StageStats`,
-`CompetitionStats`, `FixtureStats`, `TransferWindowStats`, `LeagueTableStats` or `RulesStats`).
+`CompetitionStats`, `FixtureStats`, `TransferWindowStats`, `LeagueTableStats`, `RulesStats` or `MatchStats`).
 The `evaluate_*` functions compare those counts with the loose `GateBounds` registered for the
 save's layout and return one `GateResult` per check, and `enforce` raises `ReaderCheckError`
 when an applied check failed, before the reader caches its table. The checks apply only to a
@@ -37,6 +37,7 @@ from fmsave._reader_stats import (
     FixtureStats,
     LeagueTableStats,
     ManagedStats,
+    MatchStats,
     PlayerStats,
     ResultStats,
     RulesStats,
@@ -78,6 +79,7 @@ FIXTURES_READER = "fixtures"
 TRANSFER_WINDOWS_READER = "transfer_windows"
 LEAGUE_TABLES_READER = "league_tables"
 COMPETITION_RULES_READER = "competition_rules"
+PLAYER_MATCH_STATS_READER = "player_match_stats"
 
 # Players, contracts and suspensions are decoded in one pass, so they fail or succeed together.
 _PLAYER_PASS_READERS = frozenset({PLAYERS_READER, CONTRACTS_READER, SUSPENSIONS_READER})
@@ -918,6 +920,77 @@ def check_competition_rules(stats: RulesStats, bounds: GateBounds, span_bytes: i
     )
 
 
+def evaluate_player_match_stats(
+    stats: MatchStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The per-match player stats reader's checks, in a fixed order.
+
+    There is deliberately no count check. The search is held to a window of years around the
+    save's own clock, so how many records it finds moves with that window and with how long the
+    career has run; no bound on it could tell a record layout that has moved from a career that
+    has simply played fewer matches. Each record's shape is checked instead, which does tell
+    them apart: a record read from the wrong offset carries a competition id the stage table
+    never names, and minutes and a rating that can land anywhere at all.
+
+    All three apply whenever the section is large enough, including when the search found
+    nothing: an empty result leaves every one of them without a denominator, which fails rather
+    than passes, so a layout that has moved fails here rather than reporting a career whose
+    players have played no matches.
+    """
+    applied = _applies(bounds, game_db_bytes)
+    with_body = stats.with_body
+    return (
+        _gate(
+            "per_match_competition_in_stage_space",
+            _rate(stats.competition_in_stage_space, stats.records),
+            bounds.per_match_competition_in_stage_space,
+            applied,
+        ),
+        _gate(
+            "per_match_minutes_in_range",
+            _rate(stats.minutes_in_range, with_body),
+            bounds.per_match_minutes_in_range,
+            applied,
+        ),
+        _gate(
+            "per_match_rating_in_range",
+            _rate(stats.rating_in_range, with_body),
+            bounds.per_match_rating_in_range,
+            applied,
+        ),
+    )
+
+
+def check_player_match_stats(
+    stats: MatchStats, bounds: GateBounds, game_db_bytes: int
+) -> ReaderCheck:
+    """The per-match player stats reader's checks, record count and anomaly counts.
+
+    `records_without_a_body` counts the matches the save keeps no performance body for, which is
+    about two records in five on every save and is ordinary rather than a fault. The rest count
+    what a join or a bound left unsatisfied: opponents no club lists, competition ids the stage
+    table does not name, bodies holding a number no match can reach, and records lying before
+    the first player's window, which belong to no player and build no row.
+    """
+    records = stats.records
+    return ReaderCheck(
+        PLAYER_MATCH_STATS_READER,
+        records,
+        evaluate_player_match_stats(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {
+                "records_without_a_body": records - stats.with_body,
+                "unresolved_opponents": records - stats.opponent_resolved,
+                "competitions_outside_the_stage_table": (
+                    records - stats.competition_in_stage_space
+                ),
+                "bodies_outside_their_ranges": stats.with_body - stats.body_valid,
+                "records_without_an_owner": stats.unowned,
+            }
+        ),
+    )
+
+
 def _format_number(value: float | None) -> str:
     if value is None:
         return "none"
@@ -994,7 +1067,7 @@ class ReaderValidation:
     Attributes:
         reader: The reader: "clubs", "players", "contracts", "suspensions", "managed_clubs",
             "stages", "competitions", "fixtures", "transfer_windows", "league_tables" or
-            "competition_rules".
+            "competition_rules" or "player_match_stats".
         status: "ok" when the reader returned its table, "failed" when checks stopped it, and
             "error" when it raised another fmsave error.
         record_count: How many records the reader decoded, or None when it did not get far
@@ -1087,8 +1160,9 @@ def validate_save(career_save: Save) -> ValidationReport:
     """Run every reader on a save and report how each fared.
 
     Readers run in the order clubs, players, contracts, suspensions, managed clubs, stages,
-    competitions, fixtures, transfer windows, league tables, competition rules. A reader whose
-    checks fail is reported "failed" with its checks, and one that raises another fmsave error
+    competitions, fixtures, transfer windows, league tables, competition rules, per-match
+    player stats. A reader whose checks fail is reported "failed" with its checks, and one
+    that raises another fmsave error
     is reported "error" without the error's text; the remaining readers still run. The report
     holds only structural facts, counts and rates, never names, uids or other values from the
     save.
@@ -1111,6 +1185,7 @@ def validate_save(career_save: Save) -> ValidationReport:
         (TRANSFER_WINDOWS_READER, career_save.transfer_windows),
         (LEAGUE_TABLES_READER, career_save.league_tables),
         (COMPETITION_RULES_READER, career_save.competition_rules),
+        (PLAYER_MATCH_STATS_READER, career_save.player_match_stats),
     )
     validations: list[ReaderValidation] = []
     player_pass_error: FmsaveError | None = None

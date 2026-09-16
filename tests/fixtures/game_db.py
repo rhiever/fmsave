@@ -491,12 +491,15 @@ def player_record_bytes(
     marker: bytes = PLAYER_RECORD_MARKER,
     doubled_uid: bool = True,
     trailing: bytes = b"",
+    match_records: bytes = b"",
 ) -> bytes:
     """One player record fragment: a header, the doubled uid, reputations, the record body.
 
     The record itself starts 26 bytes into the returned bytes. Every offset inside the body
     counts from that start; unlisted bytes are 0. `marker` is written at offset 102 (the scan
-    marker for accepted records, or a real date for a marker-less record).
+    marker for accepted records, or a real date for a marker-less record). `match_records` goes
+    inside the player's own window, after everything `trailing` holds, which is where the save
+    keeps a player's per-match records.
     """
     header = bytearray(b"\x00\x40\x00\x00\x00\x00\x00")
     header.extend(struct.pack("<I", pindex))
@@ -519,7 +522,68 @@ def player_record_bytes(
     struct.pack_into("<H", body, 110, condition)
     body[121] = height_cm
 
-    return bytes(header) + bytes(body) + trailing
+    return bytes(header) + bytes(body) + trailing + match_records
+
+
+# Per-match player records: 15 bytes for a match the save keeps no performance body for and 43
+# bytes for one it does, written directly here (never imported from fmsave) so a wrong offset
+# inside fmsave has to fail a test built from this module.
+MATCH_RECORD_HEADER_BYTES = 15
+MATCH_RECORD_BODY_BYTES = 43
+MATCH_RECORD_LEAD_BYTE = 0x01
+# Fills every body byte no field pins, so a reader reading one byte out of place finds this
+# rather than the value it expects. It is neither the lead byte a record starts with nor the
+# high byte of any year a scan looks for, so a run of it can never start a record of its own.
+MATCH_RECORD_FILLER_BYTE = 0x5B
+
+
+def match_record_bytes(
+    *,
+    day_of_year: int,
+    year: int,
+    opponent_team_id: int,
+    competition_id: int,
+    played: bool,
+    tag: int = 0,
+    position_mask: int = 0,
+    role_code: int = 0,
+    goals: int = 0,
+    assists: int = 0,
+    left_at: int = 90,
+    minutes: int = 90,
+    rating_x10: int = 70,
+    passes_attempted: int = 0,
+    passes_completed: int = 0,
+) -> bytes:
+    """One per-match player record, written forward in the order the format lays it out.
+
+    The lead byte, the 4-byte match date, the u32 opponent first-team id, the u32 competition
+    id, the tag byte and the body flag make the 15-byte header, which is the whole record when
+    `played` is false. When it is true a 43-byte record follows the same header: the u16
+    position mask at +17, the role code at +23, goals at +24, assists at +28, the minute the
+    player left the pitch at +36, minutes at +39, the rating times ten at +40, and passes
+    attempted and completed at +41 and +42. Every other body byte is `MATCH_RECORD_FILLER_BYTE`.
+    """
+    header = bytearray()
+    header.append(MATCH_RECORD_LEAD_BYTE)
+    header.extend(packed_date(day_of_year, year))
+    header.extend(struct.pack("<II", opponent_team_id, competition_id))
+    header.append(tag)
+    header.append(1 if played else 0)
+    if not played:
+        return bytes(header)
+    record = bytearray([MATCH_RECORD_FILLER_BYTE] * MATCH_RECORD_BODY_BYTES)
+    record[:MATCH_RECORD_HEADER_BYTES] = header
+    struct.pack_into("<H", record, 17, position_mask)
+    record[23] = role_code
+    record[24] = goals
+    record[28] = assists
+    record[36] = left_at
+    record[39] = minutes
+    record[40] = rating_x10
+    record[41] = passes_attempted
+    record[42] = passes_completed
+    return bytes(record)
 
 
 # Contract chain records: fixed byte layout, written directly here (never imported from

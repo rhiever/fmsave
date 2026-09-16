@@ -410,6 +410,52 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'assists_offset': 28,
+        'body_flag_offset': 14,
+        'competition_id_offset': 9,
+        'competition_id_range': tuple(
+          1,
+          65535,
+        ),
+        'date_offset': 1,
+        'goals_offset': 24,
+        'header_bytes': 15,
+        'lead_byte_offset': 0,
+        'lead_byte_value': 1,
+        'left_at_offset': 36,
+        'maximum_goals': 20,
+        'maximum_minutes': 130,
+        'maximum_rating': 100,
+        'minutes_offset': 39,
+        'opponent_team_id_offset': 5,
+        'owner_back_offset': 30,
+        'passes_attempted_offset': 41,
+        'passes_completed_offset': 42,
+        'position_bits': tuple(
+          tuple(
+            0,
+            'GOALKEEPER',
+          ),
+        ),
+        'position_mask_offset': 17,
+        'rating_offset': 40,
+        'rating_scale': 10,
+        'record_bytes': 43,
+        'role_code_offset': 23,
+        'tag_offset': 13,
+        'team_id_range': tuple(
+          1,
+          2999999,
+        ),
+        'years_after_clock': 1,
+        'years_before_clock': 4,
+      }),
+      'region': 'game_db',
+      'schema': 4000,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
         'chain_rows': 200,
         'competition_id_limit': 1000000,
         'competition_id_offset': 13,
@@ -874,6 +920,18 @@
         'past_dated_tail_ends': tuple(
           None,
           0.05,
+        ),
+        'per_match_competition_in_stage_space': tuple(
+          0.95,
+          None,
+        ),
+        'per_match_minutes_in_range': tuple(
+          0.99,
+          None,
+        ),
+        'per_match_rating_in_range': tuple(
+          0.99,
+          None,
         ),
         'person_blocks': tuple(
           0.99,

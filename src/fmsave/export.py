@@ -149,7 +149,9 @@ def _without_none(annotation: object) -> object:
 
 
 def _scalar_kind(annotation: object) -> _ScalarKind | None:
-    if annotation is int or annotation is str:
+    # A float flattens exactly as an int does: it is written as it is, and every format these
+    # records reach (CSV, JSON, a DataFrame column) holds one natively.
+    if annotation is int or annotation is str or annotation is float:
         return "value"
     if annotation is bool:
         return "bool"

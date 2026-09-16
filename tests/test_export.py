@@ -77,7 +77,12 @@ class ExampleContractHolder:
 
 @dataclass(frozen=True, slots=True)
 class ExampleWithFloat:
-    rating: float
+    rating: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class ExampleWithUnsupportedValue:
+    rating: complex
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,7 +210,15 @@ def test_missing_group_keeps_its_columns_as_none() -> None:
 
 def test_unsupported_annotation_raises_type_error_naming_the_field() -> None:
     with pytest.raises(TypeError, match="rating"):
-        column_names(ExampleWithFloat)
+        column_names(ExampleWithUnsupportedValue)
+
+
+def test_a_float_is_a_plain_column_like_an_int() -> None:
+    assert column_names(ExampleWithFloat) == ("rating",)
+    float_records = [ExampleWithFloat(7.8), ExampleWithFloat(None)]
+    assert to_columns(float_records, ExampleWithFloat) == {"rating": [7.8, None]}
+    assert record_to_dict(float_records[0], json_ready=True) == {"rating": 7.8}
+    assert_matches_json_normalize(float_records, ExampleWithFloat)
 
 
 def test_colliding_column_names_raise_value_error() -> None:

@@ -31,6 +31,7 @@ from fmsave.models.contracts import Contract
 from fmsave.models.fixtures import Fixture
 from fmsave.models.league_tables import LeagueTable
 from fmsave.models.managed import ManagedClub
+from fmsave.models.matches import PlayerMatchStats
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
@@ -45,6 +46,11 @@ from fmsave.readers._common import (
 from fmsave.readers.fixtures import build_fixtures
 from fmsave.readers.league_tables import build_league_tables
 from fmsave.readers.managed import find_managed_club_layouts, resolve_managed_clubs
+from fmsave.readers.matches import (
+    build_player_match_stats,
+    find_match_record_layout,
+    locate_match_records,
+)
 from fmsave.readers.player_scan import window_end
 from fmsave.readers.players import build_player_decoder, collect_player_stats
 from fmsave.readers.results import (
@@ -80,6 +86,7 @@ FIXTURES_TABLE_CACHE_KEY = "table:fixtures"
 TRANSFER_WINDOWS_TABLE_CACHE_KEY = "table:transfer_windows"
 LEAGUE_TABLES_TABLE_CACHE_KEY = "table:league_tables"
 COMPETITION_RULES_TABLE_CACHE_KEY = "table:competition_rules"
+PLAYER_MATCH_STATS_TABLE_CACHE_KEY = "table:player_match_stats"
 
 
 class _PlayerTables(NamedTuple):
@@ -537,6 +544,84 @@ class Save:
         checks.enforce_checks((rules_check,))
         self._store_reader_checks((rules_check,))
         return Table(rules, CompetitionRules)
+
+    def player_match_stats(self) -> Table[PlayerMatchStats]:
+        """Every match one of the save's players played that it still holds a record of.
+
+        Rows come in player order and, inside each player, in the order the save stores his
+        matches. **This is never a whole season and never a career**: the save keeps about
+        twenty matches per player per spell at a team, **counted across all competitions at once
+        rather than per competition**, and drops the oldest as new ones arrive. A player who has
+        played more than that in his current spell has only his latest matches here, so **a
+        per-competition total summed from these rows is short without saying so** — nothing in a
+        row marks it as truncated. Friendlies, internationals and youth matches are kept apart
+        from these records and are not here at all.
+
+        Each row carries the competition id the record itself stores, which is in the stage id
+        space, and joins to a club through the opponent's team id; a team id no club lists
+        leaves the opponent fields empty rather than guessing them. A match the save keeps no
+        performance body for carries its date, competition and opponent, and every field that
+        would come from the body is empty.
+
+        This reader decodes the players to fill `player_name`, so a cold call pays for the
+        player pass; a caller who has already called `players()` pays nothing extra for it. The
+        table is read on the first call; later calls return the same table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: The club or player readers this one joins through failed their own
+                checks; no club record is accepted; a club uid or club index appears in two
+                records; a team id is listed twice; no player records were found; two player
+                records share a uid; no stage table was found in the tail of the game database;
+                the save's in-game date is unreadable, so the years a match may be dated in
+                cannot be worked out; or, on a full-size save, the records decoded fall outside
+                the checks' bounds.
+        """
+        context = self._context
+        return context.cached(PLAYER_MATCH_STATS_TABLE_CACHE_KEY, self._read_player_match_stats)
+
+    def _read_player_match_stats(self) -> Table[PlayerMatchStats]:
+        context = self._context
+        save_info = context.info
+        clock = save_info.game_date
+        if clock is None:
+            raise ReaderCheckError(
+                f"{save_info.file_name}: the save's in-game date is unreadable, so the years a "
+                "match record may be dated in cannot be worked out"
+            )
+        gate_bounds = self._gate_bounds()
+        layout = find_match_record_layout(
+            save_info.section_schemas.get(GAME_DB_SECTION), save_info.build
+        )
+        # One game_db borrow covers the record search and every index the joins go through, so a
+        # cold call decompresses that section once rather than once per index.
+        with context.section(GAME_DB_SECTION) as game_db:
+            # These two hand their data straight out: the player uid and name on every row, and
+            # the opponent club's names and team slot. Each is therefore read through the reader
+            # that enforces its own checks, never through the raw index behind it, so forcing
+            # the player or club bounds to something unmeetable stops this call instead of
+            # leaving it handing out names from an index whose checks never ran. Both run inside
+            # this borrow, so they still share the one decompression.
+            players = self.players()
+            self.clubs()
+            club_index = context.club_index()
+            player_records = context.player_records()
+            # The stage index is read straight from the cache, without the stage reader's
+            # checks, because nothing of it reaches a caller: a record carries its own
+            # competition id, and this index is used only to count how many of those ids the
+            # stage table names, which is what one of this reader's own checks judges.
+            stage_index = context.stage_index()
+            records_by_position = locate_match_records(game_db, player_records, layout, clock)
+            game_db_length = len(game_db)
+        match_rows, match_stats = build_player_match_stats(
+            records_by_position, player_records, players, club_index, stage_index, layout
+        )
+        match_check = checks.check_player_match_stats(match_stats, gate_bounds, game_db_length)
+        checks.enforce_checks((match_check,))
+        self._store_reader_checks((match_check,))
+        return Table(match_rows, PlayerMatchStats)
 
     def _reader_check(self, reader_name: str) -> ReaderCheck | None:
         """The checks a reader passed when its table was read, or None before it was read."""
