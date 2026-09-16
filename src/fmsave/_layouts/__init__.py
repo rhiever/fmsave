@@ -602,6 +602,41 @@ class RulesPreambleLayout:
     moved_match_max_per_round: int
 
 
+@dataclass(frozen=True, slots=True)
+class StageTableLayout:
+    """Where the stage table sits in `game_db`, and where a stage row's fields sit.
+
+    The table is found in the last `search_bytes` of `game_db`, at the first offset where
+    `chain_rows` rows in a row all decode `row_bytes` apart; the head of that chain is then
+    reached by stepping back a row at a time. A row decodes when the byte at
+    `zero_byte_offset` is zero, the stage id at `stage_id_offset` is repeated at
+    `stage_id_copy_offset` and lies strictly between the bounds of
+    `stage_id_exclusive_range`, and the word at `previous_stage_id_offset` is either that id
+    minus 1 or the missing value. Where a row does not decode, the walk scans forward at most
+    `resynchronisation_bytes` for the next one that does.
+
+    Every other offset counts from the row start. A competition id at or above
+    `competition_id_limit` is a marker or a malformed row rather than a competition, and is
+    read as no competition.
+    """
+
+    row_bytes: int
+    previous_stage_id_offset: int
+    stage_id_offset: int
+    stage_id_copy_offset: int
+    zero_byte_offset: int
+    competition_id_offset: int
+    group_id_offset: int
+    round_offset: int
+    unknown_s25_offset: int
+    unknown_s29_offset: int
+    stage_id_exclusive_range: tuple[int, int]
+    competition_id_limit: int
+    search_bytes: int
+    chain_rows: int
+    resynchronisation_bytes: int
+
+
 type BoundPair = tuple[float | None, float | None]
 
 
@@ -658,6 +693,14 @@ class GateBounds:
     Suspensions: `suspension_share_of_players` (players with an entry, of players; not applied
     without players) and `issued_after_clock` (entries issued after the in-game date, of
     entries; not applied without entries).
+
+    Stages: `stage_rows_minimum` (rows walked), `stage_walk_gaps` (places the walk had to
+    resynchronise), `stage_ids_ascending` (steps that reached a higher stage id, of steps),
+    `stage_rows_with_competition` (of rows), `stage_trailing_sentinel` (rows whose last word
+    is the missing value, of rows) and `stage_table_tail_bytes` (bytes of `game_db` after the
+    table, which is near its end).
+
+    Competitions: `competitions_minimum` (distinct competitions the stage table names).
     """
 
     minimum_applies_from_bytes: int
@@ -703,6 +746,13 @@ class GateBounds:
     affiliate_teams_linked: BoundPair
     suspension_share_of_players: BoundPair
     issued_after_clock: BoundPair
+    stage_rows_minimum: BoundPair
+    stage_walk_gaps: BoundPair
+    stage_ids_ascending: BoundPair
+    stage_rows_with_competition: BoundPair
+    stage_trailing_sentinel: BoundPair
+    stage_table_tail_bytes: BoundPair
+    competitions_minimum: BoundPair
 
 
 type Layout = (
@@ -717,6 +767,7 @@ type Layout = (
     | PersonBlockLayout
     | ContractLayout
     | SuspensionLayout
+    | StageTableLayout
     | HumansLayout
     | FixtureCalendarLayout
     | LeagueTableLayout

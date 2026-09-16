@@ -108,6 +108,42 @@ class SuspensionStats:
 
 
 @dataclass(frozen=True, slots=True)
+class StageStats:
+    """What the stage table walk counted.
+
+    `gaps` counts the places the walk had to resynchronise, `steps` the moves from one row to
+    the next and `ascending_steps` those that reached a higher stage id.
+    `competition_id_rejected` counts rows whose competition id is at or above the layout's
+    limit, which is a marker rather than a competition, and `with_competition` the rows left
+    holding one. `trailing_sentinel_ok` counts rows whose last word is the missing value, and
+    `bytes_after_table` how much of `game_db` follows the table.
+    """
+
+    rows: int
+    gaps: int
+    distinct_ids: int
+    ascending_steps: int
+    steps: int
+    with_competition: int
+    competition_id_rejected: int
+    trailing_sentinel_ok: int
+    bytes_after_table: int
+
+
+@dataclass(frozen=True, slots=True)
+class CompetitionStats:
+    """What the competition index collected from the stage table.
+
+    `database_id_conflicts` counts editor database ids that more than one competition claims.
+    """
+
+    competitions: int
+    with_database_id: int
+    database_id_conflicts: int
+    with_name: int
+
+
+@dataclass(frozen=True, slots=True)
 class ManagedStats:
     """What the managed-club reader found: human managers, resolved routes (0 or 1) and rows."""
 

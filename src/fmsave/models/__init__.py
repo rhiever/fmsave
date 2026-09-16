@@ -2,6 +2,7 @@
 
 from fmsave.models.clubs import Club, Team
 from fmsave.models.common import CodedValue, ContractEndSource, TransferValueState
+from fmsave.models.competitions import Competition, CompetitionRound, Stage
 from fmsave.models.contracts import (
     Clause,
     ClauseKind,
@@ -30,6 +31,8 @@ __all__ = [
     "ClauseKind",
     "Club",
     "CodedValue",
+    "Competition",
+    "CompetitionRound",
     "Contract",
     "ContractChainEntry",
     "ContractEndSource",
@@ -43,6 +46,7 @@ __all__ = [
     "SaveInfo",
     "SectionInfo",
     "SquadStatus",
+    "Stage",
     "Suspension",
     "Team",
     "Trait",

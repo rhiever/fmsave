@@ -19,6 +19,7 @@ from fmsave._status import field_status
 from fmsave.checks import GateResult, ReaderValidation, ValidationReport, validate_save
 from fmsave.models.clubs import Club, Team
 from fmsave.models.common import CodedValue, ContractEndSource
+from fmsave.models.competitions import Competition, CompetitionRound, Stage
 from fmsave.models.contracts import (
     Clause,
     ClauseKind,
@@ -52,6 +53,8 @@ __all__ = [
     "ClauseKind",
     "Club",
     "CodedValue",
+    "Competition",
+    "CompetitionRound",
     "Contract",
     "ContractChainEntry",
     "ContractEndSource",
@@ -75,6 +78,7 @@ __all__ = [
     "SaveInfo",
     "SectionInfo",
     "SquadStatus",
+    "Stage",
     "Suspension",
     "Table",
     "Team",

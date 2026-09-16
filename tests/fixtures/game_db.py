@@ -146,10 +146,61 @@ def status_record_bytes(
 
 
 def game_db_body(
-    club_records: Sequence[bytes], status_records: Sequence[bytes], *, gap_bytes: int = 70_000
+    club_records: Sequence[bytes],
+    status_records: Sequence[bytes],
+    *,
+    gap_bytes: int = 70_000,
+    stage_table: bytes = b"",
 ) -> bytes:
-    """64 zero bytes, the club records, `gap_bytes` zero bytes, then the status records."""
-    return bytes(64) + b"".join(club_records) + bytes(gap_bytes) + b"".join(status_records)
+    """64 zero bytes, the club records, `gap_bytes` zero bytes, the status records, the stages.
+
+    `stage_table` is appended last, as the save keeps its stage table near the end of `game_db`.
+    """
+    return (
+        bytes(64)
+        + b"".join(club_records)
+        + bytes(gap_bytes)
+        + b"".join(status_records)
+        + stage_table
+    )
+
+
+# Stage table rows: 33 bytes each, written directly here (never imported from fmsave) so a
+# wrong offset inside fmsave has to fail a test built from this module.
+STAGE_ROW_LENGTH = 33
+STAGE_MISSING_VALUE = 0xFFFFFFFF
+
+
+def stage_row_bytes(
+    *,
+    stage_id: int,
+    competition_id: int | None,
+    group_id: int | None,
+    round_code: int | None,
+    s25: int = STAGE_MISSING_VALUE,
+    s29: int = STAGE_MISSING_VALUE,
+    previous_stage_id: int | None = None,
+) -> bytes:
+    """One 33-byte stage row, written forward in the order the format lays it out.
+
+    A u32 previous stage id, the stage id twice, a zero byte, then the u32 competition id,
+    group id, round code and the two unidentified words. `previous_stage_id=None` writes
+    `stage_id - 1`; a competition, group or round of None writes the missing-value word.
+    """
+    previous_value = stage_id - 1 if previous_stage_id is None else previous_stage_id
+    output = bytearray(struct.pack("<III", previous_value, stage_id, stage_id))
+    output.append(0)
+    for value in (competition_id, group_id, round_code):
+        output.extend(struct.pack("<I", STAGE_MISSING_VALUE if value is None else value))
+    output.extend(struct.pack("<II", s25, s29))
+    return bytes(output)
+
+
+def stage_table_bytes(
+    rows: Sequence[bytes], *, leading_bytes: int = 64, trailing_bytes: int = 128
+) -> bytes:
+    """Zero padding, the rows back to back, then zero padding."""
+    return bytes(leading_bytes) + b"".join(rows) + bytes(trailing_bytes)
 
 
 PLAYER_RECORD_MARKER = bytes.fromhex("01006c07")

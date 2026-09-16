@@ -409,6 +409,31 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'chain_rows': 200,
+        'competition_id_limit': 1000000,
+        'competition_id_offset': 13,
+        'group_id_offset': 17,
+        'previous_stage_id_offset': 0,
+        'resynchronisation_bytes': 4096,
+        'round_offset': 21,
+        'row_bytes': 33,
+        'search_bytes': 2000000,
+        'stage_id_copy_offset': 8,
+        'stage_id_exclusive_range': tuple(
+          0,
+          200000,
+        ),
+        'stage_id_offset': 4,
+        'unknown_s25_offset': 25,
+        'unknown_s29_offset': 29,
+        'zero_byte_offset': 12,
+      }),
+      'region': 'game_db',
+      'schema': 4000,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
         'first_selector_offset': 10,
         'human_count_offset': 8,
         'person_uid_copy_offset': 8,
@@ -566,6 +591,10 @@
           5000,
           None,
         ),
+        'competitions_minimum': tuple(
+          50,
+          None,
+        ),
         'condition_sharpness_in_range': tuple(
           0.999,
           None,
@@ -652,6 +681,30 @@
           None,
         ),
         'span_minimum_applies_from_bytes': 16777216,
+        'stage_ids_ascending': tuple(
+          0.99,
+          None,
+        ),
+        'stage_rows_minimum': tuple(
+          1000,
+          None,
+        ),
+        'stage_rows_with_competition': tuple(
+          0.9,
+          None,
+        ),
+        'stage_table_tail_bytes': tuple(
+          None,
+          2097152,
+        ),
+        'stage_trailing_sentinel': tuple(
+          0.95,
+          None,
+        ),
+        'stage_walk_gaps': tuple(
+          None,
+          8,
+        ),
         'status_confirmation': tuple(
           0.95,
           None,

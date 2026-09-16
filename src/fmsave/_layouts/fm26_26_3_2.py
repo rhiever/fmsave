@@ -21,6 +21,7 @@ from fmsave._layouts import (
     PlayerRecordLayout,
     RulesPreambleLayout,
     SaveSummaryLayout,
+    StageTableLayout,
     SummaryStringsLayout,
     SuspensionLayout,
     TeamListLayout,
@@ -420,6 +421,29 @@ RULES_PREAMBLES = RulesPreambleLayout(
     moved_match_max_per_round=64,
 )
 
+# A stage row is 33 bytes. The table sits in the last 0.3% of `game_db` on every save measured,
+# so the last 2 MB is a wide search window; 200 rows is far longer than any run of look-alike
+# bytes seen before it.
+STAGE_TABLE = StageTableLayout(
+    row_bytes=33,
+    previous_stage_id_offset=0,
+    stage_id_offset=4,
+    stage_id_copy_offset=8,
+    zero_byte_offset=12,
+    competition_id_offset=13,
+    group_id_offset=17,
+    round_offset=21,
+    unknown_s25_offset=25,
+    unknown_s29_offset=29,
+    stage_id_exclusive_range=(0, 200_000),
+    # The largest competition id seen is 16,777,216 on every save, far above the roughly 2,600
+    # competitions a save holds; this limit rejects it without touching a real competition.
+    competition_id_limit=1_000_000,
+    search_bytes=2_000_000,
+    chain_rows=200,
+    resynchronisation_bytes=4_096,
+)
+
 # Bounds that depend on career stage (join dates, contract chains, bans) are kept wide, since a
 # failed check on the player pass stops players, contracts and suspensions together.
 GATE_BOUNDS = GateBounds(
@@ -471,6 +495,17 @@ GATE_BOUNDS = GateBounds(
     affiliate_teams_linked=(0.99, None),
     suspension_share_of_players=(None, 0.10),
     issued_after_clock=(None, 0.01),
+    # Around 8,000 rows and no gaps at all on every save measured; both bounds leave room for a
+    # much shorter table and for a save whose table needs resynchronising a few times.
+    stage_rows_minimum=(1_000, None),
+    stage_walk_gaps=(None, 8),
+    stage_ids_ascending=(0.99, None),
+    stage_rows_with_competition=(0.90, None),
+    # The last word is the missing value on about 98.4% of rows and carries a small number on
+    # the rest, so this is a shape check rather than a sentinel.
+    stage_trailing_sentinel=(0.95, None),
+    stage_table_tail_bytes=(None, 2 * 1024 * 1024),
+    competitions_minimum=(50, None),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (
@@ -485,6 +520,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=PERSON_BLOCKS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CONTRACTS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=SUSPENSIONS),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STAGE_TABLE),
     LayoutEntry(region="humans", schema=21, build=BUILD, layout=HUMANS),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=FIXTURE_CALENDAR),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=LEAGUE_TABLES),

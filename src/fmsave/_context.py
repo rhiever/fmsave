@@ -19,6 +19,7 @@ from fmsave._layouts import NamePoolLayout, PlayerRecordLayout, find_layout
 from fmsave.models.meta import SaveInfo
 from fmsave.readers._common import GAME_DB_SECTION, SPAN_REGION
 from fmsave.readers.clubs import ClubIndex, find_club_layouts, read_club_index
+from fmsave.readers.competitions import CompetitionIndex, build_competition_index
 from fmsave.readers.names import NAME_POOLS_CACHE_KEY, NamePools, locate_name_pools
 from fmsave.readers.player_scan import (
     PLAYER_RECORDS_CACHE_KEY,
@@ -32,8 +33,11 @@ from fmsave.readers.span import (
     missing_clock_error,
     scan_span,
 )
+from fmsave.readers.stages import StageIndex, find_stage_layout, read_stage_index
 
 CLUB_INDEX_CACHE_KEY = "club_index"
+STAGE_INDEX_CACHE_KEY = "stage_index"
+COMPETITION_INDEX_CACHE_KEY = "competition_index"
 
 
 def closed_save_error() -> SaveClosedError:
@@ -189,6 +193,38 @@ class SaveContext:
         # time through read_region_frames, and never borrowed whole through section().
         frames = read_region_frames(self._container_index, SPAN_REGION)
         return scan_span(frames, find_span_layouts(save_info.build), clock, save_info.file_name)
+
+    def stage_index(self) -> StageIndex:
+        """Every stage row with the competition joins, read from `game_db` once and then cached.
+
+        Raises:
+            SaveClosedError: The context is closed.
+            ReaderCheckError: No stage table was found in the tail of `game_db`, or a stage id
+                appears in two rows.
+        """
+        return self.cached(STAGE_INDEX_CACHE_KEY, self._build_stage_index)
+
+    def _build_stage_index(self) -> StageIndex:
+        save_info = self._info
+        layout = find_stage_layout(save_info.section_schemas.get(GAME_DB_SECTION), save_info.build)
+        with self.section(GAME_DB_SECTION) as game_db:
+            return read_stage_index(game_db, layout, save_info.file_name)
+
+    def competition_index(self) -> CompetitionIndex:
+        """Every competition the stage table names, built once and then cached.
+
+        Database ids and names arrive in later releases, so every competition carries None for
+        both.
+
+        Raises:
+            SaveClosedError: The context is closed.
+            ReaderCheckError: No stage table was found in the tail of `game_db`, or a stage id
+                appears in two rows.
+        """
+        return self.cached(COMPETITION_INDEX_CACHE_KEY, self._build_competition_index)
+
+    def _build_competition_index(self) -> CompetitionIndex:
+        return build_competition_index(self.stage_index(), {}, {})
 
     def close(self) -> None:
         """Drop cached values and section loans. Calling it again does nothing."""

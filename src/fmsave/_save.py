@@ -21,6 +21,7 @@ from fmsave._layouts import (
 from fmsave._version import read_save_info
 from fmsave.checks import ReaderCheck
 from fmsave.models.clubs import Club
+from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
 from fmsave.models.managed import ManagedClub
 from fmsave.models.meta import SaveInfo
@@ -43,6 +44,8 @@ PLAYERS_TABLE_CACHE_KEY = "table:players"
 CONTRACTS_TABLE_CACHE_KEY = "table:contracts"
 SUSPENSIONS_TABLE_CACHE_KEY = "table:suspensions"
 MANAGED_CLUBS_TABLE_CACHE_KEY = "table:managed_clubs"
+STAGES_TABLE_CACHE_KEY = "table:stages"
+COMPETITIONS_TABLE_CACHE_KEY = "table:competitions"
 
 
 class _PlayerTables(NamedTuple):
@@ -204,6 +207,44 @@ class Save:
         context = self._context
         return context.cached(MANAGED_CLUBS_TABLE_CACHE_KEY, self._read_managed_clubs)
 
+    def stages(self) -> Table[Stage]:
+        """Every stage of every competition, in the order the save's stage table stores them.
+
+        A stage is one part of a competition: a league season is one stage, a cup round is one,
+        and each leg of a two-legged tie is its own stage carrying the same round. Stage ids are
+        what fixtures, league-table groups and per-match records join through. Competition
+        names are not stored in the save, so `competition_name` is None. The table is read on
+        the first call; later calls return the same table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: No stage table was found in the tail of the game database, a
+                stage id appears in two rows, or, on a full-size save, the stage table falls
+                outside the checks' bounds.
+        """
+        context = self._context
+        return context.cached(STAGES_TABLE_CACHE_KEY, self._read_stages)
+
+    def competitions(self) -> Table[Competition]:
+        """Every competition the save's stage table names, in ascending competition id.
+
+        Each row carries the ids of its stages. The save stores no competition names and no
+        editor database ids are read yet, so `name` and `database_id` are None on every row.
+        The table is read on the first call; later calls return the same table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: No stage table was found in the tail of the game database, a
+                stage id appears in two rows, or, on a full-size save, fewer competitions were
+                found than the checks allow.
+        """
+        context = self._context
+        return context.cached(COMPETITIONS_TABLE_CACHE_KEY, self._read_competitions)
+
     def _reader_check(self, reader_name: str) -> ReaderCheck | None:
         """The checks a reader passed when its table was read, or None before it was read."""
         stored = self._context.cached_value(_check_cache_key(reader_name))
@@ -257,6 +298,30 @@ class Save:
         checks.enforce_checks((managed_check,))
         self._store_reader_checks((managed_check,))
         return Table(managed_clubs, ManagedClub)
+
+    def _read_stages(self) -> Table[Stage]:
+        context = self._context
+        gate_bounds = self._gate_bounds()
+        # The index is built inside this borrow, so a cold call decompresses game_db once.
+        with context.section(GAME_DB_SECTION):
+            stage_index = context.stage_index()
+        stage_check = checks.check_stages(stage_index.stats, gate_bounds, stage_index.game_db_bytes)
+        checks.enforce_checks((stage_check,))
+        self._store_reader_checks((stage_check,))
+        return Table(stage_index.stages, Stage)
+
+    def _read_competitions(self) -> Table[Competition]:
+        context = self._context
+        gate_bounds = self._gate_bounds()
+        with context.section(GAME_DB_SECTION) as game_db:
+            competition_index = context.competition_index()
+            game_db_length = len(game_db)
+        competition_check = checks.check_competitions(
+            competition_index.stats, gate_bounds, game_db_length
+        )
+        checks.enforce_checks((competition_check,))
+        self._store_reader_checks((competition_check,))
+        return Table(competition_index.competitions, Competition)
 
     def _players_table_entry_point(self) -> Table[Player]:
         tables = self._decode_player_tables()

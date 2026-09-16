@@ -1,7 +1,8 @@
 """Reader checks, and the validation report built from them.
 
 While a reader decodes, it counts what it sees into a stats record from `fmsave._reader_stats`
-(`PlayerStats`, `ContractStats`, `ClubStats`, `SuspensionStats` or `ManagedStats`). The
+(`PlayerStats`, `ContractStats`, `ClubStats`, `SuspensionStats`, `ManagedStats`, `StageStats`
+or `CompetitionStats`). The
 `evaluate_*` functions compare those counts with the loose `GateBounds` registered for the
 save's layout and return one `GateResult` per check, and `enforce` raises `ReaderCheckError`
 when an applied check failed, before the reader caches its table. The checks apply only to a
@@ -31,9 +32,11 @@ from fmsave._layouts import BoundPair, GateBounds
 from fmsave._package import __version__
 from fmsave._reader_stats import (
     ClubStats,
+    CompetitionStats,
     ContractStats,
     ManagedStats,
     PlayerStats,
+    StageStats,
     SuspensionStats,
 )
 from fmsave._status import registered_statuses
@@ -64,6 +67,8 @@ PLAYERS_READER = "players"
 CONTRACTS_READER = "contracts"
 SUSPENSIONS_READER = "suspensions"
 MANAGED_CLUBS_READER = "managed_clubs"
+STAGES_READER = "stages"
+COMPETITIONS_READER = "competitions"
 
 # Players, contracts and suspensions are decoded in one pass, so they fail or succeed together.
 _PLAYER_PASS_READERS = frozenset({PLAYERS_READER, CONTRACTS_READER, SUSPENSIONS_READER})
@@ -386,6 +391,52 @@ def evaluate_managed(
     )
 
 
+def evaluate_stages(
+    stats: StageStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The stage reader's checks, in a fixed order."""
+    applied = _applies(bounds, game_db_bytes)
+    rows = stats.rows
+    return (
+        _gate("stage_rows_minimum", rows, bounds.stage_rows_minimum, applied),
+        _gate("stage_walk_gaps", stats.gaps, bounds.stage_walk_gaps, applied),
+        _gate(
+            "stage_ids_ascending",
+            _rate(stats.ascending_steps, stats.steps),
+            bounds.stage_ids_ascending,
+            applied,
+        ),
+        _gate(
+            "stage_rows_with_competition",
+            _rate(stats.with_competition, rows),
+            bounds.stage_rows_with_competition,
+            applied,
+        ),
+        _gate(
+            "stage_trailing_sentinel",
+            _rate(stats.trailing_sentinel_ok, rows),
+            bounds.stage_trailing_sentinel,
+            applied,
+        ),
+        _gate(
+            "stage_table_tail_bytes",
+            stats.bytes_after_table,
+            bounds.stage_table_tail_bytes,
+            applied,
+        ),
+    )
+
+
+def evaluate_competitions(
+    stats: CompetitionStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The competition reader's checks, in a fixed order."""
+    applied = _applies(bounds, game_db_bytes)
+    return (
+        _gate("competitions_minimum", stats.competitions, bounds.competitions_minimum, applied),
+    )
+
+
 def check_players(stats: PlayerStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
     """The player reader's checks, record count and anomaly counts."""
     return ReaderCheck(
@@ -451,6 +502,33 @@ def check_managed(stats: ManagedStats, bounds: GateBounds, game_db_bytes: int) -
         stats.rows,
         evaluate_managed(stats, bounds, game_db_bytes),
         FrozenMapping({"humans_without_club": humans_without_club}),
+    )
+
+
+def check_stages(stats: StageStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The stage reader's checks, record count and anomaly counts."""
+    return ReaderCheck(
+        STAGES_READER,
+        stats.rows,
+        evaluate_stages(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {
+                "walk_gaps": stats.gaps,
+                "rejected_competition_ids": stats.competition_id_rejected,
+            }
+        ),
+    )
+
+
+def check_competitions(
+    stats: CompetitionStats, bounds: GateBounds, game_db_bytes: int
+) -> ReaderCheck:
+    """The competition reader's checks, record count and anomaly counts."""
+    return ReaderCheck(
+        COMPETITIONS_READER,
+        stats.competitions,
+        evaluate_competitions(stats, bounds, game_db_bytes),
+        FrozenMapping({"database_id_conflicts": stats.database_id_conflicts}),
     )
 
 

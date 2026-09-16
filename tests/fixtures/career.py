@@ -25,6 +25,7 @@ from tests.fixtures.container import (
 from tests.fixtures.game_db import (
     NORMAL_STATUS_KIND,
     PLAYER_RECORD_MARKER,
+    STAGE_MISSING_VALUE,
     STUB_STATUS_KIND,
     club_record_bytes,
     contract_bytes,
@@ -35,6 +36,8 @@ from tests.fixtures.game_db import (
     person_block_bytes,
     player_record_bytes,
     relation_entry_bytes,
+    stage_row_bytes,
+    stage_table_bytes,
     status_record_bytes,
     suspension_entry_bytes,
 )
@@ -71,6 +74,20 @@ PLAYER_D_UID = 900004
 PLAYER_NATION_ID = 44
 PLAYER_D_NATION_ID = 45
 PLAYER_D_LEGAL_NAME = "Légal Ōnly"
+
+STAGE_ROW_COUNT = 220
+FIRST_COMPETITION_ID = 900
+SECOND_COMPETITION_ID = 901
+THIRD_COMPETITION_ID = 902
+# A stage row of every save carries this id, which is far above any competition id and is a
+# marker or a malformed row rather than a competition, so the reader rejects it.
+OUT_OF_BAND_COMPETITION_ID = 16_777_216
+GROUPED_STAGE_GROUP_ID = 5501
+FIRST_ROUND_CODE = 5
+SEMI_FINAL_ROUND_CODE = 17
+FINAL_ROUND_CODE = 19
+# A round code the save uses often and no evidence names.
+UNNAMED_ROUND_CODE = 77
 
 RATINGS = (1, 1, 18, 20, 15, 18, 2, 16, 3, 4, 5, 6, 7, 8, 9)
 RAW_ATTRIBUTES = (1, 2, 3, 98, 100, *([48] * 19), 88, 33, *([48] * 28))
@@ -365,6 +382,52 @@ def player_d_bytes() -> bytes:
     )
 
 
+def career_stage_rows() -> list[bytes]:
+    """220 stage rows, ids 1 to 220: a handful with distinctive values, then a long run.
+
+    Row 1 stores the missing value as its previous stage id, row 2 a group and one unidentified
+    word, row 3 a round code with no confirmed meaning, row 4 nothing but its id, and row 5 the
+    out-of-band competition id the reader rejects. Rows 6 to 220 all belong to one competition,
+    which makes the run long enough to prove the reader's 200-row chain.
+    """
+    rows = [
+        stage_row_bytes(
+            stage_id=1,
+            competition_id=FIRST_COMPETITION_ID,
+            group_id=None,
+            round_code=FINAL_ROUND_CODE,
+            previous_stage_id=STAGE_MISSING_VALUE,
+        ),
+        stage_row_bytes(
+            stage_id=2,
+            competition_id=FIRST_COMPETITION_ID,
+            group_id=GROUPED_STAGE_GROUP_ID,
+            round_code=SEMI_FINAL_ROUND_CODE,
+            s25=3,
+        ),
+        stage_row_bytes(
+            stage_id=3,
+            competition_id=SECOND_COMPETITION_ID,
+            group_id=None,
+            round_code=UNNAMED_ROUND_CODE,
+        ),
+        stage_row_bytes(stage_id=4, competition_id=None, group_id=None, round_code=None, s25=22),
+        stage_row_bytes(
+            stage_id=5,
+            competition_id=OUT_OF_BAND_COMPETITION_ID,
+            group_id=None,
+            round_code=FIRST_ROUND_CODE,
+        ),
+    ]
+    rows.extend(
+        stage_row_bytes(
+            stage_id=stage_id, competition_id=THIRD_COMPETITION_ID, group_id=None, round_code=None
+        )
+        for stage_id in range(6, STAGE_ROW_COUNT + 1)
+    )
+    return rows
+
+
 def career_game_db(*, duplicate_club_name: bool = False) -> bytes:
     clubs = EXAMPLE_CLUBS + ((SECOND_NORTHBRIDGE_CLUB,) if duplicate_club_name else ())
     payload = (
@@ -376,6 +439,8 @@ def career_game_db(*, duplicate_club_name: bool = False) -> bytes:
         + player_b_bytes()
         + player_c_bytes()
         + player_d_bytes()
+        # The save keeps its stage table in the last stretch of game_db, so it goes last here.
+        + stage_table_bytes(career_stage_rows())
     )
     return section_body(".dat", GAME_DB_SCHEMA, payload)
 
