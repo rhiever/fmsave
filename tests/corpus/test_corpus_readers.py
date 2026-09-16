@@ -46,6 +46,7 @@ EXPECTED_READERS = (
     "fixtures",
     "transfer_windows",
     "league_tables",
+    "competition_rules",
 )
 
 

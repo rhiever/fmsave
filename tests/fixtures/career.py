@@ -49,6 +49,7 @@ from tests.fixtures.span import (
     STAGE_RESULT_R22,
     STAGE_RESULT_SENTINEL,
     fixture_record_bytes,
+    rules_preamble_bytes,
     span_frames,
     span_payloads,
     stage_result_bytes,
@@ -1083,6 +1084,48 @@ def career_table_payload(
     )
 
 
+# Competition rules: two preamble blocks sit in the span after the league tables. The first
+# writes its promotion quad twice, as the save does on about 95% of blocks, and the second
+# writes two copies that differ, which is what leaves the four quad fields empty.
+RULES_SEPARATOR_BYTES = 256
+RULES_PROMOTION_PLACES = 2
+RULES_PLAYOFF_PLACES = 4
+RULES_PROMOTION_BYTE2 = 1
+RULES_RELEGATION_PLACES = 3
+RULES_TIE_BREAKS = (1, 5, 9)
+RULES_PRIZE_MONEY = (1_000_000, 500_000, 250_000)
+RULES_ROUND_YEAR = 2031
+# Day 51 of 2031 is 20 February; the rounds run a week apart and the last is a match short.
+RULES_ROUND_DAYS = (51, 58, 65)
+RULES_ROUND_MATCH_COUNTS = (10, 10, 9)
+
+
+def career_rules_rounds() -> list[dict[str, int]]:
+    return [
+        {"day_of_year": day, "year": RULES_ROUND_YEAR, "match_count": match_count}
+        for day, match_count in zip(RULES_ROUND_DAYS, RULES_ROUND_MATCH_COUNTS, strict=True)
+    ]
+
+
+def career_rules_payload() -> bytes:
+    """One rules preamble whose quad is doubled, then one whose two copies differ."""
+    rounds = career_rules_rounds()
+    blocks = [
+        rules_preamble_bytes(
+            promotion=RULES_PROMOTION_PLACES,
+            playoff=RULES_PLAYOFF_PLACES,
+            promotion_byte2=RULES_PROMOTION_BYTE2,
+            relegation=RULES_RELEGATION_PLACES,
+            tie_breaks=RULES_TIE_BREAKS,
+            prize_money=RULES_PRIZE_MONEY,
+            rounds=rounds,
+            double_quad=double_quad,
+        )
+        for double_quad in (True, False)
+    ]
+    return span_payloads(*blocks, separator_bytes=RULES_SEPARATOR_BYTES)
+
+
 def career_span_payload(
     extra_fixtures: Sequence[ExampleFixture] = (),
     extra_strays: Sequence[ExampleFixture] = (),
@@ -1091,7 +1134,7 @@ def career_span_payload(
     extra_table_groups: Sequence[Sequence[bytes]] = (),
     span_results: Sequence[ExampleResult] = (),
 ) -> bytes:
-    """The calendar, a wide gap, a stray copy of two more, the tables, then any results."""
+    """The calendar, a gap, a stray copy of two, the league tables, the rules, then any results."""
     calendar_blobs = [
         fixture_blob(example, FIRST_MATCH_RECORD_ID + position)
         for position, example in enumerate((*MAIN_CLUSTER_FIXTURES, *extra_fixtures))
@@ -1108,6 +1151,8 @@ def career_span_payload(
         + career_table_payload(
             duplicate_head_bytes=table_duplicate_head_bytes, extra_groups=extra_table_groups
         )
+        + bytes(BETWEEN_TABLE_BYTES)
+        + career_rules_payload()
     )
     if span_results:
         payload += bytes(RESULT_SEPARATOR_BYTES) + results_payload(span_results)

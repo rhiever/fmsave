@@ -1,4 +1,27 @@
-"""Transfer windows, read from the tagged stream in `game_db`.
+"""Competition rules and transfer windows, read from the span and from `game_db`.
+
+**Competition rules come from the preamble blocks one span pass already collected**, so this
+reader walks nothing of its own: it decodes, keys and counts what `SpanRecords.rules_blocks`
+holds. No block names a competition, so no index is borrowed and no join is made.
+
+**The tagged rules groups are not read in this release.** The save's rules database does hold
+groups of squad and financial rules, and a strict walk anchored on the wage-percentage tag
+does pin four of them per save, identical in shape and count on both saves measured. They are
+still not shipped, for reasons that are measured rather than cautious:
+
+- none of the four carries a string of any kind, so there is no group name to return;
+- none carries the value tag the squad-size rule was supposed to be read through, so that rule
+  is not in them at all;
+- the wider population the groups were meant to come from is not bounded: of 324 candidates
+  for the home-grown tag, 116 do not sit at a record boundary at all and the rest fall into
+  three unrelated shapes;
+- and no displayed in-game label pins the meaning of any value the groups hold, so naming one
+  would rest on another tool's guess rather than on evidence.
+
+Walking from the description marker, which is the obvious route, decodes nothing: on both
+saves all 1,707 strict walks from it stop before reaching any rules tag.
+
+Transfer windows are read from the tagged stream below.
 
 The rules database is written as a tagged stream: a run of
 `<4-byte tag, byte-reversed><01><type><value>` records. A transfer window is one such run,
@@ -27,13 +50,86 @@ from __future__ import annotations
 
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import TaggedStreamLayout, TransferWindowLayout, find_layout
-from fmsave._reader_stats import TransferWindowStats
+from fmsave._reader_stats import RulesStats, TransferWindowStats
 from fmsave._scan import iter_tagged_values
-from fmsave.models.rules import TransferWindow
+from fmsave.models.rules import CompetitionRules, RulesBlockKind, RulesRound, TransferWindow
 from fmsave.readers._common import GAME_DB_SECTION
+from fmsave.readers.span import RawRulesBlock, SpanRecords
 
 CLOSE_TIME_KEY = "close_time"
 WINDOW_TYPE_KEY = "window_type"
+PROMOTION_BYTE2_KEY = CompetitionRules.UNKNOWN_KEYS[0]
+TIE_BREAK_KEYS = CompetitionRules.UNKNOWN_KEYS[1:]
+ROUND_KIND_KEY, ROUND_B5_KEY = RulesRound.UNKNOWN_KEYS
+
+
+def _preamble_unknown(block: RawRulesBlock) -> FrozenMapping[str, int]:
+    """The quad's unidentified byte and the tie-break codes, in the order the block lists them.
+
+    The tie-break codes are paired with the declared keys rather than numbered from the list,
+    so a block carrying more codes than there are keys can never produce a key the record does
+    not declare. No displayed label names a tie-break code, so they ship as raw numbers.
+    """
+    unknown: dict[str, int] = {}
+    if block.promotion_byte2 is not None:
+        unknown[PROMOTION_BYTE2_KEY] = block.promotion_byte2
+    for key, code in zip(TIE_BREAK_KEYS, block.tie_breaks, strict=False):
+        unknown[key] = code
+    return FrozenMapping(unknown)
+
+
+def _rounds_of(block: RawRulesBlock) -> tuple[RulesRound, ...]:
+    return tuple(
+        RulesRound(
+            number=raw_round.number,
+            date=raw_round.date,
+            match_count=raw_round.match_count,
+            unknown=FrozenMapping({ROUND_KIND_KEY: raw_round.kind, ROUND_B5_KEY: raw_round.b5}),
+        )
+        for raw_round in block.rounds
+    )
+
+
+def build_competition_rules(
+    span_records: SpanRecords,
+) -> tuple[tuple[CompetitionRules, ...], RulesStats]:
+    """Key the span's rules preamble blocks into rows, in the order the span stores them.
+
+    Every row carries `competition_id` None. The save stores no link from a block to a
+    competition and the hunt for one came back empty, so there is nothing to join through and
+    no index is read: a caller matches a division by `fixtures_per_club` against the shape
+    `league_tables()` reports instead. `club_count` cannot serve that, being None on every row,
+    because no fixed position in the block carries it.
+
+    A block whose promotion quad was not written twice keeps its lists and its calendar and
+    leaves the four quad fields empty, rather than being dropped.
+    """
+    blocks = span_records.rules_blocks
+    rows = tuple(
+        CompetitionRules(
+            kind=RulesBlockKind.PREAMBLE,
+            competition_id=None,
+            competition_name=None,
+            club_count=block.club_count,
+            fixtures_per_club=len(block.rounds) or None,
+            promotion_places=block.promotion_places,
+            playoff_places=block.playoff_places,
+            relegation_places=block.relegation_places,
+            administration_points_deduction=block.administration_points_deduction,
+            prize_money=block.prize_money,
+            rounds=_rounds_of(block),
+            unknown=_preamble_unknown(block),
+        )
+        for block in blocks
+    )
+    stats = RulesStats(
+        markers=span_records.rules_markers,
+        blocks=len(blocks),
+        fully_parsed=sum(1 for block in blocks if block.fully_parsed),
+        quad_doubled=sum(1 for block in blocks if block.promotion_places is not None),
+        rows=len(rows),
+    )
+    return rows, stats
 
 
 def find_transfer_window_layouts(

@@ -48,7 +48,12 @@ from fmsave.models.players import (
     Reputation,
     Trait,
 )
-from fmsave.models.rules import TransferWindow
+from fmsave.models.rules import (
+    CompetitionRules,
+    RulesBlockKind,
+    RulesRound,
+    TransferWindow,
+)
 from fmsave.models.suspensions import PlayerSuspension, Suspension
 from fmsave.name_maps import read_competition_names
 from fmsave.table import Table
@@ -66,6 +71,7 @@ __all__ = [
     "CodedValue",
     "Competition",
     "CompetitionRound",
+    "CompetitionRules",
     "Contract",
     "ContractChainEntry",
     "ContractEndSource",
@@ -89,6 +95,8 @@ __all__ = [
     "ReaderCheckError",
     "ReaderValidation",
     "Reputation",
+    "RulesBlockKind",
+    "RulesRound",
     "Save",
     "SaveChangedError",
     "SaveClosedError",

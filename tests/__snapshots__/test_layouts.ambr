@@ -911,6 +911,14 @@
           0.9,
           None,
         ),
+        'rules_fully_parsed': tuple(
+          0.8,
+          None,
+        ),
+        'rules_markers_minimum': tuple(
+          20,
+          None,
+        ),
         'second_nation_qualifier': tuple(
           0.995,
           None,

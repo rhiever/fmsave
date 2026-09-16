@@ -937,6 +937,16 @@ class GateBounds:
     `double_round_robin_divisions` (groups shaped like a division whose clubs play each other
     twice). These judge the span pass, so they apply from `span_minimum_applies_from_bytes`.
 
+    Competition rules: `rules_markers_minimum` (rules preamble blocks the span pass judged)
+    and `rules_fully_parsed` (of those blocks). These judge the span pass, so they apply from
+    `span_minimum_applies_from_bytes`. `rules_fully_parsed` counts the **strict** sense of a
+    parsed block, the one `RawRulesBlock.fully_parsed` carries: the promotion quad written
+    twice identically and the tie-break list, the prize list and every round record decoded.
+    A count that ignored the quad would sit about ten points higher, so this floor must not be
+    read against a figure measured the other way. A marker search that has moved finds nothing
+    and fails the count on its floor; a body decode that has moved keeps the markers and drops
+    the share instead, so the two fail on different faults.
+
     The duplicate floor is what fails when the deduplication stops deduplicating. Every save
     measured repeats about 45% of its table blocks, so the count is always in the thousands and
     a floor cannot trouble a healthy save; a reader that kept every copy would score zero on it
@@ -1017,6 +1027,8 @@ class GateBounds:
     table_block_team_in_range: BoundPair
     table_groups_resolved: BoundPair
     double_round_robin_divisions: BoundPair
+    rules_markers_minimum: BoundPair
+    rules_fully_parsed: BoundPair
 
 
 type Layout = (

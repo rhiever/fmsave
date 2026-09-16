@@ -33,7 +33,7 @@ from fmsave.models.league_tables import LeagueTable
 from fmsave.models.managed import ManagedClub
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
-from fmsave.models.rules import TransferWindow
+from fmsave.models.rules import CompetitionRules, TransferWindow
 from fmsave.models.suspensions import Suspension
 from fmsave.name_maps import EMPTY_COMPETITION_NAMES, normalize_competition_names
 from fmsave.readers._common import (
@@ -54,7 +54,11 @@ from fmsave.readers.results import (
     locate_stage_results,
     result_in_scope,
 )
-from fmsave.readers.rules import find_transfer_window_layouts, read_transfer_windows
+from fmsave.readers.rules import (
+    build_competition_rules,
+    find_transfer_window_layouts,
+    read_transfer_windows,
+)
 from fmsave.readers.span import SpanRecords
 from fmsave.readers.stages import StageIndex, named_stages
 from fmsave.readers.suspensions import (
@@ -75,6 +79,7 @@ COMPETITIONS_TABLE_CACHE_KEY = "table:competitions"
 FIXTURES_TABLE_CACHE_KEY = "table:fixtures"
 TRANSFER_WINDOWS_TABLE_CACHE_KEY = "table:transfer_windows"
 LEAGUE_TABLES_TABLE_CACHE_KEY = "table:league_tables"
+COMPETITION_RULES_TABLE_CACHE_KEY = "table:competition_rules"
 
 
 class _PlayerTables(NamedTuple):
@@ -488,6 +493,50 @@ class Save:
         checks.enforce_checks((table_check,))
         self._store_reader_checks((table_check,))
         return Table(league_tables, LeagueTable)
+
+    def competition_rules(self) -> Table[CompetitionRules]:
+        """Every competition-rules block the save holds, in the order the save stores them.
+
+        A block carries a competition's promotion, play-off and relegation places, its
+        tie-break codes, its prize money by finishing position and its round calendar.
+
+        **No row says which competition it belongs to.** The save stores no such link, and a
+        measured hunt for one found none, so `competition_id` and `competition_name` are None
+        on every row: match a division by `club_count` and `fixtures_per_club` against
+        `league_tables()` instead. `club_count` is itself empty in this release, because no
+        fixed position in the block carries it.
+
+        The squad and financial rules the save's rules database holds are not in this release:
+        the groups that carry them have no name, no competition and no displayed label to pin
+        their values, so `kind` is PREAMBLE on every row. Transfer windows are their own table,
+        `transfer_windows()`.
+
+        The table is read on the first call; later calls return the same table. It reads only
+        the shared span pass, so it decompresses nothing of its own once that pass has run.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: The save's in-game date is unreadable, so the span pass cannot
+                run, or, on a full-size span, the blocks fall outside the checks' bounds.
+        """
+        context = self._context
+        return context.cached(COMPETITION_RULES_TABLE_CACHE_KEY, self._read_competition_rules)
+
+    def _read_competition_rules(self) -> Table[CompetitionRules]:
+        context = self._context
+        gate_bounds = self._gate_bounds()
+        # No index is borrowed and no join is made: no block names a competition, so there is
+        # nothing to look up and nothing of another reader's to hand out.
+        span_records = context.span_records()
+        rules, rules_stats = build_competition_rules(span_records)
+        rules_check = checks.check_competition_rules(
+            rules_stats, gate_bounds, span_records.span_bytes
+        )
+        checks.enforce_checks((rules_check,))
+        self._store_reader_checks((rules_check,))
+        return Table(rules, CompetitionRules)
 
     def _reader_check(self, reader_name: str) -> ReaderCheck | None:
         """The checks a reader passed when its table was read, or None before it was read."""

@@ -25,6 +25,7 @@ TABLE_RECORD_TYPES = (
     fmsave.Competition,
     fmsave.Fixture,
     fmsave.TransferWindow,
+    fmsave.CompetitionRules,
 )
 
 

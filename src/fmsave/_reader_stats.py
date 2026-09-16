@@ -260,6 +260,29 @@ class LeagueTableStats:
 
 
 @dataclass(frozen=True, slots=True)
+class RulesStats:
+    """What the competition-rules reader counted over the span's preamble blocks.
+
+    `markers` counts the markers the span pass judged and `blocks` the blocks they yielded.
+    Every judged marker yields a block, so the two are equal by construction: the marker count
+    is the denominator for the share of blocks that parsed, never a rejection rate.
+
+    `fully_parsed` counts the blocks whose promotion quad was written twice identically **and**
+    whose tie-break list, prize list and every round record decoded. That is stricter than
+    counting only the lists and the rounds, and it therefore holds on a smaller share of blocks
+    than a count that ignores the quad; the check that judges it says which of the two it
+    means. `quad_doubled` counts the blocks whose quad was doubled, which is the part of that
+    conjunction the four promotion fields depend on. `rows` counts the rows the reader returned.
+    """
+
+    markers: int
+    blocks: int
+    fully_parsed: int
+    quad_doubled: int
+    rows: int
+
+
+@dataclass(frozen=True, slots=True)
 class ManagedStats:
     """What the managed-club reader found: human managers, resolved routes (0 or 1) and rows."""
 

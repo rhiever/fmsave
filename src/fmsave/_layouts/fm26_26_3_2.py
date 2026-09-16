@@ -759,6 +759,17 @@ GATE_BOUNDS = GateBounds(
     # This is what fails when the grouping stops telling one table from the next: the blocks
     # then arrive in runs of dozens, and no run has a division's shape.
     double_round_robin_divisions=(5, None),
+    # 672 and 521 rules preamble blocks on the two saves measured. The floor sits more than an
+    # order of magnitude below the smaller of those, which leaves a career carrying far fewer
+    # divisions well clear while still failing a marker that finds nothing at all.
+    rules_markers_minimum=(20, None),
+    # 0.8438 and 0.8580 of blocks parse in the strict sense this share counts: the promotion
+    # quad written twice identically AND the tie-break list, the prize list and every round
+    # record decoded. Counting only the lists and the rounds, as the format research did, gives
+    # 0.9345 and 0.9309 instead, so this floor must not be read against that figure. The lower
+    # of the two observed values clears the floor by 22% of the bound's width, which is thin:
+    # a third save measured under the strict definition may warrant lowering it.
+    rules_fully_parsed=(0.80, None),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (

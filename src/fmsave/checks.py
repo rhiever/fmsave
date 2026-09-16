@@ -2,8 +2,8 @@
 
 While a reader decodes, it counts what it sees into a stats record from `fmsave._reader_stats`
 (`PlayerStats`, `ContractStats`, `ClubStats`, `SuspensionStats`, `ManagedStats`, `StageStats`,
-`CompetitionStats`, `FixtureStats`, `TransferWindowStats` or `LeagueTableStats`). The
-`evaluate_*` functions compare those counts with the loose `GateBounds` registered for the
+`CompetitionStats`, `FixtureStats`, `TransferWindowStats`, `LeagueTableStats` or `RulesStats`).
+The `evaluate_*` functions compare those counts with the loose `GateBounds` registered for the
 save's layout and return one `GateResult` per check, and `enforce` raises `ReaderCheckError`
 when an applied check failed, before the reader caches its table. The checks apply only to a
 `game_db` of at least `GateBounds.minimum_applies_from_bytes`, since smaller sections come from
@@ -39,6 +39,7 @@ from fmsave._reader_stats import (
     ManagedStats,
     PlayerStats,
     ResultStats,
+    RulesStats,
     StageStats,
     SuspensionStats,
     TransferWindowStats,
@@ -76,6 +77,7 @@ COMPETITIONS_READER = "competitions"
 FIXTURES_READER = "fixtures"
 TRANSFER_WINDOWS_READER = "transfer_windows"
 LEAGUE_TABLES_READER = "league_tables"
+COMPETITION_RULES_READER = "competition_rules"
 
 # Players, contracts and suspensions are decoded in one pass, so they fail or succeed together.
 _PLAYER_PASS_READERS = frozenset({PLAYERS_READER, CONTRACTS_READER, SUSPENSIONS_READER})
@@ -650,6 +652,35 @@ def evaluate_league_tables(
     )
 
 
+def evaluate_competition_rules(
+    stats: RulesStats, bounds: GateBounds, span_bytes: int
+) -> tuple[GateResult, ...]:
+    """The competition-rules reader's checks, in a fixed order.
+
+    These judge what one pass over the span read, so they apply from the span's own size
+    threshold. Both apply whenever the span is large enough, including when the pass found no
+    block at all: an empty result scores no markers, which fails the count, and leaves the
+    parsed share with no denominator, which fails for want of a rate rather than passing
+    quietly. That is what a marker that has moved looks like from the counts, and it is why the
+    share is not allowed to stand alone.
+
+    `rules_fully_parsed` counts the strict sense of a parsed block: the promotion quad written
+    twice identically **and** the tie-break list, the prize list and every round record
+    decoded. A share measured without the quad sits about ten points higher, so this gate's
+    bound is not comparable with one.
+    """
+    applied = _span_applies(bounds, span_bytes)
+    return (
+        _gate("rules_markers_minimum", stats.markers, bounds.rules_markers_minimum, applied),
+        _gate(
+            "rules_fully_parsed",
+            _rate(stats.fully_parsed, stats.blocks),
+            bounds.rules_fully_parsed,
+            applied,
+        ),
+    )
+
+
 def check_players(stats: PlayerStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
     """The player reader's checks, record count and anomaly counts."""
     return ReaderCheck(
@@ -866,6 +897,27 @@ def check_league_tables(
     )
 
 
+def check_competition_rules(stats: RulesStats, bounds: GateBounds, span_bytes: int) -> ReaderCheck:
+    """The competition-rules reader's checks, record count and anomaly counts.
+
+    The anomalies count the two ways a block falls short of a full decode, which are reported
+    rather than dropped: a block whose quad was not doubled still ships its lists and its
+    calendar with the four quad fields empty, and a block whose lists or rounds did not decode
+    still ships whatever did.
+    """
+    return ReaderCheck(
+        COMPETITION_RULES_READER,
+        stats.rows,
+        evaluate_competition_rules(stats, bounds, span_bytes),
+        FrozenMapping(
+            {
+                "blocks_not_fully_parsed": stats.blocks - stats.fully_parsed,
+                "blocks_without_a_doubled_quad": stats.blocks - stats.quad_doubled,
+            }
+        ),
+    )
+
+
 def _format_number(value: float | None) -> str:
     if value is None:
         return "none"
@@ -941,7 +993,8 @@ class ReaderValidation:
 
     Attributes:
         reader: The reader: "clubs", "players", "contracts", "suspensions", "managed_clubs",
-            "stages", "competitions", "fixtures", "transfer_windows" or "league_tables".
+            "stages", "competitions", "fixtures", "transfer_windows", "league_tables" or
+            "competition_rules".
         status: "ok" when the reader returned its table, "failed" when checks stopped it, and
             "error" when it raised another fmsave error.
         record_count: How many records the reader decoded, or None when it did not get far
@@ -1034,10 +1087,11 @@ def validate_save(career_save: Save) -> ValidationReport:
     """Run every reader on a save and report how each fared.
 
     Readers run in the order clubs, players, contracts, suspensions, managed clubs, stages,
-    competitions, fixtures, transfer windows, league tables. A reader whose checks fail is
-    reported "failed" with its checks, and one that raises another fmsave error is reported
-    "error" without the error's text; the remaining readers still run. The report holds only
-    structural facts, counts and rates, never names, uids or other values from the save.
+    competitions, fixtures, transfer windows, league tables, competition rules. A reader whose
+    checks fail is reported "failed" with its checks, and one that raises another fmsave error
+    is reported "error" without the error's text; the remaining readers still run. The report
+    holds only structural facts, counts and rates, never names, uids or other values from the
+    save.
 
     Raises:
         SaveClosedError: The save is closed.
@@ -1056,6 +1110,7 @@ def validate_save(career_save: Save) -> ValidationReport:
         (FIXTURES_READER, career_save.fixtures),
         (TRANSFER_WINDOWS_READER, career_save.transfer_windows),
         (LEAGUE_TABLES_READER, career_save.league_tables),
+        (COMPETITION_RULES_READER, career_save.competition_rules),
     )
     validations: list[ReaderValidation] = []
     player_pass_error: FmsaveError | None = None

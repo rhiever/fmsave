@@ -151,6 +151,7 @@ READER_ORDER = (
     "fixtures",
     "transfer_windows",
     "league_tables",
+    "competition_rules",
 )
 EXAMPLE_COMPETITION_COUNT = 3
 
@@ -943,6 +944,8 @@ def test_validate_save_reports_every_reader_ok_with_gates_not_applied(
         # This fragment holds no tagged stream at all, so there is no window to decode.
         "transfer_windows": 0,
         "league_tables": 0,
+        # Nor any rules preamble block, since its span carries nothing at all.
+        "competition_rules": 0,
     }
     assert report.game == save_info.game
     assert report.build == save_info.build
@@ -1049,6 +1052,10 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "team_ids_out_of_range": 0,
             "unresolved_teams": 0,
         },
+        "competition_rules": {
+            "blocks_not_fully_parsed": 0,
+            "blocks_without_a_doubled_quad": 0,
+        },
     }
 
 
@@ -1129,6 +1136,7 @@ def test_a_failing_reader_is_reported_failed_and_the_others_still_run(
         "competitions",
         "fixtures",
         "transfer_windows",
+        "competition_rules",
     ):
         assert readers[reader_name].status == "ok"
     # The league-table reader puts a club name and a team slot on every row it returns, so it
@@ -1181,6 +1189,7 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_caches_nothin
         "fixtures": "ok",
         "transfer_windows": "ok",
         "league_tables": "ok",
+        "competition_rules": "ok",
     }
     assert readers["contracts"].gates == (failing_gate("tails_parsed"),)
     assert tuple(gate.name for gate in readers["players"].gates) == PLAYER_GATE_NAMES
@@ -1250,6 +1259,9 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "fixtures": "failed",
         "transfer_windows": "failed",
         "league_tables": "failed",
+        # Its span holds no rules preamble block either, which has to fail once the gates
+        # apply rather than report a career with no competition rules of its own.
+        "competition_rules": "failed",
     }
     assert {name: failed_gate_names(reader.gates) for name, reader in readers.items()} == {
         "clubs": ["clubs_minimum", "status_confirmation", "reputation_median"],
@@ -1317,6 +1329,9 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # them. Its gates are judged on their own counts in the league-table tests, where an
         # empty span fails all five rather than passing for want of a rate.
         "league_tables": [],
+        # An empty span holds no marker to count and leaves the parsed share without a
+        # denominator, so both gates fail rather than one passing quietly.
+        "competition_rules": ["rules_markers_minimum", "rules_fully_parsed"],
     }
 
 
