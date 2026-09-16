@@ -23,6 +23,7 @@ TABLE_RECORD_TYPES = (
     fmsave.ManagedClub,
     fmsave.Stage,
     fmsave.Competition,
+    fmsave.Fixture,
 )
 
 

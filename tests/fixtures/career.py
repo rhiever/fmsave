@@ -11,6 +11,7 @@ here. All names are fictional.
 from __future__ import annotations
 
 import struct
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from tests.fixtures.container import (
@@ -42,6 +43,7 @@ from tests.fixtures.game_db import (
     status_record_bytes,
     suspension_entry_bytes,
 )
+from tests.fixtures.span import fixture_record_bytes, span_frames, span_payloads
 
 GAME_DB_SCHEMA = 4000
 BUILD_STRING = "26.3.2+2329565"
@@ -469,6 +471,179 @@ def career_stage_rows() -> list[bytes]:
     return rows
 
 
+# The unnamed span between this section and `humans` is where the fixture calendar lives.
+SPAN_SECTION_NAME = "non_pl_hist_ls"
+
+# Fixture calendar: the career's own run of records, then a stray copy of two more, far enough
+# past it to count as a separate run. Only the larger run is the calendar, which is what drops
+# the block of template records every real save carries.
+FIXTURE_STAGE_ID = 1
+CUP_FIXTURE_STAGE_ID = 3
+# A stage id the example stage table does not hold, so its competition never resolves.
+UNRESOLVED_FIXTURE_STAGE_ID = 9999
+STRAY_FIXTURE_STAGE_ID = 4
+FIXTURE_KICK_OFF_YEAR = 2031
+FIXTURE_SEASON_START_YEAR = 2030
+STRAY_FIXTURE_SEASON_START_YEAR = 2029
+LEAGUE_KICK_OFF_SLOT = 34
+CUP_KICK_OFF_SLOT = 41
+# (73 + 23) * 15 is exactly one whole day of minutes, so it names no time of day.
+PAST_MIDNIGHT_KICK_OFF_SLOT = 73
+HOME_STADIUM_ORDINAL = 10
+AWAY_STADIUM_ORDINAL = 20
+NEUTRAL_STADIUM_ORDINAL = 99
+NO_ROUND_INDEX = 255
+# A team id no club of the example save lists.
+UNREGISTERED_FIXTURE_TEAM_ID = 79999
+FIRST_MATCH_RECORD_ID = 880_000
+STRAY_MATCH_RECORD_ID = 990_000
+FIXTURE_SEPARATOR_BYTES = 64
+# Comfortably past the 1 MiB that separates one run of fixture records from the next.
+STRAY_CLUSTER_GAP_BYTES = 2 * 1024 * 1024
+FIXTURE_DATE2 = 0x1234
+FIXTURE_PHASE = 2
+FIXTURE_LEG = 1
+FIXTURE_R39_42 = 0x11223344
+FIXTURE_R47_54 = 0x0102030405060708
+FIXTURE_MATCH_RULES_TEMPLATE = (7, 8, 9)
+
+
+@dataclass(frozen=True)
+class ExampleFixture:
+    stage_id: int
+    home_team_id: int
+    away_team_id: int
+    day_of_year: int
+    time_slot: int
+    round_index: int
+    played: bool
+    stadium_ordinal: int
+    season_start_year: int = FIXTURE_SEASON_START_YEAR
+
+
+# Written out of date order on purpose: file order is neither sorted nor a rotation of a
+# sorted order on a real save, so a reader that does not sort has to fail on these.
+MAIN_CLUSTER_FIXTURES = (
+    ExampleFixture(FIXTURE_STAGE_ID, NORTHBRIDGE_TEAM_A, SOUTHPORT_TEAM, 51, 34, 0, True, 10),
+    ExampleFixture(FIXTURE_STAGE_ID, SOUTHPORT_TEAM, NORTHBRIDGE_TEAM_A, 58, 34, 1, True, 20),
+    ExampleFixture(CUP_FIXTURE_STAGE_ID, NORTHBRIDGE_TEAM_A, 70005, 65, 41, 255, False, 99),
+    ExampleFixture(UNRESOLVED_FIXTURE_STAGE_ID, NORTHBRIDGE_TEAM_A, 70004, 72, 34, 2, False, 10),
+    ExampleFixture(FIXTURE_STAGE_ID, NORTHBRIDGE_TEAM_A, 70006, 44, 34, 3, True, 10),
+    ExampleFixture(FIXTURE_STAGE_ID, NORTHBRIDGE_TEAM_A, SOUTHPORT_TEAM, 37, 34, 4, True, 10),
+)
+# Dated before every record of the calendar, so a reader that keeps them lists them first.
+STRAY_FIXTURES = (
+    ExampleFixture(
+        STRAY_FIXTURE_STAGE_ID,
+        NORTHBRIDGE_TEAM_B,
+        70005,
+        10,
+        LEAGUE_KICK_OFF_SLOT,
+        0,
+        True,
+        HOME_STADIUM_ORDINAL,
+        STRAY_FIXTURE_SEASON_START_YEAR,
+    ),
+    ExampleFixture(
+        STRAY_FIXTURE_STAGE_ID,
+        70005,
+        NORTHBRIDGE_TEAM_B,
+        17,
+        LEAGUE_KICK_OFF_SLOT,
+        1,
+        True,
+        AWAY_STADIUM_ORDINAL,
+        STRAY_FIXTURE_SEASON_START_YEAR,
+    ),
+)
+# Extra calendar records some tests add: one whose home team no club lists, and one whose
+# kick-off slot lands past midnight.
+UNRESOLVED_TEAM_FIXTURE = ExampleFixture(
+    FIXTURE_STAGE_ID,
+    UNREGISTERED_FIXTURE_TEAM_ID,
+    SOUTHPORT_TEAM,
+    79,
+    LEAGUE_KICK_OFF_SLOT,
+    5,
+    True,
+    HOME_STADIUM_ORDINAL,
+)
+PAST_MIDNIGHT_FIXTURE = ExampleFixture(
+    FIXTURE_STAGE_ID,
+    NORTHBRIDGE_TEAM_B,
+    SOUTHPORT_TEAM,
+    86,
+    PAST_MIDNIGHT_KICK_OFF_SLOT,
+    6,
+    True,
+    HOME_STADIUM_ORDINAL,
+)
+# Records that pin the neutral-venue minimum from both sides in one save: Example Athletic's
+# team 70005 plays exactly four times at home in the season, three at its own ground and once
+# elsewhere, so its usual ground is decided and the odd match out is neutral. Southport's two
+# extra home matches bring it to three, one short, so none of its matches is called neutral.
+NEUTRAL_VENUE_MINIMUM_FIXTURES = (
+    ExampleFixture(FIXTURE_STAGE_ID, 70005, SOUTHPORT_TEAM, 93, LEAGUE_KICK_OFF_SLOT, 7, True, 10),
+    ExampleFixture(FIXTURE_STAGE_ID, 70005, SOUTHPORT_TEAM, 100, LEAGUE_KICK_OFF_SLOT, 8, True, 10),
+    ExampleFixture(FIXTURE_STAGE_ID, 70005, SOUTHPORT_TEAM, 107, LEAGUE_KICK_OFF_SLOT, 9, True, 10),
+    ExampleFixture(
+        FIXTURE_STAGE_ID, 70005, SOUTHPORT_TEAM, 114, LEAGUE_KICK_OFF_SLOT, 10, True, 99
+    ),
+    ExampleFixture(
+        FIXTURE_STAGE_ID, SOUTHPORT_TEAM, 70005, 121, LEAGUE_KICK_OFF_SLOT, 11, True, 20
+    ),
+    ExampleFixture(
+        FIXTURE_STAGE_ID, SOUTHPORT_TEAM, 70005, 128, LEAGUE_KICK_OFF_SLOT, 12, True, 20
+    ),
+)
+# A stray that repeats the calendar's first record exactly: same teams, same day and same
+# kick-off slot. Only its match record id differs, which is not what makes a record a copy.
+DUPLICATE_STRAY_FIXTURE = MAIN_CLUSTER_FIXTURES[0]
+
+
+def fixture_blob(example: ExampleFixture, match_record_id: int) -> bytes:
+    """One fixture calendar record with its lead-in bytes."""
+    return fixture_record_bytes(
+        stage_id=example.stage_id,
+        stadium_ordinal=example.stadium_ordinal,
+        home_team_id=example.home_team_id,
+        away_team_id=example.away_team_id,
+        day_of_year=example.day_of_year,
+        year=FIXTURE_KICK_OFF_YEAR,
+        time_slot=example.time_slot,
+        season_start_year=example.season_start_year,
+        match_record_id=match_record_id,
+        round_index=example.round_index,
+        played=example.played,
+        date2=FIXTURE_DATE2,
+        phase=FIXTURE_PHASE,
+        leg=FIXTURE_LEG,
+        r39_42=FIXTURE_R39_42,
+        match_rules_template=FIXTURE_MATCH_RULES_TEMPLATE,
+        r47_54=FIXTURE_R47_54,
+    )
+
+
+def career_span_payload(
+    extra_fixtures: Sequence[ExampleFixture] = (),
+    extra_strays: Sequence[ExampleFixture] = (),
+) -> bytes:
+    """The career's run of fixture records, a wide gap, then a stray copy of two more."""
+    calendar_blobs = [
+        fixture_blob(example, FIRST_MATCH_RECORD_ID + position)
+        for position, example in enumerate((*MAIN_CLUSTER_FIXTURES, *extra_fixtures))
+    ]
+    stray_blobs = [
+        fixture_blob(example, STRAY_MATCH_RECORD_ID + position)
+        for position, example in enumerate((*STRAY_FIXTURES, *extra_strays))
+    ]
+    return (
+        span_payloads(*calendar_blobs, separator_bytes=FIXTURE_SEPARATOR_BYTES)
+        + bytes(STRAY_CLUSTER_GAP_BYTES)
+        + span_payloads(*stray_blobs, separator_bytes=FIXTURE_SEPARATOR_BYTES)
+    )
+
+
 def career_game_db(*, duplicate_club_name: bool = False) -> bytes:
     clubs = EXAMPLE_CLUBS + ((SECOND_NORTHBRIDGE_CLUB,) if duplicate_club_name else ())
     payload = (
@@ -501,7 +676,11 @@ def career_summary(*, linked: bool) -> bytes:
 
 
 def career_fragment(
-    *, duplicate_club_name: bool = False, manager_between_jobs: bool = False
+    *,
+    duplicate_club_name: bool = False,
+    manager_between_jobs: bool = False,
+    extra_fixtures: Sequence[ExampleFixture] = (),
+    extra_strays: Sequence[ExampleFixture] = (),
 ) -> ContainerFragment:
     """The whole career fragment.
 
@@ -510,6 +689,8 @@ def career_fragment(
             and the same short name, "Northbridge".
         manager_between_jobs: Give the one human manager no contract and no summary link, so
             no route finds a managed club.
+        extra_fixtures: Extra records to add to the fixture calendar, after its own six.
+        extra_strays: Extra records to add to the stray run, after its own two.
     """
     selector = UNMATCHED_MANAGER_SELECTOR if manager_between_jobs else MANAGER_SELECTOR
     replacements = {
@@ -517,12 +698,13 @@ def career_fragment(
         "humans": humans_body(count=1, selector=selector),
         "save_game_summary": career_summary(linked=not manager_between_jobs),
     }
+    span = span_frames([career_span_payload(extra_fixtures, extra_strays)])
     sections = [
         SectionFrame(
             section.name,
             replacements.get(section.name, section.body),
             section.extension,
-            section.unlisted_frames_after,
+            span if section.name == SPAN_SECTION_NAME else section.unlisted_frames_after,
         )
         for section in default_sections()
     ]

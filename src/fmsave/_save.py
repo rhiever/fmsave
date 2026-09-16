@@ -14,6 +14,7 @@ from fmsave._errors import ReaderCheckError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import (
     ContractLayout,
+    FixtureCalendarLayout,
     GateBounds,
     PersonBlockLayout,
     SuspensionLayout,
@@ -24,12 +25,19 @@ from fmsave.checks import ReaderCheck
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
+from fmsave.models.fixtures import Fixture
 from fmsave.models.managed import ManagedClub
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
 from fmsave.models.suspensions import Suspension
 from fmsave.name_maps import EMPTY_COMPETITION_NAMES, normalize_competition_names
-from fmsave.readers._common import GAME_DB_SECTION, HUMANS_SECTION, SAVE_SUMMARY_SECTION
+from fmsave.readers._common import (
+    GAME_DB_SECTION,
+    HUMANS_SECTION,
+    SAVE_SUMMARY_SECTION,
+    SPAN_REGION,
+)
+from fmsave.readers.fixtures import build_fixtures
 from fmsave.readers.managed import find_managed_club_layouts, resolve_managed_clubs
 from fmsave.readers.player_scan import window_end
 from fmsave.readers.players import build_player_decoder, collect_player_stats
@@ -49,6 +57,7 @@ SUSPENSIONS_TABLE_CACHE_KEY = "table:suspensions"
 MANAGED_CLUBS_TABLE_CACHE_KEY = "table:managed_clubs"
 STAGES_TABLE_CACHE_KEY = "table:stages"
 COMPETITIONS_TABLE_CACHE_KEY = "table:competitions"
+FIXTURES_TABLE_CACHE_KEY = "table:fixtures"
 
 
 class _PlayerTables(NamedTuple):
@@ -257,6 +266,61 @@ class Save:
         """
         context = self._context
         return context.cached(COMPETITIONS_TABLE_CACHE_KEY, self._read_competitions)
+
+    def fixtures(self) -> Table[Fixture]:
+        """Every match the save has scheduled or played, in date and kick-off order.
+
+        The save holds several copies of the calendar; only the largest is returned, so the
+        block of template matches every save carries is left out. Each row joins to its
+        competition through its stage, and to a club through each team id; an id the save does
+        not resolve leaves its fields empty rather than being guessed. `home_goals` and
+        `away_goals` are empty in this release. The table is read on the first call; later
+        calls return the same table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: No club record is accepted, a club uid or club index appears in
+                two records, a team id is listed twice, no stage table was found in the tail of
+                the game database, a stage id appears in two rows, the save's in-game date is
+                unreadable, or, on a full-size span, the calendar falls outside the checks'
+                bounds. With a competition name map, the competition checks run first and
+                raise here too, so no row is named from a table whose checks did not pass.
+        """
+        context = self._context
+        return context.cached(FIXTURES_TABLE_CACHE_KEY, self._read_fixtures)
+
+    def _read_fixtures(self) -> Table[Fixture]:
+        context = self._context
+        save_info = context.info
+        gate_bounds = self._gate_bounds()
+        layout = find_layout(FixtureCalendarLayout, SPAN_REGION, None, save_info.build).layout
+        # One game_db borrow covers all three indexes the joins go through, so a cold call
+        # decompresses that section once rather than once per index. The span is streamed after
+        # the borrow ends, so the two large regions are never held in memory together.
+        with context.section(GAME_DB_SECTION):
+            club_index = context.club_index()
+            # With a name map the competitions are read first, checks and all. Every
+            # competition name a fixture row carries comes out of the competition index, so
+            # that index must have passed its own checks before a name of its leaves this
+            # reader: a build that mis-paired entity ids with database ids would otherwise put
+            # another competition's name on every one of a hundred thousand fixture rows and
+            # raise nothing at all. Reading the competition table runs those checks inside this
+            # same borrow, so game_db is still decompressed once. Without a map every
+            # competition_name is None anyway, so nothing is read on its account.
+            if context.competition_names:
+                self.competitions()
+            stage_index = context.stage_index()
+            competition_index = context.competition_index()
+        span_records = context.span_records()
+        fixtures, fixture_stats = build_fixtures(
+            span_records, stage_index, competition_index, club_index, layout
+        )
+        fixture_check = checks.check_fixtures(fixture_stats, gate_bounds, span_records.span_bytes)
+        checks.enforce_checks((fixture_check,))
+        self._store_reader_checks((fixture_check,))
+        return Table(fixtures, Fixture)
 
     def _reader_check(self, reader_name: str) -> ReaderCheck | None:
         """The checks a reader passed when its table was read, or None before it was read."""

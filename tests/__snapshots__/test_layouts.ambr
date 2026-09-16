@@ -549,6 +549,7 @@
         'match_record_id_offset': 32,
         'match_rules_template_bytes': 3,
         'match_rules_template_offset': 43,
+        'neutral_venue_minimum_home_fixtures': 4,
         'phase_offset': 36,
         'played_offset': 55,
         'r39_42_offset': 39,
@@ -710,6 +711,26 @@
         'date_marked_chain_records': tuple(
           None,
           0.05,
+        ),
+        'fixture_cluster_share': tuple(
+          0.9,
+          None,
+        ),
+        'fixture_stage_resolved': tuple(
+          0.95,
+          None,
+        ),
+        'fixture_strays_minimum': tuple(
+          100,
+          None,
+        ),
+        'fixture_teams_resolved': tuple(
+          0.87,
+          None,
+        ),
+        'fixtures_minimum': tuple(
+          5000,
+          None,
         ),
         'goalkeeper_block_low_maximum': 30,
         'handling_above_finishing': tuple(

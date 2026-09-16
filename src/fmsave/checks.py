@@ -1,8 +1,9 @@
 """Reader checks, and the validation report built from them.
 
 While a reader decodes, it counts what it sees into a stats record from `fmsave._reader_stats`
-(`PlayerStats`, `ContractStats`, `ClubStats`, `SuspensionStats`, `ManagedStats`, `StageStats` or
-`CompetitionStats`). The `evaluate_*` functions compare those counts with the loose `GateBounds`
+(`PlayerStats`, `ContractStats`, `ClubStats`, `SuspensionStats`, `ManagedStats`, `StageStats`,
+`CompetitionStats` or `FixtureStats`). The `evaluate_*` functions compare those counts with the
+loose `GateBounds`
 registered for the save's layout and return one `GateResult` per check, and `enforce` raises
 `ReaderCheckError` when an applied check failed, before the reader caches its table. The checks
 apply only to a `game_db` of at least `GateBounds.minimum_applies_from_bytes`, since smaller
@@ -33,6 +34,7 @@ from fmsave._reader_stats import (
     ClubStats,
     CompetitionStats,
     ContractStats,
+    FixtureStats,
     ManagedStats,
     PlayerStats,
     StageStats,
@@ -68,6 +70,7 @@ SUSPENSIONS_READER = "suspensions"
 MANAGED_CLUBS_READER = "managed_clubs"
 STAGES_READER = "stages"
 COMPETITIONS_READER = "competitions"
+FIXTURES_READER = "fixtures"
 
 # Players, contracts and suspensions are decoded in one pass, so they fail or succeed together.
 _PLAYER_PASS_READERS = frozenset({PLAYERS_READER, CONTRACTS_READER, SUSPENSIONS_READER})
@@ -158,6 +161,11 @@ def _gate(name: str, observed: float | None, bound: BoundPair, applied: bool) ->
 
 def _applies(bounds: GateBounds, game_db_bytes: int) -> bool:
     return game_db_bytes >= bounds.minimum_applies_from_bytes
+
+
+def _span_applies(bounds: GateBounds, span_bytes: int) -> bool:
+    """Whether checks on what the span pass read apply: the span has its own size threshold."""
+    return span_bytes >= bounds.span_minimum_applies_from_bytes
 
 
 def evaluate_players(
@@ -468,6 +476,55 @@ def evaluate_competitions(
     )
 
 
+def evaluate_fixtures(
+    stats: FixtureStats, bounds: GateBounds, span_bytes: int
+) -> tuple[GateResult, ...]:
+    """The fixture reader's checks, in a fixed order.
+
+    These judge what one pass over the span read, not `game_db`, so they apply from the span's
+    own size threshold. All five apply whenever the span is large enough, including when the
+    pass found no fixture at all: an empty calendar scores below the record floor and the
+    stray floor and leaves the three shares without a denominator, so a calendar locator that
+    has moved fails here rather than reporting a career with no matches.
+
+    `fixture_cluster_share` and `fixture_strays_minimum` bound the same split from opposite
+    sides. The share falls when the run separating the calendar from its stray copies is too
+    eager and the calendar shatters. The stray floor catches the other way that rule can
+    break, a separation so slack that nothing is told apart at all: every record then counts
+    as the calendar, which puts the template matches no save plays on every career, and the
+    share cannot see it, because a reader keeping every stray copy scores a perfect 1.0.
+    """
+    applied = _span_applies(bounds, span_bytes)
+    cluster_records = stats.cluster_records
+    return (
+        _gate("fixtures_minimum", cluster_records, bounds.fixtures_minimum, applied),
+        _gate(
+            "fixture_cluster_share",
+            _rate(cluster_records, stats.span_records),
+            bounds.fixture_cluster_share,
+            applied,
+        ),
+        _gate(
+            "fixture_strays_minimum",
+            stats.span_records - cluster_records,
+            bounds.fixture_strays_minimum,
+            applied,
+        ),
+        _gate(
+            "fixture_stage_resolved",
+            _rate(stats.stage_resolved, stats.with_stage),
+            bounds.fixture_stage_resolved,
+            applied,
+        ),
+        _gate(
+            "fixture_teams_resolved",
+            _rate(stats.home_team_resolved + stats.away_team_resolved, 2 * cluster_records),
+            bounds.fixture_teams_resolved,
+            applied,
+        ),
+    )
+
+
 def check_players(stats: PlayerStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
     """The player reader's checks, record count and anomaly counts."""
     return ReaderCheck(
@@ -576,6 +633,39 @@ def check_competitions(
     )
 
 
+def check_fixtures(stats: FixtureStats, bounds: GateBounds, span_bytes: int) -> ReaderCheck:
+    """The fixture reader's checks, record count and anomaly counts.
+
+    `stray_records` and `stray_clusters` count what the span held outside the calendar, which
+    every save carries some of, and `strays_without_a_copy` those of them the calendar holds
+    no copy of, which is the only part of the drop that loses anything. The rest count kept
+    fixtures a join or a decode left incomplete. `neutral_venue_votes` counts the clubs and
+    seasons whose usual ground was decided: none of them on a full-size span means the venue
+    vote never ran at all.
+    """
+    cluster_records = stats.cluster_records
+    return ReaderCheck(
+        FIXTURES_READER,
+        cluster_records,
+        evaluate_fixtures(stats, bounds, span_bytes),
+        FrozenMapping(
+            {
+                "stray_records": stats.span_records - cluster_records,
+                "stray_clusters": max(stats.clusters - 1, 0),
+                "strays_without_a_copy": stats.strays_without_a_copy,
+                "fixtures_without_a_stage": cluster_records - stats.with_stage,
+                "unresolved_stages": stats.with_stage - stats.stage_resolved,
+                "unresolved_teams": (
+                    2 * cluster_records - stats.home_team_resolved - stats.away_team_resolved
+                ),
+                "undated_fixtures": stats.undated,
+                "bad_kick_off_slots": stats.bad_kick_off_slots,
+                "neutral_venue_votes": stats.neutral_venue_votes,
+            }
+        ),
+    )
+
+
 def _format_number(value: float | None) -> str:
     if value is None:
         return "none"
@@ -651,7 +741,7 @@ class ReaderValidation:
 
     Attributes:
         reader: The reader: "clubs", "players", "contracts", "suspensions", "managed_clubs",
-            "stages" or "competitions".
+            "stages", "competitions" or "fixtures".
         status: "ok" when the reader returned its table, "failed" when checks stopped it, and
             "error" when it raised another fmsave error.
         record_count: How many records the reader decoded, or None when it did not get far
@@ -744,7 +834,7 @@ def validate_save(career_save: Save) -> ValidationReport:
     """Run every reader on a save and report how each fared.
 
     Readers run in the order clubs, players, contracts, suspensions, managed clubs, stages,
-    competitions. A reader
+    competitions, fixtures. A reader
     whose checks fail is reported "failed" with its checks, and one that raises another fmsave
     error is reported "error" without the error's text; the remaining readers still run. The
     report holds only structural facts, counts and rates, never names, uids or other values
@@ -764,6 +854,7 @@ def validate_save(career_save: Save) -> ValidationReport:
         (MANAGED_CLUBS_READER, career_save.managed_clubs),
         (STAGES_READER, career_save.stages),
         (COMPETITIONS_READER, career_save.competitions),
+        (FIXTURES_READER, career_save.fixtures),
     )
     validations: list[ReaderValidation] = []
     player_pass_error: FmsaveError | None = None

@@ -464,11 +464,13 @@ class FixtureCalendarLayout:
     `sentinel_offsets` holds, and both team ids lie inside the inclusive `team_id_range`.
     The stadium ordinal is stored as the ordinal plus one.
 
-    `round_index_none_value`, `kick_off_slot_offset`, `kick_off_slot_minutes` and
-    `cluster_gap_bytes` are for the fixtures reader rather than the span pass: a kick-off
-    time is `(stored slot + kick_off_slot_offset) * kick_off_slot_minutes` minutes into the
-    day, a round index of `round_index_none_value` means no round, and a gap of
-    `cluster_gap_bytes` or more between records separates the calendar from a stray copy.
+    `round_index_none_value`, `kick_off_slot_offset`, `kick_off_slot_minutes`,
+    `cluster_gap_bytes` and `neutral_venue_minimum_home_fixtures` are for the fixtures reader
+    rather than the span pass: a kick-off time is `(stored slot + kick_off_slot_offset) *
+    kick_off_slot_minutes` minutes into the day, a round index of `round_index_none_value`
+    means no round, a gap of `cluster_gap_bytes` or more between records separates the
+    calendar from a stray copy, and a club needs `neutral_venue_minimum_home_fixtures` home
+    matches in a season before the ground it used most counts as its usual one.
     """
 
     record_bytes: int
@@ -498,6 +500,7 @@ class FixtureCalendarLayout:
     kick_off_slot_offset: int
     kick_off_slot_minutes: int
     cluster_gap_bytes: int
+    neutral_venue_minimum_home_fixtures: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -752,6 +755,21 @@ class GateBounds:
     competitions that have a database id). There is no lower bound on competitions named,
     because no save stores a competition name and the share is zero until a reader supplies a
     map; the upper bound is what holds a name to the only key it may arrive through.
+
+    Fixtures: `fixtures_minimum` (records in the run kept as the calendar),
+    `fixture_cluster_share` (that run, of every fixture record in the span),
+    `fixture_strays_minimum` (records the span holds outside that run),
+    `fixture_stage_resolved` (kept records whose stage the stage table holds, of kept records
+    naming a stage) and `fixture_teams_resolved` (team ids a club lists, of the two per kept
+    record). These five are judged against the span rather than `game_db`, so they apply from
+    `span_minimum_applies_from_bytes`. A span pass that finds no fixture at all fails the
+    first two on their lower bounds and leaves the other three without a rate, so a calendar
+    layout that has moved fails here rather than reporting a career with no matches.
+
+    The share and the stray count bound the same split from opposite sides. The share falls
+    when the calendar shatters into fragments; the stray count falls to zero when nothing is
+    separated from the calendar at all, which the share cannot see, because a reader that kept
+    every stray copy scores a perfect 1.0 on it.
     """
 
     minimum_applies_from_bytes: int
@@ -809,6 +827,11 @@ class GateBounds:
     competition_database_ids_mapped: BoundPair
     competition_database_id_conflicts: BoundPair
     competition_names_within_database_ids: BoundPair
+    fixtures_minimum: BoundPair
+    fixture_cluster_share: BoundPair
+    fixture_strays_minimum: BoundPair
+    fixture_stage_resolved: BoundPair
+    fixture_teams_resolved: BoundPair
 
 
 type Layout = (

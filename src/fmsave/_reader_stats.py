@@ -151,6 +151,36 @@ class CompetitionStats:
 
 
 @dataclass(frozen=True, slots=True)
+class FixtureStats:
+    """What building the fixture calendar counted.
+
+    `span_records` counts every raw record the span pass found and `cluster_records` those in
+    the run kept as the calendar, so `clusters` above one means stray copies were dropped.
+    `strays_without_a_copy` counts the dropped records the calendar holds no copy of, which is
+    what dropping them actually loses: most strays repeat a match the calendar already lists,
+    and the rest are the template block every save carries plus, on one save measured, a few
+    dozen unplayed matches that predate the calendar.
+    `with_stage` counts kept records naming a stage and `stage_resolved` those whose stage the
+    stage table holds. `home_team_resolved` and `away_team_resolved` count the team ids a club
+    lists. `undated` counts records whose stored date does not decode and
+    `bad_kick_off_slots` those whose slot names no time of day. `neutral_venue_votes` counts
+    the (club, season) pairs that played enough home matches for a usual ground to be decided.
+    """
+
+    span_records: int
+    cluster_records: int
+    clusters: int
+    strays_without_a_copy: int
+    with_stage: int
+    stage_resolved: int
+    home_team_resolved: int
+    away_team_resolved: int
+    undated: int
+    bad_kick_off_slots: int
+    neutral_venue_votes: int
+
+
+@dataclass(frozen=True, slots=True)
 class ManagedStats:
     """What the managed-club reader found: human managers, resolved routes (0 or 1) and rows."""
 

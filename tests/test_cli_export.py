@@ -28,8 +28,12 @@ FILE_NAME = "career example.fm"
 PRIVATE_FOLDER = "Private Folder"
 
 
-def write_career(tmp_path: Path, **fragment_options: bool) -> Path:
-    return career_fragment(**fragment_options).write(tmp_path / "Ünïcode folder" / FILE_NAME)
+def write_career(
+    tmp_path: Path, *, duplicate_club_name: bool = False, manager_between_jobs: bool = False
+) -> Path:
+    return career_fragment(
+        duplicate_club_name=duplicate_club_name, manager_between_jobs=manager_between_jobs
+    ).write(tmp_path / "Ünïcode folder" / FILE_NAME)
 
 
 @pytest.fixture

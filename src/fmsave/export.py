@@ -21,7 +21,7 @@ import types
 import typing
 from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, time
 from enum import StrEnum
 from typing import Any, Literal, TextIO, TypeGuard, cast
 
@@ -153,7 +153,9 @@ def _scalar_kind(annotation: object) -> _ScalarKind | None:
         return "value"
     if annotation is bool:
         return "bool"
-    if annotation is date:
+    if annotation is date or annotation is time:
+        # A time of day flattens the way a date does: kept as it is, or ISO 8601 when the
+        # values are JSON-ready, so the two share one kind.
         return "date"
     if isinstance(annotation, type) and issubclass(annotation, StrEnum):
         return "text_enum"
@@ -389,7 +391,7 @@ def _scalar_items(field_plan: _FieldPlan, value: object, *, json_ready: bool) ->
     if field_plan.item_kind == "text_enum":
         items = [item.value if isinstance(item, StrEnum) else item for item in items]
     elif field_plan.item_kind == "date" and json_ready:
-        items = [item.isoformat() if isinstance(item, date) else item for item in items]
+        items = [item.isoformat() if isinstance(item, (date, time)) else item for item in items]
     return list(items) if json_ready else tuple(items)
 
 
@@ -490,7 +492,7 @@ def _nested_record(
                 nested[field_name] = value
             case "date":
                 nested[field_name] = (
-                    value.isoformat() if json_ready and isinstance(value, date) else value
+                    value.isoformat() if json_ready and isinstance(value, (date, time)) else value
                 )
             case "text_enum":
                 nested[field_name] = value.value if isinstance(value, StrEnum) else value
@@ -552,7 +554,7 @@ def _append_flat_values(
                 flat_values.extend(_unknown_values(step, value))
             case "date":
                 flat_values.append(
-                    value.isoformat() if json_ready and isinstance(value, date) else value
+                    value.isoformat() if json_ready and isinstance(value, (date, time)) else value
                 )
             case "value" | "bool":
                 flat_values.append(value)
@@ -589,7 +591,11 @@ def _append_csv_cells(cells: list[object], record: object, class_plan: _ClassPla
                     None if value is None else _csv_items_text(_sequence_items(step, value))
                 )
             case "date":
-                cells.append(value.isoformat() if type(value) is date else _csv_cell(value))
+                cells.append(
+                    value.isoformat()
+                    if type(value) is date or type(value) is time
+                    else _csv_cell(value)
+                )
             case "records":
                 # Every item is a dict, so a tuple with items is always compact JSON.
                 record_items = _record_items(step, value, json_ready=False)
@@ -627,7 +633,7 @@ def record_to_dict(record: object, *, json_ready: bool) -> dict[str, object]:
 
     Args:
         record: A record dataclass instance.
-        json_ready: When true, dates become ISO 8601 strings and tuples become lists.
+        json_ready: When true, dates and times become ISO 8601 strings and tuples become lists.
 
     Raises:
         TypeError: The record's type is not supported (see column_names), or a value does not
@@ -855,7 +861,7 @@ def flat_rows[RecordT](
     Args:
         records: Records that are all exactly of record_type.
         record_type: The record class.
-        json_ready: When true, dates become ISO 8601 strings and tuples become lists.
+        json_ready: When true, dates and times become ISO 8601 strings and tuples become lists.
 
     Raises:
         TypeError: A record is not exactly of record_type, record_type is not supported, or a
@@ -889,7 +895,7 @@ def _record_type_error(function_name: str, record_type: type, record: object) ->
 
 
 def _json_default(value: object) -> object:
-    if isinstance(value, date):
+    if isinstance(value, (date, time)):
         return value.isoformat()
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
@@ -924,7 +930,7 @@ def _csv_cell(value: object) -> str:
         return _csv_items_text(cast("Sequence[object]", value))
     if isinstance(value, bool):
         return "true" if value else "false"
-    if isinstance(value, date):
+    if isinstance(value, (date, time)):
         return value.isoformat()
     if isinstance(value, Mapping):
         return _compact_json(cast("Mapping[object, object]", value))

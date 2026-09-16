@@ -43,6 +43,7 @@ EXPECTED_READERS = (
     "managed_clubs",
     "stages",
     "competitions",
+    "fixtures",
 )
 
 

@@ -366,6 +366,10 @@ FIXTURE_CALENDAR = FixtureCalendarLayout(
     kick_off_slot_offset=23,
     kick_off_slot_minutes=15,
     cluster_gap_bytes=1_048_576,
+    # A club plays every other club in its division at home once, so even a tiny league gives
+    # far more than four home matches a season; four is low enough to still decide a cup-only
+    # side's usual ground, and high enough that one rearranged tie cannot outvote it.
+    neutral_venue_minimum_home_fixtures=4,
 )
 
 # A league-table block opens with five aggregate rows, each keyed FF FF FF FF.
@@ -575,6 +579,33 @@ GATE_BOUNDS = GateBounds(
     # such as one whose database id another competition also claims, which would put a
     # different competition's name on it.
     competition_names_within_database_ids=(None, 1.0),
+    # Around 99,000 to 137,000 records in the calendar on every save measured, holding 98.7%
+    # to 99.3% of the fixture records in the span. The floor sits far below the smallest, so a
+    # young career whose calendar is a fraction of these clears it, while a locator that broke
+    # and now finds a handful of look-alikes does not.
+    fixtures_minimum=(5_000, None),
+    fixture_cluster_share=(0.90, None),
+    # Every save measured leaves 998 to 1,308 fixture records outside the calendar, at least
+    # 150 of which are a fixed block of template matches dated years off the clock that no
+    # calendar keeps. Something is always separated out, so a run that swallows the whole span
+    # means the gap above stopped splitting anything. The share alone cannot say so: a reader
+    # that kept every stray copy scores a perfect 1.0 on it and passes. The floor sits an
+    # order of magnitude below the smallest count measured, so a career carrying far fewer
+    # copies still clears it.
+    fixture_strays_minimum=(100, None),
+    # Every stage the calendar names is in the stage table on every save measured: the share
+    # is 1.0 over the strays as much as the kept records. That is what a dense, gapless id
+    # space gives, the table running from 1 to its row count and covering the whole range the
+    # calendar uses, so this is an interval test and not evidence that the join behind it is
+    # right. It is kept for the one thing it does catch: a calendar read one field out points
+    # at stage ids that are noise, which drops the share to near zero.
+    fixture_stage_resolved=(0.95, None),
+    # 92.43%, 93.87% and 92.68% of the two team ids per record are listed by a club across the
+    # three saves measured: a calendar also holds matches between sides no club record covers,
+    # such as teams of nations the career never loaded. The bound is the lowest of the three
+    # less 0.05, floored to two decimals, so a career carrying more of those stays well clear
+    # while a team id read from the wrong offset, which resolves almost nothing, still fails.
+    fixture_teams_resolved=(0.87, None),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (

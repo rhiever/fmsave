@@ -148,6 +148,7 @@ READER_ORDER = (
     "managed_clubs",
     "stages",
     "competitions",
+    "fixtures",
 )
 EXAMPLE_COMPETITION_COUNT = 3
 
@@ -935,6 +936,8 @@ def test_validate_save_reports_every_reader_ok_with_gates_not_applied(
         "managed_clubs": 1,
         "stages": STAGE_ROW_COUNT,
         "competitions": EXAMPLE_COMPETITION_COUNT,
+        # This fragment's span carries no fixture records at all.
+        "fixtures": 0,
     }
     assert report.game == save_info.game
     assert report.build == save_info.build
@@ -1014,6 +1017,17 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         },
         "stages": {"walk_gaps": 0, "rejected_competition_ids": 1},
         "competitions": {"database_id_conflicts": 0},
+        "fixtures": {
+            "stray_records": 0,
+            "stray_clusters": 0,
+            "strays_without_a_copy": 0,
+            "fixtures_without_a_stage": 0,
+            "unresolved_stages": 0,
+            "unresolved_teams": 0,
+            "undated_fixtures": 0,
+            "bad_kick_off_slots": 0,
+            "neutral_venue_votes": 0,
+        },
     }
 
 
@@ -1092,6 +1106,7 @@ def test_a_failing_reader_is_reported_failed_and_the_others_still_run(
         "managed_clubs",
         "stages",
         "competitions",
+        "fixtures",
     ):
         assert readers[reader_name].status == "ok"
 
@@ -1134,6 +1149,7 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_caches_nothin
         "managed_clubs": "ok",
         "stages": "ok",
         "competitions": "ok",
+        "fixtures": "ok",
     }
     assert readers["contracts"].gates == (failing_gate("tails_parsed"),)
     assert tuple(gate.name for gate in readers["players"].gates) == PLAYER_GATE_NAMES
@@ -1178,7 +1194,14 @@ def with_bounds(monkeypatch: pytest.MonkeyPatch, bounds: GateBounds) -> None:
 def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
     counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with_bounds(monkeypatch, dataclasses.replace(BOUNDS, minimum_applies_from_bytes=0))
+    # The fixture gates judge the span, which has a size threshold of its own, so both are
+    # lowered here; otherwise those gates would be the one set this test never applies.
+    with_bounds(
+        monkeypatch,
+        dataclasses.replace(
+            BOUNDS, minimum_applies_from_bytes=0, span_minimum_applies_from_bytes=0
+        ),
+    )
     with fmsave.open(counted_fragment_path) as career_save:
         readers = reader_by_name(validate_save(career_save))
     assert all(gate.applied for reader in readers.values() for gate in reader.gates)
@@ -1190,6 +1213,9 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "managed_clubs": "ok",
         "stages": "failed",
         "competitions": "failed",
+        # This fragment's span holds no fixture record at all, which has to fail once the
+        # gates apply rather than report a career with no matches.
+        "fixtures": "failed",
     }
     assert {name: failed_gate_names(reader.gates) for name, reader in readers.items()} == {
         "clubs": ["clubs_minimum", "status_confirmation", "reputation_median"],
@@ -1232,6 +1258,16 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
             "competitions_minimum",
             "competition_database_ids_mapped",
             "competition_names_within_database_ids",
+        ],
+        # An empty calendar misses the record floor, holds no stray to separate from it, and
+        # leaves all three shares without a denominator, so every fixture gate fails instead
+        # of passing for want of a rate.
+        "fixtures": [
+            "fixtures_minimum",
+            "fixture_cluster_share",
+            "fixture_strays_minimum",
+            "fixture_stage_resolved",
+            "fixture_teams_resolved",
         ],
     }
 
