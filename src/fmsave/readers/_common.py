@@ -13,6 +13,10 @@ MISSING_REFERENCE = 0xFFFFFFFF
 # The one section every game_db reader (names, clubs, players) works from.
 GAME_DB_SECTION = "game_db"
 
+# The unnamed run of frames between the `non_pl_hist_ls` and `humans` directory entries,
+# which holds the fixture calendar, the league-table blocks and the rules preambles.
+SPAN_REGION = "unlisted_after_non_pl_hist_ls"
+
 # The small sections the managed-club reader works from, besides game_db.
 HUMANS_SECTION = "humans"
 SAVE_SUMMARY_SECTION = "save_game_summary"

@@ -435,6 +435,173 @@ class SuspensionLayout:
     competition_id_exclusive_range: tuple[int, int]
 
 
+# Count and distribution checks on the unnamed span apply only to a span at least this
+# large; a smaller span comes from a fragment that cannot meet full-save counts.
+FULL_SAVE_MINIMUM_SPAN_BYTES = 16 * 1024 * 1024
+
+# How many bytes of the previous window each span window keeps in front of its frame, so a
+# record lying across a frame boundary is whole in one window. Far above the longest record
+# the span holds: a fixture is 68 bytes and the largest league-table block 1,447.
+SPAN_CARRY_OVER_BYTES = 65_536
+
+
+@dataclass(frozen=True, slots=True)
+class FixtureCalendarLayout:
+    """How to recognise fixture calendar records in the unnamed span, and where fields sit.
+
+    Every offset counts from the record start, which is where the home team id sits, so the
+    offsets of the locator byte, the stage id and the stadium ordinal are negative. Records
+    are found by a pattern built from this layout and the save's in-game date: the first
+    sentinel byte, the bytes up to the second sentinel byte, then the bytes up to the low
+    byte of the kick-off year, which must be one of the years from `years_before_clock`
+    before the in-game year to `years_after_clock` after it, and then that shared high byte.
+
+    A candidate is accepted when the whole record lies inside the window, the byte at
+    `marker_byte_offset` equals `marker_byte_value`, every `(offset, value)` pair in
+    `sentinel_offsets` holds, and both team ids lie inside the inclusive `team_id_range`.
+    The stadium ordinal is stored as the ordinal plus one.
+
+    `round_index_none_value`, `kick_off_slot_offset`, `kick_off_slot_minutes` and
+    `cluster_gap_bytes` are for the fixtures reader rather than the span pass: a kick-off
+    time is `(stored slot + kick_off_slot_offset) * kick_off_slot_minutes` minutes into the
+    day, a round index of `round_index_none_value` means no round, and a gap of
+    `cluster_gap_bytes` or more between records separates the calendar from a stray copy.
+    """
+
+    record_bytes: int
+    marker_byte_offset: int
+    marker_byte_value: int
+    sentinel_offsets: tuple[tuple[int, int], ...]
+    stage_id_offset: int
+    stadium_ordinal_offset: int
+    home_team_id_offset: int
+    away_team_id_offset: int
+    kick_off_date_offset: int
+    date2_offset: int
+    season_start_year_offset: int
+    match_record_id_offset: int
+    phase_offset: int
+    leg_offset: int
+    round_index_offset: int
+    r39_42_offset: int
+    match_rules_template_offset: int
+    match_rules_template_bytes: int
+    r47_54_offset: int
+    played_offset: int
+    team_id_range: tuple[int, int]
+    years_before_clock: int
+    years_after_clock: int
+    round_index_none_value: int
+    kick_off_slot_offset: int
+    kick_off_slot_minutes: int
+    cluster_gap_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class LeagueTableLayout:
+    """How to recognise league-table blocks in the unnamed span, and where fields sit.
+
+    A block is found by its `aggregate_count` aggregate rows, each `row_bytes` long and each
+    keyed `unplayed_key`; the first of them is the block head, and every offset counts from
+    there, so `team_id_offset` and `head_bytes_offset` are negative. After the aggregates
+    come the u16 at `rounds_per_venue_offset` and, at `matches_offset`, twice that many
+    match rows, whose venue alternates with the slot's parity.
+
+    Each row holds a u32 key, the played count twice, the won, drawn and lost counts, a zero
+    byte, the u16 goals for, goals against and points, and a flag byte. On an aggregate row,
+    and in a match slot that was never played, the key is `unplayed_key`; otherwise it is the
+    opponent's first-team id.
+
+    A candidate is accepted when the whole block lies inside the window, `rounds_per_venue`
+    lies inside the inclusive `rounds_per_venue_range`, every aggregate row has both played
+    counts equal and played equal to won plus drawn plus lost, the home and away rows'
+    played counts add up to the total row's, so do the two half rows', and the total row has
+    played at least one match. `team_id_range`, `group_gap_bytes` and `division_club_range`
+    are for the league-tables reader rather than the span pass: a gap of `group_gap_bytes`
+    or more between blocks separates two groups, and a group of that many clubs playing
+    each other twice is a division.
+    """
+
+    row_bytes: int
+    aggregate_count: int
+    team_id_offset: int
+    head_bytes_offset: int
+    head_bytes_count: int
+    rounds_per_venue_offset: int
+    matches_offset: int
+    rounds_per_venue_range: tuple[int, int]
+    key_offset: int
+    played_offset: int
+    played_copy_offset: int
+    won_offset: int
+    drawn_offset: int
+    lost_offset: int
+    zero_offset: int
+    goals_for_offset: int
+    goals_against_offset: int
+    points_offset: int
+    flag_offset: int
+    unplayed_key: int
+    team_id_range: tuple[int, int]
+    group_gap_bytes: int
+    division_club_range: tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class RulesPreambleLayout:
+    """How to read a competition-rules preamble block in the unnamed span.
+
+    A block is found by `marker`. The promotion quad sits at `promotion_quad_offset` and is
+    `promotion_quad_bytes` long, written twice back to back and ending where the marker
+    starts: promotion places, playoff places, an unidentified byte, relegation places. When
+    the two copies differ, none of the four is read.
+
+    The body starts `body_offset` bytes after the marker and holds, in order, a u32
+    tie-break count of at most `tie_break_count_max` and that many bytes, a u32 prize count
+    of at most `prize_count_max` and that many u32 prizes, and a u32 round count of at least
+    one and at most `round_count_max`. The round records follow, each `round_record_bytes`
+    long, anchored on the first of the `round_anchor_search_bytes` offsets after the count
+    whose date decodes; the first record's `round_kind_offset` byte is the count's own high
+    byte, which is always zero.
+
+    Inside a round record the unidentified `kind` byte sits at `round_kind_offset`, the date
+    at `round_date_offset`, a second unidentified byte at `round_b5_offset`, the round
+    number minus one (or `round_no_number_value` for a round the save does not number) at
+    `round_number_offset`, and the u32 match count, at most `round_match_count_max`, at
+    `round_match_count_offset`.
+
+    Between round records the save writes moved or reserved matches as blocks of
+    `moved_match_bytes` bytes, recognised by `moved_match_sentinel_value` at
+    `moved_match_sentinel_offset` and `moved_match_tail` at `moved_match_tail_offset`; up to
+    `moved_match_max_per_round` of them follow one round. Stepping over them is what keeps
+    the round records in step: on the corpus a plain stride reads about 65% of blocks
+    correctly and this stride about 96%.
+    """
+
+    marker: bytes
+    promotion_quad_offset: int
+    promotion_quad_bytes: int
+    body_offset: int
+    tie_break_count_max: int
+    prize_count_max: int
+    round_count_max: int
+    round_record_bytes: int
+    round_anchor_search_bytes: int
+    round_kind_offset: int
+    round_date_offset: int
+    round_b5_offset: int
+    round_number_offset: int
+    round_no_number_value: int
+    round_match_count_offset: int
+    round_match_count_max: int
+    moved_match_bytes: int
+    moved_match_sentinel_offset: int
+    moved_match_sentinel_value: int
+    moved_match_tail_offset: int
+    moved_match_tail: bytes
+    moved_match_max_per_round: int
+
+
 type BoundPair = tuple[float | None, float | None]
 
 
@@ -445,7 +612,9 @@ class GateBounds:
     Each `BoundPair` is an inclusive `(minimum, maximum)` pair; None leaves that side open.
     Rates are shares from 0 to 1, and the other bounds are counts or medians. The checks apply
     only when `game_db` is at least `minimum_applies_from_bytes` long, because smaller sections
-    come from fragments that cannot meet full-save counts.
+    come from fragments that cannot meet full-save counts; the checks on what the span pass
+    reads apply only from `span_minimum_applies_from_bytes` of decompressed span, for the same
+    reason.
 
     The readers count values inside these inclusive ranges: `height_range_cm` (heights),
     `age_range_years` (known ages), `home_reputation_window` (the largest difference between
@@ -492,6 +661,7 @@ class GateBounds:
     """
 
     minimum_applies_from_bytes: int
+    span_minimum_applies_from_bytes: int
     height_range_cm: tuple[int, int]
     age_range_years: tuple[int, int]
     home_reputation_window: int
@@ -548,6 +718,9 @@ type Layout = (
     | ContractLayout
     | SuspensionLayout
     | HumansLayout
+    | FixtureCalendarLayout
+    | LeagueTableLayout
+    | RulesPreambleLayout
     | GateBounds
 )
 

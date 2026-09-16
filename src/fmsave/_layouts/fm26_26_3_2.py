@@ -6,16 +6,20 @@ import struct
 
 from fmsave._layouts import (
     FULL_SAVE_MINIMUM_GAME_DB_BYTES,
+    FULL_SAVE_MINIMUM_SPAN_BYTES,
     ClubRecordLayout,
     ClubStatusLayout,
     ContractLayout,
+    FixtureCalendarLayout,
     GameInfoLayout,
     GateBounds,
     HumansLayout,
     LayoutEntry,
+    LeagueTableLayout,
     NamePoolLayout,
     PersonBlockLayout,
     PlayerRecordLayout,
+    RulesPreambleLayout,
     SaveSummaryLayout,
     SummaryStringsLayout,
     SuspensionLayout,
@@ -23,6 +27,9 @@ from fmsave._layouts import (
 )
 
 BUILD = "26.3.2+2329565"
+# The unnamed run of frames between `non_pl_hist_ls` and `humans`, which carries no schema
+# number. `fmsave.readers._common.SPAN_REGION` is the name the readers use.
+SPAN_REGION_NAME = "unlisted_after_non_pl_hist_ls"
 
 GAME_INFO = GameInfoLayout(
     db_version_length_offset=8,
@@ -326,10 +333,98 @@ SUSPENSIONS = SuspensionLayout(
     competition_id_exclusive_range=(0, 60_000),
 )
 
+# The fixture calendar record is 68 bytes from the home team id, with the locator byte, the
+# stage id and the stadium ordinal in the 12 bytes before it.
+FIXTURE_CALENDAR = FixtureCalendarLayout(
+    record_bytes=68,
+    marker_byte_offset=-12,
+    marker_byte_value=0x1C,
+    sentinel_offsets=((4, 0xFF), (11, 0xFF)),
+    stage_id_offset=-11,
+    stadium_ordinal_offset=-7,
+    home_team_id_offset=0,
+    away_team_id_offset=7,
+    kick_off_date_offset=13,
+    date2_offset=17,
+    season_start_year_offset=26,
+    match_record_id_offset=32,
+    phase_offset=36,
+    leg_offset=37,
+    round_index_offset=38,
+    r39_42_offset=39,
+    match_rules_template_offset=43,
+    match_rules_template_bytes=3,
+    r47_54_offset=47,
+    played_offset=55,
+    team_id_range=(1, 2_999_999),
+    years_before_clock=7,
+    years_after_clock=8,
+    round_index_none_value=255,
+    kick_off_slot_offset=23,
+    kick_off_slot_minutes=15,
+    cluster_gap_bytes=1_048_576,
+)
+
+# A league-table block opens with five aggregate rows, each keyed FF FF FF FF.
+LEAGUE_TABLES = LeagueTableLayout(
+    row_bytes=17,
+    aggregate_count=5,
+    team_id_offset=-23,
+    head_bytes_offset=-19,
+    head_bytes_count=19,
+    rounds_per_venue_offset=85,
+    matches_offset=87,
+    rounds_per_venue_range=(1, 40),
+    key_offset=0,
+    played_offset=4,
+    played_copy_offset=5,
+    won_offset=6,
+    drawn_offset=7,
+    lost_offset=8,
+    zero_offset=9,
+    goals_for_offset=10,
+    goals_against_offset=12,
+    points_offset=14,
+    flag_offset=16,
+    unplayed_key=0xFFFFFFFF,
+    team_id_range=(1, 2_999_999),
+    group_gap_bytes=3_000,
+    division_club_range=(18, 26),
+)
+
+# The round-record offsets and the moved-match rule were measured on the corpus: the date
+# and the match count agree on about 96% of blocks, and a stride that does not step over
+# moved matches falls to about 65%.
+RULES_PREAMBLES = RulesPreambleLayout(
+    marker=bytes.fromhex("03000001000000ffff000001ffffff"),
+    promotion_quad_offset=-8,
+    promotion_quad_bytes=4,
+    body_offset=16,
+    tie_break_count_max=16,
+    prize_count_max=64,
+    round_count_max=80,
+    round_record_bytes=15,
+    round_anchor_search_bytes=8,
+    round_kind_offset=0,
+    round_date_offset=1,
+    round_b5_offset=5,
+    round_number_offset=6,
+    round_no_number_value=255,
+    round_match_count_offset=9,
+    round_match_count_max=64,
+    moved_match_bytes=10,
+    moved_match_sentinel_offset=4,
+    moved_match_sentinel_value=0xFF,
+    moved_match_tail_offset=6,
+    moved_match_tail=b"\xff\xff\xff\xff",
+    moved_match_max_per_round=64,
+)
+
 # Bounds that depend on career stage (join dates, contract chains, bans) are kept wide, since a
 # failed check on the player pass stops players, contracts and suspensions together.
 GATE_BOUNDS = GateBounds(
     minimum_applies_from_bytes=FULL_SAVE_MINIMUM_GAME_DB_BYTES,
+    span_minimum_applies_from_bytes=FULL_SAVE_MINIMUM_SPAN_BYTES,
     height_range_cm=(150, 210),
     age_range_years=(14, 45),
     home_reputation_window=1_000,
@@ -391,5 +486,8 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CONTRACTS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=SUSPENSIONS),
     LayoutEntry(region="humans", schema=21, build=BUILD, layout=HUMANS),
+    LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=FIXTURE_CALENDAR),
+    LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=LEAGUE_TABLES),
+    LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=RULES_PREAMBLES),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=GATE_BOUNDS),
 )

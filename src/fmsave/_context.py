@@ -13,17 +13,24 @@ from collections.abc import Callable, Generator
 from contextlib import AbstractContextManager, contextmanager
 from typing import cast
 
-from fmsave._container import ContainerIndex, read_section
+from fmsave._container import ContainerIndex, read_region_frames, read_section
 from fmsave._errors import SaveClosedError
 from fmsave._layouts import NamePoolLayout, PlayerRecordLayout, find_layout
 from fmsave.models.meta import SaveInfo
-from fmsave.readers._common import GAME_DB_SECTION
+from fmsave.readers._common import GAME_DB_SECTION, SPAN_REGION
 from fmsave.readers.clubs import ClubIndex, find_club_layouts, read_club_index
 from fmsave.readers.names import NAME_POOLS_CACHE_KEY, NamePools, locate_name_pools
 from fmsave.readers.player_scan import (
     PLAYER_RECORDS_CACHE_KEY,
     PlayerRecords,
     locate_player_records,
+)
+from fmsave.readers.span import (
+    SPAN_RECORDS_CACHE_KEY,
+    SpanRecords,
+    find_span_layouts,
+    missing_clock_error,
+    scan_span,
 )
 
 CLUB_INDEX_CACHE_KEY = "club_index"
@@ -160,6 +167,28 @@ class SaveContext:
             return locate_player_records(
                 game_db, name_pools.end_offset, layout, save_info.file_name
             )
+
+    def span_records(self) -> SpanRecords:
+        """Fixtures, league-table blocks and rules preambles from one streamed pass over the
+        unnamed span, read once and then cached.
+
+        Raises:
+            SaveClosedError: The context is closed.
+            CorruptSaveError: The span is damaged or was being written.
+            ReaderCheckError: The save's in-game date is unreadable, so the fixture year
+                window cannot be built.
+        """
+        return self.cached(SPAN_RECORDS_CACHE_KEY, self._build_span_records)
+
+    def _build_span_records(self) -> SpanRecords:
+        save_info = self._info
+        clock = save_info.game_date
+        if clock is None:
+            raise missing_clock_error(save_info.file_name)
+        # The span is a run of unlisted frames, not a section: it is streamed one frame at a
+        # time through read_region_frames, and never borrowed whole through section().
+        frames = read_region_frames(self._container_index, SPAN_REGION)
+        return scan_span(frames, find_span_layouts(save_info.build), clock, save_info.file_name)
 
     def close(self) -> None:
         """Drop cached values and section loans. Calling it again does nothing."""
