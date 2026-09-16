@@ -44,7 +44,12 @@ from tests.fixtures.game_db import (
     suspension_entry_bytes,
     transfer_window_bytes,
 )
-from tests.fixtures.span import fixture_record_bytes, span_frames, span_payloads
+from tests.fixtures.span import (
+    fixture_record_bytes,
+    span_frames,
+    span_payloads,
+    table_block_bytes,
+)
 
 GAME_DB_SCHEMA = 4000
 BUILD_STRING = "26.3.2+2329565"
@@ -61,6 +66,7 @@ NORTHBRIDGE_TEAM_B = 70002
 SOUTHPORT_UID = 5002
 SOUTHPORT_TEAM = 70003
 ATHLETIC_UID = 5004
+ATHLETIC_TEAM_A = 70005
 SECOND_NORTHBRIDGE_UID = 5006
 HOME_NATION_ID = 3
 ATHLETIC_NATION_ID = 7
@@ -625,11 +631,406 @@ def fixture_blob(example: ExampleFixture, match_record_id: int) -> bytes:
     )
 
 
+# Extra calendar records the league-table tests add, so every club of the example table plays
+# in the same competition. Without them the vote sees competitions 900 and 901 covering two of
+# the three members each and settles the tie on the lower id, which is a poor thing for a test
+# of the vote to rest on.
+TABLE_VOTE_FIXTURES = (
+    ExampleFixture(
+        FIXTURE_STAGE_ID, ATHLETIC_TEAM_A, SOUTHPORT_TEAM, 135, LEAGUE_KICK_OFF_SLOT, 13, True, 10
+    ),
+    ExampleFixture(
+        FIXTURE_STAGE_ID,
+        NORTHBRIDGE_TEAM_A,
+        ATHLETIC_TEAM_A,
+        142,
+        LEAGUE_KICK_OFF_SLOT,
+        14,
+        True,
+        HOME_STADIUM_ORDINAL,
+    ),
+)
+
+# League tables: the blocks sit in the span after the fixture records. Each block stores its
+# own place in its table in the first of its head bytes, counting 0 upwards and starting again
+# where the next table begins, and that is the only thing that tells one table from the next.
+TABLE_SEPARATOR_BYTES = 64
+# Plain spacing between two tables. The distance between blocks is deliberately not what
+# separates them, so this is only realistic padding and no reader consults it.
+BETWEEN_TABLE_BYTES = 4096
+TABLE_HEAD_BYTES = bytes(range(19))
+# A second copy of a block, carrying different head bytes and identical in every field fmsave
+# decodes, which is exactly how the save stores its own repeated copies of a block.
+DUPLICATE_TABLE_HEAD_BYTES = bytes(range(19, 38))
+TABLE_ROUNDS_PER_VENUE = 2
+GROUP_B_ROUNDS_PER_VENUE = 1
+# A team id above the layout's range, so no club can ever be joined to it.
+OUT_OF_RANGE_TABLE_TEAM_ID = 3_000_000
+DIVISION_FIRST_TEAM_ID = 71_001
+DIVISION_CLUB_COUNT = 20
+
+
+def stored_index_head_bytes(stored_index: int, head_bytes: bytes = TABLE_HEAD_BYTES) -> bytes:
+    """`head_bytes` with the first byte set to the block's own place in its table.
+
+    The save counts each block's place in its table there, from 0 upwards, and starts again at
+    0 where the next table begins, so a table whose blocks do not count on is read as several
+    tables and two tables whose counts happen to chain are read as one.
+    """
+    return bytes((stored_index,)) + head_bytes[1:]
+
+
+def table_group_a_blocks(head_bytes: bytes = TABLE_HEAD_BYTES) -> list[bytes]:
+    """One table of three clubs: Northbridge's first team, Southport and Example Athletic.
+
+    The three blocks carry stored indexes 0, 1 and 2, which is what makes them one table
+    rather than three tables of one club each.
+
+    Only the first block takes `head_bytes`, so passing different bytes gives a copy of that
+    block which differs from the original in nothing fmsave decodes.
+    """
+    return [
+        table_block_bytes(
+            team_id=NORTHBRIDGE_TEAM_A,
+            rounds_per_venue=TABLE_ROUNDS_PER_VENUE,
+            total={
+                "played": 4,
+                "won": 3,
+                "lost": 1,
+                "goals_for": 9,
+                "goals_against": 4,
+                "points": 9,
+            },
+            home={"played": 2, "won": 2, "goals_for": 5, "goals_against": 2, "points": 6},
+            away={
+                "played": 2,
+                "won": 1,
+                "lost": 1,
+                "goals_for": 4,
+                "goals_against": 2,
+                "points": 3,
+            },
+            first_half={"played": 2, "won": 2, "goals_for": 5, "goals_against": 2, "points": 6},
+            second_half={
+                "played": 2,
+                "won": 1,
+                "lost": 1,
+                "goals_for": 4,
+                "goals_against": 2,
+                "points": 3,
+            },
+            matches=[
+                {
+                    "key": SOUTHPORT_TEAM,
+                    "played": 1,
+                    "won": 1,
+                    "goals_for": 3,
+                    "goals_against": 1,
+                    "points": 3,
+                },
+                {
+                    "key": SOUTHPORT_TEAM,
+                    "played": 1,
+                    "won": 1,
+                    "goals_for": 2,
+                    "goals_against": 1,
+                    "points": 3,
+                },
+                None,
+                {
+                    "key": ATHLETIC_TEAM_A,
+                    "played": 1,
+                    "won": 0,
+                    "lost": 1,
+                    "goals_for": 1,
+                    "goals_against": 2,
+                    "points": 0,
+                },
+            ],
+            head_bytes=head_bytes,
+        ),
+        table_block_bytes(
+            team_id=SOUTHPORT_TEAM,
+            rounds_per_venue=TABLE_ROUNDS_PER_VENUE,
+            total={
+                "played": 4,
+                "won": 1,
+                "lost": 3,
+                "goals_for": 5,
+                "goals_against": 9,
+                "points": 3,
+            },
+            home={
+                "played": 2,
+                "won": 1,
+                "lost": 1,
+                "goals_for": 3,
+                "goals_against": 4,
+                "points": 3,
+            },
+            away={
+                "played": 2,
+                "won": 0,
+                "lost": 2,
+                "goals_for": 2,
+                "goals_against": 5,
+                "points": 0,
+            },
+            first_half={
+                "played": 2,
+                "won": 0,
+                "lost": 2,
+                "goals_for": 2,
+                "goals_against": 5,
+                "points": 0,
+            },
+            second_half={
+                "played": 2,
+                "won": 1,
+                "lost": 1,
+                "goals_for": 3,
+                "goals_against": 4,
+                "points": 3,
+            },
+            matches=[
+                {
+                    "key": NORTHBRIDGE_TEAM_A,
+                    "played": 1,
+                    "won": 0,
+                    "lost": 1,
+                    "goals_for": 1,
+                    "goals_against": 2,
+                    "points": 0,
+                },
+                {
+                    "key": ATHLETIC_TEAM_A,
+                    "played": 1,
+                    "won": 1,
+                    "goals_for": 2,
+                    "goals_against": 1,
+                    "points": 3,
+                },
+                {
+                    "key": NORTHBRIDGE_TEAM_A,
+                    "played": 1,
+                    "won": 0,
+                    "lost": 1,
+                    "goals_for": 1,
+                    "goals_against": 3,
+                    "points": 0,
+                },
+                None,
+            ],
+            head_bytes=stored_index_head_bytes(1),
+        ),
+        table_block_bytes(
+            team_id=ATHLETIC_TEAM_A,
+            rounds_per_venue=TABLE_ROUNDS_PER_VENUE,
+            total={
+                "played": 4,
+                "won": 2,
+                "lost": 2,
+                "goals_for": 6,
+                "goals_against": 7,
+                "points": 6,
+            },
+            home={
+                "played": 2,
+                "won": 1,
+                "lost": 1,
+                "goals_for": 3,
+                "goals_against": 3,
+                "points": 3,
+            },
+            away={
+                "played": 2,
+                "won": 1,
+                "lost": 1,
+                "goals_for": 3,
+                "goals_against": 4,
+                "points": 3,
+            },
+            first_half={
+                "played": 2,
+                "won": 1,
+                "lost": 1,
+                "goals_for": 3,
+                "goals_against": 3,
+                "points": 3,
+            },
+            second_half={
+                "played": 2,
+                "won": 1,
+                "lost": 1,
+                "goals_for": 3,
+                "goals_against": 4,
+                "points": 3,
+            },
+            matches=[
+                {
+                    "key": NORTHBRIDGE_TEAM_A,
+                    "played": 1,
+                    "won": 1,
+                    "goals_for": 2,
+                    "goals_against": 1,
+                    "points": 3,
+                },
+                None,
+                {
+                    "key": SOUTHPORT_TEAM,
+                    "played": 1,
+                    "won": 0,
+                    "lost": 1,
+                    "goals_for": 1,
+                    "goals_against": 2,
+                    "points": 0,
+                },
+                None,
+            ],
+            head_bytes=stored_index_head_bytes(2),
+        ),
+    ]
+
+
+def table_group_b_blocks() -> list[bytes]:
+    """A second table, of Northbridge's reserve team alone, whose one match was drawn."""
+    return [
+        table_block_bytes(
+            team_id=NORTHBRIDGE_TEAM_B,
+            rounds_per_venue=GROUP_B_ROUNDS_PER_VENUE,
+            total={
+                "played": 1,
+                "drawn": 1,
+                "won": 0,
+                "goals_for": 1,
+                "goals_against": 1,
+                "points": 1,
+            },
+            home={
+                "played": 1,
+                "drawn": 1,
+                "won": 0,
+                "goals_for": 1,
+                "goals_against": 1,
+                "points": 1,
+            },
+            away={"played": 0, "won": 0},
+            first_half={
+                "played": 1,
+                "drawn": 1,
+                "won": 0,
+                "goals_for": 1,
+                "goals_against": 1,
+                "points": 1,
+            },
+            second_half={"played": 0, "won": 0},
+            matches=[
+                {
+                    "key": NORTHBRIDGE_TEAM_A,
+                    "played": 1,
+                    "drawn": 1,
+                    "won": 0,
+                    "goals_for": 1,
+                    "goals_against": 1,
+                    "points": 1,
+                },
+                None,
+            ],
+        )
+    ]
+
+
+def out_of_range_table_blocks() -> list[bytes]:
+    """A table of one club whose team id is above the layout's range, so it joins to nothing."""
+    return [
+        table_block_bytes(
+            team_id=OUT_OF_RANGE_TABLE_TEAM_ID,
+            rounds_per_venue=GROUP_B_ROUNDS_PER_VENUE,
+            total={"played": 1, "won": 1, "goals_for": 2, "goals_against": 0, "points": 3},
+            home={"played": 1, "won": 1, "goals_for": 2, "goals_against": 0, "points": 3},
+            away={"played": 0, "won": 0},
+            first_half={"played": 1, "won": 1, "goals_for": 2, "goals_against": 0, "points": 3},
+            second_half={"played": 0, "won": 0},
+            matches=[None, None],
+        )
+    ]
+
+
+def division_table_blocks(
+    *, club_count: int = DIVISION_CLUB_COUNT, rounds_per_venue: int = DIVISION_CLUB_COUNT - 1
+) -> list[bytes]:
+    """A table shaped like a division: `club_count` clubs each playing the others twice.
+
+    The blocks carry stored indexes 0 upwards, so they are one table however many there are.
+
+    With `rounds_per_venue` one short of `club_count - 1` the same clubs no longer have that
+    shape, which is what the division count must notice.
+    """
+    return [
+        table_block_bytes(
+            team_id=DIVISION_FIRST_TEAM_ID + position,
+            rounds_per_venue=rounds_per_venue,
+            total={
+                "played": 2,
+                "won": 1,
+                "lost": 1,
+                "goals_for": 2,
+                "goals_against": 2,
+                "points": 3,
+            },
+            home={"played": 1, "won": 1, "goals_for": 2, "goals_against": 1, "points": 3},
+            away={
+                "played": 1,
+                "won": 0,
+                "lost": 1,
+                "goals_for": 0,
+                "goals_against": 1,
+                "points": 0,
+            },
+            first_half={"played": 1, "won": 1, "goals_for": 2, "goals_against": 1, "points": 3},
+            second_half={
+                "played": 1,
+                "won": 0,
+                "lost": 1,
+                "goals_for": 0,
+                "goals_against": 1,
+                "points": 0,
+            },
+            matches=[None] * (2 * rounds_per_venue),
+            head_bytes=stored_index_head_bytes(position),
+        )
+        for position in range(club_count)
+    ]
+
+
+def career_table_payload(
+    *,
+    duplicate_head_bytes: Sequence[bytes] = (),
+    extra_groups: Sequence[Sequence[bytes]] = (),
+) -> bytes:
+    """The example tables, each starting its own run of stored indexes at zero.
+
+    A copy named in `duplicate_head_bytes` is written inside the first table, right where the
+    save writes its own copies: immediately after the block it repeats, where its own stored
+    index breaks the run and would split the table around it were it not dropped first.
+    """
+    first_group = table_group_a_blocks()
+    for position, head_bytes in enumerate(duplicate_head_bytes, start=1):
+        first_group.insert(position, table_group_a_blocks(head_bytes=head_bytes)[0])
+    groups = [first_group, table_group_b_blocks(), *(list(group) for group in extra_groups)]
+    return bytes(BETWEEN_TABLE_BYTES).join(
+        span_payloads(*group, separator_bytes=TABLE_SEPARATOR_BYTES) for group in groups
+    )
+
+
 def career_span_payload(
     extra_fixtures: Sequence[ExampleFixture] = (),
     extra_strays: Sequence[ExampleFixture] = (),
+    *,
+    table_duplicate_head_bytes: Sequence[bytes] = (),
+    extra_table_groups: Sequence[Sequence[bytes]] = (),
 ) -> bytes:
-    """The career's run of fixture records, a wide gap, then a stray copy of two more."""
+    """The fixture calendar, a wide gap, a stray copy of two more, then the league tables."""
     calendar_blobs = [
         fixture_blob(example, FIRST_MATCH_RECORD_ID + position)
         for position, example in enumerate((*MAIN_CLUSTER_FIXTURES, *extra_fixtures))
@@ -642,6 +1043,10 @@ def career_span_payload(
         span_payloads(*calendar_blobs, separator_bytes=FIXTURE_SEPARATOR_BYTES)
         + bytes(STRAY_CLUSTER_GAP_BYTES)
         + span_payloads(*stray_blobs, separator_bytes=FIXTURE_SEPARATOR_BYTES)
+        + bytes(STRAY_CLUSTER_GAP_BYTES)
+        + career_table_payload(
+            duplicate_head_bytes=table_duplicate_head_bytes, extra_groups=extra_table_groups
+        )
     )
 
 
@@ -717,6 +1122,8 @@ def career_fragment(
     manager_between_jobs: bool = False,
     extra_fixtures: Sequence[ExampleFixture] = (),
     extra_strays: Sequence[ExampleFixture] = (),
+    table_duplicate_head_bytes: Sequence[bytes] = (),
+    extra_table_groups: Sequence[Sequence[bytes]] = (),
 ) -> ContainerFragment:
     """The whole career fragment.
 
@@ -727,6 +1134,11 @@ def career_fragment(
             no route finds a managed club.
         extra_fixtures: Extra records to add to the fixture calendar, after its own six.
         extra_strays: Extra records to add to the stray run, after its own two.
+        table_duplicate_head_bytes: Head bytes for copies of the first league-table block,
+            each written immediately after the block it repeats, inside the table that block
+            belongs to.
+        extra_table_groups: Further league tables, each written after the two the span already
+            holds and each starting its own run of stored indexes at zero.
     """
     selector = UNMATCHED_MANAGER_SELECTOR if manager_between_jobs else MANAGER_SELECTOR
     replacements = {
@@ -734,7 +1146,16 @@ def career_fragment(
         "humans": humans_body(count=1, selector=selector),
         "save_game_summary": career_summary(linked=not manager_between_jobs),
     }
-    span = span_frames([career_span_payload(extra_fixtures, extra_strays)])
+    span = span_frames(
+        [
+            career_span_payload(
+                extra_fixtures,
+                extra_strays,
+                table_duplicate_head_bytes=table_duplicate_head_bytes,
+                extra_table_groups=extra_table_groups,
+            )
+        ]
+    )
     sections = [
         SectionFrame(
             section.name,

@@ -2,12 +2,12 @@
 
 While a reader decodes, it counts what it sees into a stats record from `fmsave._reader_stats`
 (`PlayerStats`, `ContractStats`, `ClubStats`, `SuspensionStats`, `ManagedStats`, `StageStats`,
-`CompetitionStats`, `FixtureStats` or `TransferWindowStats`). The `evaluate_*` functions compare
-those counts with the loose `GateBounds` registered for the save's layout and return one
-`GateResult` per check, and `enforce` raises `ReaderCheckError` when an applied check failed,
-before the reader caches its table. The checks apply only to a `game_db` of at least
-`GateBounds.minimum_applies_from_bytes`, since smaller sections come from fragments that cannot
-meet full-save counts.
+`CompetitionStats`, `FixtureStats`, `TransferWindowStats` or `LeagueTableStats`). The
+`evaluate_*` functions compare those counts with the loose `GateBounds` registered for the
+save's layout and return one `GateResult` per check, and `enforce` raises `ReaderCheckError`
+when an applied check failed, before the reader caches its table. The checks apply only to a
+`game_db` of at least `GateBounds.minimum_applies_from_bytes`, since smaller sections come from
+fragments that cannot meet full-save counts.
 
 `validate_save` runs every reader and returns a `ValidationReport`, which holds only structural
 facts, counts and rates: never names, uids or other values from the save.
@@ -35,6 +35,7 @@ from fmsave._reader_stats import (
     CompetitionStats,
     ContractStats,
     FixtureStats,
+    LeagueTableStats,
     ManagedStats,
     PlayerStats,
     StageStats,
@@ -73,6 +74,7 @@ STAGES_READER = "stages"
 COMPETITIONS_READER = "competitions"
 FIXTURES_READER = "fixtures"
 TRANSFER_WINDOWS_READER = "transfer_windows"
+LEAGUE_TABLES_READER = "league_tables"
 
 # Players, contracts and suspensions are decoded in one pass, so they fail or succeed together.
 _PLAYER_PASS_READERS = frozenset({PLAYERS_READER, CONTRACTS_READER, SUSPENSIONS_READER})
@@ -551,6 +553,67 @@ def evaluate_transfer_windows(
     )
 
 
+def evaluate_league_tables(
+    stats: LeagueTableStats, bounds: GateBounds, span_bytes: int
+) -> tuple[GateResult, ...]:
+    """The league-table reader's checks, in a fixed order.
+
+    These judge what one pass over the span read, so they apply from the span's own size
+    threshold. All five apply whenever the span is large enough, including when the pass found
+    no block at all: an empty result scores below the block floor, the duplicate floor and the
+    division floor, and leaves the two shares without a denominator, so a table layout that has
+    moved fails here rather than reporting a career with no tables.
+
+    Two of the five exist to catch a filter that stopped filtering, which no rate here can see.
+    `table_block_duplicates_minimum` fails when the deduplication stops dropping the save's
+    repeated copies of a block: the copies are sound blocks differing from the block they
+    repeat only in undecoded head bytes, so they pass every other check, and left in they
+    shatter the tables they sit in, turning about 800 tables into about 4,700 on the corpus.
+    That floor is the only check that sees it, because every shattered piece is still shaped
+    like a small table; the division count barely moves, so it is not a second tripwire for
+    this failure and is not presented as one.
+    `double_round_robin_divisions` guards the opposite failure, a grouping that runs tables
+    together: a merged group holds clubs twice over and cannot keep a division's shape, so the
+    count collapses. `table_groups_resolved` sees neither, since one enormous group scores a
+    perfect 1.0 on it.
+
+    `table_groups_resolved` observes near 1.0 on every save measured, which reads stronger than
+    it is: 30% to 43% of tables hold a single block, and a one-block table meets the vote's
+    half-the-members rule on a majority of one. Over the tables of two blocks or more the share
+    is 0.998 to 1.000, so this gate is a floor under a near-saturated rate rather than a
+    discriminating one.
+    """
+    applied = _span_applies(bounds, span_bytes)
+    blocks = stats.blocks
+    return (
+        _gate("table_blocks_minimum", blocks, bounds.table_blocks_minimum, applied),
+        _gate(
+            "table_block_duplicates_minimum",
+            stats.duplicate_blocks,
+            bounds.table_block_duplicates_minimum,
+            applied,
+        ),
+        _gate(
+            "table_block_team_in_range",
+            _rate(stats.team_id_in_range, blocks),
+            bounds.table_block_team_in_range,
+            applied,
+        ),
+        _gate(
+            "table_groups_resolved",
+            _rate(stats.groups_resolved, stats.groups),
+            bounds.table_groups_resolved,
+            applied,
+        ),
+        _gate(
+            "double_round_robin_divisions",
+            stats.double_round_robin_divisions,
+            bounds.double_round_robin_divisions,
+            applied,
+        ),
+    )
+
+
 def check_players(stats: PlayerStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
     """The player reader's checks, record count and anomaly counts."""
     return ReaderCheck(
@@ -716,6 +779,38 @@ def check_transfer_windows(
     )
 
 
+def check_league_tables(
+    stats: LeagueTableStats, bounds: GateBounds, span_bytes: int
+) -> ReaderCheck:
+    """The league-table reader's checks, record count and anomaly counts.
+
+    `duplicate_blocks` counts the repeated copies the span holds of a block already kept, which
+    is about 45% of everything the span pass finds and is the reader's largest single
+    correction. `rejected_block_candidates` counts the candidates the span pass judged and
+    turned down. The rest count what the grouping and the joins left incomplete:
+    `unresolved_groups` groups the calendar vote could not name, `blocks_outside_resolved_groups`
+    the rows those groups hold, and the two team counts the rows whose team id is out of range
+    or belongs to no club the save lists.
+    """
+    return ReaderCheck(
+        LEAGUE_TABLES_READER,
+        stats.groups,
+        evaluate_league_tables(stats, bounds, span_bytes),
+        FrozenMapping(
+            {
+                "duplicate_blocks": stats.duplicate_blocks,
+                "rejected_block_candidates": (
+                    stats.block_candidates - stats.blocks - stats.duplicate_blocks
+                ),
+                "unresolved_groups": stats.groups - stats.groups_resolved,
+                "blocks_outside_resolved_groups": stats.blocks - stats.blocks_in_resolved_groups,
+                "team_ids_out_of_range": stats.blocks - stats.team_id_in_range,
+                "unresolved_teams": stats.blocks - stats.team_resolved,
+            }
+        ),
+    )
+
+
 def _format_number(value: float | None) -> str:
     if value is None:
         return "none"
@@ -791,7 +886,7 @@ class ReaderValidation:
 
     Attributes:
         reader: The reader: "clubs", "players", "contracts", "suspensions", "managed_clubs",
-            "stages", "competitions", "fixtures" or "transfer_windows".
+            "stages", "competitions", "fixtures", "transfer_windows" or "league_tables".
         status: "ok" when the reader returned its table, "failed" when checks stopped it, and
             "error" when it raised another fmsave error.
         record_count: How many records the reader decoded, or None when it did not get far
@@ -884,10 +979,10 @@ def validate_save(career_save: Save) -> ValidationReport:
     """Run every reader on a save and report how each fared.
 
     Readers run in the order clubs, players, contracts, suspensions, managed clubs, stages,
-    competitions, fixtures, transfer windows. A reader whose checks fail is reported "failed"
-    with its checks, and one that raises another fmsave error is reported "error" without the
-    error's text; the remaining readers still run. The report holds only structural facts,
-    counts and rates, never names, uids or other values from the save.
+    competitions, fixtures, transfer windows, league tables. A reader whose checks fail is
+    reported "failed" with its checks, and one that raises another fmsave error is reported
+    "error" without the error's text; the remaining readers still run. The report holds only
+    structural facts, counts and rates, never names, uids or other values from the save.
 
     Raises:
         SaveClosedError: The save is closed.
@@ -905,6 +1000,7 @@ def validate_save(career_save: Save) -> ValidationReport:
         (COMPETITIONS_READER, career_save.competitions),
         (FIXTURES_READER, career_save.fixtures),
         (TRANSFER_WINDOWS_READER, career_save.transfer_windows),
+        (LEAGUE_TABLES_READER, career_save.league_tables),
     )
     validations: list[ReaderValidation] = []
     player_pass_error: FmsaveError | None = None

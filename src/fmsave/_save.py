@@ -16,6 +16,7 @@ from fmsave._layouts import (
     ContractLayout,
     FixtureCalendarLayout,
     GateBounds,
+    LeagueTableLayout,
     PersonBlockLayout,
     SuspensionLayout,
     find_layout,
@@ -26,6 +27,7 @@ from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
 from fmsave.models.fixtures import Fixture
+from fmsave.models.league_tables import LeagueTable
 from fmsave.models.managed import ManagedClub
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
@@ -39,6 +41,7 @@ from fmsave.readers._common import (
     SPAN_REGION,
 )
 from fmsave.readers.fixtures import build_fixtures
+from fmsave.readers.league_tables import build_league_tables
 from fmsave.readers.managed import find_managed_club_layouts, resolve_managed_clubs
 from fmsave.readers.player_scan import window_end
 from fmsave.readers.players import build_player_decoder, collect_player_stats
@@ -61,6 +64,7 @@ STAGES_TABLE_CACHE_KEY = "table:stages"
 COMPETITIONS_TABLE_CACHE_KEY = "table:competitions"
 FIXTURES_TABLE_CACHE_KEY = "table:fixtures"
 TRANSFER_WINDOWS_TABLE_CACHE_KEY = "table:transfer_windows"
+LEAGUE_TABLES_TABLE_CACHE_KEY = "table:league_tables"
 
 
 class _PlayerTables(NamedTuple):
@@ -344,6 +348,70 @@ class Save:
         """
         context = self._context
         return context.cached(TRANSFER_WINDOWS_TABLE_CACHE_KEY, self._read_transfer_windows)
+
+    def league_tables(self) -> Table[LeagueTable]:
+        """Every live league table the save holds, in the order the save stores them.
+
+        One table is one run of blocks the save stores together, told from the next by the
+        index each block keeps of its own place in its table. The save stores each block
+        several times over, the copies agreeing in every field fmsave decodes and differing
+        only in undecoded head bytes, so repeated content is dropped before the tables are
+        built; keeping it would break the tables apart. Nothing in a table names its
+        competition, so it is voted for from the fixture calendar and is empty on the few
+        tables the vote cannot settle, which are still returned; one competition names
+        several tables, since a cup's group stage holds a table per group. Rows are in the
+        order the save stores, which is the table's own standings order, so `position` is the
+        league position. The table is read on the first call; later calls return the same
+        table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: The fixture calendar the vote runs on, or the club, stage or
+                competition table this reader joins through, failed its own checks; no club
+                record is accepted; a club uid or club index appears in two records; a team id
+                is listed twice; no stage table was found in the tail of the game database; a
+                stage id appears in two rows; the save's in-game date is unreadable; or, on a
+                full-size span, the blocks fall outside the checks' bounds. Every index whose
+                data this reader hands out is read through the accessor that enforces that
+                index's own checks, so none of those checks can be skipped.
+        """
+        context = self._context
+        return context.cached(LEAGUE_TABLES_TABLE_CACHE_KEY, self._read_league_tables)
+
+    def _read_league_tables(self) -> Table[LeagueTable]:
+        context = self._context
+        save_info = context.info
+        gate_bounds = self._gate_bounds()
+        layout = find_layout(LeagueTableLayout, SPAN_REGION, None, save_info.build).layout
+        # The vote runs on the calendar this reader asks the fixtures reader for, not on the
+        # span's raw fixture records, so every row it counts comes from a table whose own
+        # checks have passed: a calendar that had shattered into fragments, or swallowed the
+        # block of template matches no save plays, would otherwise vote a competition onto
+        # hundreds of tables and raise nothing at all.
+        fixtures_table = self.fixtures()
+        # Every index this reader borrows is taken through the accessor that enforces that
+        # index's own checks, never through the raw context index, because this reader hands
+        # the borrowed data straight out: club names and team slots on every row, competition
+        # ids on every table, and the stage joins the calendar vote runs on. Forcing the club,
+        # competition or stage bounds to something unmeetable must stop this call, not leave it
+        # returning thousands of club names from an index whose checks never ran. The calendar
+        # above already built and cached all three indexes inside one game_db borrow, so these
+        # are cache reads plus their checks, and this reader decompresses nothing of its own.
+        self.clubs()
+        self.stages()
+        self.competitions()
+        club_index = context.club_index()
+        competition_index = context.competition_index()
+        span_records = context.span_records()
+        league_tables, table_stats = build_league_tables(
+            span_records, fixtures_table, competition_index, club_index, layout
+        )
+        table_check = checks.check_league_tables(table_stats, gate_bounds, span_records.span_bytes)
+        checks.enforce_checks((table_check,))
+        self._store_reader_checks((table_check,))
+        return Table(league_tables, LeagueTable)
 
     def _reader_check(self, reader_name: str) -> ReaderCheck | None:
         """The checks a reader passed when its table was read, or None before it was read."""

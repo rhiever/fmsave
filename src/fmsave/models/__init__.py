@@ -12,6 +12,14 @@ from fmsave.models.contracts import (
     SquadStatus,
 )
 from fmsave.models.fixtures import Fixture
+from fmsave.models.league_tables import (
+    LeagueTable,
+    LeagueTableMatch,
+    LeagueTableRow,
+    LeagueTableSplit,
+    MatchOutcome,
+    Venue,
+)
 from fmsave.models.managed import ManagedClub
 from fmsave.models.meta import SaveInfo, SectionInfo
 from fmsave.models.players import (
@@ -40,7 +48,12 @@ __all__ = [
     "ContractEndSource",
     "ContractType",
     "Fixture",
+    "LeagueTable",
+    "LeagueTableMatch",
+    "LeagueTableRow",
+    "LeagueTableSplit",
     "ManagedClub",
+    "MatchOutcome",
     "Personality",
     "Player",
     "PlayerSuspension",
@@ -55,4 +68,5 @@ __all__ = [
     "Trait",
     "TransferValueState",
     "TransferWindow",
+    "Venue",
 ]

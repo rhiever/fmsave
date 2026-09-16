@@ -42,7 +42,7 @@ def test_validate_json_prints_only_the_report_allowlist(
     output_text = capsys.readouterr().out
     report = json.loads(output_text)
     assert set(report) == REPORT_KEYS
-    assert [reader["status"] for reader in report["readers"]] == ["ok"] * 9
+    assert [reader["status"] for reader in report["readers"]] == ["ok"] * 10
     for private_text in PRIVATE_TEXTS:
         assert private_text not in output_text
 
@@ -62,6 +62,7 @@ def test_validate_text_lists_each_reader_and_the_build(
         "competitions: ok (3 records)",
         "fixtures: ok (6 records)",
         "transfer_windows: ok (2 records)",
+        "league_tables: ok (2 records)",
         "game FM26, build 26.3.2+2329565",
     ]
     for private_text in PRIVATE_TEXTS:

@@ -647,9 +647,9 @@
         'flag_offset': 16,
         'goals_against_offset': 12,
         'goals_for_offset': 10,
-        'group_gap_bytes': 3000,
         'head_bytes_count': 19,
         'head_bytes_offset': -19,
+        'home_slot_parity': None,
         'key_offset': 0,
         'lost_offset': 8,
         'matches_offset': 87,
@@ -662,6 +662,7 @@
           40,
         ),
         'row_bytes': 17,
+        'stored_index_head_byte': 0,
         'team_id_offset': -23,
         'team_id_range': tuple(
           1,
@@ -766,6 +767,10 @@
         'date_marked_chain_records': tuple(
           None,
           0.05,
+        ),
+        'double_round_robin_divisions': tuple(
+          5,
+          None,
         ),
         'fixture_cluster_share': tuple(
           0.9,
@@ -903,6 +908,22 @@
         'suspension_share_of_players': tuple(
           0.001,
           0.1,
+        ),
+        'table_block_duplicates_minimum': tuple(
+          100,
+          None,
+        ),
+        'table_block_team_in_range': tuple(
+          0.99,
+          None,
+        ),
+        'table_blocks_minimum': tuple(
+          200,
+          None,
+        ),
+        'table_groups_resolved': tuple(
+          0.7,
+          None,
         ),
         'tails_parsed': tuple(
           0.7,

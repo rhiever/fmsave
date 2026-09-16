@@ -29,6 +29,14 @@ from fmsave.models.contracts import (
     SquadStatus,
 )
 from fmsave.models.fixtures import Fixture
+from fmsave.models.league_tables import (
+    LeagueTable,
+    LeagueTableMatch,
+    LeagueTableRow,
+    LeagueTableSplit,
+    MatchOutcome,
+    Venue,
+)
 from fmsave.models.managed import ManagedClub
 from fmsave.models.meta import SaveInfo, SectionInfo
 from fmsave.models.players import (
@@ -67,7 +75,12 @@ __all__ = [
     "FmsaveError",
     "FmsaveWarning",
     "GateResult",
+    "LeagueTable",
+    "LeagueTableMatch",
+    "LeagueTableRow",
+    "LeagueTableSplit",
     "ManagedClub",
+    "MatchOutcome",
     "NotAFmSaveError",
     "Personality",
     "Player",
@@ -91,6 +104,7 @@ __all__ = [
     "UnknownBuildWarning",
     "UnsupportedGameError",
     "ValidationReport",
+    "Venue",
     "__version__",
     "field_status",
     "open",

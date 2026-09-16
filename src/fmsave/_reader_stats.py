@@ -198,6 +198,36 @@ class TransferWindowStats:
 
 
 @dataclass(frozen=True, slots=True)
+class LeagueTableStats:
+    """What building the live league tables counted.
+
+    `blocks` counts the table blocks left after repeated content was dropped, and
+    `duplicate_blocks` those dropped: the span stores each block several times over, the copies
+    agreeing in every decoded field and differing only in the 19 undecoded head bytes, and
+    about 45% of what the span pass finds is such a copy. `block_candidates` counts every
+    candidate the span pass judged, accepted or not.
+
+    `groups` counts the tables the kept blocks fall into, split on the index each block stores
+    of its own place in its table, and `groups_resolved` those the calendar vote gave a
+    competition, with `blocks_in_resolved_groups` the rows they hold. `team_id_in_range` counts
+    rows whose team id is inside the layout's range and `team_resolved` those whose team a club
+    lists. `double_round_robin_divisions` counts the tables shaped like a division whose clubs
+    all play each other twice, which is what collapses if the grouping ever starts running one
+    table into the next, since a merged table holds its clubs twice over.
+    """
+
+    blocks: int
+    duplicate_blocks: int
+    block_candidates: int
+    groups: int
+    groups_resolved: int
+    blocks_in_resolved_groups: int
+    team_id_in_range: int
+    team_resolved: int
+    double_round_robin_divisions: int
+
+
+@dataclass(frozen=True, slots=True)
 class ManagedStats:
     """What the managed-club reader found: human managers, resolved routes (0 or 1) and rows."""
 

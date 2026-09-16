@@ -522,10 +522,24 @@ class LeagueTableLayout:
     lies inside the inclusive `rounds_per_venue_range`, every aggregate row has both played
     counts equal and played equal to won plus drawn plus lost, the home and away rows'
     played counts add up to the total row's, so do the two half rows', and the total row has
-    played at least one match. `team_id_range`, `group_gap_bytes` and `division_club_range`
-    are for the league-tables reader rather than the span pass: a gap of `group_gap_bytes`
-    or more between blocks separates two groups, and a group of that many clubs playing
-    each other twice is a division.
+    played at least one match. `team_id_range`, `stored_index_head_byte`,
+    `division_club_range` and `home_slot_parity` are for the league-tables reader rather than
+    the span pass. The byte at `stored_index_head_byte` inside the head blob is the block's
+    own place in its table, running 0 to n-1 and starting again at the next table, so it is
+    what separates two tables; a group of `division_club_range` clubs each playing the others
+    twice is a division.
+
+    `home_slot_parity` is the slot parity played at home, and None when no parity is settled,
+    which is what every build ships today: the reader then returns None for every venue rather
+    than guessing one. The save alternates venue with the slot's parity but never says which
+    parity is home. The even slots are the candidate: the count of played even-slot rows equals
+    the HOME aggregate's played count on 99.68%, 99.94% and 99.61% of the blocks whose played
+    match rows account for their own total aggregate, against 66.6%, 38.1% and 45.0% for odd
+    slots. That population is only 85.1%, 88.3% and 85.5% of blocks, and over every
+    deduplicated block the even-slot share falls to 85.8%, 89.8% and 87.1%, short of the 99% a
+    named meaning needs here. A block whose match rows do not add up to its own total cannot
+    satisfy the test at either parity, so the restricted figure is the more informative one --
+    but it is also the narrower one, and it is not on its own enough to name the parity.
     """
 
     row_bytes: int
@@ -549,8 +563,9 @@ class LeagueTableLayout:
     flag_offset: int
     unplayed_key: int
     team_id_range: tuple[int, int]
-    group_gap_bytes: int
+    stored_index_head_byte: int
     division_club_range: tuple[int, int]
+    home_slot_parity: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -851,6 +866,21 @@ class GateBounds:
     fewer nations loaded legitimately carries fewer windows. A decode that finds nothing fails
     the count on its lower bound, and one that has moved only inside the date groups leaves
     the count alone and drops the share instead.
+
+    League tables: `table_blocks_minimum` (blocks left after repeated content is dropped),
+    `table_block_duplicates_minimum` (blocks dropped as repeats),
+    `table_block_team_in_range` (of the blocks kept), `table_groups_resolved` (of groups) and
+    `double_round_robin_divisions` (groups shaped like a division whose clubs play each other
+    twice). These judge the span pass, so they apply from `span_minimum_applies_from_bytes`.
+
+    The duplicate floor is what fails when the deduplication stops deduplicating. Every save
+    measured repeats about 45% of its table blocks, so the count is always in the thousands and
+    a floor cannot trouble a healthy save; a reader that kept every copy would score zero on it
+    while passing everything else, because the copies are real blocks with sound arithmetic.
+    The division count is what fails when the grouping stops separating one table from the
+    next: the copies pad the gaps between tables, so grouping them ungrouped collapses dozens
+    of tables into one run that is division shaped no longer. Neither failure is visible to
+    `table_groups_resolved`, which a single huge group scores 1.0 on.
     """
 
     minimum_applies_from_bytes: int
@@ -915,6 +945,11 @@ class GateBounds:
     fixture_teams_resolved: BoundPair
     transfer_windows_minimum: BoundPair
     transfer_window_dates: BoundPair
+    table_blocks_minimum: BoundPair
+    table_block_duplicates_minimum: BoundPair
+    table_block_team_in_range: BoundPair
+    table_groups_resolved: BoundPair
+    double_round_robin_divisions: BoundPair
 
 
 type Layout = (

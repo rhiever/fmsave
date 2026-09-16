@@ -397,8 +397,22 @@ LEAGUE_TABLES = LeagueTableLayout(
     flag_offset=16,
     unplayed_key=0xFFFFFFFF,
     team_id_range=(1, 2_999_999),
-    group_gap_bytes=3_000,
+    # The first head byte counts the block's place in its own table, 0 to n-1, and starts
+    # again at the next table. Splitting there rather than on the distance between blocks
+    # leaves 0.12% / 0.26% / 0.18% of groups holding one club twice, against 15.2% / 16.8% /
+    # 16.8% under a distance rule, and recovers the 20-club division the save's own manager
+    # plays in, which the distance rule ran together with its neighbour into 38 rows.
+    stored_index_head_byte=0,
     division_club_range=(18, 26),
+    # The parity is not settled, so `venue` is None on every row. The even slots look like the
+    # home ones, but only on a restricted population: played even-slot rows equal the HOME
+    # aggregate's played count on 99.68% / 99.94% / 99.61% of the blocks whose played match rows
+    # account for their own total aggregate, against 66.6% / 38.1% / 45.0% for odd slots -- and
+    # that population is 85.1% / 88.3% / 85.5% of blocks. Over every deduplicated block the
+    # even-slot share is 85.8% / 89.8% / 87.1%, well short of the 99% this project requires
+    # before it names a meaning, and no check here fails if the parity is wrong, so a mistake
+    # would mislabel every venue silently. It stays None until a screen reads it back.
+    home_slot_parity=None,
 )
 
 # The round-record offsets and the moved-match rule were measured on the corpus: the date
@@ -662,6 +676,29 @@ GATE_BOUNDS = GateBounds(
     # and into `incomplete`; one that found nothing at all leaves no rate at all, which fails
     # the check rather than skipping it.
     transfer_window_dates=(0.90, None),
+    # 4,817 / 3,846 / 5,073 blocks survive deduplication on the three saves measured, and
+    # 4,385 / 3,385 / 4,108 are dropped as repeats of one already kept. Both floors sit an
+    # order of magnitude below the smallest of those, so a young career holding a handful of
+    # tables still clears them. The duplicate floor is the one that fails when the
+    # deduplication stops running: the copies are sound blocks that every other check accepts,
+    # and keeping them puts one club in a table several times over.
+    table_blocks_minimum=(200, None),
+    table_block_duplicates_minimum=(100, None),
+    # 0.99959 / 0.99974 / 0.99961 of the blocks kept carry a team id inside the layout's range.
+    table_block_team_in_range=(0.99, None),
+    # 0.9988 / 1.0000 / 1.0000 of tables are voted a competition on the three saves measured,
+    # which overshoots spec 6.2's "about 85%". Read that headline beside the shape of the
+    # tables: 30.3% / 41.9% / 43.4% of them hold a single block, and a one-block table meets the
+    # vote's "at least half the members" rule on a majority of one, so it resolves trivially.
+    # Over the tables of two blocks or more the share is 0.9983 / 1.0000 / 1.0000, which is the
+    # figure that says the vote is sound rather than merely permissive. The floor stays well
+    # below both, because the share rests on how much of the calendar a career has played
+    # rather than on the layout.
+    table_groups_resolved=(0.70, None),
+    # 60 / 50 / 58 groups are shaped like a division whose clubs all play each other twice.
+    # This is what fails when the grouping stops telling one table from the next: the blocks
+    # then arrive in runs of dozens, and no run has a division's shape.
+    double_round_robin_divisions=(5, None),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (
