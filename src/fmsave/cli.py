@@ -565,8 +565,8 @@ def write_records(
 ) -> None:
     """Write records one at a time as CSV, a JSON array or JSON Lines.
 
-    CSV rows are flat, and write_csv keeps only the chosen columns. JSON rows are nested, or
-    flat with only the chosen columns.
+    CSV rows are flat, and keep only the chosen columns. JSON rows are nested, or flat with
+    only the chosen columns.
     """
     if output_format == "csv":
         export._write_records_csv(  # pyright: ignore[reportPrivateUsage]

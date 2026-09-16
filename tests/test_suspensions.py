@@ -534,14 +534,16 @@ def test_field_statuses_follow_the_suspension_coverage() -> None:
     assert field_status(Player, "suspensions") == "verified"
     assert field_status(PlayerSuspension, "suspension_competition_id") == "verified"
     assert field_status(PlayerSuspension, "issued_date") == "verified"
-    for verified_field in (
-        "player_uid",
-        "club_uid",
-        "club_name",
-        "suspension_competition_id",
-        "issued_date",
-    ):
+    for verified_field in ("suspension_competition_id", "issued_date"):
         assert field_status(Suspension, verified_field) == "verified", verified_field
+    # Each of these is copied off the decoded player, so it carries that field's status.
+    for copied_field, player_field in (
+        ("player_uid", "uid"),
+        ("club_uid", "club_uid"),
+        ("club_name", "club_name"),
+    ):
+        assert field_status(Suspension, copied_field) == field_status(Player, player_field)
+        assert field_status(Suspension, copied_field) == "unconfirmed", copied_field
     assert field_status(Suspension, "player_name") == "unconfirmed"
     assert field_status(Suspension, "unknown") == "unconfirmed"
     assert Suspension.UNKNOWN_KEYS == ("e7", "e14")

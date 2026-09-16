@@ -12,6 +12,7 @@ import functools
 import struct
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from statistics import median_low
 
 from fmsave._layouts import ClubRecordLayout, ClubStatusLayout, TeamListLayout, find_layout
 from fmsave._reader_stats import ClubStats
@@ -176,6 +177,7 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         clubs.append(club)
         uid_by_club_index[record.club_index] = record.uid
         club_by_uid[record.uid] = club
+    reputations = [reputation for reputation, _position in statuses if reputation is not None]
     stats = ClubStats(
         records=len(records),
         team_lists_found=sum(1 for teams in teams_by_record if teams),
@@ -184,6 +186,8 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         affiliate_lists=affiliates.lists,
         affiliate_refs=affiliates.listed,
         affiliate_refs_linked=affiliates.linked,
+        reputation_found=len(reputations),
+        reputations_median=median_low(reputations) if reputations else None,
     )
     return ClubIndex(
         clubs=tuple(clubs),

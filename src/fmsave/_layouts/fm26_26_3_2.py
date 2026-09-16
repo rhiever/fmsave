@@ -494,7 +494,16 @@ GATE_BOUNDS = GateBounds(
     status_confirmation=(0.95, None),
     affiliate_lists_found=(0.005, None),
     affiliate_teams_linked=(0.99, None),
-    suspension_share_of_players=(None, 0.10),
+    # Nearly every club carries a readable reputation, and their median sits around a
+    # thousand. Reading the reputation one byte out inside the status record leaves fewer
+    # than a sixth of clubs with a readable one and lifts the median of those above three
+    # thousand, so either bound catches that shift on its own.
+    reputation_found=(0.90, None),
+    reputation_median=(200, 3_000),
+    # About one player in two hundred holds an unserved ban on the saves measured. The floor
+    # sits five times below that, so a search that finds no entry at all fails here instead of
+    # reporting a save whose players are never banned.
+    suspension_share_of_players=(0.001, 0.10),
     issued_after_clock=(None, 0.01),
     # Around 8,000 rows and no gaps at all on every save measured; both bounds leave room for a
     # much shorter table and for a save whose table needs resynchronising a few times.

@@ -11,11 +11,7 @@ from fmsave._scan import (
     decode_date,
     decode_time_slot,
     find_marker,
-    iter_markers,
-    read_i16,
-    read_i32,
     read_length_prefixed_string,
-    read_u8,
     read_u16,
     read_u32,
     read_u64,
@@ -24,11 +20,8 @@ from fmsave._scan import (
 
 def test_integer_reads_are_little_endian() -> None:
     sample_bytes = bytes.fromhex("ff 34 12 78 56 34 12 fe ff ff ff 01 00 00 00 00 00 00 80")
-    assert read_u8(sample_bytes, 0) == 0xFF
     assert read_u16(sample_bytes, 1) == 0x1234
     assert read_u32(sample_bytes, 3) == 0x12345678
-    assert read_i32(sample_bytes, 7) == -2
-    assert read_i16(bytes.fromhex("feff"), 0) == -2
     assert read_u64(sample_bytes, 11) == 0x8000000000000001
 
 
@@ -120,31 +113,6 @@ def test_find_marker_is_bounded() -> None:
     assert find_marker(haystack, b"ABC", 0, 4) == -1  # marker would cross the end bound
 
 
-def test_iter_markers_yields_overlapping_matches() -> None:
-    assert list(iter_markers(b"aaaa", b"aa", 0, 4)) == [0, 1, 2]
-
-
-def test_iter_markers_respects_the_end_bound() -> None:
-    assert list(iter_markers(b"aaaa", b"aa", 1, 3)) == [1]
-
-
-@pytest.mark.parametrize(
-    ("marker", "start", "end", "expected_error"),
-    [
-        (b"x", -1, 2, CorruptSaveError),
-        (b"x", 0, 11, CorruptSaveError),
-        (b"x", 5, 4, CorruptSaveError),
-        (b"", 0, 10, ValueError),
-    ],
-    ids=["negative-start", "end-past-buffer", "start-after-end", "empty-marker"],
-)
-def test_iter_markers_checks_arguments_when_called(
-    marker: bytes, start: int, end: int, expected_error: type[Exception]
-) -> None:
-    with pytest.raises(expected_error):
-        iter_markers(bytes(10), marker, start, end)
-
-
 @pytest.mark.parametrize(("start", "end"), [(-1, 2), (0, 11), (5, 4)])
 def test_search_bounds_are_validated(start: int, end: int) -> None:
     with pytest.raises(CorruptSaveError):
@@ -159,16 +127,7 @@ def test_empty_marker_is_a_programming_error() -> None:
 @settings(max_examples=300)
 @given(buffer=st.binary(max_size=32), offset=st.integers(min_value=-40, max_value=40))
 def test_reads_only_raise_corrupt_save_error(buffer: bytes, offset: int) -> None:
-    for reader in (
-        read_u8,
-        read_u16,
-        read_i16,
-        read_u32,
-        read_i32,
-        read_u64,
-        decode_date,
-        decode_time_slot,
-    ):
+    for reader in (read_u16, read_u32, read_u64, decode_date, decode_time_slot):
         try:
             reader(buffer, offset)
         except CorruptSaveError:

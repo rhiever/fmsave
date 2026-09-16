@@ -76,6 +76,16 @@ _REPORT_REQUEST = f"Please report it at {ISSUES_URL} with the output of fmsave v
 _NO_ANOMALIES: FrozenMapping[str, int] = FrozenMapping({})
 _NO_COVERAGE: FrozenMapping[str, float] = FrozenMapping({})
 
+# The one likely cause of each check whose failure has one, added to the failure message so a
+# report names something a reader can act on. The text carries no digits, so a message still
+# holds nothing but rounded rates and bounds.
+_LIKELY_CAUSES: FrozenMapping[str, str] = FrozenMapping(
+    {
+        "tails_without_clause_table": "an unrecognised bonus list shape in the contract tail",
+        "suspension_share_of_players": "a suspension entry layout that has moved",
+    }
+)
+
 
 @dataclass(frozen=True, slots=True)
 class GateResult:
@@ -348,16 +358,25 @@ def evaluate_clubs(
             bounds.affiliate_teams_linked,
             applied and stats.affiliate_refs > 0,
         ),
+        _gate(
+            "reputation_found",
+            _rate(stats.reputation_found, records),
+            bounds.reputation_found,
+            applied,
+        ),
+        _gate("reputation_median", stats.reputations_median, bounds.reputation_median, applied),
     )
 
 
 def evaluate_suspensions(
     stats: SuspensionStats, bounds: GateBounds, game_db_bytes: int
 ) -> tuple[GateResult, ...]:
-    """The suspension reader's checks.
+    """The suspension reader's checks, in a fixed order.
 
-    The share of players with an entry is not applied without players, and the share of entries
-    issued after the in-game date is not applied without entries.
+    Both apply whenever the section is large enough, including when the search found no entry
+    at all: an empty result scores below the share's lower bound and leaves the clock check
+    with no rate, so an entry layout that has moved fails here rather than reporting a save
+    whose players are never banned.
     """
     applied = _applies(bounds, game_db_bytes)
     return (
@@ -365,28 +384,14 @@ def evaluate_suspensions(
             "suspension_share_of_players",
             _rate(stats.players_with_entries, stats.players),
             bounds.suspension_share_of_players,
-            applied and stats.players > 0,
+            applied,
         ),
         _gate(
             "issued_after_clock",
             _rate(stats.issued_after_clock, stats.entries),
             bounds.issued_after_clock,
-            applied and stats.entries > 0,
+            applied,
         ),
-    )
-
-
-def evaluate_managed(
-    stats: ManagedStats, bounds: GateBounds, game_db_bytes: int
-) -> tuple[GateResult, ...]:
-    """Which routes found the managed club, as results that never fail.
-
-    A manager between jobs has no club, so a missing club is an anomaly, not a failure.
-    """
-    applied = _applies(bounds, game_db_bytes)
-    return (
-        GateResult("route_one_resolved", stats.route_one_resolved, None, None, True, applied),
-        GateResult("route_two_resolved", stats.route_two_resolved, None, None, True, applied),
     )
 
 
@@ -494,13 +499,26 @@ def check_suspensions(
 
 
 def check_managed(stats: ManagedStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
-    """The managed-club reader's route results, record count and anomaly counts."""
+    """The managed-club reader's record count and anomaly counts.
+
+    This reader has no checks. A manager between jobs legitimately has no club, so no count
+    or share it produces can carry a bound that a save between jobs would not fail as well,
+    and a check that can never fail is worse than none at all. What guards it sits in the
+    reader instead: it raises when its two routes to the club disagree. A route that resolved
+    nothing is reported here as an anomaly.
+    """
     humans_without_club = 1 if stats.human_count >= 1 and stats.rows == 0 else 0
     return ReaderCheck(
         MANAGED_CLUBS_READER,
         stats.rows,
-        evaluate_managed(stats, bounds, game_db_bytes),
-        FrozenMapping({"humans_without_club": humans_without_club}),
+        (),
+        FrozenMapping(
+            {
+                "humans_without_club": humans_without_club,
+                "club_route_one_unresolved": 1 - stats.route_one_resolved,
+                "club_route_two_unresolved": 1 - stats.route_two_resolved,
+            }
+        ),
     )
 
 
@@ -544,11 +562,18 @@ def _format_bound(value: float | None) -> str:
     return "" if value is None else _format_number(value)
 
 
+def _likely_cause(gate_name: str) -> str:
+    """ "; likely <cause>" for a check whose failure has one likely cause, else ""."""
+    cause = _LIKELY_CAUSES.get(gate_name)
+    return "" if cause is None else f"; likely {cause}"
+
+
 def _failure_summary(reader_name: str, results: Sequence[GateResult]) -> str | None:
     """ "<reader> failed checks: <gate>=<observed> (expected <min>..<max>); ...", or None."""
     failures = [
         f"{result.name}={_format_number(result.observed)} "
-        f"(expected {_format_bound(result.minimum)}..{_format_bound(result.maximum)})"
+        f"(expected {_format_bound(result.minimum)}..{_format_bound(result.maximum)}"
+        f"{_likely_cause(result.name)})"
         for result in results
         if result.applied and not result.passed
     ]
@@ -604,7 +629,8 @@ class ReaderValidation:
             "error" when it raised another fmsave error.
         record_count: How many records the reader decoded, or None when it did not get far
             enough to count them.
-        gates: The reader's checks, in a fixed order; empty when it did not get far enough.
+        gates: The reader's checks, in a fixed order; empty when the reader has no checks of
+            its own, as the managed-club reader does not, or when it did not get far enough.
         coverage: The table's coverage (the share of non-None values per column); empty
             unless the status is "ok".
         anomalies: Counts of records the reader decoded but flags, such as unresolved teams.

@@ -339,7 +339,6 @@ def read_stage_index(game_db: bytes, layout: StageTableLayout, file_name: str) -
     stats = StageStats(
         rows=row_count,
         gaps=walked.gaps,
-        distinct_ids=len(stage_by_id),
         ascending_steps=ascending_steps,
         steps=max(row_count - 1, 0),
         with_competition=len(competition_id_by_stage_id),

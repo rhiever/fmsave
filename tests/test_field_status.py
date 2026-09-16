@@ -14,16 +14,13 @@ import fmsave
 import fmsave.models
 from fmsave import _status
 from fmsave._frozen import FrozenMapping
-from fmsave._status import (
-    field_status,
-    register_field_statuses,
-    registered_statuses,
-    unconfirmed_marker,
-)
+from fmsave._status import field_status, register_field_statuses, registered_statuses
 from fmsave.models import CodedValue
 
 ATTRIBUTE_ENTRY_PATTERN = re.compile(r"^ {4}(\w+): (.*)$")
 NON_RECORD_CLASSES: frozenset[type] = frozenset({CodedValue})
+# How an unconfirmed field marks itself in the attribute line of its record's docstring.
+UNCONFIRMED_MARKER = "(unconfirmed)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,10 +264,6 @@ def test_real_registry_holds_save_info_statuses() -> None:
     assert fmsave.field_status(fmsave.SectionInfo, "schema") == "verified"
 
 
-def test_unconfirmed_marker_text() -> None:
-    assert unconfirmed_marker == "(unconfirmed)"
-
-
 def resolved_field_types(model_class: type) -> dict[str, object]:
     type_parameters = {
         parameter.__name__: parameter for parameter in getattr(model_class, "__type_params__", ())
@@ -389,7 +382,7 @@ def test_docstrings_mark_exactly_the_unconfirmed_fields(record_class: type) -> N
         expects_marker = (
             field_name in leaf_names and field_status(record_class, field_name) == "unconfirmed"
         )
-        has_marker = unconfirmed_marker in entries[field_name]
+        has_marker = UNCONFIRMED_MARKER in entries[field_name]
         assert has_marker == expects_marker, f"{record_class.__name__}.{field_name}"
 
 

@@ -44,7 +44,6 @@ from fmsave.checks import (
     enforce_checks,
     evaluate_clubs,
     evaluate_contracts,
-    evaluate_managed,
     evaluate_players,
     evaluate_suspensions,
     validate_save,
@@ -123,9 +122,10 @@ CLUB_GATE_NAMES = (
     "status_confirmation",
     "affiliate_lists_found",
     "affiliate_teams_linked",
+    "reputation_found",
+    "reputation_median",
 )
 SUSPENSION_GATE_NAMES = ("suspension_share_of_players", "issued_after_clock")
-MANAGED_GATE_NAMES = ("route_one_resolved", "route_two_resolved")
 
 REPORT_KEYS = {
     "fmsave_version",
@@ -217,6 +217,8 @@ def healthy_club_stats() -> ClubStats:
         affiliate_lists=950,
         affiliate_refs=1_000,
         affiliate_refs_linked=1_000,
+        reputation_found=49_900,
+        reputations_median=1_100,
     )
 
 
@@ -424,6 +426,8 @@ def test_club_gates_pass_healthy_stats_and_fail_below_the_club_minimum() -> None
         affiliate_lists=95,
         affiliate_refs=100,
         affiliate_refs_linked=100,
+        reputation_found=4_990,
+        reputations_median=1_100,
     )
     assert failed_gate_names(evaluate_clubs(few_clubs, BOUNDS, FULL_SIZE_GAME_DB_BYTES)) == [
         "clubs_minimum"
@@ -439,6 +443,46 @@ def test_an_affiliate_decode_that_finds_nothing_fails_instead_of_switching_off()
     # The share of linked ids has lost its denominator, so the share of lists is what fails.
     linked_share = next(result for result in results if result.name == "affiliate_teams_linked")
     assert not linked_share.applied
+
+
+@pytest.mark.parametrize(
+    ("stat_changes", "expected_failures"),
+    [
+        pytest.param({"reputation_found": 45_000}, [], id="share-at-edge"),
+        pytest.param({"reputation_found": 44_990}, ["reputation_found"], id="share-below"),
+        pytest.param({"reputations_median": 200}, [], id="median-at-lower-edge"),
+        pytest.param({"reputations_median": 199}, ["reputation_median"], id="median-below"),
+        pytest.param({"reputations_median": 3_000}, [], id="median-at-upper-edge"),
+        pytest.param({"reputations_median": 3_001}, ["reputation_median"], id="median-above"),
+    ],
+)
+def test_the_club_reputation_gates_are_checked_at_their_edges(
+    stat_changes: dict[str, int], expected_failures: list[str]
+) -> None:
+    stats = dataclasses.replace(healthy_club_stats(), **stat_changes)
+    results = evaluate_clubs(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert failed_gate_names(results) == expected_failures
+
+
+def test_a_club_status_read_that_loses_the_reputation_fails_both_reputation_gates() -> None:
+    """Reading the reputation a byte out inside the status record is what these gates catch.
+
+    Most clubs are then left with no readable reputation, and the few that keep one sit far
+    above the median band; a read that finds no reputation at all fails just as loudly.
+    """
+    shifted_read = dataclasses.replace(
+        healthy_club_stats(), reputation_found=7_000, reputations_median=4_100
+    )
+    shifted_results = evaluate_clubs(shifted_read, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert failed_gate_names(shifted_results) == ["reputation_found", "reputation_median"]
+    with pytest.raises(fmsave.ReaderCheckError, match=r"reputation_found=0\.14"):
+        enforce("clubs", shifted_results)
+
+    nothing_read = dataclasses.replace(
+        healthy_club_stats(), reputation_found=0, reputations_median=None
+    )
+    nothing_read_results = evaluate_clubs(nothing_read, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert failed_gate_names(nothing_read_results) == ["reputation_found", "reputation_median"]
 
 
 def test_healthy_suspension_stats_pass() -> None:
@@ -472,12 +516,13 @@ def test_suspensions_issued_after_the_clock_are_a_share_of_the_entries(
 @pytest.mark.parametrize(
     ("players_with_entries", "expected_failures"),
     [
-        pytest.param(0, [], id="no-bans-yet"),
-        pytest.param(2_000, [], id="at-edge"),
+        pytest.param(20, [], id="lower-edge"),
+        pytest.param(19, ["suspension_share_of_players"], id="below"),
+        pytest.param(2_000, [], id="upper-edge"),
         pytest.param(2_010, ["suspension_share_of_players"], id="above"),
     ],
 )
-def test_the_suspension_share_of_players_has_only_an_upper_bound(
+def test_the_suspension_share_of_players_is_bounded_at_both_ends(
     players_with_entries: int, expected_failures: list[str]
 ) -> None:
     stats = SuspensionStats(
@@ -487,35 +532,65 @@ def test_the_suspension_share_of_players_has_only_an_upper_bound(
         issued_after_clock=0,
     )
     results = evaluate_suspensions(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
-    assert results[0].minimum is None
+    assert results[0].minimum == 0.001
     assert results[0].maximum == 0.10
     assert failed_gate_names(results) == expected_failures
 
 
-def test_suspension_shares_are_not_applied_without_players_or_entries() -> None:
-    no_players = SuspensionStats(players=0, entries=0, players_with_entries=0, issued_after_clock=0)
-    assert evaluate_suspensions(no_players, BOUNDS, FULL_SIZE_GAME_DB_BYTES) == (
-        GateResult("suspension_share_of_players", None, None, 0.10, True, False),
-        GateResult("issued_after_clock", None, None, 0.01, True, False),
+def test_a_suspension_search_that_finds_nothing_fails_both_checks() -> None:
+    """An entry layout that has moved must fail, not report a save with no suspensions."""
+    nothing_found = SuspensionStats(
+        players=20_000, entries=0, players_with_entries=0, issued_after_clock=0
     )
+    results = evaluate_suspensions(nothing_found, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert failed_gate_names(results) == list(SUSPENSION_GATE_NAMES)
+    assert results[0].observed == 0.0
+    assert results[1].observed is None
+    with pytest.raises(fmsave.ReaderCheckError, match=r"suspension_share_of_players=0 "):
+        enforce("suspensions", results)
+    small_results = evaluate_suspensions(nothing_found, BOUNDS, SMALL_GAME_DB_BYTES)
+    assert all(not result.applied and result.passed for result in small_results)
 
 
-def test_a_human_manager_without_a_club_is_an_anomaly_not_a_failure() -> None:
-    stats = ManagedStats(human_count=1, route_one_resolved=0, route_two_resolved=0, rows=0)
-    results = evaluate_managed(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
-    assert results == (
-        GateResult("route_one_resolved", 0, None, None, True, True),
-        GateResult("route_two_resolved", 0, None, None, True, True),
-    )
-    reader_check = check_managed(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+def test_the_managed_club_reader_has_no_checks_and_reports_what_its_routes_found() -> None:
+    """A manager between jobs has no club, so no bound here could tell that from a break.
+
+    The reader reports what each route found as an anomaly instead of carrying checks that
+    are built to pass whatever happens.
+    """
+    between_jobs = ManagedStats(human_count=1, route_one_resolved=0, route_two_resolved=0, rows=0)
+    reader_check = check_managed(between_jobs, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert reader_check.reader == "managed_clubs"
     assert reader_check.record_count == 0
-    assert dict(reader_check.anomalies) == {"humans_without_club": 1}
+    assert reader_check.gates == ()
+    assert dict(reader_check.anomalies) == {
+        "humans_without_club": 1,
+        "club_route_one_unresolved": 1,
+        "club_route_two_unresolved": 1,
+    }
     enforce_checks((reader_check,))
     with_club = ManagedStats(human_count=1, route_one_resolved=1, route_two_resolved=1, rows=1)
     assert dict(check_managed(with_club, BOUNDS, FULL_SIZE_GAME_DB_BYTES).anomalies) == {
-        "humans_without_club": 0
+        "humans_without_club": 0,
+        "club_route_one_unresolved": 0,
+        "club_route_two_unresolved": 0,
     }
+
+
+def test_a_failed_check_with_a_likely_cause_names_it() -> None:
+    """The check most likely to fail first on an unseen save says what usually causes it."""
+    missing_tables = dataclasses.replace(healthy_contract_stats(), tails_without_clause_table=100)
+    results = evaluate_contracts(missing_tables, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert failed_gate_names(results) == ["tails_without_clause_table"]
+    with pytest.raises(fmsave.ReaderCheckError) as error_info:
+        enforce("contracts", results)
+    assert "likely an unrecognised bonus list shape in the contract tail" in str(error_info.value)
+
+    few_chains = dataclasses.replace(healthy_contract_stats(), players_with_chain=1_000)
+    other_results = evaluate_contracts(few_chains, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    with pytest.raises(fmsave.ReaderCheckError) as other_error_info:
+        enforce("contracts", other_results)
+    assert "likely" not in str(other_error_info.value)
 
 
 def test_two_failing_readers_of_one_pass_share_one_joined_message() -> None:
@@ -851,7 +926,7 @@ def test_validate_save_reports_every_reader_ok_with_gates_not_applied(
     assert tuple(gate.name for gate in readers["players"].gates) == PLAYER_GATE_NAMES
     assert tuple(gate.name for gate in readers["contracts"].gates) == CONTRACT_GATE_NAMES
     assert tuple(gate.name for gate in readers["suspensions"].gates) == SUSPENSION_GATE_NAMES
-    assert tuple(gate.name for gate in readers["managed_clubs"].gates) == MANAGED_GATE_NAMES
+    assert readers["managed_clubs"].gates == ()
     assert {name: reader.record_count for name, reader in readers.items()} == {
         "clubs": 2,
         "players": 2,
@@ -881,6 +956,8 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         "status_confirmation": 0.5,
         "affiliate_lists_found": 0.5,
         "affiliate_teams_linked": 1.0,
+        "reputation_found": 1.0,
+        "reputation_median": 4_000,
     }
     assert observed_by_gate(readers["players"]) == {
         "players_minimum": 2,
@@ -918,10 +995,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         "suspension_share_of_players": 0.5,
         "issued_after_clock": 0.5,
     }
-    assert observed_by_gate(readers["managed_clubs"]) == {
-        "route_one_resolved": 1,
-        "route_two_resolved": 1,
-    }
+    assert readers["managed_clubs"].gates == ()
     assert {name: dict(reader.anomalies) for name, reader in readers.items()} == {
         "clubs": {"unlinked_affiliate_teams": 0},
         "players": {"markerless_players": 1, "unresolved_teams": 1},
@@ -933,7 +1007,11 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "players_without_contract_in_effect": 0,
         },
         "suspensions": {"suspensions_after_clock": 1},
-        "managed_clubs": {"humans_without_club": 0},
+        "managed_clubs": {
+            "humans_without_club": 0,
+            "club_route_one_unresolved": 0,
+            "club_route_two_unresolved": 0,
+        },
         "stages": {"walk_gaps": 0, "rejected_competition_ids": 1},
         "competitions": {"database_id_conflicts": 0},
     }
@@ -951,8 +1029,12 @@ def test_a_human_manager_between_jobs_reports_an_anomaly_and_stays_ok(tmp_path: 
     managed = readers["managed_clubs"]
     assert managed.status == "ok"
     assert managed.record_count == 0
-    assert observed_by_gate(managed) == {"route_one_resolved": 0, "route_two_resolved": 0}
-    assert dict(managed.anomalies) == {"humans_without_club": 1}
+    assert managed.gates == ()
+    assert dict(managed.anomalies) == {
+        "humans_without_club": 1,
+        "club_route_one_unresolved": 1,
+        "club_route_two_unresolved": 1,
+    }
 
 
 def test_to_json_dict_holds_exactly_the_allowlisted_keys(counted_fragment_path: Path) -> None:
@@ -1110,7 +1192,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "competitions": "failed",
     }
     assert {name: failed_gate_names(reader.gates) for name, reader in readers.items()} == {
-        "clubs": ["clubs_minimum", "status_confirmation"],
+        "clubs": ["clubs_minimum", "status_confirmation", "reputation_median"],
         "players": [
             "players_minimum",
             "person_blocks",

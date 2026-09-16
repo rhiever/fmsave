@@ -92,11 +92,16 @@ class ClauseKind(IntEnum):
 class Clause:
     """One clause attached to a contract, such as a release fee, an extension option or a bonus.
 
+    Every named kind is confirmed in game. What a clause's parameter and value hold is
+    confirmed for most of those kinds but not for RELEGATION_RELEASE and
+    NON_PROMOTION_RELEASE (see ClauseKind), and a status covers a field across every kind, so
+    both fields ship unconfirmed.
+
     Attributes:
         kind: The clause's kind.
         parameter: The clause's parameter, whose meaning depends on kind; None when the
-            save stores no parameter.
-        value: The clause's money value; None when the save stores no value.
+            save stores no parameter (unconfirmed).
+        value: The clause's money value; None when the save stores no value (unconfirmed).
     """
 
     kind: CodedValue[ClauseKind]
@@ -116,7 +121,7 @@ class ContractChainEntry:
         wage: Weekly wage, in the save's base currency (unconfirmed).
         start: Start date of this spell (unconfirmed).
         end: End date from this record's tail, or None when its tail did not parse or
-            stores no end (unconfirmed).
+            stores no end.
         has_tail: Whether this record's tail parsed (unconfirmed).
     """
 
@@ -150,7 +155,7 @@ class Contract:
             (unconfirmed).
         wage: Weekly wage from the record in effect, in the save's base currency
             (unconfirmed).
-        start: Contract start date, from the record in effect.
+        start: Contract start date, from the record in effect (unconfirmed).
         end: Contract end date.
         end_source: Where end was read from.
         squad_status: Squad status from the tail of the record in effect, the role agreed in
@@ -166,8 +171,9 @@ class Contract:
             club or the contract in effect is unknown. A player registered with a team his
             own club controls, such as a B team, is a player of that club, not on loan.
         loan_parent_club_uid: Uid of the club of the contract in effect when on_loan is
-            True, else None.
-        loan_parent_club_name: Denormalised name of loan_parent_club_uid.
+            True, else None. It is club_uid under another name, so it carries the same
+            status (unconfirmed).
+        loan_parent_club_name: Denormalised name of loan_parent_club_uid (unconfirmed).
         loan_start: Date the loan began when on_loan is True, else None. It is also None
             when the loan's stored start does not decode as a game date, which keeps an
             unreadable start from costing the player his loan; no save read so far holds
@@ -228,24 +234,25 @@ class Contract:
 
 register_field_statuses(
     Clause,
-    verified=("kind", "parameter", "value"),
+    verified=("kind",),
+    unconfirmed=("parameter", "value"),
 )
+# `end` is the same tail field Contract.end is taken from, and the contract end the game
+# displays confirmed it; `start` has no displayed label behind it on either class.
 register_field_statuses(
     ContractChainEntry,
-    unconfirmed=("club_uid", "club_name", "team_id", "wage", "start", "end", "has_tail"),
+    verified=("end",),
+    unconfirmed=("club_uid", "club_name", "team_id", "wage", "start", "has_tail"),
 )
 register_field_statuses(
     Contract,
     verified=(
-        "start",
         "end",
         "end_source",
         "squad_status",
         "type",
         "clauses",
         "on_loan",
-        "loan_parent_club_uid",
-        "loan_parent_club_name",
         "loan_start",
         "loan_end",
     ),
@@ -256,6 +263,9 @@ register_field_statuses(
         "club_name",
         "team_id",
         "wage",
+        "start",
+        "loan_parent_club_uid",
+        "loan_parent_club_name",
         "event_count",
         "chain",
         "chain_club_uids",

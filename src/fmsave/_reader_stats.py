@@ -85,7 +85,9 @@ class ClubStats:
     `affiliate_lists` counts club records holding an affiliated-team list, `affiliate_refs`
     every team id those lists hold, and `affiliate_refs_linked` the ids linked to a
     controlling club, which needs an id to name a team of another club that no other club has
-    already claimed.
+    already claimed. `reputation_found` counts the clubs whose status record held a
+    reputation inside the layout's range, and `reputations_median` is the low median of those
+    reputations.
     """
 
     records: int
@@ -95,6 +97,8 @@ class ClubStats:
     affiliate_lists: int
     affiliate_refs: int
     affiliate_refs_linked: int
+    reputation_found: int
+    reputations_median: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +125,6 @@ class StageStats:
 
     rows: int
     gaps: int
-    distinct_ids: int
     ascending_steps: int
     steps: int
     with_competition: int
@@ -138,9 +141,7 @@ class CompetitionStats:
     """
 
     competitions: int
-    with_database_id: int
     database_id_conflicts: int
-    with_name: int
 
 
 @dataclass(frozen=True, slots=True)

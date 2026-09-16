@@ -688,14 +688,20 @@ class GateBounds:
 
     Clubs: `clubs_minimum` (records), `team_lists_found` and `status_normal` (of clubs),
     `status_confirmation` (of normal status records), `affiliate_lists_found` (club records
-    holding an affiliated-team list, of club records) and `affiliate_teams_linked` (listed
-    affiliate teams that belong to one other club, of listed affiliate teams). The second is
-    not applied when no club lists a team, so the first is what fails when the affiliate
-    decode finds nothing at all.
+    holding an affiliated-team list, of club records), `affiliate_teams_linked` (listed
+    affiliate teams that belong to one other club, of listed affiliate teams),
+    `reputation_found` (clubs whose status record held a reputation inside the layout's
+    range, of club records) and `reputation_median` (the low median of those reputations).
+    `affiliate_teams_linked` is not applied when no club lists a team, so
+    `affiliate_lists_found` is what fails when the affiliate decode finds nothing at all. The
+    reputation pair is what fails when the reputation moves inside the status record: read a
+    byte out, most clubs hold no readable reputation at all and the median of the rest climbs
+    far above its band, so either bound catches the shift on its own.
 
-    Suspensions: `suspension_share_of_players` (players with an entry, of players; not applied
-    without players) and `issued_after_clock` (entries issued after the in-game date, of
-    entries; not applied without entries).
+    Suspensions: `suspension_share_of_players` (players with an entry, of players) and
+    `issued_after_clock` (entries issued after the in-game date, of entries). Both apply
+    whenever the section is large enough, so a search that finds no entry fails the first on
+    its lower bound and the second for want of a rate.
 
     Stages: `stage_rows_minimum` (rows walked), `stage_walk_gaps` (places the walk had to
     resynchronise), `stage_ids_ascending` (steps that reached a higher stage id, of steps),
@@ -747,6 +753,8 @@ class GateBounds:
     status_confirmation: BoundPair
     affiliate_lists_found: BoundPair
     affiliate_teams_linked: BoundPair
+    reputation_found: BoundPair
+    reputation_median: BoundPair
     suspension_share_of_players: BoundPair
     issued_after_clock: BoundPair
     stage_rows_minimum: BoundPair

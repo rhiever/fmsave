@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import calendar
 import struct
-from collections.abc import Iterator
 from datetime import date, timedelta
 
 from fmsave._errors import CorruptSaveError
@@ -17,11 +16,8 @@ from fmsave._errors import CorruptSaveError
 type Buffer = bytes | bytearray | memoryview
 type SearchableBuffer = bytes | bytearray
 
-_U8 = struct.Struct("<B")
 _U16 = struct.Struct("<H")
-_I16 = struct.Struct("<h")
 _U32 = struct.Struct("<I")
-_I32 = struct.Struct("<i")
 _U64 = struct.Struct("<Q")
 
 DAY_OF_YEAR_MASK = 0x1FF
@@ -43,24 +39,12 @@ def _unpack(layout: struct.Struct, buffer: Buffer, offset: int) -> int:
     return value
 
 
-def read_u8(buffer: Buffer, offset: int) -> int:
-    return _unpack(_U8, buffer, offset)
-
-
 def read_u16(buffer: Buffer, offset: int) -> int:
     return _unpack(_U16, buffer, offset)
 
 
-def read_i16(buffer: Buffer, offset: int) -> int:
-    return _unpack(_I16, buffer, offset)
-
-
 def read_u32(buffer: Buffer, offset: int) -> int:
     return _unpack(_U32, buffer, offset)
-
-
-def read_i32(buffer: Buffer, offset: int) -> int:
-    return _unpack(_I32, buffer, offset)
 
 
 def read_u64(buffer: Buffer, offset: int) -> int:
@@ -114,21 +98,3 @@ def find_marker(buffer: SearchableBuffer, marker: bytes, start: int, end: int) -
     """Index of the first marker lying wholly inside [start, end), or -1."""
     _check_search(buffer, marker, start, end)
     return buffer.find(marker, start, end)
-
-
-def iter_markers(buffer: SearchableBuffer, marker: bytes, start: int, end: int) -> Iterator[int]:
-    """Every index where the marker lies wholly inside [start, end), overlapping, in order.
-
-    The arguments are checked when this is called, before iteration starts.
-    """
-    _check_search(buffer, marker, start, end)
-    return _marker_positions(buffer, marker, start, end)
-
-
-def _marker_positions(
-    buffer: SearchableBuffer, marker: bytes, start: int, end: int
-) -> Iterator[int]:
-    position = buffer.find(marker, start, end)
-    while position >= 0:
-        yield position
-        position = buffer.find(marker, position + 1, end)

@@ -48,6 +48,8 @@ Records and tables are immutable and keep working after the save is closed.
 - **Suspensions** (`suspensions()`): each unserved suspension with its player, club, competition id and date issued, including bans the game no longer displays.
 - **Clubs** (`clubs()`): name, short name, nation id, reputation, last league position and teams.
 - **Managed clubs** (`managed_clubs()`): the club the human manager runs. The list is empty when the manager is between jobs.
+- **Stages** (`stages()`): every stage of every competition, with the stage id that fixtures, league tables and per-match records join through, plus the competition id, group and round. A league season is one stage, a cup round is one, and each leg of a two-legged tie is its own stage.
+- **Competitions** (`competitions()`): every competition the stage table names, with the ids of its stages. The save stores no competition names, so every row's `name` is empty. Stages and competitions are read in Python; `export` writes the five tables above.
 
 A club's `teams` are its own team slots, in stored order, followed by the teams it controls at other clubs, such as a B team the save stores as a club of its own. A player registered with one of those teams counts as a player of the controlling club, keeps the club storing his team in `team_club_uid`, and is not on loan; `on_loan` marks a real loan, with the club of the contract in effect as the parent club and the loan's own dates in `loan_start` and `loan_end`. How the save stores those links is read from the file and not checked against the game: `team_club_uid`, `parent_club_uid` and a team's `club_uid` and `affiliate` mark are all unconfirmed, so ask `field_status` before relying on them.
 
@@ -83,7 +85,7 @@ fmsave validate career.fm --json
 
 ## What it cannot read (yet)
 
-- Planned for later releases: nation names; fixtures and league tables; finances, staff, injuries and tactics.
+- Planned for later releases: nation names; fixtures, league tables and per-match records, which reach a competition through the stage ids that already ship; finances, staff, injuries and tactics.
 - Not stored in the save at all: competition and league names. The game renders them from its own installed database, so fmsave ships none.
 - Not stored in a readable way in the save: today's injuries and availability, staff attribute values, card counts, scouting budget and asking prices.
 

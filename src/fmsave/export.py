@@ -815,9 +815,9 @@ def _present_counts(  # pyright: ignore[reportUnusedFunction]
     counts as present even when it is empty, and every column of a missing group counts as
     missing.
 
-    Raises the errors to_columns raises, but every record's type is checked before any value,
-    and values one field at a time, so when several things are wrong the first error raised
-    may differ.
+    Raises the errors to_columns raises, except that the error for a record of another type
+    names operation_name instead. Every record's type is checked before any value, and values
+    one field at a time, so when several things are wrong the first error raised may differ.
 
     Args:
         records: Records that are all exactly of record_type.

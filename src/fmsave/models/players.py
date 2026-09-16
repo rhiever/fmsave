@@ -235,23 +235,23 @@ class Personality:
 
 
 class Trait(IntEnum):
-    """A named player trait; UNKNOWN keeps the bit number in CodedValue.raw."""
+    """A named player trait; UNKNOWN keeps the bit number in CodedValue.raw.
+
+    A bit is named only where a trait the game itself displayed on a player's profile pins
+    that exact bit: a profile lists a player's traits in ascending bit order, which is what
+    ties a displayed trait to a bit. A name an outside name table would supply is not
+    evidence for one, so every bit no displayed trait reaches is UNKNOWN and keeps its bit
+    number, including bits that sit next to a named one and bits whose displayed trait reads
+    as the opposite of a named one.
+    """
 
     UNKNOWN = -1
-    RUNS_WITH_BALL_DOWN_LEFT = 0
-    RUNS_WITH_BALL_DOWN_RIGHT = 1
     RUNS_WITH_BALL_THROUGH_CENTRE = 2
-    MOVES_INTO_CHANNELS = 4
     GETS_FORWARD_WHENEVER_POSSIBLE = 5
     TRIES_KILLER_BALLS_OFTEN = 7
-    LIKES_TO_TRY_TO_BEAT_OFFSIDE_TRAP = 13
     COMES_DEEP_TO_GET_BALL = 19
-    DICTATES_TEMPO = 22
     KNOCKS_BALL_PAST_OPPONENT = 27
-    DIVES_INTO_TACKLES = 37
-    TRIES_LONG_RANGE_PASSES = 43
     RUNS_WITH_BALL_OFTEN = 51
-    CROSSES_EARLY = 59
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,9 +279,10 @@ class Player:
         home_grown_nation_ids: Ids of nations the player is considered home grown for.
         home_grown_club_uids: Uids of clubs the player is considered home grown for, in
             relation-list order; an entry is None when its club index does not resolve, but
-            still keeps its position.
+            still keeps its position. They are Club.uid values and carry its status
+            (unconfirmed).
         home_grown_club_names: Denormalised names for home_grown_club_uids, in the same
-            order; None wherever home_grown_club_uids is None.
+            order; None wherever home_grown_club_uids is None (unconfirmed).
         height_cm: Height in centimetres (unconfirmed).
         ability: Current and potential ability.
         reputation: Reputation figures; never threshold on reputation.bucket.
@@ -330,8 +331,9 @@ class Player:
             club or his contract in effect is unknown. A player registered with a team his
             own club controls, such as a B team, is a player of that club, not on loan.
         loan_parent_club_uid: Uid of the club of the contract in effect when on_loan is
-            True, else None.
-        loan_parent_club_name: Denormalised name of loan_parent_club_uid.
+            True, else None. It is the contract's club_uid under another name, so it carries
+            the same status (unconfirmed).
+        loan_parent_club_name: Denormalised name of loan_parent_club_uid (unconfirmed).
         loan_start: Date the loan began when on_loan is True, else None. It is also None
             when the loan's stored start does not decode as a game date, which keeps an
             unreadable start from costing the player his loan; no save read so far holds
@@ -488,13 +490,13 @@ register_field_statuses(
         "controversy",
     ),
 )
+# A field taken from another record carries that record's status: the home-grown club uids and
+# names are Club.uid and Club.name, and the loan parent club is the contract's club.
 register_field_statuses(
     Player,
     verified=(
         "second_nation_ids",
         "home_grown_nation_ids",
-        "home_grown_club_uids",
-        "home_grown_club_names",
         "club_reputation",
         "club_last_league_position",
         "natural_positions",
@@ -509,8 +511,6 @@ register_field_statuses(
         "traits",
         "trait_bits",
         "on_loan",
-        "loan_parent_club_uid",
-        "loan_parent_club_name",
         "loan_start",
         "loan_end",
         "suspensions",
@@ -537,5 +537,9 @@ register_field_statuses(
         "team_club_uid",
         "club_join_date",
         "transfer_value_state",
+        "home_grown_club_uids",
+        "home_grown_club_names",
+        "loan_parent_club_uid",
+        "loan_parent_club_name",
     ),
 )

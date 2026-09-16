@@ -22,8 +22,6 @@ from fmsave._frozen import FrozenMapping
 
 type FieldStatus = Literal["verified", "unconfirmed"]
 
-unconfirmed_marker = "(unconfirmed)"
-
 _statuses_by_class: dict[type, dict[str, FieldStatus]] = {}
 
 

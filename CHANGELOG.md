@@ -7,7 +7,8 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Added
 
 - `fmsave.open()` and the `Save` object, used as a context manager, with `Save.info`: game, build, database version and in-game date.
-- Readers for players, contracts, suspensions, clubs and managed clubs: `Save.players()`, `Save.contracts()`, `Save.suspensions()`, `Save.clubs()` and `Save.managed_clubs()`.
+- Readers for players, contracts, suspensions, clubs, managed clubs, stages and competitions: `Save.players()`, `Save.contracts()`, `Save.suspensions()`, `Save.clubs()`, `Save.managed_clubs()`, `Save.stages()` and `Save.competitions()`.
+- Stage and competition rows: a stage is one part of a competition, such as a league season, a cup round or one leg of a two-legged tie, and its id is what fixtures, league tables and per-match records join through. `Save.competitions()` lists every competition the stage table names with the ids of its stages. The save stores no competition names, so those rows carry none, and `export` does not offer the two tables yet.
 - `Table`, an immutable sequence of records with `where`, `filter`, `find`, `by_uid`, `get_by_uid` and `coverage`, and export through `to_dicts`, `to_columns`, `to_pandas`, `to_polars`, `write_csv`, `write_json` and `write_jsonl`.
 - A stable flat output schema, versioned as `fmsave.OUTPUT_SCHEMA_VERSION`.
 - `fmsave.field_status`, which tells whether a field's meaning is verified or unconfirmed.

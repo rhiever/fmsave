@@ -79,6 +79,8 @@ EMPTY_CLUB_INDEX = ClubIndex(
         affiliate_lists=0,
         affiliate_refs=0,
         affiliate_refs_linked=0,
+        reputation_found=0,
+        reputations_median=None,
     ),
     game_db_bytes=0,
 )
@@ -2071,9 +2073,29 @@ def test_field_status_resolves_contract_wage_through_contract_class() -> None:
     assert field_status(Player, "loan_end") == "verified"
     assert field_status(Contract, "loan_start") == "verified"
     assert field_status(Contract, "loan_end") == "verified"
-    assert field_status(Contract, "start") == "verified"
     assert field_status(Clause, "kind") == "verified"
     assert field_status(ContractChainEntry, "wage") == "unconfirmed"
+
+
+def test_a_derived_field_carries_the_status_of_what_it_is_taken_from() -> None:
+    """A copy never claims more than its source, and one value never gets two answers.
+
+    The loan parent club is the contracting club under another name, and the contract start
+    and end are the chain record's own start and end.
+    """
+    for copied_field, source_field in (
+        ("loan_parent_club_uid", "club_uid"),
+        ("loan_parent_club_name", "club_name"),
+    ):
+        assert field_status(Contract, copied_field) == field_status(Contract, source_field)
+        assert field_status(Contract, copied_field) == "unconfirmed", copied_field
+        assert field_status(Player, copied_field) == "unconfirmed", copied_field
+    assert field_status(Contract, "start") == field_status(ContractChainEntry, "start")
+    assert field_status(Contract, "start") == "unconfirmed"
+    assert field_status(Contract, "end") == field_status(ContractChainEntry, "end")
+    assert field_status(Contract, "end") == "verified"
+    assert field_status(Clause, "parameter") == "unconfirmed"
+    assert field_status(Clause, "value") == "unconfirmed"
 
 
 def test_pickle_and_deepcopy_round_trip_contract_records() -> None:

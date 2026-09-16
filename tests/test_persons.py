@@ -153,7 +153,7 @@ PLAYER_A_BLOCK = person_block_bytes(
     birth=packed_date(60, 2004),
     nation_id=44,
     personality=DEFAULT_PERSONALITY,
-    trait_bits=(1 << 13) | (1 << 40),
+    trait_bits=(1 << 27) | (1 << 40),
     relations=PLAYER_A_RELATIONS,
 )
 
@@ -273,6 +273,35 @@ def decode_block(block: bytes, *, clock: date = CLOCK) -> PersonView | None:
     return as_person_view(decoder.decode(game_db, len(prefix), len(game_db)))
 
 
+NAMED_TRAIT_BITS = {
+    2: "RUNS_WITH_BALL_THROUGH_CENTRE",
+    5: "GETS_FORWARD_WHENEVER_POSSIBLE",
+    7: "TRIES_KILLER_BALLS_OFTEN",
+    19: "COMES_DEEP_TO_GET_BALL",
+    27: "KNOCKS_BALL_PAST_OPPONENT",
+    51: "RUNS_WITH_BALL_OFTEN",
+}
+# Bits a player profile has shown, bits sitting beside a named one, and the bit whose shown
+# trait reads as the opposite of a named one: none of them is named on that basis.
+UNNAMED_TRAIT_BITS = (0, 1, 3, 4, 8, 9, 11, 12, 13, 14, 16, 20, 22, 32, 34, 35, 37, 38, 43, 59)
+
+
+def test_only_the_trait_bits_a_displayed_trait_confirms_are_named() -> None:
+    """Which bits carry a name is the whole judgement of the trait decode, so it is pinned.
+
+    Naming a bit no displayed trait reaches, renumbering a named one, or dropping a name
+    would each relabel traits on every save while every other test still passed.
+    """
+    named_by_bit = {member.value: member.name for member in Trait if member is not Trait.UNKNOWN}
+
+    assert named_by_bit == NAMED_TRAIT_BITS
+    assert Trait.UNKNOWN.value == -1
+    for trait_bit in UNNAMED_TRAIT_BITS:
+        coded_trait = CodedValue.from_raw(Trait, trait_bit)
+        assert coded_trait.label is Trait.UNKNOWN, trait_bit
+        assert coded_trait.raw == trait_bit
+
+
 def test_player_a_names_birth_nation_relations_personality_and_traits() -> None:
     person = decode_block(PLAYER_A_BLOCK)
     assert person is not None
@@ -288,9 +317,9 @@ def test_player_a_names_birth_nation_relations_personality_and_traits() -> None:
     assert person.home_grown_club_uids == (5002,)
     assert person.home_grown_club_names == ("Southport Example",)
     assert person.personality.pressure == 20
-    assert person.trait_bits == (1 << 13) | (1 << 40)
+    assert person.trait_bits == (1 << 27) | (1 << 40)
     assert [trait.label for trait in person.traits] == [
-        Trait.LIKES_TO_TRY_TO_BEAT_OFFSIDE_TRAP,
+        Trait.KNOCKS_BALL_PAST_OPPONENT,
         Trait.UNKNOWN,
     ]
     assert person.traits[1].raw == 40
@@ -645,7 +674,7 @@ PLAYER_FULL_BLOCK = person_block_bytes(
     birth=packed_date(60, 2004),
     nation_id=44,
     personality=DEFAULT_PERSONALITY,
-    trait_bits=(1 << 13) | (1 << 40),
+    trait_bits=(1 << 27) | (1 << 40),
     relations=PLAYER_FULL_RELATIONS,
 )
 
@@ -709,9 +738,9 @@ def test_full_player_decode_merges_person_fields_and_round_trips() -> None:
     assert player.home_grown_club_names == ("Southport Example", None)
     assert player.personality is not None
     assert player.personality.pressure == 20
-    assert player.trait_bits == (1 << 13) | (1 << 40)
+    assert player.trait_bits == (1 << 27) | (1 << 40)
     assert [trait.label for trait in player.traits] == [
-        Trait.LIKES_TO_TRY_TO_BEAT_OFFSIDE_TRAP,
+        Trait.KNOCKS_BALL_PAST_OPPONENT,
         Trait.UNKNOWN,
     ]
 

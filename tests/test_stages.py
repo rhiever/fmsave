@@ -110,7 +110,6 @@ def healthy_stage_stats() -> StageStats:
     return StageStats(
         rows=8_000,
         gaps=0,
-        distinct_ids=8_000,
         ascending_steps=7_999,
         steps=7_999,
         with_competition=7_750,
@@ -121,9 +120,7 @@ def healthy_stage_stats() -> StageStats:
 
 
 def healthy_competition_stats() -> CompetitionStats:
-    return CompetitionStats(
-        competitions=2_600, with_database_id=0, database_id_conflicts=0, with_name=0
-    )
+    return CompetitionStats(competitions=2_600, database_id_conflicts=0)
 
 
 def failed_gate_names(results: tuple[GateResult, ...]) -> list[str]:
@@ -136,7 +133,6 @@ def test_the_walk_reads_every_row_and_its_fields() -> None:
     assert len(stage_index.stages) == STAGE_ROW_COUNT
     assert stage_index.stats.rows == STAGE_ROW_COUNT
     assert stage_index.stats.gaps == 0
-    assert stage_index.stats.distinct_ids == STAGE_ROW_COUNT
     grouped_stage = stage_index.stage_by_id[GROUPED_STAGE_ID]
     assert grouped_stage.group_id == GROUPED_STAGE_GROUP_ID
     assert grouped_stage.unknown["s25"] == GROUPED_STAGE_S25
@@ -383,7 +379,7 @@ def test_healthy_stage_stats_pass_every_gate_and_a_small_section_applies_none() 
         pytest.param(
             {"bytes_after_table": 3_000_000}, ["stage_table_tail_bytes"], id="table-too-early"
         ),
-        pytest.param({"rows": 999, "distinct_ids": 999}, ["stage_rows_minimum"], id="too-few-rows"),
+        pytest.param({"rows": 999}, ["stage_rows_minimum"], id="too-few-rows"),
         pytest.param({"ascending_steps": 7_000}, ["stage_ids_ascending"], id="ids-not-ascending"),
         pytest.param(
             {"trailing_sentinel_ok": 7_000}, ["stage_trailing_sentinel"], id="sentinel-lost"
@@ -550,7 +546,6 @@ def test_the_walk_counts_exactly_what_the_gates_divide() -> None:
     assert stage_index.stats == StageStats(
         rows=STAGE_ROW_COUNT,
         gaps=0,
-        distinct_ids=STAGE_ROW_COUNT,
         ascending_steps=STAGE_ROW_COUNT - 1,
         steps=STAGE_ROW_COUNT - 1,
         # The row with no competition, and the row whose competition id the limit rejects.
@@ -604,7 +599,5 @@ def test_a_competition_is_named_through_its_database_id_once_one_is_supplied() -
     assert competition_index.database_id_by_competition_id[THIRD_COMPETITION_ID] == (
         SHARED_DATABASE_ID
     )
-    assert competition_index.stats.with_database_id == 3
-    assert competition_index.stats.with_name == 3
     # Two competitions claim the same database id, which is one id in conflict.
     assert competition_index.stats.database_id_conflicts == 1

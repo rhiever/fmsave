@@ -69,7 +69,6 @@ def build_competition_index(
     competition_by_id: dict[int, Competition] = {}
     database_id_by_competition_id: dict[int, int] = {}
     competitions_per_database_id: dict[int, int] = {}
-    named_count = 0
     for competition_id in sorted(stage_index.stage_ids_by_competition_id):
         database_id = database_ids.get(competition_id)
         name = None if database_id is None else competition_names.get(database_id)
@@ -78,8 +77,6 @@ def build_competition_index(
             competitions_per_database_id[database_id] = (
                 competitions_per_database_id.get(database_id, 0) + 1
             )
-        if name is not None:
-            named_count += 1
         competition = Competition(
             id=competition_id,
             database_id=database_id,
@@ -90,11 +87,9 @@ def build_competition_index(
         competition_by_id[competition_id] = competition
     stats = CompetitionStats(
         competitions=len(competitions),
-        with_database_id=len(database_id_by_competition_id),
         database_id_conflicts=sum(
             1 for claims in competitions_per_database_id.values() if claims > 1
         ),
-        with_name=named_count,
     )
     return CompetitionIndex(
         competitions=tuple(competitions),

@@ -677,6 +677,14 @@
           0.999,
           None,
         ),
+        'reputation_found': tuple(
+          0.9,
+          None,
+        ),
+        'reputation_median': tuple(
+          200,
+          3000,
+        ),
         'second_nation_qualifier': tuple(
           0.995,
           None,
@@ -715,7 +723,7 @@
           None,
         ),
         'suspension_share_of_players': tuple(
-          None,
+          0.001,
           0.1,
         ),
         'tails_parsed': tuple(
