@@ -237,21 +237,36 @@ class Personality:
 class Trait(IntEnum):
     """A named player trait; UNKNOWN keeps the bit number in CodedValue.raw.
 
-    A bit is named only where a trait the game itself displayed on a player's profile pins
-    that exact bit: a profile lists a player's traits in ascending bit order, which is what
-    ties a displayed trait to a bit. A name an outside name table would supply is not
-    evidence for one, so every bit no displayed trait reaches is UNKNOWN and keeps its bit
-    number, including bits that sit next to a named one and bits whose displayed trait reads
-    as the opposite of a named one.
+    A bit is named only where a trait the game itself displayed pins that exact bit. Two
+    readings do that. Six bits come from player profiles, which list a player's traits in
+    ascending bit order, and that order is what ties a displayed trait to a bit. The other
+    ten come from in-game trait panels read on 2026-09-16, one player per bit, each player's
+    bitmask holding exactly one bit no earlier reading had reached, so the one unaccounted
+    trait his panel showed is that bit.
+
+    A name an outside name table would supply is not evidence for one, so every bit no
+    displayed trait reaches is UNKNOWN and keeps its bit number. Neither is a name that
+    merely looks likely from the bits around it, even though two such guesses were later
+    borne out by a panel: what named those bits is the panel, not the guess.
     """
 
     UNKNOWN = -1
+    RUNS_WITH_BALL_DOWN_LEFT = 0
+    RUNS_WITH_BALL_DOWN_RIGHT = 1
     RUNS_WITH_BALL_THROUGH_CENTRE = 2
+    MOVES_INTO_CHANNELS = 4
     GETS_FORWARD_WHENEVER_POSSIBLE = 5
     TRIES_KILLER_BALLS_OFTEN = 7
+    SHOOTS_FROM_DISTANCE = 8
+    LIKES_TO_TRY_TO_BEAT_OFFSIDE_TRAP = 13
     COMES_DEEP_TO_GET_BALL = 19
+    DICTATES_TEMPO = 22
     KNOCKS_BALL_PAST_OPPONENT = 27
+    AVOIDS_USING_WEAKER_FOOT = 34
+    DIVES_INTO_TACKLES = 37
+    TRIES_LONG_RANGE_PASSES = 43
     RUNS_WITH_BALL_OFTEN = 51
+    CROSSES_EARLY = 59
 
 
 @dataclass(frozen=True, slots=True)

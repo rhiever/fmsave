@@ -274,16 +274,26 @@ def decode_block(block: bytes, *, clock: date = CLOCK) -> PersonView | None:
 
 
 NAMED_TRAIT_BITS = {
+    0: "RUNS_WITH_BALL_DOWN_LEFT",
+    1: "RUNS_WITH_BALL_DOWN_RIGHT",
     2: "RUNS_WITH_BALL_THROUGH_CENTRE",
+    4: "MOVES_INTO_CHANNELS",
     5: "GETS_FORWARD_WHENEVER_POSSIBLE",
     7: "TRIES_KILLER_BALLS_OFTEN",
+    8: "SHOOTS_FROM_DISTANCE",
+    13: "LIKES_TO_TRY_TO_BEAT_OFFSIDE_TRAP",
     19: "COMES_DEEP_TO_GET_BALL",
+    22: "DICTATES_TEMPO",
     27: "KNOCKS_BALL_PAST_OPPONENT",
+    34: "AVOIDS_USING_WEAKER_FOOT",
+    37: "DIVES_INTO_TACKLES",
+    43: "TRIES_LONG_RANGE_PASSES",
     51: "RUNS_WITH_BALL_OFTEN",
+    59: "CROSSES_EARLY",
 }
-# Bits a player profile has shown, bits sitting beside a named one, and the bit whose shown
-# trait reads as the opposite of a named one: none of them is named on that basis.
-UNNAMED_TRAIT_BITS = (0, 1, 3, 4, 8, 9, 11, 12, 13, 14, 16, 20, 22, 32, 34, 35, 37, 38, 43, 59)
+# Bits real players set that no displayed trait has pinned. Sitting beside a named bit is not
+# evidence, so none of them is named on that basis.
+UNNAMED_TRAIT_BITS = (3, 9, 11, 12, 14, 16, 20, 32, 35, 38)
 
 
 def test_only_the_trait_bits_a_displayed_trait_confirms_are_named() -> None:
