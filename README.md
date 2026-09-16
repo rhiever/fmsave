@@ -84,6 +84,8 @@ database_id,name
 12346,Example Cup
 ```
 
+A row is exactly two columns wide, and an id is plain digits. A third column is refused rather than guessed at, since nothing says whether the name was meant to hold the comma or whether a column was added, so put quotes around a name that holds one. A mapping you build in Python is held to the same rules, and its names are trimmed the same way, so the same text gives the same map whichever form you pass.
+
 Building one is up to you, and one source is your own installation: the game's database folder holds plain tab-separated UTF-8 `.lnc` files whose `COMP_LONG_NAME_CHANGE`, `COMP_SHORT_NAME_CHANGE` and `COMP_3LETTER_NAME_CHANGE` lines are keyed on the same database id. fmsave neither locates nor reads those files.
 
 ## Command line

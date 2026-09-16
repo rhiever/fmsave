@@ -30,6 +30,9 @@ EXPECTED_COLUMNS = 2
 # What an error calls a path with no file name of its own, which no readable file has.
 UNNAMED_FILE = "the given file"
 
+# What to tell a reader whose row split into more cells than it should have.
+EXTRA_COLUMN_HINT = "; put quotes around a name that holds a comma"
+
 # The map of a save opened without one, shared because it is immutable and always empty.
 EMPTY_COMPETITION_NAMES: FrozenMapping[int, str] = FrozenMapping({})
 
@@ -50,11 +53,15 @@ def _is_blank(row: list[str]) -> bool:
 
 
 def _parsed_database_id(cell: str) -> int | None:
-    """The cell as a database id, or None when it is not a whole number."""
-    try:
-        return int(cell)
-    except ValueError:
-        return None
+    """The cell as a database id, or None when it is not one.
+
+    Only plain ASCII digits count. `int` also reads a sign, underscore separators and the
+    digits of other scripts, and none of those is a database id: a negative id is nonsense,
+    and the rest let one id be written several ways, each looking up a key none of the others
+    would. Turning them down here also keeps the header rule honest, since a first cell of
+    `-1` is then read as the header it looks like rather than as a row.
+    """
+    return int(cell) if cell.isascii() and cell.isdigit() else None
 
 
 def read_competition_names(path: str | os.PathLike[str]) -> dict[int, str]:
@@ -67,6 +74,10 @@ def read_competition_names(path: str | os.PathLike[str]) -> dict[int, str]:
 
     One id may be listed twice with the same name. Two different names for one id are a
     contradiction and raise, because neither is more likely to be the one meant.
+
+    A row is exactly two columns wide. A third column is a fault as much as a missing one,
+    since the extra cell leaves the row ambiguous: a name that holds a comma belongs in
+    quotes rather than spread across cells.
 
     Every error names the file and never the folder holding it, so a message a reader pastes
     into a bug report carries no part of their directory layout.
@@ -83,8 +94,10 @@ def read_competition_names(path: str | os.PathLike[str]) -> dict[int, str]:
         rows = csv.reader(name_file)
         header_row_allowed = True
         for row in rows:
-            # line_num counts physical lines, so a quoted name holding a newline still points
-            # at the line the row started on.
+            # line_num counts physical lines, so a row whose quoted name holds a newline is
+            # reported at the line it ended on rather than the line it began on. That is the
+            # only line number the csv reader offers, and it is the line the row's closing
+            # quote sits on in the reader's own editor.
             line_number = rows.line_num
             if _is_blank(row):
                 continue
@@ -94,9 +107,14 @@ def read_competition_names(path: str | os.PathLike[str]) -> dict[int, str]:
                 if _parsed_database_id(first_cell) is None:
                     continue
             if len(row) != EXPECTED_COLUMNS:
+                # A row of more than two columns is refused as firmly as one of fewer. The
+                # extra cell leaves the row ambiguous: nothing says whether the name was meant
+                # to hold the comma or whether a column was added, and either guess would
+                # store a name the reader never wrote. The hint says how to write such a name.
+                hint = EXTRA_COLUMN_HINT if len(row) > EXPECTED_COLUMNS else ""
                 raise ValueError(
                     f"{file_name} line {line_number}: expected {EXPECTED_COLUMNS} columns, "
-                    f"found {len(row)}"
+                    f"found {len(row)}{hint}"
                 )
             database_id = _parsed_database_id(first_cell)
             if database_id is None:
@@ -122,8 +140,10 @@ def normalize_competition_names(
     """Turn whatever `fmsave.open` was given into one immutable map keyed on the database id.
 
     None gives an empty map, a path is read through `read_competition_names`, and a mapping is
-    copied and checked. A name from a mapping is stored as it was given; a name read from a CSV
-    has its surrounding whitespace stripped.
+    copied and checked. Both forms normalise a name the same way: surrounding whitespace is
+    stripped, and a name with nothing left after that is empty and raises. A file and a
+    mapping carrying the same text therefore give the same map, whichever a reader hands over,
+    so nothing silently depends on which one they chose.
 
     Raises:
         OSError: A path was given and the file cannot be opened or read.
@@ -143,7 +163,8 @@ def normalize_competition_names(
             raise TypeError(f"competition name key {database_id!r} is not a database id")
         if not isinstance(name, str):
             raise TypeError(f"the competition name for database id {database_id} is not a string")
-        if not name:
+        stripped_name = name.strip()
+        if not stripped_name:
             raise ValueError(f"the competition name for database id {database_id} is empty")
-        checked_names[database_id] = name
+        checked_names[database_id] = stripped_name
     return FrozenMapping(checked_names)

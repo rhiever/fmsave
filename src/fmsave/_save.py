@@ -232,7 +232,8 @@ class Save:
             CorruptSaveError: The save is damaged or was being written.
             ReaderCheckError: No stage table was found in the tail of the game database, a
                 stage id appears in two rows, or, on a full-size save, the stage table falls
-                outside the checks' bounds.
+                outside the checks' bounds. With a name map the competition checks must pass
+                as well, since a stage's competition name is read out of that table.
         """
         context = self._context
         return context.cached(STAGES_TABLE_CACHE_KEY, self._read_stages)
@@ -314,12 +315,20 @@ class Save:
     def _read_stages(self) -> Table[Stage]:
         context = self._context
         gate_bounds = self._gate_bounds()
-        # With a name map the competition index comes first: it opens one game_db borrow and
-        # builds the stage index inside it, so both come out of a single decompression. Without
-        # one every competition_name would be None anyway, so the stage index is read on its own
-        # and the id-pair pass that names competitions is never paid for. Either way this reader
-        # needs no part of game_db beyond the cached indexes, so a warm call decompresses nothing.
-        name_for = context.competition_index().name_for if context.competition_names else None
+        # With a name map the competitions are read first, checks and all. Every name a stage
+        # row carries comes out of the competition index, so that index must have passed its
+        # own checks before a name of its leaves this reader: a build that mis-paired entity
+        # ids with database ids would otherwise put another competition's name on every stage
+        # row and raise nothing at all. Reading the competition table runs those checks, and it
+        # builds the stage index inside its own game_db borrow, so both indexes still come out
+        # of a single decompression. Without a map every competition_name would be None anyway,
+        # so the stage index is read on its own and the id-pair pass that names competitions is
+        # never paid for. Either way this reader needs no part of game_db beyond the cached
+        # indexes, so a warm call decompresses nothing.
+        name_for: Callable[[int | None], str | None] | None = None
+        if context.competition_names:
+            self.competitions()
+            name_for = context.competition_index().name_for
         stage_index = context.stage_index()
         stage_check = checks.check_stages(stage_index.stats, gate_bounds, stage_index.game_db_bytes)
         checks.enforce_checks((stage_check,))

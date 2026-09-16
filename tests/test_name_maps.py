@@ -14,6 +14,7 @@ import pytest
 
 import fmsave
 import fmsave._context as context_module
+from fmsave import checks
 from fmsave._container import ContainerIndex
 from fmsave._frozen import FrozenMapping
 from fmsave.name_maps import normalize_competition_names, read_competition_names
@@ -33,6 +34,13 @@ PRIVATE_FOLDER_NAME = "Private Folder"
 NAMED_COMPETITION_STAGE_ID = 1
 UNNAMED_COMPETITION_STAGE_ID = 3
 FIRST_COMPETITION_ONLY = {FIRST_COMPETITION_DATABASE_ID: FIRST_COMPETITION_NAME}
+# The name of the gate a broken competition decode is made to fail on.
+BROKEN_GATE_NAME = "fictional_competition_gate"
+
+
+def failing_competition_gates(*_arguments: object) -> tuple[checks.GateResult, ...]:
+    """One competition check that fails, standing in for a decode that came out wrong."""
+    return (checks.GateResult(BROKEN_GATE_NAME, 0.0, 1.0, None, passed=False, applied=True),)
 
 
 def write_names_csv(folder: Path, csv_text: str) -> Path:
@@ -66,6 +74,13 @@ def write_names_csv(folder: Path, csv_text: str) -> Path:
             id="blank-line-skipped",
         ),
         pytest.param("12345,Ligue Éxample\n", {12345: "Ligue Éxample"}, id="utf-8-name"),
+        # A database id is plain digits, so a first cell that is signed is no more an id than
+        # a word is, and the header rule takes it for the heading it looks like.
+        pytest.param(
+            "-1,Example League\n12345,Example Cup\n",
+            {12345: "Example Cup"},
+            id="signed-first-cell-read-as-a-header",
+        ),
         # One id twice under one name says the same thing twice, which contradicts nothing.
         pytest.param(
             "12345,Example League\n12345,Example League\n",
@@ -95,6 +110,31 @@ def test_a_two_column_file_reads_into_a_name_map(
             id="id-that-is-not-a-number",
         ),
         pytest.param("12345,\n", ("line 1", "the name is empty"), id="empty-name"),
+        # `int` reads all four of these, and a database id is none of them: a negative id is
+        # nonsense, and the rest let one id be written several ways, each looking up a key
+        # none of the others would.
+        pytest.param(
+            "12345,Example League\n-5,Example Cup\n",
+            ("line 2", "'-5' is not a competition database id"),
+            id="negative-id",
+        ),
+        pytest.param(
+            "12345,Example League\n12_345,Example Cup\n",
+            ("line 2", "'12_345' is not a competition database id"),
+            id="underscored-id",
+        ),
+        pytest.param(
+            "12345,Example League\n١٢٣,Example Cup\n",
+            ("line 2", "is not a competition database id"),
+            id="id-in-another-script",
+        ),
+        # An extra column leaves the row ambiguous, so it is refused as firmly as a missing
+        # one, and the message says how to write a name that holds a comma.
+        pytest.param(
+            "12345,Example League,Example Cup\n",
+            ("line 1", "expected 2 columns, found 3", "put quotes around a name"),
+            id="three-column-row",
+        ),
         pytest.param(
             "12345,Example League\n12345,Example Cup\n",
             ("line 2", "database id 12345 is listed twice"),
@@ -151,6 +191,9 @@ def test_normalize_accepts_nothing_a_mapping_and_a_path(tmp_path: Path) -> None:
         pytest.param({"1": "Example League"}, TypeError, id="key-that-is-not-an-int"),
         pytest.param({1: 2}, TypeError, id="name-that-is-not-a-string"),
         pytest.param({1: ""}, ValueError, id="empty-name"),
+        # A name of nothing but spaces is as empty as one of nothing, and the CSV path has
+        # always said so; a mapping that took it would break the two forms' equivalence.
+        pytest.param({1: "   "}, ValueError, id="name-of-nothing-but-spaces"),
     ],
 )
 def test_normalize_rejects_a_wrong_key_or_name(
@@ -206,17 +249,64 @@ def test_a_save_opened_without_a_map_names_nothing(career_save_path: Path) -> No
 def test_a_csv_path_and_a_mapping_name_the_same_competitions(
     career_save_path: Path, tmp_path: Path
 ) -> None:
+    """The same text names the same competitions whichever form it arrives in.
+
+    Both sides are padded, because padding is where the two forms could most easily drift
+    apart: a reader who pastes ids and names out of a spreadsheet into a dict literal carries
+    the spreadsheet's trailing spaces with them, and a map whose names kept them would put the
+    padding into every exported name column while the file form quietly stripped it.
+    """
     csv_path = write_names_csv(
         tmp_path,
-        f"database_id,name\n{FIRST_COMPETITION_DATABASE_ID},{FIRST_COMPETITION_NAME}\n",
+        f"database_id,name\n  {FIRST_COMPETITION_DATABASE_ID}  ,  {FIRST_COMPETITION_NAME}  \n",
     )
+    padded_mapping = {FIRST_COMPETITION_DATABASE_ID: f"  {FIRST_COMPETITION_NAME}  "}
 
     with fmsave.open(career_save_path, competition_names=str(csv_path)) as from_file:
         names_from_file = [competition.name for competition in from_file.competitions()]
-    with fmsave.open(career_save_path, competition_names=FIRST_COMPETITION_ONLY) as from_mapping:
+    with fmsave.open(career_save_path, competition_names=padded_mapping) as from_mapping:
         names_from_mapping = [competition.name for competition in from_mapping.competitions()]
 
     assert names_from_file == names_from_mapping == [FIRST_COMPETITION_NAME, None, None]
+
+
+def test_a_failing_competition_check_leaves_stages_unable_to_name_anything(
+    career_save_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A competition decode that fails its checks must stop `stages()` as surely as it stops
+    `competitions()`.
+
+    Every name a stage row carries is read out of the competition index, so a stage table
+    named from an index whose checks never ran would be the broken-decode rule with a hole in
+    it: a build that mis-paired entity ids with database ids would put another competition's
+    name on every stage row, and a reader who called only `stages()` would see no error at all.
+    """
+
+    monkeypatch.setattr(checks, "evaluate_competitions", failing_competition_gates)
+
+    with fmsave.open(career_save_path, competition_names=FIRST_COMPETITION_ONLY) as career_save:
+        with pytest.raises(checks.GateCheckError) as stages_error:
+            career_save.stages()
+        with pytest.raises(checks.GateCheckError):
+            career_save.competitions()
+
+    message = str(stages_error.value)
+    assert "competitions failed checks" in message
+    assert BROKEN_GATE_NAME in message
+
+
+def test_a_failing_competition_check_leaves_an_unnamed_save_reading_stages(
+    career_save_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a map the stage table names nothing, so it needs no competition index and the
+    competition checks are none of its business."""
+
+    monkeypatch.setattr(checks, "evaluate_competitions", failing_competition_gates)
+
+    with fmsave.open(career_save_path) as career_save:
+        stages_table = career_save.stages()
+
+    assert all(stage.competition_name is None for stage in stages_table)
 
 
 def test_names_keep_working_after_the_save_is_closed(career_save_path: Path) -> None:
