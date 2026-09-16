@@ -67,7 +67,9 @@ class _StageTableScan:
 
     `validity_struct` unpacks the fields a row is recognised by, and `row_struct` every field
     a row stores; both unpack from the row start. The `*_index` fields give each value's
-    position in its result.
+    position in its result. `zero_byte_offset` is where the zero byte sits in the row, which
+    the prefilter reads straight from the layout rather than assuming it is the last of the
+    fields a row is recognised by.
     """
 
     validity_struct: struct.Struct
@@ -75,6 +77,7 @@ class _StageTableScan:
     validity_stage_id_index: int
     validity_stage_id_copy_index: int
     validity_zero_byte_index: int
+    zero_byte_offset: int
     row_struct: struct.Struct
     previous_index: int
     stage_id_index: int
@@ -141,6 +144,7 @@ def _stage_table_scan(layout: StageTableLayout) -> _StageTableScan:
         validity_stage_id_index=validity_indexes["stage_id"],
         validity_stage_id_copy_index=validity_indexes["stage_id_copy"],
         validity_zero_byte_index=validity_indexes["zero_byte"],
+        zero_byte_offset=layout.zero_byte_offset,
         row_struct=row_struct,
         previous_index=row_indexes["previous_stage_id"],
         stage_id_index=row_indexes["stage_id"],
@@ -202,7 +206,7 @@ def find_table_start(game_db: bytes, scan: _StageTableScan) -> int | None:
     """
     buffer_length = len(game_db)
     row_bytes = scan.row_bytes
-    zero_byte_offset_in_row = scan.validity_struct.size - 1
+    zero_byte_offset_in_row = scan.zero_byte_offset
     candidate = max(0, buffer_length - scan.search_bytes)
     while candidate + row_bytes <= buffer_length:
         # The zero byte rules out all but one candidate in 256 before anything is unpacked.
@@ -232,7 +236,7 @@ def _walk_rows(game_db: bytes, table_start: int, scan: _StageTableScan) -> _Walk
     """Step through the table from its first row, resynchronising over anything that is not one."""
     buffer_length = len(game_db)
     row_bytes = scan.row_bytes
-    zero_byte_offset_in_row = scan.validity_struct.size - 1
+    zero_byte_offset_in_row = scan.zero_byte_offset
     unpack_row = scan.row_struct.unpack_from
     rows: list[tuple[int, ...]] = []
     gaps = 0
@@ -274,7 +278,10 @@ def read_stage_index(game_db: bytes, layout: StageTableLayout, file_name: str) -
     scan = _stage_table_scan(layout)
     table_start = find_table_start(game_db, scan)
     if table_start is None:
-        raise layout_mismatch(file_name, "no stage table was found in the last 2 MB of game_db")
+        raise layout_mismatch(
+            file_name,
+            f"no stage table was found in the last {scan.search_bytes:,} bytes of game_db",
+        )
     walked = _walk_rows(game_db, table_start, scan)
 
     stages: list[Stage] = []

@@ -50,7 +50,13 @@ from fmsave.checks import (
     validate_save,
 )
 from fmsave.readers.clubs import find_club_layouts, read_club_index
-from tests.fixtures.career import MANAGER_SELECTOR, career_summary, manager_region_bytes
+from tests.fixtures.career import (
+    MANAGER_SELECTOR,
+    STAGE_ROW_COUNT,
+    career_stage_rows,
+    career_summary,
+    manager_region_bytes,
+)
 from tests.fixtures.container import (
     SectionFrame,
     build_container_fragment,
@@ -68,6 +74,7 @@ from tests.fixtures.game_db import (
     person_block_bytes,
     player_record_bytes,
     relation_entry_bytes,
+    stage_table_bytes,
     status_record_bytes,
     suspension_entry_bytes,
 )
@@ -133,7 +140,16 @@ REPORT_KEYS = {
 }
 READER_KEYS = {"reader", "status", "record_count", "gates", "coverage", "anomalies"}
 GATE_KEYS = {"name", "observed", "minimum", "maximum", "passed", "applied"}
-READER_ORDER = ("clubs", "players", "contracts", "suspensions", "managed_clubs")
+READER_ORDER = (
+    "clubs",
+    "players",
+    "contracts",
+    "suspensions",
+    "managed_clubs",
+    "stages",
+    "competitions",
+)
+EXAMPLE_COMPETITION_COUNT = 3
 
 
 def registered_gate_bounds() -> GateBounds:
@@ -779,6 +795,9 @@ def counted_game_db() -> bytes:
         + manager_region_bytes()
         + player_a_bytes()
         + player_b_bytes()
+        # The stage table goes last, where the save keeps it, so the stage and competition
+        # readers run here too and their checks are enforced like every other reader's.
+        + stage_table_bytes(career_stage_rows())
     )
     return section_body(".dat", GAME_DB_SCHEMA, payload)
 
@@ -839,6 +858,8 @@ def test_validate_save_reports_every_reader_ok_with_gates_not_applied(
         "contracts": 1,
         "suspensions": 2,
         "managed_clubs": 1,
+        "stages": STAGE_ROW_COUNT,
+        "competitions": EXAMPLE_COMPETITION_COUNT,
     }
     assert report.game == save_info.game
     assert report.build == save_info.build
@@ -913,6 +934,8 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         },
         "suspensions": {"suspensions_after_clock": 1},
         "managed_clubs": {"humans_without_club": 0},
+        "stages": {"walk_gaps": 0, "rejected_competition_ids": 1},
+        "competitions": {"database_id_conflicts": 0},
     }
 
 
@@ -980,7 +1003,14 @@ def test_a_failing_reader_is_reported_failed_and_the_others_still_run(
     assert readers["clubs"].gates == (failing_gate("status_confirmation"),)
     assert readers["clubs"].record_count == 2
     assert dict(readers["clubs"].coverage) == {}
-    for reader_name in ("players", "contracts", "suspensions", "managed_clubs"):
+    for reader_name in (
+        "players",
+        "contracts",
+        "suspensions",
+        "managed_clubs",
+        "stages",
+        "competitions",
+    ):
         assert readers[reader_name].status == "ok"
 
 
@@ -1020,6 +1050,8 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_caches_nothin
         "contracts": "failed",
         "suspensions": "failed",
         "managed_clubs": "ok",
+        "stages": "ok",
+        "competitions": "ok",
     }
     assert readers["contracts"].gates == (failing_gate("tails_parsed"),)
     assert tuple(gate.name for gate in readers["players"].gates) == PLAYER_GATE_NAMES
@@ -1074,6 +1106,8 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "contracts": "failed",
         "suspensions": "failed",
         "managed_clubs": "ok",
+        "stages": "failed",
+        "competitions": "failed",
     }
     assert {name: failed_gate_names(reader.gates) for name, reader in readers.items()} == {
         "clubs": ["clubs_minimum", "status_confirmation"],
@@ -1107,6 +1141,9 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         ],
         "suspensions": list(SUSPENSION_GATE_NAMES),
         "managed_clubs": [],
+        # The example table is a fraction of a career's, and names three competitions.
+        "stages": ["stage_rows_minimum"],
+        "competitions": ["competitions_minimum"],
     }
 
 

@@ -83,11 +83,14 @@ THIRD_COMPETITION_ID = 902
 # marker or a malformed row rather than a competition, so the reader rejects it.
 OUT_OF_BAND_COMPETITION_ID = 16_777_216
 GROUPED_STAGE_GROUP_ID = 5501
-FIRST_ROUND_CODE = 5
 SEMI_FINAL_ROUND_CODE = 17
 FINAL_ROUND_CODE = 19
-# A round code the save uses often and no evidence names.
+# Round codes the save uses often that no in-game label reaches, so both stay UNKNOWN.
+UNNAMED_LOW_ROUND_CODE = 5
 UNNAMED_ROUND_CODE = 77
+# The last word of a stage row is the missing value on almost every row; this is one of the few
+# that carries a number instead.
+EMPTY_STAGE_S29 = 7
 
 RATINGS = (1, 1, 18, 20, 15, 18, 2, 16, 3, 4, 5, 6, 7, 8, 9)
 RAW_ATTRIBUTES = (1, 2, 3, 98, 100, *([48] * 19), 88, 33, *([48] * 28))
@@ -386,9 +389,10 @@ def career_stage_rows() -> list[bytes]:
     """220 stage rows, ids 1 to 220: a handful with distinctive values, then a long run.
 
     Row 1 stores the missing value as its previous stage id, row 2 a group and one unidentified
-    word, row 3 a round code with no confirmed meaning, row 4 nothing but its id, and row 5 the
-    out-of-band competition id the reader rejects. Rows 6 to 220 all belong to one competition,
-    which makes the run long enough to prove the reader's 200-row chain.
+    word, row 3 a round code with no confirmed meaning, row 4 nothing but its id and both
+    unidentified words, and row 5 the out-of-band competition id the reader rejects. Rows 6 to
+    220 all belong to one competition, which makes the run long enough to prove the reader's
+    200-row chain.
     """
     rows = [
         stage_row_bytes(
@@ -411,12 +415,19 @@ def career_stage_rows() -> list[bytes]:
             group_id=None,
             round_code=UNNAMED_ROUND_CODE,
         ),
-        stage_row_bytes(stage_id=4, competition_id=None, group_id=None, round_code=None, s25=22),
+        stage_row_bytes(
+            stage_id=4,
+            competition_id=None,
+            group_id=None,
+            round_code=None,
+            s25=22,
+            s29=EMPTY_STAGE_S29,
+        ),
         stage_row_bytes(
             stage_id=5,
             competition_id=OUT_OF_BAND_COMPETITION_ID,
             group_id=None,
-            round_code=FIRST_ROUND_CODE,
+            round_code=UNNAMED_LOW_ROUND_CODE,
         ),
     ]
     rows.extend(

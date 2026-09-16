@@ -28,20 +28,20 @@ from fmsave.models.common import CodedValue
 class CompetitionRound(IntEnum):
     """A stage's round in its competition, for the round codes whose meaning is confirmed.
 
-    Only codes confirmed against round labels the game itself displays are named; every other
-    code is UNKNOWN and keeps its raw number in `CodedValue.raw`. Most codes a save uses are
-    therefore UNKNOWN, including the codes that group stages and several qualifying rounds use.
+    A code is named only where a round label the game itself displayed was matched to that
+    exact code. Every other code is UNKNOWN and keeps its raw number in `CodedValue.raw`,
+    including codes that look like they continue a named run: a meaning is never carried
+    across from a neighbouring code, because a wrong name is silently wrong while a raw
+    number is plainly incomplete. Most codes a save uses are therefore UNKNOWN, among them
+    the codes group stages and the qualifying rounds use.
 
     A stage with no round at all reads as None rather than UNKNOWN: a league matchday and a
     league phase carry no round, and the matchday is a property of the fixture, not the stage.
     """
 
     UNKNOWN = -1
-    FIRST_ROUND = 5
-    SECOND_ROUND = 6
     THIRD_ROUND = 7
     FOURTH_ROUND = 8
-    FIFTH_ROUND = 9
     QUARTER_FINAL = 16
     SEMI_FINAL = 17
     FINAL = 19
@@ -97,7 +97,8 @@ class Competition:
             holds no such link (unconfirmed).
         name: The competition's name, which is None unless a name map is supplied: the save
             stores no competition names, and fmsave ships none (unconfirmed).
-        stage_ids: The ids of this competition's stages, in ascending order.
+        stage_ids: The ids of this competition's stages, in the order the stage table stores
+            them, which is ascending on every save seen.
     """
 
     id: int

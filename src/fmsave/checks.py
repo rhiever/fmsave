@@ -1,13 +1,12 @@
 """Reader checks, and the validation report built from them.
 
 While a reader decodes, it counts what it sees into a stats record from `fmsave._reader_stats`
-(`PlayerStats`, `ContractStats`, `ClubStats`, `SuspensionStats`, `ManagedStats`, `StageStats`
-or `CompetitionStats`). The
-`evaluate_*` functions compare those counts with the loose `GateBounds` registered for the
-save's layout and return one `GateResult` per check, and `enforce` raises `ReaderCheckError`
-when an applied check failed, before the reader caches its table. The checks apply only to a
-`game_db` of at least `GateBounds.minimum_applies_from_bytes`, since smaller sections come from
-fragments that cannot meet full-save counts.
+(`PlayerStats`, `ContractStats`, `ClubStats`, `SuspensionStats`, `ManagedStats`, `StageStats` or
+`CompetitionStats`). The `evaluate_*` functions compare those counts with the loose `GateBounds`
+registered for the save's layout and return one `GateResult` per check, and `enforce` raises
+`ReaderCheckError` when an applied check failed, before the reader caches its table. The checks
+apply only to a `game_db` of at least `GateBounds.minimum_applies_from_bytes`, since smaller
+sections come from fragments that cannot meet full-save counts.
 
 `validate_save` runs every reader and returns a `ValidationReport`, which holds only structural
 facts, counts and rates: never names, uids or other values from the save.
@@ -599,7 +598,8 @@ class ReaderValidation:
     passed.
 
     Attributes:
-        reader: The reader: "clubs", "players", "contracts", "suspensions" or "managed_clubs".
+        reader: The reader: "clubs", "players", "contracts", "suspensions", "managed_clubs",
+            "stages" or "competitions".
         status: "ok" when the reader returned its table, "failed" when checks stopped it, and
             "error" when it raised another fmsave error.
         record_count: How many records the reader decoded, or None when it did not get far
@@ -690,7 +690,8 @@ def _unsuccessful_validation(reader_name: str, error: FmsaveError) -> ReaderVali
 def validate_save(career_save: Save) -> ValidationReport:
     """Run every reader on a save and report how each fared.
 
-    Readers run in the order clubs, players, contracts, suspensions, managed clubs. A reader
+    Readers run in the order clubs, players, contracts, suspensions, managed clubs, stages,
+    competitions. A reader
     whose checks fail is reported "failed" with its checks, and one that raises another fmsave
     error is reported "error" without the error's text; the remaining readers still run. The
     report holds only structural facts, counts and rates, never names, uids or other values
@@ -708,6 +709,8 @@ def validate_save(career_save: Save) -> ValidationReport:
         (CONTRACTS_READER, career_save.contracts),
         (SUSPENSIONS_READER, career_save.suspensions),
         (MANAGED_CLUBS_READER, career_save.managed_clubs),
+        (STAGES_READER, career_save.stages),
+        (COMPETITIONS_READER, career_save.competitions),
     )
     validations: list[ReaderValidation] = []
     player_pass_error: FmsaveError | None = None

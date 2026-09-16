@@ -302,9 +302,9 @@ class Save:
     def _read_stages(self) -> Table[Stage]:
         context = self._context
         gate_bounds = self._gate_bounds()
-        # The index is built inside this borrow, so a cold call decompresses game_db once.
-        with context.section(GAME_DB_SECTION):
-            stage_index = context.stage_index()
+        # This reader needs no part of game_db beyond the cached index, and the index opens its
+        # own borrow, so a cold call decompresses game_db once and a warm one not at all.
+        stage_index = context.stage_index()
         stage_check = checks.check_stages(stage_index.stats, gate_bounds, stage_index.game_db_bytes)
         checks.enforce_checks((stage_check,))
         self._store_reader_checks((stage_check,))
@@ -313,9 +313,10 @@ class Save:
     def _read_competitions(self) -> Table[Competition]:
         context = self._context
         gate_bounds = self._gate_bounds()
-        with context.section(GAME_DB_SECTION) as game_db:
-            competition_index = context.competition_index()
-            game_db_length = len(game_db)
+        competition_index = context.competition_index()
+        # The stage index the competitions were built from is cached by the call above and
+        # already carries the section length the checks want, so game_db is read once in all.
+        game_db_length = context.stage_index().game_db_bytes
         competition_check = checks.check_competitions(
             competition_index.stats, gate_bounds, game_db_length
         )

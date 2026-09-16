@@ -35,7 +35,15 @@ NATURAL_GOALKEEPER_RATING = 18
 # Goalkeeping attributes separate the two groups by far more than this on the 1 to 20 scale.
 GOALKEEPER_HANDLING_MARGIN = 5
 BASELINES_FOLDER = "baselines"
-EXPECTED_READERS = ("clubs", "players", "contracts", "suspensions", "managed_clubs")
+EXPECTED_READERS = (
+    "clubs",
+    "players",
+    "contracts",
+    "suspensions",
+    "managed_clubs",
+    "stages",
+    "competitions",
+)
 
 
 def save_label(relative_name: str) -> str:

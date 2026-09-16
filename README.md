@@ -83,7 +83,8 @@ fmsave validate career.fm --json
 
 ## What it cannot read (yet)
 
-- Planned for later releases: competition, league and nation names; fixtures and league tables; finances, staff, injuries and tactics.
+- Planned for later releases: nation names; fixtures and league tables; finances, staff, injuries and tactics.
+- Not stored in the save at all: competition and league names. The game renders them from its own installed database, so fmsave ships none.
 - Not stored in a readable way in the save: today's injuries and availability, staff attribute values, card counts, scouting budget and asking prices.
 
 ## Where saves live

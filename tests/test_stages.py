@@ -22,6 +22,7 @@ from fmsave.checks import (
     evaluate_stages,
 )
 from fmsave.export import column_names
+from fmsave.models.common import CodedValue
 from fmsave.models.competitions import Competition, CompetitionRound, Stage
 from fmsave.readers.competitions import build_competition_index
 from fmsave.readers.stages import StageIndex, find_stage_layout, read_stage_index
@@ -37,6 +38,7 @@ from tests.fixtures.career import (
 from tests.fixtures.game_db import (
     STAGE_MISSING_VALUE,
     STAGE_ROW_LENGTH,
+    STAGE_TABLE_TRAILING_BYTES,
     stage_row_bytes,
     stage_table_bytes,
 )
@@ -69,6 +71,24 @@ SEMI_FINAL_ROUND_CODE = 17
 UNNAMED_ROUND_CODE = 77
 GROUPED_STAGE_S25 = 3
 EMPTY_STAGE_S25 = 22
+
+# Every round code fmsave names, and the member it names it. A code earns a name only where a
+# round label the game itself displayed was matched to that exact code.
+NAMED_ROUND_CODES = {
+    7: CompetitionRound.THIRD_ROUND,
+    8: CompetitionRound.FOURTH_ROUND,
+    16: CompetitionRound.QUARTER_FINAL,
+    17: CompetitionRound.SEMI_FINAL,
+    19: CompetitionRound.FINAL,
+}
+# Codes every save uses that no such label reaches, including ones sitting either side of a
+# named code and ones that run consecutively with each other.
+UNNAMED_ROUND_CODES = (5, 6, 9, 18, 20, 27, 41, 42, 43, 74, 75, 76, 77, 80, 148, 149, 150)
+
+# A row late in the example table, well past the 200 rows the locator chains to find it.
+BROKEN_ROW_STAGE_ID = 210
+EXAMPLE_DATABASE_ID = 4001
+SHARED_DATABASE_ID = 4002
 
 
 def registered_gate_bounds() -> GateBounds:
@@ -415,3 +435,176 @@ def test_the_reader_checks_carry_their_record_counts() -> None:
 def test_the_example_rows_are_each_one_stride_long() -> None:
     assert all(len(row) == STAGE_ROW_LENGTH for row in career_stage_rows())
     assert len(career_stage_rows()) == STAGE_ROW_COUNT
+
+
+@pytest.mark.parametrize(
+    ("reader_name", "expected_gate"),
+    [
+        pytest.param("stages", "stage_rows_minimum", id="stages"),
+        pytest.param("competitions", "competitions_minimum", id="competitions"),
+    ],
+)
+def test_each_reader_enforces_its_checks_before_it_hands_back_a_table(
+    career_save_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reader_name: str,
+    expected_gate: str,
+) -> None:
+    """A reader that evaluated its checks and never enforced them would return this table.
+
+    The example save holds far fewer rows than a career does, so once the checks apply the
+    counts are below their bounds and the reader must raise rather than return.
+    """
+    applied_bounds = dataclasses.replace(BOUNDS, minimum_applies_from_bytes=0)
+    monkeypatch.setattr(fmsave.Save, "_gate_bounds", lambda career_save: applied_bounds)
+
+    with (
+        fmsave.open(career_save_path) as career_save,
+        pytest.raises(fmsave.ReaderCheckError) as error_info,
+    ):
+        getattr(career_save, reader_name)()
+
+    message = str(error_info.value)
+    assert expected_gate in message
+    for fictional_text in ("Alex", "Northbridge", "Example", FILE_NAME):
+        assert fictional_text not in message
+
+
+@pytest.mark.parametrize(
+    "broken_row",
+    [
+        pytest.param(
+            stage_row_bytes(
+                stage_id=BROKEN_ROW_STAGE_ID,
+                competition_id=THIRD_COMPETITION_ID,
+                group_id=None,
+                round_code=None,
+                stage_id_copy=BROKEN_ROW_STAGE_ID + 1,
+            ),
+            id="id-not-repeated",
+        ),
+        pytest.param(
+            stage_row_bytes(
+                stage_id=BROKEN_ROW_STAGE_ID,
+                competition_id=THIRD_COMPETITION_ID,
+                group_id=None,
+                round_code=None,
+                zero_byte=1,
+            ),
+            id="byte-after-the-id-not-zero",
+        ),
+        pytest.param(
+            stage_row_bytes(
+                stage_id=250_000,
+                competition_id=THIRD_COMPETITION_ID,
+                group_id=None,
+                round_code=None,
+            ),
+            id="id-out-of-range",
+        ),
+    ],
+)
+def test_a_row_breaking_one_recognition_test_is_walked_over_rather_than_read(
+    broken_row: bytes,
+) -> None:
+    """Each test a row is recognised by carries its own weight.
+
+    The row validator is the whole basis on which the table is recognised, so dropping any one
+    of its tests would let these 33 bytes read as a stage.
+    """
+    rows = career_stage_rows()
+    rows[BROKEN_ROW_STAGE_ID - 1] = broken_row
+
+    stage_index = example_stage_index(rows)
+
+    assert stage_index.stats.rows == STAGE_ROW_COUNT - 1
+    assert stage_index.stats.gaps == 1
+    assert BROKEN_ROW_STAGE_ID not in stage_index.stage_by_id
+
+
+def test_rows_before_the_search_window_are_kept_by_walking_back_to_the_head() -> None:
+    """The window opens part way into the table on a real save, as it does here.
+
+    The first offset that chains a full run of rows is then the first row inside the window,
+    and every row before it is reached only by stepping back a row at a time.
+    """
+    layout = find_stage_layout(GAME_DB_SCHEMA, "")
+    rows = career_stage_rows()
+    rows_before_the_window = len(rows) - layout.chain_rows
+    # Pad after the table so the last `search_bytes` of the buffer begin on the first row of
+    # the chain, leaving the rows in front of it outside the window.
+    trailing_bytes = layout.search_bytes - layout.chain_rows * STAGE_ROW_LENGTH
+    game_db = stage_table_bytes(rows, trailing_bytes=trailing_bytes)
+
+    stage_index = read_stage_index(game_db, layout, FILE_NAME)
+
+    assert rows_before_the_window > 0
+    assert len(stage_index.stages) == STAGE_ROW_COUNT
+    assert stage_index.stages[0].id == 1
+
+
+def test_the_walk_counts_exactly_what_the_gates_divide() -> None:
+    """Every stage gate judges these counts, and only the walk itself produces them."""
+    stage_index = example_stage_index()
+
+    assert stage_index.stats == StageStats(
+        rows=STAGE_ROW_COUNT,
+        gaps=0,
+        distinct_ids=STAGE_ROW_COUNT,
+        ascending_steps=STAGE_ROW_COUNT - 1,
+        steps=STAGE_ROW_COUNT - 1,
+        # The row with no competition, and the row whose competition id the limit rejects.
+        with_competition=STAGE_ROW_COUNT - 2,
+        competition_id_rejected=1,
+        # One row carries a number in the last word instead of the missing value.
+        trailing_sentinel_ok=STAGE_ROW_COUNT - 1,
+        bytes_after_table=STAGE_TABLE_TRAILING_BYTES,
+    )
+
+
+def test_only_the_round_codes_an_in_game_label_confirms_are_named() -> None:
+    """Which codes carry a name is the whole judgement of this reader, so it is pinned here.
+
+    Naming a code that no label reaches, renumbering a named one, or dropping a name would
+    each relabel stages on every save while every other test still passed.
+    """
+    named_by_code = {
+        member.value: member
+        for member in CompetitionRound
+        if member is not CompetitionRound.UNKNOWN
+    }
+
+    assert named_by_code == NAMED_ROUND_CODES
+    assert CompetitionRound.UNKNOWN.value == -1
+    for round_code in UNNAMED_ROUND_CODES:
+        coded_round = CodedValue.from_raw(CompetitionRound, round_code)
+        assert coded_round.label is CompetitionRound.UNKNOWN, round_code
+        assert coded_round.raw == round_code
+
+
+def test_a_competition_is_named_through_its_database_id_once_one_is_supplied() -> None:
+    """The name map is keyed on the database id, so a competition is named only through it."""
+    competition_index = build_competition_index(
+        example_stage_index(),
+        {
+            FIRST_COMPETITION_ID: EXAMPLE_DATABASE_ID,
+            SECOND_COMPETITION_ID: SHARED_DATABASE_ID,
+            THIRD_COMPETITION_ID: SHARED_DATABASE_ID,
+        },
+        {EXAMPLE_DATABASE_ID: "Example League", SHARED_DATABASE_ID: "Example Cup"},
+    )
+
+    assert competition_index.competition_by_id[FIRST_COMPETITION_ID].database_id == (
+        EXAMPLE_DATABASE_ID
+    )
+    assert competition_index.name_for(FIRST_COMPETITION_ID) == "Example League"
+    assert competition_index.name_for(SECOND_COMPETITION_ID) == "Example Cup"
+    assert competition_index.name_for(OUT_OF_BAND_COMPETITION_ID) is None
+    assert competition_index.name_for(None) is None
+    assert competition_index.database_id_by_competition_id[THIRD_COMPETITION_ID] == (
+        SHARED_DATABASE_ID
+    )
+    assert competition_index.stats.with_database_id == 3
+    assert competition_index.stats.with_name == 3
+    # Two competitions claim the same database id, which is one id in conflict.
+    assert competition_index.stats.database_id_conflicts == 1

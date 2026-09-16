@@ -169,6 +169,8 @@ def game_db_body(
 # wrong offset inside fmsave has to fail a test built from this module.
 STAGE_ROW_LENGTH = 33
 STAGE_MISSING_VALUE = 0xFFFFFFFF
+STAGE_TABLE_LEADING_BYTES = 64
+STAGE_TABLE_TRAILING_BYTES = 128
 
 
 def stage_row_bytes(
@@ -180,16 +182,23 @@ def stage_row_bytes(
     s25: int = STAGE_MISSING_VALUE,
     s29: int = STAGE_MISSING_VALUE,
     previous_stage_id: int | None = None,
+    stage_id_copy: int | None = None,
+    zero_byte: int = 0,
 ) -> bytes:
     """One 33-byte stage row, written forward in the order the format lays it out.
 
     A u32 previous stage id, the stage id twice, a zero byte, then the u32 competition id,
     group id, round code and the two unidentified words. `previous_stage_id=None` writes
     `stage_id - 1`; a competition, group or round of None writes the missing-value word.
+
+    `stage_id_copy` and `zero_byte` write the second copy of the id, and the byte after it, as
+    given, so a test can build 33 bytes that break exactly one of the tests a reader recognises
+    a row by. Left alone they repeat the id and write the zero the format holds.
     """
     previous_value = stage_id - 1 if previous_stage_id is None else previous_stage_id
-    output = bytearray(struct.pack("<III", previous_value, stage_id, stage_id))
-    output.append(0)
+    repeated_value = stage_id if stage_id_copy is None else stage_id_copy
+    output = bytearray(struct.pack("<III", previous_value, stage_id, repeated_value))
+    output.append(zero_byte)
     for value in (competition_id, group_id, round_code):
         output.extend(struct.pack("<I", STAGE_MISSING_VALUE if value is None else value))
     output.extend(struct.pack("<II", s25, s29))
@@ -197,7 +206,10 @@ def stage_row_bytes(
 
 
 def stage_table_bytes(
-    rows: Sequence[bytes], *, leading_bytes: int = 64, trailing_bytes: int = 128
+    rows: Sequence[bytes],
+    *,
+    leading_bytes: int = STAGE_TABLE_LEADING_BYTES,
+    trailing_bytes: int = STAGE_TABLE_TRAILING_BYTES,
 ) -> bytes:
     """Zero padding, the rows back to back, then zero padding."""
     return bytes(leading_bytes) + b"".join(rows) + bytes(trailing_bytes)
