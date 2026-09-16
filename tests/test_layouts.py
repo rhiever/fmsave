@@ -27,6 +27,7 @@ from fmsave._layouts import (
 from fmsave.readers._common import SPAN_REGION
 
 SECOND_BUILD = "26.9.0+2500000"
+WORD_BYTES = 4
 
 
 def test_layout_registry_snapshot(snapshot: SnapshotAssertion) -> None:
@@ -68,13 +69,29 @@ def test_span_layouts_are_registered_for_the_span_region_without_a_schema() -> N
 def test_the_span_carry_over_is_far_longer_than_the_longest_span_record() -> None:
     fixtures = find_layout(FixtureCalendarLayout, SPAN_REGION, None, FALLBACK_BUILD).layout
     tables = find_layout(LeagueTableLayout, SPAN_REGION, None, FALLBACK_BUILD).layout
+    rules = find_layout(RulesPreambleLayout, SPAN_REGION, None, FALLBACK_BUILD).layout
+    longest_fixture = fixtures.record_bytes - fixtures.marker_byte_offset
     longest_table_block = (
         tables.matches_offset
         + tables.row_bytes * 2 * tables.rounds_per_venue_range[1]
         - tables.team_id_offset
     )
-    assert fixtures.record_bytes - fixtures.marker_byte_offset < SPAN_CARRY_OVER_BYTES
-    assert longest_table_block < SPAN_CARRY_OVER_BYTES
+    # The counts and the round list, with every round followed by as many moved matches as
+    # the layout allows. This is the largest of the three, so it is what the carry must clear.
+    longest_rules_block = (
+        rules.body_offset
+        + 2 * WORD_BYTES
+        + rules.tie_break_count_max
+        + WORD_BYTES * rules.prize_count_max
+        + WORD_BYTES
+        + rules.round_count_max
+        * (rules.round_record_bytes + rules.moved_match_max_per_round * rules.moved_match_bytes)
+        - rules.promotion_quad_offset
+    )
+    assert longest_rules_block == 52_708
+    assert longest_fixture < longest_table_block < longest_rules_block
+    for longest in (longest_fixture, longest_table_block, longest_rules_block):
+        assert longest < SPAN_CARRY_OVER_BYTES
 
 
 def test_gate_bounds_carry_the_span_threshold() -> None:

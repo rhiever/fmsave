@@ -1,6 +1,6 @@
 """One streamed pass over the unnamed span: fixtures, league-table blocks, rules preambles.
 
-All three structures share one unnamed region, about 120 MB decompressed on a full save, so
+All three structures share one unnamed region, around 200 MB decompressed on a full save, so
 they are collected together instead of one pass each. The region is never buffered whole:
 frames arrive one at a time and each is scanned as `carry + frame`, where the carry is the
 last `SPAN_CARRY_OVER_BYTES` of the previous window and is far longer than the longest
@@ -9,6 +9,12 @@ next window's carry holds it whole; each structure remembers the greatest region
 offset it has already considered, so a candidate that appears in two windows is considered
 exactly once, and every search starts far enough into the carry that only candidates which
 could straddle the boundary are looked at twice.
+
+Where a structure has a variable length, leaving a candidate alone also ends the scan of
+that window: a later candidate might still be judged where this one cannot, and judging it
+would carry the high-water mark past the deferred candidate and hide it from the next window
+for good. A fixture record is a fixed length, so no later record can fit where an earlier one
+does not, and its scan runs to the end of the window.
 
 Each search's pattern, struct, offsets and bounds are derived from its layout once per
 layout, so the scan loops never read a layout. The pass keeps raw words: it decodes no
@@ -116,8 +122,10 @@ class RawTableBlock:
 class RawRulesRound:
     """One round of a competition-rules preamble, as stored.
 
-    `number` is the stored byte plus one, so a round the save does not number (the layout's
-    no-number value) reads as that value plus one rather than as a guess.
+    `number` is the stored byte plus one. A round the save does not number stores the
+    layout's `round_no_number_value` of 255, so it reads here as 256 rather than as a guess.
+    The rules reader is what maps that value, which is why the layout registers it although
+    nothing in this pass reads it: a later reader must not mistake 256 for a real round.
     """
 
     number: int
@@ -135,7 +143,9 @@ class RawRulesBlock:
     differ. `club_count` and `administration_points_deduction` are always None: no fixed
     offset from the marker carries them on the corpus, so the span pass does not guess them.
     `fully_parsed` is true when the quad was doubled and the tie-break list, the prize list
-    and every round record decoded.
+    and every round record decoded. It therefore holds on a smaller share of blocks than the
+    figure the format research recorded, which counts the lists and the rounds and ignores
+    the quad: a gate on this field must say which of the two definitions it means.
     """
 
     span_offset: int
@@ -155,9 +165,15 @@ class RawRulesBlock:
 class SpanRecords:
     """What one pass over the unnamed span found. The repr gives counts only.
 
-    The three candidate counters count every candidate each search considered, accepted or
-    not, so the readers that gate on an accept rate divide by them instead of walking the
-    span a second time.
+    The three counters count the candidates each search judged, accepted or not, so a reader
+    that gates on an accept rate divides by them instead of walking the span a second time.
+    They are not counts of raw pattern matches: a candidate whose bytes run past the end of
+    the last window is never judged, so it is never counted either.
+
+    `rules_markers` is the exception to that reading. Every marker judged yields a block, so
+    it always equals `len(rules_blocks)` and an accept rate built from it is 1 by
+    construction; it is the denominator for the share of blocks that fully parsed, not for a
+    rejection rate.
     """
 
     fixtures: tuple[RawFixture, ...]
@@ -649,15 +665,22 @@ def _collect_table_blocks(
     while match is not None:
         head = match.start()
         match = find_match(window, head + 1)
-        if head + lowest_offset < 0 or head + matches_offset > window_length:
+        if head + lowest_offset < 0:
+            # The bytes in front of this head lie before the region, so it can never be read.
             continue
+        if head + matches_offset > window_length:
+            break
         rounds_per_venue: int = unpack_rounds(window, head + rounds_per_venue_offset)[0]
         in_range = lowest_rounds_per_venue <= rounds_per_venue <= highest_rounds_per_venue
         match_count = 2 * rounds_per_venue
         block_end = head + matches_offset + row_bytes * match_count
         if in_range and block_end > window_length:
-            # The next window's carry holds the whole block, so consider it there instead.
-            continue
+            # Deferred, so the scan of this window stops here rather than moving on. A block
+            # is variable length, so a later candidate can still be judged where this one
+            # cannot, and judging it would advance the high-water mark past this head and
+            # hide it from the next window for good. Everything before here has been judged,
+            # and the next window's carry holds this block whole.
+            break
         absolute = window_origin + head
         if absolute <= considered_to:
             continue
@@ -765,12 +788,12 @@ def _parse_rules_block(
     A list whose count is outside its bound, or a round record that does not decode, ends
     the parse and leaves the block not fully parsed; only bytes missing from the window
     return None, so that the next window, whose carry holds the block whole, judges it.
+    The caller has already checked that the promotion quad lies inside the window, so None
+    always means the block runs past the window's end and the scan of it must stop there.
     """
     window_length = len(window)
     quad_start = mark + search.promotion_quad_offset
     quad_bytes = search.promotion_quad_bytes
-    if quad_start < 0:
-        return None
     first_copy = window[quad_start : quad_start + quad_bytes]
     second_copy = window[quad_start + quad_bytes : quad_start + 2 * quad_bytes]
     quad = first_copy if first_copy == second_copy else None
@@ -902,6 +925,7 @@ def _collect_rules_blocks(
     """Append one block per rules marker judged here; return (considered to, markers)."""
     find_marker = window.find
     marker = search.marker
+    promotion_quad_offset = search.promotion_quad_offset
     add_block = rules_blocks.append
     markers = 0
 
@@ -909,12 +933,18 @@ def _collect_rules_blocks(
     while position >= 0:
         absolute = window_origin + position
         next_position = find_marker(marker, position + 1)
-        if absolute > considered_to:
+        # A marker whose quad lies before the region starts can never be read, so it is
+        # passed over rather than deferred, which would stop the scan here for good.
+        if absolute > considered_to and position + promotion_quad_offset >= 0:
             block = _parse_rules_block(window, absolute, position, search)
-            if block is not None:
-                considered_to = absolute
-                markers += 1
-                add_block(block)
+            if block is None:
+                # Deferred, so the scan of this window stops here rather than moving on, for
+                # the reason the league-table scan stops: a block is variable length, and a
+                # later marker that can be judged would hide this one from the next window.
+                break
+            considered_to = absolute
+            markers += 1
+            add_block(block)
         position = next_position
     return considered_to, markers
 

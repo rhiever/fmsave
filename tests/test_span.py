@@ -40,6 +40,13 @@ SEASON_START_YEAR = 2030
 
 NORTHBRIDGE_TEAM_ID = 70001
 
+# A block head sits 23 bytes into a built block, its match rows 87 bytes after the head, and
+# a 40-round block is 23 + 87 + 17 * 2 * 40 bytes long.
+TABLE_HEAD_INDEX = 23
+TABLE_MATCHES_OFFSET = 87
+FULL_SEASON_ROUNDS = 40
+FULL_SEASON_BLOCK_BYTES = 1470
+
 
 def span_layouts() -> SpanLayouts:
     return find_span_layouts(BUILD)
@@ -115,6 +122,24 @@ def example_table_block(
         second_half={"played": 2} if second_half is None else second_half,
         matches=default_matches if matches is None else matches,
     )
+
+
+def unplayed_slots_table_block() -> bytes:
+    """A whole-season block whose first five match slots are unplayed.
+
+    Five unplayed slots in a row are five unplayed keys 17 bytes apart, so the block's own
+    match rows hold a second candidate head; real saves carry this shape constantly.
+    """
+    match_slots: list[Mapping[str, int] | None] = [None] * (2 * FULL_SEASON_ROUNDS)
+    match_slots[5] = {
+        "key": 70002,
+        "played": 1,
+        "won": 1,
+        "goals_for": 3,
+        "goals_against": 1,
+        "points": 3,
+    }
+    return example_table_block(rounds_per_venue=FULL_SEASON_ROUNDS, matches=match_slots)
 
 
 def example_rules_block(
@@ -283,6 +308,42 @@ def test_a_block_with_too_many_rounds_per_venue_is_rejected() -> None:
 
     assert records.table_blocks == ()
     assert records.table_block_candidates > 0
+
+
+def test_a_block_whose_total_row_played_nothing_is_rejected() -> None:
+    block = example_table_block(
+        total={"played": 0, "won": 0, "drawn": 0, "lost": 0},
+        home={"played": 0},
+        away={"played": 0},
+        first_half={"played": 0},
+        second_half={"played": 0},
+        matches=[None, None, None, None],
+    )
+
+    records = scan([block])
+
+    assert records.table_blocks == ()
+    assert records.table_block_candidates > 0
+
+
+def test_a_deferred_block_is_not_hidden_by_a_later_candidate_in_the_same_window() -> None:
+    """A block whose first five match slots are unplayed carries a second candidate head
+    inside its own match rows, because five unplayed slots are five unplayed keys 17 bytes
+    apart. When the block itself does not fit in a window, that inner candidate must not be
+    judged ahead of it, or the block is skipped in the next window and lost for good.
+    """
+    block = unplayed_slots_table_block()
+    assert len(block) == FULL_SEASON_BLOCK_BYTES
+    # The inner candidate head really is there: the first match row holds the unplayed key.
+    inner_head = TABLE_HEAD_INDEX + TABLE_MATCHES_OFFSET
+    assert block[inner_head : inner_head + 4] == b"\xff\xff\xff\xff"
+
+    for split_at in (120, 200, 400, 800, 1200):
+        records = scan([block[:split_at], block[split_at:]])
+
+        assert len(records.table_blocks) == 1, split_at
+        assert records.table_blocks[0].rounds_per_venue == FULL_SEASON_ROUNDS, split_at
+        assert records.table_blocks[0].span_offset == TABLE_HEAD_INDEX, split_at
 
 
 def test_a_block_whose_first_half_counters_do_not_add_up_is_rejected() -> None:
