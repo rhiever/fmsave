@@ -23,6 +23,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      # Structural checks only. The copied-text and denylist checks compare against the
+      # private folder, which is never present here, so they run in the pre-commit hook
+      # and not in CI. A green run here is not evidence that those checks passed.
       - name: Repository guard
         run: python3 scripts/guard.py --tracked
       - name: Install gitleaks
