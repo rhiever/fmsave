@@ -29,6 +29,7 @@ from fmsave.models.contracts import (
     SquadStatus,
 )
 from fmsave.models.fixtures import Fixture
+from fmsave.models.injuries import InjuryType
 from fmsave.models.league_tables import (
     LeagueTable,
     LeagueTableMatch,
@@ -82,6 +83,7 @@ __all__ = [
     "FmsaveError",
     "FmsaveWarning",
     "GateResult",
+    "InjuryType",
     "LeagueTable",
     "LeagueTableMatch",
     "LeagueTableRow",

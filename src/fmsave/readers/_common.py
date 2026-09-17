@@ -17,6 +17,10 @@ GAME_DB_SECTION = "game_db"
 # which holds the fixture calendar, the league-table blocks and the rules preambles.
 SPAN_REGION = "unlisted_after_non_pl_hist_ls"
 
+# The per-match directory entries (`.apm` and `.scm`), which are not sections and hold the
+# injury-type name table. They are one layout region, keyed by no schema number.
+MATCH_FILE_REGION = "match_file"
+
 # The small sections the managed-club reader works from, besides game_db.
 HUMANS_SECTION = "humans"
 SAVE_SUMMARY_SECTION = "save_game_summary"

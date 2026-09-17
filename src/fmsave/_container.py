@@ -35,6 +35,9 @@ TRAILER_POINTER_AT = 9
 TRAILER_HEADER_SIZE = 9
 FRAME_BASE = 26
 SECTION_EXTENSIONS = frozenset({".dat", ".cmt"})
+# The directory entries that are not sections but hold one per-match file each. They carry the
+# injury-type name table, which no section holds.
+MATCH_FILE_EXTENSIONS = frozenset({".apm", ".scm"})
 DEFAULT_TOTAL_DECOMPRESSED_CAP = 4 * 1024**3
 DEFAULT_FRAME_DECOMPRESSED_CAP = 1024**3
 MAX_TRAILER_COMPRESSED_BYTES = 64 * 1024**2
@@ -418,6 +421,44 @@ def read_section(container_index: ContainerIndex, name: str) -> bytes:
         what=f"section {name!r}",
         file_name=container_index.file_name,
     )
+
+
+def match_file_entries(container_index: ContainerIndex) -> tuple[DirectoryEntry, ...]:
+    """The per-match directory entries, in directory order.
+
+    These are not sections, so `build_regions` exposes them as no region and `read_section`
+    cannot reach them; a save may list none at all.
+    """
+    return tuple(
+        entry
+        for entry in container_index.entries
+        if not entry.is_section and entry.extension in MATCH_FILE_EXTENSIONS
+    )
+
+
+def read_directory_entry(container_index: ContainerIndex, entry: DirectoryEntry) -> bytes:
+    """The decompressed bytes of one directory entry that is not a section.
+
+    The frame is read and decompressed under the same bounds and per-frame cap a section read
+    uses, so a damaged entry cannot decompress past the cap.
+    """
+    file_name = container_index.file_name
+    with open_verified(container_index) as save_file:
+        compressed = read_exact(save_file, entry.frame_offset, entry.compressed_size, file_name)
+    try:
+        return decompress_frame(
+            compressed,
+            expected_size=entry.decompressed_size,
+            cap=container_index.limits.frame_decompressed_cap,
+            what=f"entry {entry.name}{entry.extension}",
+            file_name=file_name,
+        )
+    except CorruptSaveError as error:
+        # The frame was read while the file was verified, so bytes that no longer decompress
+        # mean the save was rewritten under the read rather than that it is damaged.
+        if changed_since_index(container_index):
+            raise changed_on_disk_error(file_name) from error
+        raise
 
 
 def read_section_heads(

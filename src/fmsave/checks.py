@@ -35,6 +35,7 @@ from fmsave._reader_stats import (
     CompetitionStats,
     ContractStats,
     FixtureStats,
+    InjuryTypeStats,
     LeagueTableStats,
     ManagedStats,
     MatchStats,
@@ -80,6 +81,7 @@ TRANSFER_WINDOWS_READER = "transfer_windows"
 LEAGUE_TABLES_READER = "league_tables"
 COMPETITION_RULES_READER = "competition_rules"
 PLAYER_MATCH_STATS_READER = "player_match_stats"
+INJURY_TYPES_READER = "injury_types"
 
 # Several readers are built from one decode. A reader whose shared decode did not finish would
 # have every other reader of the same pass redo that decode only to fail the same way, so the
@@ -1000,6 +1002,50 @@ def check_player_match_stats(
                 ),
                 "bodies_outside_their_ranges": stats.with_body - stats.body_valid,
                 "records_without_an_owner": stats.unowned,
+            }
+        ),
+    )
+
+
+def evaluate_injury_types(
+    stats: InjuryTypeStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The injury-type reader's one check.
+
+    It applies on a full-size save that lists at least one per-match entry. A save that lists
+    none holds these names nowhere at all, so its empty table is a fact about the save rather
+    than a layout that has moved, and the check is reported as not applied instead of failing.
+    """
+    applied = _applies(bounds, game_db_bytes) and stats.match_entries >= 1
+    return (
+        _gate(
+            "injury_type_entries_minimum",
+            stats.table_entries,
+            bounds.injury_type_entries_minimum,
+            applied,
+        ),
+    )
+
+
+def check_injury_types(
+    stats: InjuryTypeStats, bounds: GateBounds, game_db_bytes: int
+) -> ReaderCheck:
+    """The injury-type reader's check, record count and anomaly counts.
+
+    The anomalies say how much of the save was reached: how many per-match entries it lists at
+    all, how many of those read are not per-match files, and how many were read looking for the
+    table. A save listing none reports zero entries, which is how an empty table is told from a
+    table that failed to decode.
+    """
+    return ReaderCheck(
+        INJURY_TYPES_READER,
+        stats.table_entries,
+        evaluate_injury_types(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {
+                "match_entries": stats.match_entries,
+                "entries_without_magic": stats.entries_without_magic,
+                "entries_tried": stats.entries_with_magic_tried,
             }
         ),
     )

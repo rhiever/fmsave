@@ -13,7 +13,14 @@ from collections.abc import Callable, Generator
 from contextlib import AbstractContextManager, contextmanager
 from typing import cast
 
-from fmsave._container import ContainerIndex, read_region_frames, read_section
+from fmsave._container import (
+    ContainerIndex,
+    DirectoryEntry,
+    match_file_entries,
+    read_directory_entry,
+    read_region_frames,
+    read_section,
+)
 from fmsave._errors import SaveClosedError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import NamePoolLayout, PlayerRecordLayout, find_layout
@@ -258,6 +265,29 @@ class SaveContext:
             stage_index = self.stage_index()
             database_ids = locate_competition_database_ids(game_db, layout)
         return build_competition_index(stage_index, database_ids, self._competition_names)
+
+    def match_file_entries(self) -> tuple[DirectoryEntry, ...]:
+        """The save's per-match directory entries, in directory order.
+
+        Nothing is read from the file here: the entries come from the directory the save was
+        opened with. A save may list none at all.
+
+        Raises:
+            SaveClosedError: The context is closed.
+        """
+        self._require_open()
+        return match_file_entries(self._container_index)
+
+    def read_match_file(self, entry: DirectoryEntry) -> bytes:
+        """The decompressed bytes of one per-match entry. Nothing is cached or held.
+
+        Raises:
+            SaveClosedError: The context is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The entry is damaged or was being written.
+        """
+        self._require_open()
+        return read_directory_entry(self._container_index, entry)
 
     def close(self) -> None:
         """Drop cached values and section loans. Calling it again does nothing."""

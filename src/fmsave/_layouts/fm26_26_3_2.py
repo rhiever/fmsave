@@ -15,6 +15,7 @@ from fmsave._layouts import (
     GameInfoLayout,
     GateBounds,
     HumansLayout,
+    InjuryTypeTableLayout,
     LayoutEntry,
     LeagueTableLayout,
     MatchRecordLayout,
@@ -36,6 +37,9 @@ BUILD = "26.3.2+2329565"
 # The unnamed run of frames between `non_pl_hist_ls` and `humans`, which carries no schema
 # number. `fmsave.readers._common.SPAN_REGION` is the name the readers use.
 SPAN_REGION_NAME = "unlisted_after_non_pl_hist_ls"
+# The per-match directory entries, which are not sections and carry no schema number.
+# `fmsave.readers._common.MATCH_FILE_REGION` is the name the readers use.
+MATCH_FILE_REGION_NAME = "match_file"
 
 GAME_INFO = GameInfoLayout(
     db_version_length_offset=8,
@@ -61,6 +65,26 @@ HUMANS = HumansLayout(
     first_selector_offset=10,
     person_uid_offset=4,
     person_uid_copy_offset=8,
+)
+
+# The injury-type name table, as it sits inside every per-match entry of a save. Its records
+# are 568 bytes into the payload on almost every entry, but nothing reads that offset: the
+# table is found by walking the longest chain of records the shape below accepts.
+INJURY_TYPE_TABLE = InjuryTypeTableLayout(
+    lead_byte=1,
+    id_offset=1,
+    length_offset=3,
+    text_offset=7,
+    trailer_bytes=5,
+    length_range=(3, 64),
+    text_byte_range=(0x20, 0x7E),
+    flag_values=(0, 1),
+    minimum_chain_entries=2,
+    maximum_entries_tried=4,
+    # Twice the tried limit, so four entries that are not per-match files at all still leave
+    # four to try. Every save measured carries the magic on all of them, so nothing reaches it.
+    maximum_entries_opened=8,
+    payload_prefix=b"\x03\x01",
 )
 
 NAME_POOLS = NamePoolLayout(
@@ -836,6 +860,12 @@ GATE_BOUNDS = GateBounds(
     per_match_competition_in_stage_space=(0.95, None),
     per_match_minutes_in_range=(0.99, None),
     per_match_rating_in_range=(0.99, None),
+    # Every save measured decodes 93 records of the name table, in every per-match entry read,
+    # so this floor is never near a healthy save. Reading the type id one byte late decodes 4
+    # records before the chain breaks and reading the lead byte four bytes late decodes none at
+    # all, so either misalignment fails it. The floor stays loose because the table is database
+    # content: an installed database with fewer injuries legitimately carries fewer records.
+    injury_type_entries_minimum=(50, None),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (
@@ -856,6 +886,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TAGGED_STREAM),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TRANSFER_WINDOWS),
     LayoutEntry(region="humans", schema=21, build=BUILD, layout=HUMANS),
+    LayoutEntry(region=MATCH_FILE_REGION_NAME, schema=None, build=BUILD, layout=INJURY_TYPE_TABLE),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=FIXTURE_CALENDAR),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=STAGE_RESULTS),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=LEAGUE_TABLES),

@@ -29,6 +29,7 @@ from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
 from fmsave.models.fixtures import Fixture
+from fmsave.models.injuries import InjuryType
 from fmsave.models.league_tables import LeagueTable
 from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import PlayerMatchStats
@@ -44,6 +45,7 @@ from fmsave.readers._common import (
     SPAN_REGION,
 )
 from fmsave.readers.fixtures import build_fixtures
+from fmsave.readers.injuries import find_injury_type_layout, read_injury_types
 from fmsave.readers.league_tables import build_league_tables
 from fmsave.readers.managed import find_managed_club_layouts, resolve_managed_clubs
 from fmsave.readers.matches import (
@@ -87,6 +89,7 @@ TRANSFER_WINDOWS_TABLE_CACHE_KEY = "table:transfer_windows"
 LEAGUE_TABLES_TABLE_CACHE_KEY = "table:league_tables"
 COMPETITION_RULES_TABLE_CACHE_KEY = "table:competition_rules"
 PLAYER_MATCH_STATS_TABLE_CACHE_KEY = "table:player_match_stats"
+INJURY_TYPES_TABLE_CACHE_KEY = "table:injury_types"
 
 # What each shared decode is kept under. While nothing is stored there the decode has not
 # finished, which is what tells a failed pass from a failed reader of a pass that ran.
@@ -443,6 +446,54 @@ class Save:
         """
         context = self._context
         return context.cached(TRANSFER_WINDOWS_TABLE_CACHE_KEY, self._read_transfer_windows)
+
+    def injury_types(self) -> Table[InjuryType]:
+        """Every injury the game can hand out that the save names, in stored order.
+
+        The names are the game's own text, as the save stores it, in the language the save was
+        written in. They are in no section of the save: each per-match file it holds carries
+        one copy of the table, so **a save with no per-match file has no names at all** and
+        this table is then empty. Some injury codes have no entry in the table, so a code an
+        injury carries need not be named here.
+
+        Only as many per-match files are read as it takes to find the table, whatever a save
+        lists, and no game database is read at all. The table is read on the first call; later
+        calls return the same table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: A per-match file is damaged or was being written.
+            ReaderCheckError: On a full-size save listing at least one per-match file, fewer
+                records of the table were read than the checks allow.
+        """
+        context = self._context
+        return context.cached(INJURY_TYPES_TABLE_CACHE_KEY, self._read_injury_types)
+
+    def _read_injury_types(self) -> Table[InjuryType]:
+        context = self._context
+        save_info = context.info
+        gate_bounds = self._gate_bounds()
+        layout = find_injury_type_layout(save_info.build)
+        # The full-size test runs on the size the directory declares for the game database, so
+        # this reader decompresses nothing but the one per-match entry it reads.
+        declared_game_db_bytes = next(
+            (
+                section.decompressed_size
+                for section in save_info.sections
+                if section.name == GAME_DB_SECTION
+            ),
+            0,
+        )
+        injury_types, injury_type_stats = read_injury_types(
+            context.match_file_entries(), context.read_match_file, layout
+        )
+        injury_type_check = checks.check_injury_types(
+            injury_type_stats, gate_bounds, declared_game_db_bytes
+        )
+        checks.enforce_checks((injury_type_check,))
+        self._store_reader_checks((injury_type_check,))
+        return Table(injury_types, InjuryType)
 
     def league_tables(self) -> Table[LeagueTable]:
         """Every live league table the save holds, in the order the save stores them.

@@ -881,6 +881,47 @@ type BoundPair = tuple[float | None, float | None]
 
 
 @dataclass(frozen=True, slots=True)
+class InjuryTypeTableLayout:
+    """The injury-type name table's record shape, and how much of a save is read to find it.
+
+    The table sits inside a per-match directory entry rather than in any section, and every
+    such entry of a save holds the same copy of it. A payload whose first bytes are not
+    `payload_prefix` is not a per-match file and holds no table.
+
+    One record is `lead_byte`, then the u16 type id at `id_offset`, the u32 name length at
+    `length_offset`, that many text bytes at `text_offset`, and `trailer_bytes` of trailer (the
+    flag byte, then the u32 second id). A record is accepted when its lead byte matches, its
+    length is inside `length_range`, every text byte is inside `text_byte_range` and its flag
+    is one of `flag_values`; a chain of records is accepted while each record's type id is
+    higher than the one before it. The table is the longest chain of at least
+    `minimum_chain_entries` records, and entries are read until one holds a table: at most
+    `maximum_entries_tried` of those carrying the magic, and at most `maximum_entries_opened`
+    entries decompressed at all, so a save whose entries are none of them per-match files is
+    still not read whole.
+
+    Ranges are inclusive (lowest, highest).
+    """
+
+    lead_byte: int
+    id_offset: int
+    length_offset: int
+    text_offset: int
+    trailer_bytes: int
+    length_range: tuple[int, int]
+    text_byte_range: tuple[int, int]
+    flag_values: tuple[int, ...]
+    minimum_chain_entries: int
+    maximum_entries_tried: int
+    maximum_entries_opened: int
+    payload_prefix: bytes
+
+    @property
+    def record_overhead_bytes(self) -> int:
+        """The bytes of one record that are not its text."""
+        return self.text_offset + self.trailer_bytes
+
+
+@dataclass(frozen=True, slots=True)
 class GateBounds:
     """Loose bounds for the reader checks on what the `game_db` readers decode.
 
@@ -1026,6 +1067,13 @@ class GateBounds:
     instead, and all three apply whenever the section is large enough, so a search that finds
     nothing leaves every one of them without a denominator and fails here rather than reporting
     a career whose players have played no matches.
+
+    Injury types: `injury_type_entries_minimum` (records of the name table read out of a
+    per-match entry). It applies only on a full-size `game_db` **and** when the save lists at
+    least one per-match entry, because a save listing none holds these names nowhere at all,
+    which is a fact about the save rather than a layout that has moved. The floor sits far
+    below the 93 records every save measured carries: what it catches is a record shape read
+    from the wrong offset, which decodes a handful of records at most before its chain breaks.
     """
 
     minimum_applies_from_bytes: int
@@ -1103,6 +1151,7 @@ class GateBounds:
     per_match_competition_in_stage_space: BoundPair
     per_match_minutes_in_range: BoundPair
     per_match_rating_in_range: BoundPair
+    injury_type_entries_minimum: BoundPair
 
 
 type Layout = (
@@ -1121,6 +1170,7 @@ type Layout = (
     | StageTableLayout
     | CompetitionIdPairLayout
     | HumansLayout
+    | InjuryTypeTableLayout
     | FixtureCalendarLayout
     | StageResultLayout
     | LeagueTableLayout

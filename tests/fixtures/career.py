@@ -45,6 +45,12 @@ from tests.fixtures.game_db import (
     suspension_entry_bytes,
     transfer_window_bytes,
 )
+from tests.fixtures.injuries import (
+    CAREER_INJURY_TYPES,
+    DECOY_INJURY_TYPES,
+    injury_type_entries,
+    match_file_body,
+)
 from tests.fixtures.span import (
     STAGE_RESULT_LEAD_BYTE,
     STAGE_RESULT_R22,
@@ -1309,6 +1315,29 @@ def career_game_db(
     return section_body(".dat", GAME_DB_SCHEMA, payload)
 
 
+# The per-match directory entries. A save carries hundreds of them; the fragment carries the
+# three shapes a reader of them has to tell apart: an entry that is not a match file at all, an
+# `.apm` entry whose payload holds a shorter decoy chain before the table, and an `.scm` entry
+# holding the same table.
+PLAIN_ATTACHMENT_PAYLOAD = b"attachment"
+CAREER_ATTACHMENTS: tuple[tuple[str, str, bytes], ...] = (
+    ("1_2_3", ".apm", PLAIN_ATTACHMENT_PAYLOAD),
+    (
+        "1_2_4",
+        ".apm",
+        match_file_body(
+            (injury_type_entries(CAREER_INJURY_TYPES),),
+            decoy_entries=(injury_type_entries(DECOY_INJURY_TYPES),),
+        ),
+    ),
+    (
+        "1_2_5",
+        ".scm",
+        match_file_body((injury_type_entries(CAREER_INJURY_TYPES),), extension=".scm"),
+    ),
+)
+
+
 def career_summary(*, linked: bool) -> bytes:
     """The save summary; when linked, the manager's name is followed by his club's link."""
     if linked:
@@ -1334,6 +1363,7 @@ def career_fragment(
     span_results: Sequence[ExampleResult] = (),
     news_results: Sequence[ExampleResult] = (),
     game_db_results: Sequence[ExampleResult] = (),
+    attachments: tuple[tuple[str, str, bytes], ...] = CAREER_ATTACHMENTS,
 ) -> ContainerFragment:
     """The whole career fragment.
 
@@ -1355,6 +1385,9 @@ def career_fragment(
             section and every reader of one has to skip it.
         game_db_results: Stage-keyed result records to write into `game_db`, which no result
             reader may scan; a score from one of these means a reader widened its regions.
+        attachments: The `(name, extension, payload)` directory entries that are not sections,
+            in directory order. The default carries the three per-match entries
+            `CAREER_ATTACHMENTS` describes; an empty tuple gives a save with none at all.
     """
     selector = UNMATCHED_MANAGER_SELECTOR if manager_between_jobs else MANAGER_SELECTOR
     replacements = {
@@ -1391,4 +1424,4 @@ def career_fragment(
                 section_body(".dat", NEWS_SECTION_SCHEMA, results_payload(news_results)),
             )
         )
-    return build_container_fragment(sections)
+    return build_container_fragment(sections, attachments=attachments)

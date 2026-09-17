@@ -319,3 +319,20 @@ class ManagedStats:
     route_one_resolved: int
     route_two_resolved: int
     rows: int
+
+
+@dataclass(frozen=True, slots=True)
+class InjuryTypeStats:
+    """What reading the injury-type name table out of a per-match entry counted.
+
+    `match_entries` counts the per-match entries the save lists, `entries_with_magic_tried`
+    those read looking for the table and `entries_without_magic` those read that are not
+    per-match files at all. `table_entries` counts the records of the table that was found,
+    which is zero on a save that lists no per-match entry and on one whose entries hold no
+    table.
+    """
+
+    match_entries: int
+    entries_with_magic_tried: int
+    entries_without_magic: int
+    table_entries: int

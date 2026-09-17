@@ -637,6 +637,34 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'flag_values': tuple(
+          0,
+          1,
+        ),
+        'id_offset': 1,
+        'lead_byte': 1,
+        'length_offset': 3,
+        'length_range': tuple(
+          3,
+          64,
+        ),
+        'maximum_entries_opened': 8,
+        'maximum_entries_tried': 4,
+        'minimum_chain_entries': 2,
+        'payload_prefix': b'\x03\x01',
+        'text_byte_range': tuple(
+          32,
+          126,
+        ),
+        'text_offset': 7,
+        'trailer_bytes': 5,
+      }),
+      'region': 'match_file',
+      'schema': None,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
         'away_team_id_offset': 7,
         'cluster_gap_bytes': 1048576,
         'date2_offset': 17,
@@ -895,6 +923,10 @@
           None,
         ),
         'home_reputation_window': 1000,
+        'injury_type_entries_minimum': tuple(
+          50,
+          None,
+        ),
         'issued_after_clock': tuple(
           None,
           0.01,
