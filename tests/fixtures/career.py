@@ -73,6 +73,7 @@ from tests.fixtures.span import (
     stage_result_bytes,
     table_block_bytes,
 )
+from tests.fixtures.stadiums import career_stadium_rows, stadium_table_bytes
 
 GAME_DB_SCHEMA = 4000
 BUILD_STRING = "26.3.2+2329565"
@@ -755,6 +756,8 @@ PAST_MIDNIGHT_KICK_OFF_SLOT = 73
 HOME_STADIUM_ORDINAL = 10
 AWAY_STADIUM_ORDINAL = 20
 NEUTRAL_STADIUM_ORDINAL = 99
+# An ordinal past the last row of the example stadium table, so no ground resolves from it.
+UNLISTED_STADIUM_ORDINAL = 150
 NO_ROUND_INDEX = 255
 # A team id no club of the example save lists.
 UNREGISTERED_FIXTURE_TEAM_ID = 79999
@@ -840,6 +843,17 @@ PAST_MIDNIGHT_FIXTURE = ExampleFixture(
     6,
     True,
     HOME_STADIUM_ORDINAL,
+)
+# A record storing a ground ordinal the stadium table does not hold, so its ground stays empty.
+UNLISTED_STADIUM_FIXTURE = ExampleFixture(
+    FIXTURE_STAGE_ID,
+    NORTHBRIDGE_TEAM_B,
+    SOUTHPORT_TEAM,
+    135,
+    LEAGUE_KICK_OFF_SLOT,
+    13,
+    True,
+    UNLISTED_STADIUM_ORDINAL,
 )
 # Records that pin the neutral-venue minimum from both sides in one save: Example Athletic's
 # team 70005 plays exactly four times at home in the season, three at its own ground and once
@@ -1445,16 +1459,22 @@ def career_tagged_stream() -> bytes:
 
 
 def career_game_db(
-    *, duplicate_club_name: bool = False, game_db_results: Sequence[ExampleResult] = ()
+    *,
+    duplicate_club_name: bool = False,
+    game_db_results: Sequence[ExampleResult] = (),
+    stadium_table: bool = True,
 ) -> bytes:
     """The game database. `game_db_results` writes result records into a region no result
     reader may scan, so a reader that widened its regions is caught by the score appearing.
+    `stadium_table=False` leaves the stadium table out, so every reader that needs a ground
+    has nothing to read.
     """
     clubs = EXAMPLE_CLUBS + ((SECOND_NORTHBRIDGE_CLUB,) if duplicate_club_name else ())
     payload = (
         name_pools_bytes(FIRST_NAMES, SURNAMES, COMMON_NAMES)
         + clubs_region_bytes(clubs, competition_id_pairs=career_competition_id_pairs())
         + career_tagged_stream()
+        + (stadium_table_bytes(career_stadium_rows()) if stadium_table else b"")
         + bytes(64)
         + results_payload(game_db_results)
         + bytes(64)
@@ -1603,6 +1623,7 @@ def career_fragment(
     attachments: tuple[tuple[str, str, bytes], ...] = CAREER_ATTACHMENTS,
     feeder_section: bytes | None = None,
     job_centre_section: bytes | None = None,
+    stadium_table: bool = True,
 ) -> ContainerFragment:
     """The whole career fragment.
 
@@ -1631,11 +1652,15 @@ def career_fragment(
             groups the fragment writes.
         job_centre_section: The whole `job_centre` section body, in place of the three
             vacancies the fragment writes.
+        stadium_table: Write the stadium table into `game_db`. False leaves it out, so a
+            reader that needs a ground finds no table at all.
     """
     selector = UNMATCHED_MANAGER_SELECTOR if manager_between_jobs else MANAGER_SELECTOR
     replacements = {
         "game_db": career_game_db(
-            duplicate_club_name=duplicate_club_name, game_db_results=game_db_results
+            duplicate_club_name=duplicate_club_name,
+            game_db_results=game_db_results,
+            stadium_table=stadium_table,
         ),
         "humans": humans_body(count=1, selector=selector),
         "save_game_summary": career_summary(linked=not manager_between_jobs),

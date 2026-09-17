@@ -87,6 +87,10 @@ class Fixture:
             is the stored season_start_year, which some friendlies leave empty, and every
             such match a club played shares one vote; a club that moved ground mid-career
             therefore has its earlier seasonless matches judged against the later ground.
+        stadium_uid: Uid of the ground the match is played at, from the stadium table; None
+            when the record stores no ground or one the table does not hold. The join itself
+            is exact, but a stadium uid is not confirmed by any displayed label, so this field
+            can be no stronger than the uid it carries (unconfirmed).
         match_record_id: Id of the match record the save keeps for a played match, or None
             when the match is unplayed (unconfirmed).
         match_rules_template: The three bytes naming the shared match-rules template this
@@ -119,6 +123,7 @@ class Fixture:
     away_goals: int | None
     played: bool
     is_neutral_venue: bool | None
+    stadium_uid: int | None
     match_record_id: int | None
     match_rules_template: tuple[int, ...]
     unknown: Mapping[str, int]
@@ -158,5 +163,13 @@ register_field_statuses(
         "played",
         "is_neutral_venue",
     ),
-    unconfirmed=("competition_name", "match_record_id", "match_rules_template", "unknown"),
+    # `stadium_uid` is a derived field and takes the weaker of its inputs: the ordinal it joins
+    # on resolves exactly, but `Stadium.uid` is unconfirmed, so this cannot be verified.
+    unconfirmed=(
+        "competition_name",
+        "stadium_uid",
+        "match_record_id",
+        "match_rules_template",
+        "unknown",
+    ),
 )

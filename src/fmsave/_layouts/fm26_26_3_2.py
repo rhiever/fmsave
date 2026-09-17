@@ -28,6 +28,7 @@ from fmsave._layouts import (
     RulesPreambleLayout,
     SaveSummaryLayout,
     SponsorChainLayout,
+    StadiumTableLayout,
     StageResultLayout,
     StageTableLayout,
     SummaryStringsLayout,
@@ -650,6 +651,52 @@ RULES_PREAMBLES = RulesPreambleLayout(
     moved_match_max_per_round=64,
 )
 
+# A stadium row is 181 bytes when it carries no inline name, and 185 plus the name when it
+# does. The table head sits at 11.9% to 14.4% of `game_db` across the saves measured, which is
+# why it is found by its own first rows rather than by a fraction of the section: twelve rows
+# each storing their own ordinal, with the uid doubled and a zero byte, accepted one candidate
+# per save and turned away the 41 to 52 other places the pattern alone matched.
+STADIUM_TABLE = StadiumTableLayout(
+    row_bytes=181,
+    ordinal_offset=0,
+    uid_offset=4,
+    uid_copy_offset=8,
+    zero_byte_offset=12,
+    all_seater_offset=13,
+    u17_offset=17,
+    expansion_offset=21,
+    u25_offset=25,
+    owner_offset=29,
+    b33_offset=33,
+    capacity_offset=34,
+    pitch_length_offset=38,
+    pitch_width_offset=40,
+    built_offset=50,
+    rebuilt_offset=54,
+    date_58_offset=58,
+    pitch_min_length_offset=67,
+    pitch_min_width_offset=69,
+    pitch_max_length_offset=71,
+    pitch_max_width_offset=73,
+    flags_offset=156,
+    inline_name_flag=0x10,
+    name_length_offset=158,
+    name_offset=162,
+    named_row_extra_bytes=4,
+    # Names run 6 to 43 bytes across the saves measured. The range is wide because it is only
+    # a sanity bound on a length the row itself stores: a length outside it ends the walk.
+    name_length_range=(1, 256),
+    locator_rows=12,
+    # Every row but the template the table ends with holds a pitch length in this range, and
+    # every one of them is longer than it is wide.
+    pitch_length_range=(900, 1300),
+    home_ground_minimum_fixtures=4,
+    # The template row every table ends with holds this all-seater capacity on all three saves
+    # measured, and no real ground holds more than 293,376, so nothing else is mistaken for it.
+    template_all_seater_capacity=16_777_216,
+    table_terminator=3,
+)
+
 # A stage row is 33 bytes. The table sits in the last 0.3% of `game_db` on every save measured,
 # so the last 2 MB is a wide search window; 200 rows is far longer than any run of look-alike
 # bytes seen before it.
@@ -873,6 +920,12 @@ GATE_BOUNDS = GateBounds(
     # less 0.05, floored to two decimals, so a career carrying more of those stays well clear
     # while a team id read from the wrong offset, which resolves almost nothing, still fails.
     fixture_teams_resolved=(0.87, None),
+    # 0.99937 / 0.99953 / 0.99954 of the kept records that store a ground name one the stadium
+    # table holds; the rest store the value 1, and no ground has ordinal 0. The floor sits
+    # deliberately above 0.99429 / 0.99502 / 0.99445, which is what the same join scores
+    # against a table that lost its 220 named rows: at 0.99 that control would pass and this
+    # check could not fail. It applies only when some record stores a ground at all.
+    fixture_stadiums_resolved=(0.998, None),
     # 44,351 / 55,414 / 42,608 records accepted on the three saves measured, counted under the
     # rule this reader applies: inside the calendar's own dates. A wider window accepts several
     # times that, so a count quoted here has to say which window produced it. The floor sits
@@ -1001,6 +1054,30 @@ GATE_BOUNDS = GateBounds(
     # Both reserved fields are zero on every record of every save measured, and on at most
     # 0.008 of records under any of the four shifts.
     job_vacancy_reserved_zero=(0.99, None),
+    # 47,748 / 47,248 / 47,748 rows walked on the three saves measured. The floor sits nearly
+    # five times below that, which leaves an installed database carrying far fewer grounds well
+    # clear; walking from one byte, four bytes or a byte short of the head reads no row at all,
+    # so a head that moved fails here.
+    stadium_rows_minimum=(10_000, None),
+    # Every row but the template has a pitch inside the layout's length range and inside its
+    # own stored minimum and maximum, on all three saves. Reading the pitch fields one byte,
+    # four bytes or a byte short of their offsets drops the share to 0.0, so this is the check
+    # that says the row's middle is still being read where it sits.
+    stadium_pitch_within_limits=(0.99, None),
+    # 0.98354 / 0.98244 / 0.98354 of the rows naming an owning club name one the save lists;
+    # the rest name a club of a nation the career never loaded. Reading the owner one byte out
+    # scores 0.0007 / 0.0002, a byte short 0.0031 / 0.0030 and four bytes out 0.838, so the
+    # floor catches every one of those while leaving a career that loaded fewer nations clear.
+    stadium_owners_resolved=(0.95, None),
+    # 0.99971 / 0.99972 / 0.99971 of rows hold a capacity no larger than their all-seater
+    # capacity, which is 0 on about four rows in five. The misaligned reads score 0.376, 0.827
+    # and 0.0.
+    stadium_capacity_within_all_seater=(0.99, None),
+    # 0.708 / 0.716 / 0.700 of the clubs that own a ground and have a calendar home ground
+    # play at a ground they own themselves; the rest ground-share or play at a ground the save
+    # gives no owner. Shifting the ordinal a fixture stores by one either way scores 0.0008 to
+    # 0.0016, so the floor sits far below the observed share and far above the control.
+    stadium_home_grounds_owned=(0.50, None),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (
@@ -1018,6 +1095,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=SPONSOR_CHAINS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=SUSPENSIONS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=MATCH_RECORDS),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STADIUM_TABLE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STAGE_TABLE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=COMPETITION_ID_PAIRS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TAGGED_STREAM),

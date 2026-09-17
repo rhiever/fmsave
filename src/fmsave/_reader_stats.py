@@ -165,6 +165,8 @@ class FixtureStats:
     lists. `undated` counts records whose stored date does not decode and
     `bad_kick_off_slots` those whose slot names no time of day. `neutral_venue_votes` counts
     the (club, season) pairs that played enough home matches for a usual ground to be decided.
+    `with_stadium` counts kept records storing a ground and `stadium_resolved` those whose
+    ground the stadium table holds; the rest store the one value no ordinal ever takes.
     """
 
     span_records: int
@@ -178,6 +180,8 @@ class FixtureStats:
     undated: int
     bad_kick_off_slots: int
     neutral_venue_votes: int
+    with_stadium: int
+    stadium_resolved: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,6 +357,47 @@ class ManagedStats:
     route_one_resolved: int
     route_two_resolved: int
     rows: int
+
+
+@dataclass(frozen=True, slots=True)
+class StadiumStats:
+    """What walking the stadium table and voting the home grounds counted.
+
+    `table_end_reached` is 1 when the walk stopped on the word that follows the table's last
+    row and 0 when it stopped inside the table, which costs every ground after that point: they
+    are missing from the rows returned and from the denominators of every share here, so a
+    short walk has to be visible rather than merely lowering a rate.
+
+    `template_rows` counts the rows shaped like the template the save carries rather than a
+    ground anyone plays at, recognised by the all-seater capacity no real ground comes near,
+    and they are left out of `pitch_checked`.
+    `pitch_within_limits` counts the checked rows whose pitch is a plausible length and fits
+    inside the ground's own stored minimum and maximum. `owners_set` counts the rows naming an
+    owning club and `owners_resolved` those whose club the save lists. `capacity_set` counts
+    the rows storing a capacity at all, which is about one in five, and
+    `capacity_within_all_seater` every row whose capacity is no larger than its all-seater
+    capacity.
+
+    The last three come from the fixture calendar rather than the table:
+    `clubs_with_home_ground` counts the clubs the calendar gave a home ground,
+    `owning_clubs_with_home_ground` those of them that also own a ground, and
+    `owning_clubs_home_ground_owned` those whose home ground is one they own themselves. All
+    three are zero on the counts the shared index is enforced on, which are the table's alone.
+    """
+
+    rows: int
+    table_end_reached: int
+    named_rows: int
+    template_rows: int
+    owners_set: int
+    owners_resolved: int
+    capacity_set: int
+    capacity_within_all_seater: int
+    pitch_checked: int
+    pitch_within_limits: int
+    clubs_with_home_ground: int
+    owning_clubs_with_home_ground: int
+    owning_clubs_home_ground_owned: int
 
 
 @dataclass(frozen=True, slots=True)

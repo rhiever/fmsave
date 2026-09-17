@@ -64,6 +64,7 @@ FIXTURE_GATE_NAMES = (
     "fixture_strays_minimum",
     "fixture_stage_resolved",
     "fixture_teams_resolved",
+    "fixture_stadiums_resolved",
 )
 FIXTURE_LAYOUT: FixtureCalendarLayout = find_layout(
     FixtureCalendarLayout, SPAN_REGION, None, ""
@@ -122,6 +123,7 @@ EXPECTED_COLUMNS = (
     "away_goals",
     "played",
     "is_neutral_venue",
+    "stadium_uid",
     "match_record_id",
     "match_rules_template",
     "unknown_date2",
@@ -148,8 +150,14 @@ def built_from(career_save: fmsave.Save) -> tuple[tuple[Fixture, ...], FixtureSt
         club_index = context.club_index()
         stage_index = context.stage_index()
         competition_index = context.competition_index()
+        stadium_index = context.stadium_index()
     return build_fixtures(
-        context.span_records(), stage_index, competition_index, club_index, FIXTURE_LAYOUT
+        context.span_records(),
+        stage_index,
+        competition_index,
+        club_index,
+        stadium_index,
+        FIXTURE_LAYOUT,
     )
 
 
@@ -190,6 +198,8 @@ def healthy_fixture_stats() -> FixtureStats:
         undated=0,
         bad_kick_off_slots=0,
         neutral_venue_votes=600,
+        with_stadium=104_331,
+        stadium_resolved=104_265,
     )
 
 
@@ -207,6 +217,8 @@ def consistent_stats(cluster_records: int) -> FixtureStats:
         undated=0,
         bad_kick_off_slots=0,
         neutral_venue_votes=10,
+        with_stadium=cluster_records,
+        stadium_resolved=cluster_records,
     )
 
 
@@ -234,11 +246,23 @@ def with_gate_bounds(monkeypatch: pytest.MonkeyPatch, bounds: GateBounds) -> Non
     monkeypatch.setattr(fmsave.Save, "_gate_bounds", lambda career_save: bounds)
 
 
+# Stadium bounds this fragment's own table meets. Lowering the game database threshold turns
+# on every check that judges it, the stadium table's among them, and that table is 101 rows
+# where a full save holds tens of thousands. Relaxing the two floors it cannot reach keeps a
+# check this file is not about from raising first.
+FRAGMENT_STADIUM_BOUNDS = {
+    "stadium_rows_minimum": (1, None),
+    "stadium_owners_resolved": (0.5, None),
+}
+
 # Bounds the example save cannot meet: its stage table names three competitions, not a
 # thousand. The span threshold is left alone, so the fixture gates stay out of the way and a
 # raise can only have come from the competition checks.
 UNMEETABLE_COMPETITION_BOUNDS = dataclasses.replace(
-    BOUNDS, minimum_applies_from_bytes=0, competitions_minimum=(1_000, None)
+    BOUNDS,
+    minimum_applies_from_bytes=0,
+    competitions_minimum=(1_000, None),
+    **FRAGMENT_STADIUM_BOUNDS,
 )
 
 
@@ -620,8 +644,11 @@ def test_healthy_fixture_stats_pass_every_gate_and_a_small_span_applies_none() -
             id="too-few-teams-resolve",
         ),
         pytest.param(
-            FixtureStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-            list(FIXTURE_GATE_NAMES),
+            # The ground share is the one gate an empty decode leaves alone: a calendar
+            # legitimately holds records that store no ground, so its own population being
+            # empty is reported rather than failed. The record floor fails instead.
+            FixtureStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            [name for name in FIXTURE_GATE_NAMES if name != "fixture_stadiums_resolved"],
             id="a-decode-that-found-nothing",
         ),
     ],
@@ -676,6 +703,8 @@ def test_the_build_counts_exactly_what_the_checks_read(career_save_path: Path) -
         undated=0,
         bad_kick_off_slots=0,
         neutral_venue_votes=1,
+        with_stadium=CALENDAR_FIXTURE_COUNT,
+        stadium_resolved=CALENDAR_FIXTURE_COUNT,
     )
     reader_check = check_fixtures(stats, NO_RESULT_STATS, BOUNDS, SMALL_SPAN_BYTES)
     assert reader_check.reader == "fixtures"
@@ -690,6 +719,7 @@ def test_the_build_counts_exactly_what_the_checks_read(career_save_path: Path) -
         "undated_fixtures": 0,
         "bad_kick_off_slots": 0,
         "neutral_venue_votes": 1,
+        "unresolved_stadiums": 0,
         "unjoined_results": 0,
         "ambiguous_results": 0,
         "score_disagreements": 0,

@@ -77,6 +77,7 @@ from tests.fixtures.game_db import (
     status_record_bytes,
     suspension_entry_bytes,
 )
+from tests.fixtures.stadiums import career_stadium_rows, stadium_table_bytes
 
 MEBIBYTE = 1024 * 1024
 FULL_SIZE_GAME_DB_BYTES = 300 * MEBIBYTE
@@ -871,6 +872,9 @@ def counted_game_db() -> bytes:
     payload = (
         name_pools_bytes(["Alex"], ["Example"], [])
         + counted_clubs_region()
+        # The calendar names the ground each match is played at, so every save a fixture
+        # reader runs on has to carry this table.
+        + stadium_table_bytes(career_stadium_rows())
         + bytes(64)
         + manager_region_bytes()
         + player_a_bytes()
@@ -1038,6 +1042,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "undated_fixtures": 0,
             "bad_kick_off_slots": 0,
             "neutral_venue_votes": 0,
+            "unresolved_stadiums": 0,
             "unjoined_results": 0,
             "ambiguous_results": 0,
             "score_disagreements": 0,
@@ -1255,16 +1260,30 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
     counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # The fixture gates judge the span, which has a size threshold of its own, so both are
-    # lowered here; otherwise those gates would be the one set this test never applies.
+    # lowered here; otherwise those gates would be the one set this test never applies. The two
+    # stadium floors this fragment's 101-row table cannot reach are relaxed with them: the
+    # calendar reader is enforced on that table before it reaches a gate of its own, and this
+    # test is about each reader's own counts.
     with_bounds(
         monkeypatch,
         dataclasses.replace(
-            BOUNDS, minimum_applies_from_bytes=0, span_minimum_applies_from_bytes=0
+            BOUNDS,
+            minimum_applies_from_bytes=0,
+            span_minimum_applies_from_bytes=0,
+            stadium_rows_minimum=(1, None),
+            stadium_owners_resolved=(0.5, None),
         ),
     )
     with fmsave.open(counted_fragment_path) as career_save:
         readers = reader_by_name(validate_save(career_save))
-    assert all(gate.applied for reader in readers.values() for gate in reader.gates)
+    # Every gate applies here bar one: this fragment's calendar is empty, so no record stores
+    # a ground, and a share with no population to judge is reported rather than failed.
+    assert all(
+        gate.applied
+        for reader in readers.values()
+        for gate in reader.gates
+        if gate.name != "fixture_stadiums_resolved"
+    )
     assert {name: reader.status for name, reader in readers.items()} == {
         "clubs": "failed",
         "players": "failed",

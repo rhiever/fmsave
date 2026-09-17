@@ -42,6 +42,7 @@ from fmsave.models.rules import (
     RulesRound,
     TransferWindow,
 )
+from fmsave.models.stadiums import Stadium
 from fmsave.models.suspensions import PlayerSuspension, Suspension
 
 __all__ = [
@@ -83,6 +84,7 @@ __all__ = [
     "SponsorType",
     "Sponsorship",
     "SquadStatus",
+    "Stadium",
     "Stage",
     "Suspension",
     "Team",

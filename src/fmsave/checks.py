@@ -45,6 +45,7 @@ from fmsave._reader_stats import (
     PlayerStats,
     ResultStats,
     RulesStats,
+    StadiumStats,
     StageStats,
     SuspensionStats,
     TransferWindowStats,
@@ -89,6 +90,7 @@ FINANCES_READER = "finances"
 SPONSORSHIPS_READER = "sponsorships"
 AFFILIATES_READER = "affiliates"
 JOB_VACANCIES_READER = "job_vacancies"
+STADIUMS_READER = "stadiums"
 
 # Several readers are built from one decode. A reader whose shared decode did not finish would
 # have every other reader of the same pass redo that decode only to fail the same way, so the
@@ -194,6 +196,21 @@ def _gate(name: str, observed: float | None, bound: BoundPair, applied: bool) ->
         and (maximum is None or observed <= maximum)
     )
     return GateResult(name, observed, minimum, maximum, passed=passed, applied=True)
+
+
+def _share_gate(
+    name: str, numerator: int, denominator: int, bound: BoundPair, applied: bool
+) -> GateResult:
+    """A share check that judges nothing when its population is empty.
+
+    Some populations can legitimately hold nothing: a table of grounds no club owns, a career
+    whose calendar gives no club a home ground, a calendar whose records store no ground at
+    all. A share with no denominator is then a fact about the save rather than a layout that
+    has moved, so the check is reported as not applied instead of failing for want of a rate.
+    A check used this way always sits beside a count check that does fail when a decode found
+    nothing, so an empty population never hides a broken locator.
+    """
+    return _gate(name, _rate(numerator, denominator), bound, applied and denominator > 0)
 
 
 def _applies(bounds: GateBounds, game_db_bytes: int) -> bool:
@@ -519,10 +536,14 @@ def evaluate_fixtures(
     """The fixture reader's checks, in a fixed order.
 
     These judge what one pass over the span read, not `game_db`, so they apply from the span's
-    own size threshold. All five apply whenever the span is large enough, including when the
-    pass found no fixture at all: an empty calendar scores below the record floor and the
+    own size threshold. The first five apply whenever the span is large enough, including when
+    the pass found no fixture at all: an empty calendar scores below the record floor and the
     stray floor and leaves the three shares without a denominator, so a calendar locator that
     has moved fails here rather than reporting a career with no matches.
+
+    `fixture_stadiums_resolved` is the one exception, because a calendar legitimately holds
+    records that store no ground: it applies only when some record stores one. A calendar that
+    stored none at all would fail the record floor first.
 
     `fixture_cluster_share` and `fixture_strays_minimum` bound the same split from opposite
     sides. The share falls when the run separating the calendar from its stray copies is too
@@ -557,6 +578,13 @@ def evaluate_fixtures(
             "fixture_teams_resolved",
             _rate(stats.home_team_resolved + stats.away_team_resolved, 2 * cluster_records),
             bounds.fixture_teams_resolved,
+            applied,
+        ),
+        _share_gate(
+            "fixture_stadiums_resolved",
+            stats.stadium_resolved,
+            stats.with_stadium,
+            bounds.fixture_stadiums_resolved,
             applied,
         ),
     )
@@ -834,7 +862,8 @@ def check_fixtures(
     no copy of, which is the only part of the drop that loses anything. The rest count kept
     fixtures a join or a decode left incomplete. `neutral_venue_votes` counts the clubs and
     seasons whose usual ground was decided: none of them on a full-size span means the venue
-    vote never ran at all.
+    vote never ran at all. `unresolved_stadiums` counts the records storing a ground the
+    stadium table does not hold, which every save carries a few dozen of.
 
     `unjoined_results` counts the score records that named no match in this calendar, which is
     most of what a save holds: several seasons of history whose fixtures are long gone.
@@ -862,6 +891,7 @@ def check_fixtures(
                 "undated_fixtures": stats.undated,
                 "bad_kick_off_slots": stats.bad_kick_off_slots,
                 "neutral_venue_votes": stats.neutral_venue_votes,
+                "unresolved_stadiums": stats.with_stadium - stats.stadium_resolved,
                 "unjoined_results": result_stats.unjoined,
                 "ambiguous_results": result_stats.ambiguous,
                 "score_disagreements": result_stats.score_disagreements,
@@ -1014,6 +1044,104 @@ def check_player_match_stats(
                 ),
                 "bodies_outside_their_ranges": stats.with_body - stats.body_valid,
                 "records_without_an_owner": stats.unowned,
+            }
+        ),
+    )
+
+
+def evaluate_stadium_table(
+    stats: StadiumStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The checks on the stadium table alone, in a fixed order.
+
+    These are what the shared stadium index is handed out on, so they judge only what the
+    table itself says: the rows walked, the pitch distribution, the owners and the capacities.
+    The home-ground check needs the fixture calendar and joins the stadium reader's own checks
+    instead.
+
+    `stadium_rows_minimum` is what fails when the walk finds nothing, so the three shares
+    beside it are free to report an empty population as not applied.
+    """
+    applied = _applies(bounds, game_db_bytes)
+    rows = stats.rows
+    return (
+        _gate("stadium_rows_minimum", rows, bounds.stadium_rows_minimum, applied),
+        _share_gate(
+            "stadium_pitch_within_limits",
+            stats.pitch_within_limits,
+            stats.pitch_checked,
+            bounds.stadium_pitch_within_limits,
+            applied,
+        ),
+        _share_gate(
+            "stadium_owners_resolved",
+            stats.owners_resolved,
+            stats.owners_set,
+            bounds.stadium_owners_resolved,
+            applied,
+        ),
+        _share_gate(
+            "stadium_capacity_within_all_seater",
+            stats.capacity_within_all_seater,
+            rows,
+            bounds.stadium_capacity_within_all_seater,
+            applied,
+        ),
+    )
+
+
+def evaluate_stadiums(
+    stats: StadiumStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The stadium reader's checks, in a fixed order: the table's four and the home grounds.
+
+    `stadium_home_grounds_owned` is the one that says the ordinal a fixture stores still names
+    the row it did: shifting it by one either way leaves almost no club playing at a ground it
+    owns. It applies only when some club both owns a ground and has a calendar home ground,
+    because a career whose calendar is too young to give any club four home matches has an
+    empty population rather than a broken join.
+    """
+    return (
+        *evaluate_stadium_table(stats, bounds, game_db_bytes),
+        _share_gate(
+            "stadium_home_grounds_owned",
+            stats.owning_clubs_home_ground_owned,
+            stats.owning_clubs_with_home_ground,
+            bounds.stadium_home_grounds_owned,
+            _applies(bounds, game_db_bytes),
+        ),
+    )
+
+
+def check_stadiums(stats: StadiumStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The stadium reader's checks, record count and anomaly counts.
+
+    `walk_stopped_before_the_table_end` is 1 when the walk stopped inside the table instead of
+    on the word that follows its last row. That is the one anomaly here a share cannot show:
+    every ground past the stopping point is missing from the rows **and** from the denominator
+    of each share, so a walk that read half the table can still score a perfect rate on what it
+    did read.
+
+    `named_rows` counts the grounds that carry a name at all, which is a couple of hundred out
+    of tens of thousands: every other name comes from the game's installed database.
+    `template_rows` counts the rows shaped like the template the save carries rather than a
+    ground, which is one on every save measured. `unresolved_owners` counts the grounds naming
+    a club the save does not list, and `unset_capacities` the grounds whose capacity field is
+    zero, which is about four in five. `clubs_with_home_ground` counts the clubs the calendar
+    gave a home ground: none of them on a full-size save means the vote never ran.
+    """
+    return ReaderCheck(
+        STADIUMS_READER,
+        stats.rows,
+        evaluate_stadiums(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {
+                "walk_stopped_before_the_table_end": 1 - stats.table_end_reached,
+                "named_rows": stats.named_rows,
+                "template_rows": stats.template_rows,
+                "unresolved_owners": stats.owners_set - stats.owners_resolved,
+                "unset_capacities": stats.rows - stats.capacity_set,
+                "clubs_with_home_ground": stats.clubs_with_home_ground,
             }
         ),
     )

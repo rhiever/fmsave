@@ -47,11 +47,13 @@ from fmsave.readers.span import (
     missing_clock_error,
     scan_span,
 )
+from fmsave.readers.stadiums import StadiumIndex, find_stadium_layout, read_stadium_index
 from fmsave.readers.stages import StageIndex, find_stage_layout, read_stage_index
 
 CLUB_INDEX_CACHE_KEY = "club_index"
 STAGE_INDEX_CACHE_KEY = "stage_index"
 COMPETITION_INDEX_CACHE_KEY = "competition_index"
+STADIUM_INDEX_CACHE_KEY = "stadium_index"
 
 
 def closed_save_error() -> SaveClosedError:
@@ -241,6 +243,27 @@ class SaveContext:
         layout = find_stage_layout(save_info.section_schemas.get(GAME_DB_SECTION), save_info.build)
         with self.section(GAME_DB_SECTION) as game_db:
             return read_stage_index(game_db, layout, save_info.file_name)
+
+    def stadium_index(self) -> StadiumIndex:
+        """Every stadium row with the ordinal lookup, read from `game_db` once and then cached.
+
+        The index is private: the fixture reader joins through it and the stadium reader builds
+        its rows from it, and neither hands out an ordinal.
+
+        Raises:
+            SaveClosedError: The context is closed.
+            ReaderCheckError: No stadium table head was accepted, or a stadium uid appears in
+                two rows.
+        """
+        return self.cached(STADIUM_INDEX_CACHE_KEY, self._build_stadium_index)
+
+    def _build_stadium_index(self) -> StadiumIndex:
+        save_info = self._info
+        layout = find_stadium_layout(
+            save_info.section_schemas.get(GAME_DB_SECTION), save_info.build
+        )
+        with self.section(GAME_DB_SECTION) as game_db:
+            return read_stadium_index(game_db, layout, save_info.file_name)
 
     def competition_index(self) -> CompetitionIndex:
         """Every competition with its database id and, when the user supplied a name map, its

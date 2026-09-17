@@ -18,6 +18,7 @@ from fmsave._layouts import (
     GateBounds,
     LeagueTableLayout,
     PersonBlockLayout,
+    StadiumTableLayout,
     StageResultLayout,
     SuspensionLayout,
     find_layout,
@@ -39,6 +40,7 @@ from fmsave.models.matches import PlayerMatchStats
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
+from fmsave.models.stadiums import Stadium
 from fmsave.models.suspensions import Suspension
 from fmsave.name_maps import EMPTY_COMPETITION_NAMES, normalize_competition_names
 from fmsave.readers._common import (
@@ -80,6 +82,12 @@ from fmsave.readers.rules import (
     read_transfer_windows,
 )
 from fmsave.readers.span import SPAN_RECORDS_CACHE_KEY, SpanRecords
+from fmsave.readers.stadiums import (
+    StadiumIndex,
+    build_stadiums,
+    find_stadium_layout,
+    stadium_table_stats,
+)
 from fmsave.readers.stages import StageIndex, named_stages
 from fmsave.readers.suspensions import (
     SuspensionEntry,
@@ -106,6 +114,7 @@ FINANCES_TABLE_CACHE_KEY = "table:finances"
 SPONSORSHIPS_TABLE_CACHE_KEY = "table:sponsorships"
 AFFILIATES_TABLE_CACHE_KEY = "table:affiliates"
 JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
+STADIUMS_TABLE_CACHE_KEY = "table:stadiums"
 
 # What each shared decode is kept under. While nothing is stored there the decode has not
 # finished, which is what tells a failed pass from a failed reader of a pass that ran.
@@ -344,6 +353,10 @@ class Save:
         separate records that do are kept for only part of a career. A played match with empty
         goals means the save no longer holds that result, not that it finished goalless.
 
+        `stadium_uid` names the ground each match is played at, which comes from the stadium
+        table: this reader therefore needs that table and raises when the game database holds
+        none.
+
         The table is read on the first call; later calls return the same table.
 
         Raises:
@@ -352,11 +365,11 @@ class Save:
             CorruptSaveError: The save is damaged or was being written.
             ReaderCheckError: No club record is accepted, a club uid or club index appears in
                 two records, a team id is listed twice, no stage table was found in the tail of
-                the game database, a stage id appears in two rows, the save's in-game date is
-                unreadable, or, on a full-size span, the calendar or the scores joined onto it
-                fall outside the checks' bounds. With a competition name map, the competition
-                checks run first and raise here too, so no row is named from a table whose
-                checks did not pass.
+                the game database, a stage id appears in two rows, no stadium table was found
+                or its checks did not pass, the save's in-game date is unreadable, or, on a
+                full-size span, the calendar or the scores joined onto it fall outside the
+                checks' bounds. With a competition name map, the competition checks run first
+                and raise here too, so no row is named from a table whose checks did not pass.
         """
         context = self._context
         return context.cached(FIXTURES_TABLE_CACHE_KEY, self._read_fixtures)
@@ -383,9 +396,12 @@ class Save:
                 self.competitions()
             stage_index = context.stage_index()
             competition_index = context.competition_index()
+            # The stadium table is read inside this same borrow, and its own checks run here,
+            # so no ground uid reaches a fixture row from a table whose shape did not pass.
+            stadium_index = self._checked_stadium_index()
         span_records = context.span_records()
         fixtures, fixture_stats = build_fixtures(
-            span_records, stage_index, competition_index, club_index, layout
+            span_records, stage_index, competition_index, club_index, stadium_index, layout
         )
         fixtures, result_stats = self._scored_fixtures(
             fixtures, span_records, stage_index, find_result_layout(save_info.build)
@@ -451,6 +467,84 @@ class Save:
             candidates += located.candidates
             collected.extend(located.results)
         return apply_results(fixtures, collected, candidates=candidates)
+
+    def stadiums(self) -> Table[Stadium]:
+        """Every ground the save's database holds, in the order the save stores them.
+
+        A row carries the ground's capacities, its pitch, when it was built and rebuilt, and
+        the club that **owns** it. Most rows carry no name: the game takes a ground's name from
+        its installed database and only a couple of hundred grounds store one in the save.
+
+        `home_club_uids` says which clubs play their home matches there, and it is **not a
+        stored link**: no club record points at a ground, so it comes from the fixture
+        calendar, as the ground a club used for most of its first-team home matches. A ground
+        no club used often enough lists none, and a shared ground lists every club that uses
+        it. Owning a ground and playing at it are different things and are separate fields.
+
+        The last row of the table is a template the save carries rather than a ground anyone
+        plays at, and it is returned like any other row the walk found.
+
+        The table is read on the first call; later calls return the same table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: No stadium table was found, a stadium uid appears in two rows,
+                or, on a full-size save, what the table or the calendar link decoded falls
+                outside the checks' bounds. The club and fixture checks run first and raise
+                here too, since a row carries club names and a calendar-derived link.
+        """
+        context = self._context
+        return context.cached(STADIUMS_TABLE_CACHE_KEY, self._read_stadiums)
+
+    def _read_stadiums(self) -> Table[Stadium]:
+        context = self._context
+        gate_bounds = self._gate_bounds()
+        # The calendar and the clubs are read first and in full, checks and all: a stadium row
+        # carries its owner's club name and a home-ground link built out of fixture rows, so
+        # neither may reach it from a table whose own checks did not pass.
+        fixtures = self.fixtures()
+        self.clubs()
+        # No game_db borrow here on purpose. The calendar above reads the club and stadium
+        # indexes inside its own borrow, so both are cached by now and a borrow would only
+        # decompress that section a second time for two lookups already in hand.
+        club_index = context.club_index()
+        stadium_index = self._checked_stadium_index()
+        stadiums, stadium_stats = build_stadiums(
+            stadium_index, club_index, tuple(fixtures), self._stadium_layout()
+        )
+        stadium_check = checks.check_stadiums(
+            stadium_stats, gate_bounds, stadium_index.game_db_bytes
+        )
+        checks.enforce_checks((stadium_check,))
+        self._store_reader_checks((stadium_check,))
+        return Table(stadiums, Stadium)
+
+    def _stadium_layout(self) -> StadiumTableLayout:
+        save_info = self._context.info
+        return find_stadium_layout(save_info.section_schemas.get(GAME_DB_SECTION), save_info.build)
+
+    def _checked_stadium_index(self) -> StadiumIndex:
+        """The shared stadium index, once the table's own checks have passed.
+
+        Both readers that use the index take it through here, so no ground uid leaves fmsave
+        from a table whose shape was never judged. Only the table's own checks run: the
+        home-ground share needs the calendar, which is read after this index and judged by the
+        stadium reader instead.
+        """
+        context = self._context
+        stadium_index = context.stadium_index()
+        table_stats = stadium_table_stats(
+            stadium_index, context.club_index(), self._stadium_layout()
+        )
+        checks.enforce(
+            checks.STADIUMS_READER,
+            checks.evaluate_stadium_table(
+                table_stats, self._gate_bounds(), stadium_index.game_db_bytes
+            ),
+        )
+        return stadium_index
 
     def transfer_windows(self) -> Table[TransferWindow]:
         """Every transfer window the save's rules database holds, in stored order.

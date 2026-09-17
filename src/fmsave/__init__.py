@@ -59,6 +59,7 @@ from fmsave.models.rules import (
     RulesRound,
     TransferWindow,
 )
+from fmsave.models.stadiums import Stadium
 from fmsave.models.suspensions import PlayerSuspension, Suspension
 from fmsave.name_maps import read_competition_names
 from fmsave.table import Table
@@ -116,6 +117,7 @@ __all__ = [
     "SponsorType",
     "Sponsorship",
     "SquadStatus",
+    "Stadium",
     "Stage",
     "Suspension",
     "Table",

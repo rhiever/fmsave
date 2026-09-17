@@ -113,6 +113,7 @@
         'away_goals',
         'played',
         'is_neutral_venue',
+        'stadium_uid',
         'match_record_id',
         'match_rules_template',
         'unknown_date2',

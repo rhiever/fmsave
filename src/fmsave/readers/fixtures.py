@@ -36,6 +36,7 @@ from fmsave.models.fixtures import Fixture
 from fmsave.readers.clubs import ClubIndex
 from fmsave.readers.competitions import CompetitionIndex
 from fmsave.readers.span import RawFixture, SpanRecords
+from fmsave.readers.stadiums import StadiumIndex
 from fmsave.readers.stages import StageIndex
 
 # The kick-off date's two stored words, packed back together so the one date decoder in
@@ -201,13 +202,15 @@ def build_fixtures(
     stage_index: StageIndex,
     competition_index: CompetitionIndex,
     club_index: ClubIndex,
+    stadium_index: StadiumIndex,
     layout: FixtureCalendarLayout,
 ) -> tuple[tuple[Fixture, ...], FixtureStats]:
     """Decode, join and sort the calendar, and count what the fixture checks judge.
 
-    The stadium each record stores is read and used to decide `is_neutral_venue`, and is never
-    exposed: it is an ordinal into a table this release does not read, so the ground it names
-    cannot be given a uid or a name yet.
+    The stadium each record stores is an ordinal into the stadium table, and the ordinal itself
+    stays private: what a row carries is the uid that table gives it, which is the id the
+    stadium table's own rows are keyed by. The same ordinal also decides `is_neutral_venue`,
+    which compares grounds rather than naming one and so needs no uid at all.
     """
     raw_fixtures = span_records.fixtures
     split_span = _split_span(raw_fixtures, layout.cluster_gap_bytes)
@@ -217,6 +220,7 @@ def build_fixtures(
     team_to_club = club_index.team_to_club
     club_by_uid = club_index.club_by_uid
     name_for = competition_index.name_for
+    uid_by_ordinal = stadium_index.uid_by_ordinal
     round_index_none_value = layout.round_index_none_value
 
     decoded_records: list[_DecodedFixture] = []
@@ -227,6 +231,8 @@ def build_fixtures(
     away_team_resolved = 0
     undated = 0
     bad_kick_off_slots = 0
+    with_stadium = 0
+    stadium_resolved = 0
 
     for raw_fixture in kept_records:
         kick_off_date = decode_date(
@@ -249,6 +255,10 @@ def build_fixtures(
         if away_club is not None:
             away_team_resolved += 1
         stadium_ordinal = raw_fixture.stadium_ordinal
+        if stadium_ordinal is not None:
+            with_stadium += 1
+            if stadium_ordinal in uid_by_ordinal:
+                stadium_resolved += 1
         if home_club is not None and stadium_ordinal is not None:
             counts = ordinal_counts.setdefault((home_club[0], raw_fixture.season_start_year), {})
             counts[stadium_ordinal] = counts.get(stadium_ordinal, 0) + 1
@@ -306,6 +316,9 @@ def build_fixtures(
                 away_goals=None,
                 played=raw_fixture.played,
                 is_neutral_venue=is_neutral_venue,
+                stadium_uid=(
+                    None if stadium_ordinal is None else uid_by_ordinal.get(stadium_ordinal)
+                ),
                 match_record_id=raw_fixture.match_record_id if raw_fixture.played else None,
                 match_rules_template=raw_fixture.match_rules_template,
                 unknown=FrozenMapping(
@@ -332,5 +345,7 @@ def build_fixtures(
         undated=undated,
         bad_kick_off_slots=bad_kick_off_slots,
         neutral_venue_votes=len(modal_ordinals),
+        with_stadium=with_stadium,
+        stadium_resolved=stadium_resolved,
     )
     return tuple(fixtures), stats

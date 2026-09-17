@@ -841,6 +841,73 @@ class CompetitionIdPairLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class StadiumTableLayout:
+    """Where the stadium table sits in `game_db`, and where a stadium row's fields sit.
+
+    The table is found by its own first rows: a locator pattern built from `row_bytes` matches
+    the words 1, 2 and 3 one stride apart, and a hit is accepted only when `locator_rows` rows
+    from there each store their own ordinal, the stadium uid twice, and a zero byte. The head
+    is at no fixed fraction of the section, so nothing here is an offset into `game_db`.
+
+    The walk then steps row by row and stops at the first row that does not decode, so it
+    never resynchronises: a row whose ordinal is not the next one ends the table.
+
+    Every other offset counts from a row start. A row is `row_bytes` long unless bit
+    `inline_name_flag` of the byte at `flags_offset` is set, and then the u32 at
+    `name_length_offset` is a name length inside `name_length_range`, that many UTF-8 bytes
+    follow at `name_offset`, and the row is `row_bytes + named_row_extra_bytes` plus the name:
+    the bytes an unnamed row holds from `name_length_offset` on follow the name instead. A name
+    that is not valid UTF-8, or a length outside the range, ends the walk.
+
+    The owner at `owner_offset` is a public club index, and the uid words hold the uid minus
+    one, the same convention club uids use. Ranges are inclusive (lowest, highest).
+
+    `pitch_length_range` is the pitch length the pitch check accepts, and
+    `home_ground_minimum_fixtures` how many first-team home matches of a club the calendar must
+    record before the ground it used most counts as that club's home ground.
+
+    The table ends with a template row rather than a ground anyone plays at, recognised by
+    `template_all_seater_capacity`: no real ground comes near that capacity, and the template's
+    pitch limits are the widest the format holds, so it is counted on its own and left out of
+    the pitch distribution. The word `table_terminator` follows the last row, which is how the
+    walk can say whether it reached the end of the table or stopped short of it.
+    """
+
+    row_bytes: int
+    ordinal_offset: int
+    uid_offset: int
+    uid_copy_offset: int
+    zero_byte_offset: int
+    all_seater_offset: int
+    u17_offset: int
+    expansion_offset: int
+    u25_offset: int
+    owner_offset: int
+    b33_offset: int
+    capacity_offset: int
+    pitch_length_offset: int
+    pitch_width_offset: int
+    built_offset: int
+    rebuilt_offset: int
+    date_58_offset: int
+    pitch_min_length_offset: int
+    pitch_min_width_offset: int
+    pitch_max_length_offset: int
+    pitch_max_width_offset: int
+    flags_offset: int
+    inline_name_flag: int
+    name_length_offset: int
+    name_offset: int
+    named_row_extra_bytes: int
+    name_length_range: tuple[int, int]
+    locator_rows: int
+    pitch_length_range: tuple[int, int]
+    home_ground_minimum_fixtures: int
+    template_all_seater_capacity: int
+    table_terminator: int
+
+
+@dataclass(frozen=True, slots=True)
 class StageTableLayout:
     """Where the stage table sits in `game_db`, and where a stage row's fields sit.
 
@@ -1194,6 +1261,23 @@ class GateBounds:
     nothing leaves every one of them without a denominator and fails here rather than reporting
     a career whose players have played no matches.
 
+    Stadiums: `stadium_rows_minimum` (rows walked), `stadium_pitch_within_limits` (rows whose
+    pitch length is inside the layout's range and inside their own stored minimum and maximum
+    for both length and width, of the rows that are not the template the table ends with),
+    `stadium_owners_resolved` (of rows naming an owning club), `stadium_capacity_within_all_seater`
+    (of all rows) and `stadium_home_grounds_owned` (clubs whose calendar home ground is a ground
+    they own, of the clubs that own a ground and have a calendar home ground). The four shares
+    apply only where their own population is not empty, since a table of grounds no club owns,
+    or a career whose calendar gives no club a home ground, is a fact about the save; the row
+    count is what fails when the walk finds nothing.
+
+    Stadium joins: `fixture_stadiums_resolved` (kept fixtures whose stored ground the stadium
+    table holds, of kept fixtures storing one) judges the fixture reader, so it applies from
+    `span_minimum_applies_from_bytes` alongside the other fixture bounds, and only when some
+    fixture stores a ground. Its floor sits deliberately above the share a table that lost its
+    named tail resolves at, which is the one misalignment this join has: a floor low enough to
+    let that control pass would be a check that cannot fail.
+
     Injury types: `injury_type_entries_minimum` (records of the name table read out of a
     per-match entry). It applies only on a full-size `game_db` **and** when the save lists at
     least one per-match entry, because a save listing none holds these names nowhere at all,
@@ -1298,6 +1382,7 @@ class GateBounds:
     fixture_strays_minimum: BoundPair
     fixture_stage_resolved: BoundPair
     fixture_teams_resolved: BoundPair
+    fixture_stadiums_resolved: BoundPair
     result_records_minimum: BoundPair
     results_joined: BoundPair
     results_for_unplayed: BoundPair
@@ -1326,6 +1411,11 @@ class GateBounds:
     job_vacancy_dates_ordered: BoundPair
     job_vacancy_advertised_ascending: BoundPair
     job_vacancy_reserved_zero: BoundPair
+    stadium_rows_minimum: BoundPair
+    stadium_pitch_within_limits: BoundPair
+    stadium_owners_resolved: BoundPair
+    stadium_capacity_within_all_seater: BoundPair
+    stadium_home_grounds_owned: BoundPair
 
 
 type Layout = (
@@ -1343,6 +1433,7 @@ type Layout = (
     | SponsorChainLayout
     | SuspensionLayout
     | MatchRecordLayout
+    | StadiumTableLayout
     | StageTableLayout
     | CompetitionIdPairLayout
     | HumansLayout
