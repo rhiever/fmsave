@@ -80,6 +80,18 @@ from tests.fixtures.span import (
 )
 from tests.fixtures.stadiums import career_stadium_rows, stadium_table_bytes
 from tests.fixtures.staff import staff_entry_bytes, staff_object_bytes
+from tests.fixtures.tactics import (
+    HAS_TACTICS_VALUE,
+    NO_SELECTOR,
+    NO_TACTICS_VALUE,
+    ROUTINE_COUNT,
+    selection_part_bytes,
+    set_piece_area_bytes,
+    setting_unit_bytes,
+    slot_block_bytes,
+    tactic_record_bytes,
+    tactics_man_body,
+)
 
 GAME_DB_SCHEMA = 4000
 BUILD_STRING = "26.3.2+2329565"
@@ -1797,6 +1809,152 @@ def career_job_records() -> tuple[bytes, ...]:
     )
 
 
+# The tactics section. Two team blocks, one per Northbridge team: the first team carries a
+# named selection, seven player selectors and two user tactics of eleven slots each, and the
+# second carries nothing at all, which is what every team but the first looks like on a real
+# save. Only the first team's routines are named.
+TACTICS_SECTION_NAME = "tactics_man"
+TACTICS_SELECTION_LABEL = "Example XI"
+TACTICS_SELECTION_SLOTS = (12, 14, 15)
+TACTICS_LIST_A = (14, 12)
+TACTICS_LIST_B = (15,)
+TACTICS_SINGLE_SELECTOR = 14
+FIRST_TACTIC_NAME = "Example 442"
+SECOND_TACTIC_NAME = "Example 433"
+TACTIC_STYLE_NAME = "Example Style"
+TACTIC_STYLE_CODE = b"EXMP"
+FIRST_TACTIC_INSTRUCTIONS = bytes(
+    [4, 21, 6, 6, 2, 3, 30, 48, 40, 41, 42, 84, 43, 44, 45, 46, 47, 0, 255]
+)
+SECOND_TACTIC_MENTALITY = 4
+SECOND_TACTIC_INSTRUCTION_11 = 148
+# One position bit per tactic slot, with the two centre-back slots and the two wide slots
+# sharing a bit and telling each other apart by a column flag.
+TACTIC_SLOT_BITS = (0, 5, 3, 3, 6, 10, 7, 7, 12, 14, 14)
+TACTIC_LEFT_COLUMN_BIT = 20
+TACTIC_RIGHT_COLUMN_BIT = 21
+TACTIC_IN_POSSESSION_ROLE_BITS = 1 << 4
+TACTIC_OUT_OF_POSSESSION_ROLE_BITS = 1 << 3
+FIRST_UNIT_HEAD = 0
+FIRST_UNIT_FIRST_BITS = 1
+FIRST_UNIT_SECOND_BITS = 1 << 33
+SECOND_UNIT_HEAD = 0x0A
+SECOND_UNIT_FIRST_BITS = 0x0102
+SECOND_UNIT_SECOND_BITS = 1 << 70
+FIRST_ROUTINE_NAME = "Example Corner"
+FOURTH_ROUTINE_NAME = "Example Free Kick"
+
+
+def career_routine_names() -> tuple[str | None, ...]:
+    """The first team's twenty routine slots: two named, the other eighteen empty."""
+    names: list[str | None] = [None] * ROUTINE_COUNT
+    names[0] = FIRST_ROUTINE_NAME
+    names[3] = FOURTH_ROUTINE_NAME
+    return tuple(names)
+
+
+def career_tactic_slots() -> tuple[tuple[bytes, bytes], ...]:
+    """The eleven slot-block pairs every career tactic carries, in stored order."""
+    first_unit = setting_unit_bytes(
+        head_byte=FIRST_UNIT_HEAD,
+        first_bits=FIRST_UNIT_FIRST_BITS,
+        second_bits=FIRST_UNIT_SECOND_BITS,
+    )
+    second_unit = setting_unit_bytes(
+        head_byte=SECOND_UNIT_HEAD,
+        first_bits=SECOND_UNIT_FIRST_BITS,
+        second_bits=SECOND_UNIT_SECOND_BITS,
+    )
+    pairs: list[tuple[bytes, bytes]] = []
+    for slot_number, position_bit in enumerate(TACTIC_SLOT_BITS):
+        mask = 1 << position_bit
+        if slot_number == 2:
+            mask |= 1 << TACTIC_LEFT_COLUMN_BIT
+        elif slot_number == 3:
+            mask |= 1 << TACTIC_RIGHT_COLUMN_BIT
+        pairs.append(
+            (
+                slot_block_bytes(
+                    mask=mask,
+                    units=(first_unit, second_unit),
+                    role_bits=TACTIC_IN_POSSESSION_ROLE_BITS,
+                ),
+                slot_block_bytes(
+                    mask=mask,
+                    units=(first_unit,),
+                    role_bits=TACTIC_OUT_OF_POSSESSION_ROLE_BITS,
+                    position_index=slot_number,
+                ),
+            )
+        )
+    return tuple(pairs)
+
+
+def career_tactic_records() -> tuple[bytes, ...]:
+    """The first team's two user tactics, which differ in mentality and one further byte."""
+    second_instructions = bytearray(FIRST_TACTIC_INSTRUCTIONS)
+    second_instructions[2] = SECOND_TACTIC_MENTALITY
+    second_instructions[11] = SECOND_TACTIC_INSTRUCTION_11
+    slots = career_tactic_slots()
+    return (
+        tactic_record_bytes(
+            name=FIRST_TACTIC_NAME,
+            team_instructions=FIRST_TACTIC_INSTRUCTIONS,
+            style_name=TACTIC_STYLE_NAME,
+            style_code=TACTIC_STYLE_CODE,
+            slots=slots,
+        ),
+        tactic_record_bytes(
+            name=SECOND_TACTIC_NAME,
+            team_instructions=bytes(second_instructions),
+            style_name=TACTIC_STYLE_NAME,
+            style_code=TACTIC_STYLE_CODE,
+            slots=slots,
+        ),
+    )
+
+
+def career_tactics_body(
+    *,
+    selector: int = MANAGER_SELECTOR,
+    first_team_records: Sequence[bytes] | None = None,
+    first_team_routines: Sequence[str | None] | None = None,
+    second_team_routines: Sequence[str | None] = (None,) * ROUTINE_COUNT,
+) -> bytes:
+    """The whole `tactics_man` section of the career fragment.
+
+    The tactic records and either team's routine slots can be replaced, so a test can give the
+    reader a record whose walk breaks, a preset record or a block short of a routine.
+    """
+    records = career_tactic_records() if first_team_records is None else tuple(first_team_records)
+    routines = career_routine_names() if first_team_routines is None else first_team_routines
+    first_block = (
+        selection_part_bytes(
+            team_id=NORTHBRIDGE_TEAM_A,
+            label=TACTICS_SELECTION_LABEL,
+            slots=TACTICS_SELECTION_SLOTS,
+            list_a=TACTICS_LIST_A,
+            list_b=TACTICS_LIST_B,
+            single=TACTICS_SINGLE_SELECTOR,
+            tactics_value=HAS_TACTICS_VALUE,
+            tactic_count=len(records),
+        )
+        + b"".join(records)
+        + set_piece_area_bytes(routines)
+    )
+    second_block = selection_part_bytes(
+        team_id=NORTHBRIDGE_TEAM_B,
+        label="",
+        slots=(),
+        list_a=(),
+        list_b=(),
+        single=NO_SELECTOR,
+        tactics_value=NO_TACTICS_VALUE,
+        tactic_count=0,
+    ) + set_piece_area_bytes(second_team_routines)
+    return tactics_man_body(selector=selector, blocks=(first_block, second_block))
+
+
 def career_club_section_frames(
     *, feeder: bytes | None = None, job_centre: bytes | None = None
 ) -> list[SectionFrame]:
@@ -1953,6 +2111,7 @@ def career_fragment(
     feeder_section: bytes | None = None,
     job_centre_section: bytes | None = None,
     injury_manager_section: bytes | None = None,
+    tactics_section: bytes | None = None,
     stadium_table: bool = True,
     staff_affiliate: bool = False,
     extra_staff: bytes = b"",
@@ -1984,6 +2143,8 @@ def career_fragment(
             groups the fragment writes.
         job_centre_section: The whole `job_centre` section body, in place of the three
             vacancies the fragment writes.
+        tactics_section: The whole `tactics_man` section body, in place of the two team
+            blocks the fragment writes.
         injury_manager_section: The whole `injury_manager` section body, in place of the
             three log rows and three typed rows the fragment writes.
         stadium_table: Write the stadium table into `game_db`. False leaves it out, so a
@@ -2032,6 +2193,12 @@ def career_fragment(
         SectionFrame(
             INJURY_MANAGER_SECTION_NAME,
             career_injury_manager() if injury_manager_section is None else injury_manager_section,
+        )
+    )
+    sections.append(
+        SectionFrame(
+            TACTICS_SECTION_NAME,
+            career_tactics_body(selector=selector) if tactics_section is None else tactics_section,
         )
     )
     if news_results:

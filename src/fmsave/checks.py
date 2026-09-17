@@ -50,6 +50,7 @@ from fmsave._reader_stats import (
     StaffStats,
     StageStats,
     SuspensionStats,
+    TacticStats,
     TransferWindowStats,
 )
 from fmsave._status import registered_statuses
@@ -96,6 +97,8 @@ JOB_VACANCIES_READER = "job_vacancies"
 STADIUMS_READER = "stadiums"
 STAFF_READER = "staff"
 STAFF_LISTS_READER = "staff_lists"
+TACTICS_READER = "tactics"
+SET_PIECES_READER = "set_pieces"
 
 # Several readers are built from one decode. A reader whose shared decode did not finish would
 # have every other reader of the same pass redo that decode only to fail the same way, so the
@@ -104,6 +107,7 @@ PLAYER_PASS = "player"
 SPAN_PASS = "span"
 FINANCE_PASS = "finance"
 STAFF_PASS = "staff"
+TACTICS_PASS = "tactics"
 # Players, contracts and suspensions are decoded in one pass, so they fail or succeed together.
 _PLAYER_PASS_READERS = frozenset({PLAYERS_READER, CONTRACTS_READER, SUSPENSIONS_READER})
 # Fixtures, league tables and competition rules read one streamed pass over the unnamed span,
@@ -115,12 +119,16 @@ _FINANCE_PASS_READERS = frozenset({FINANCES_READER, SPONSORSHIPS_READER})
 # The staff rows and the club staff lists come out of one pass over the club records and one
 # over the whole section, so they fail or succeed together.
 _STAFF_PASS_READERS = frozenset({STAFF_READER, STAFF_LISTS_READER})
+# The tactics and the set-piece routines come out of one walk over the manager's team blocks,
+# so they fail or succeed together.
+_TACTICS_PASS_READERS = frozenset({TACTICS_READER, SET_PIECES_READER})
 _READER_PASSES: FrozenMapping[str, str] = FrozenMapping(
     {
         **dict.fromkeys(_PLAYER_PASS_READERS, PLAYER_PASS),
         **dict.fromkeys(_SPAN_PASS_READERS, SPAN_PASS),
         **dict.fromkeys(_FINANCE_PASS_READERS, FINANCE_PASS),
         **dict.fromkeys(_STAFF_PASS_READERS, STAFF_PASS),
+        **dict.fromkeys(_TACTICS_PASS_READERS, TACTICS_PASS),
     }
 )
 
@@ -1688,6 +1696,131 @@ def check_sponsorships(stats: FinanceStats, bounds: GateBounds, game_db_bytes: i
         FrozenMapping(
             {"clubs_without_sponsors": stats.clubs_with_series - stats.clubs_with_sponsors}
         ),
+    )
+
+
+def evaluate_tactics(
+    stats: TacticStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The tactic reader's checks, in a fixed order.
+
+    They apply on a full-size save that lists a managed club. A manager between jobs has no
+    team block to read, so both tables are empty and nothing here is judged: that is a fact
+    about the career rather than a layout that has moved.
+
+    `tactics_team_blocks_match_club` carries the header's own claim as well as the blocks
+    found, because the two fail differently: a team-id locator that has moved leaves a team
+    without its single block, while a header read from the wrong offset claims a number of
+    blocks that is not the managed club's team count at all. A header that disagrees scores
+    zero here whatever the locator found.
+
+    The two walk shares are judged on the user tactic records and are **not** excused when
+    there are none: a managed club whose blocks hold no readable record is what a signature
+    that has moved looks like, so a rate with no denominator fails instead of standing aside.
+    The two selector shares are excused without a denominator, because a block legitimately
+    stores no selection at all, and the second is judged on the selectors that resolved.
+    """
+    applied = _applies(bounds, game_db_bytes) and stats.managed_club_exists
+    blocks_found = stats.blocks_found if stats.header_blocks == stats.club_team_count else 0
+    return (
+        _gate(
+            "tactics_manager_selector_matches",
+            int(stats.selector_matches),
+            bounds.tactics_manager_selector_matches,
+            applied,
+        ),
+        _gate(
+            "tactics_team_blocks_match_club",
+            _rate(blocks_found, stats.club_team_count),
+            bounds.tactics_team_blocks_match_club,
+            applied,
+        ),
+        _gate(
+            "tactic_slot_walks_complete",
+            _rate(stats.slot_walks_complete, stats.user_tactics),
+            bounds.tactic_slot_walks_complete,
+            applied,
+        ),
+        _gate(
+            "tactic_oop_index_permutations",
+            _rate(stats.oop_index_permutations, stats.user_tactics),
+            bounds.tactic_oop_index_permutations,
+            applied,
+        ),
+        _share_gate(
+            "tactic_selection_selectors_resolved",
+            stats.selection_selectors_resolved,
+            stats.selection_selectors,
+            bounds.tactic_selection_selectors_resolved,
+            applied,
+        ),
+        _share_gate(
+            "tactic_selection_selectors_at_club",
+            stats.selection_selectors_at_club,
+            stats.selection_selectors_resolved,
+            bounds.tactic_selection_selectors_at_club,
+            applied,
+        ),
+    )
+
+
+def evaluate_set_pieces(
+    stats: TacticStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The set-piece reader's one check: every block holds its full set of routine slots.
+
+    It is the check that says the routine locator still ends where a routine ends. Decoding a
+    name from beside the terminator instead of in front of it leaves no block with a full set
+    of slots on any save measured, and it applies wherever a block was read at all.
+    """
+    return (
+        _share_gate(
+            "set_piece_blocks_with_twenty",
+            stats.routine_blocks_with_twenty,
+            stats.routine_blocks,
+            bounds.set_piece_blocks_with_twenty,
+            _applies(bounds, game_db_bytes) and stats.managed_club_exists,
+        ),
+    )
+
+
+def check_tactics(stats: TacticStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The tactic reader's checks, record count and anomaly counts.
+
+    `preset_tactics` counts the records in the game's own format, which every save keeps one of
+    inside a team block and which this reader counts and skips.
+    `tactic_blocks_count_mismatched` counts the blocks that claim more tactic records than the
+    walk found signatures for, and `unresolved_selectors` the selectors no player record names.
+    """
+    return ReaderCheck(
+        TACTICS_READER,
+        stats.user_tactics,
+        evaluate_tactics(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {
+                "preset_tactics": stats.preset_tactics,
+                "tactic_blocks_count_mismatched": (
+                    stats.tactic_blocks - stats.tactic_blocks_count_matching
+                ),
+                "unresolved_selectors": (
+                    stats.selection_selectors - stats.selection_selectors_resolved
+                ),
+            }
+        ),
+    )
+
+
+def check_set_pieces(stats: TacticStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The set-piece reader's check, record count and anomaly count.
+
+    `named_routines` is reported rather than gated: a first team carries ten named routines on
+    every save measured and every other team carries none, so the count is career state.
+    """
+    return ReaderCheck(
+        SET_PIECES_READER,
+        stats.routines,
+        evaluate_set_pieces(stats, bounds, game_db_bytes),
+        FrozenMapping({"named_routines": stats.named_routines}),
     )
 
 

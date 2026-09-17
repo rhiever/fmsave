@@ -972,6 +972,59 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'block_count_offset': 15,
+        'block_marker': b'\t\x03',
+        'first_block_offset': 19,
+        'header_marker': 13,
+        'header_marker_offset': 10,
+        'list_item_lead_byte': 2,
+        'mentality_index': 2,
+        'name_length_range': tuple(
+          0,
+          256,
+        ),
+        'name_zero_bytes': 12,
+        'no_tactics_value': 4294967295,
+        'order_list_count': 8,
+        'order_marker': b'\x08',
+        'position_bit_count': 15,
+        'preset_signature': b'"B\x00\x1a\x03\x00\x01\x01',
+        'role_bits_bytes': 8,
+        'routine_count': 20,
+        'routine_name_length_range': tuple(
+          0,
+          64,
+        ),
+        'routine_terminator': b'\x01LLUN',
+        'selection_end_marker': b'B\x00',
+        'selection_slot_count': 26,
+        'selector_offset': 11,
+        'slot_constant': b'\xff\x00\x01\x01',
+        'slot_count': 11,
+        'slot_tag': b'B\x00\x02',
+        'style_code_bytes': 4,
+        'tactic_count_lead_byte': 0,
+        'taker_list_count': 10,
+        'taker_marker': b'\x08\x05\x02',
+        'team_instruction_bytes': 19,
+        'trail_bytes': 4,
+        'unit_bytes': 24,
+        'unit_count_range': tuple(
+          0,
+          64,
+        ),
+        'unit_first_field_bytes': 7,
+        'unit_lead': b'\x01\x02\x02',
+        'unit_second_field_bytes': 12,
+        'unit_separator': 255,
+        'user_signature': b'"B\x00\x1a\x03\x00\x01\x02',
+      }),
+      'region': 'tactics_man',
+      'schema': 26,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
         'flag_values': tuple(
           0,
           1,
@@ -1434,6 +1487,10 @@
           0.995,
           None,
         ),
+        'set_piece_blocks_with_twenty': tuple(
+          1.0,
+          None,
+        ),
         'span_minimum_applies_from_bytes': 16777216,
         'stadium_capacity_within_all_seater': tuple(
           0.99,
@@ -1545,6 +1602,30 @@
         ),
         'table_groups_resolved': tuple(
           0.7,
+          None,
+        ),
+        'tactic_oop_index_permutations': tuple(
+          1.0,
+          None,
+        ),
+        'tactic_selection_selectors_at_club': tuple(
+          0.85,
+          None,
+        ),
+        'tactic_selection_selectors_resolved': tuple(
+          0.95,
+          None,
+        ),
+        'tactic_slot_walks_complete': tuple(
+          1.0,
+          None,
+        ),
+        'tactics_manager_selector_matches': tuple(
+          1,
+          1,
+        ),
+        'tactics_team_blocks_match_club': tuple(
+          1.0,
           None,
         ),
         'tails_parsed': tuple(

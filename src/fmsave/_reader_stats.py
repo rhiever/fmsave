@@ -574,3 +574,56 @@ class JobVacancyStats:
     with_competition: int
     with_league_position: int
     flagged: int
+
+
+@dataclass(frozen=True, slots=True)
+class TacticStats:
+    """What the walk over the manager's team blocks counted.
+
+    `managed_club_exists` is False on a save that lists no human manager with a club, which is
+    what decides whether any of these counts is judged at all: there is then no team block to
+    read and both tables are empty.
+
+    `club_team_count` is how many teams the managed club fields, `header_blocks` the number of
+    blocks the section header claims and `blocks_found` how many teams the section stores
+    exactly one block for. `selector_matches` is whether the section header names the same
+    human manager as the `humans` section.
+
+    `selection_selectors` counts every player selector the blocks store, over the selection
+    slots, the two selector lists, the single selector, the ten set-piece lists and the eight
+    order lists; `selection_selectors_resolved` those a player record names, and
+    `selection_selectors_at_club` those of them registered with the managed club. Nothing of
+    the selection itself is shipped: these counts are what says the selectors are still being
+    read where they sit.
+
+    `tactic_blocks` counts the blocks whose stored count claims a tactic record and
+    `tactic_blocks_count_matching` those where every record it claims was found.
+    `user_tactics` counts the records the manager wrote, `preset_tactics` those in the game's
+    own format, which are counted and skipped. `slot_walks_complete` counts the user records
+    whose 22 slot blocks walked and `oop_index_permutations` those whose out-of-possession
+    index bytes are a permutation of the slot numbers.
+
+    `routine_blocks` counts the blocks whose routines were searched for,
+    `routine_blocks_with_twenty` those holding exactly the number of routine slots a block is
+    expected to hold, `routines` the rows built from them and `named_routines` those with a
+    name.
+    """
+
+    managed_club_exists: bool
+    club_team_count: int
+    header_blocks: int
+    blocks_found: int
+    selector_matches: bool
+    selection_selectors: int
+    selection_selectors_resolved: int
+    selection_selectors_at_club: int
+    tactic_blocks: int
+    tactic_blocks_count_matching: int
+    user_tactics: int
+    preset_tactics: int
+    slot_walks_complete: int
+    oop_index_permutations: int
+    routine_blocks: int
+    routine_blocks_with_twenty: int
+    routines: int
+    named_routines: int

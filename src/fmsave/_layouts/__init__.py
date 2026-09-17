@@ -1252,6 +1252,96 @@ class StaffLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class TacticsLayout:
+    """Where the manager's team blocks sit in `tactics_man`, and how one tactic is laid out.
+
+    **Header.** The byte at `header_marker_offset` is `header_marker`, the u32 at
+    `selector_offset` is the human manager's own selector (his person id plus 1, the value
+    `humans` stores) and the u32 at `block_count_offset` is how many team blocks follow from
+    `first_block_offset`. The u16 in front of the marker is 1 on every save measured and is
+    read by nothing: "the number of human managers" is a hypothesis with no second case to
+    test, and a save with two humans is not in the corpus.
+
+    **Team blocks.** One block per team of the managed club, in ascending team id, found by
+    searching for the team's own id followed by `block_marker`; a team id those six bytes match
+    at several places, or none, gets no block. A block starts with that id and marker, then a
+    length-prefixed selection label, then `selection_slot_count` selector words, then
+    `selection_end_marker`, two selector lists, `list_item_lead_byte` and one selector,
+    `taker_marker`, `taker_list_count` lists, `order_marker`, `order_list_count` lists, a zero
+    byte, the u32 the manager's choice of tactic may sit in (`no_tactics_value` on a block with
+    no tactic) and the u16 count of tactic records. A selector list is a u32 count and that
+    many `list_item_lead_byte` plus u32 pairs; nothing caps a count but the bytes left in the
+    section, because one list of 99 selectors exists.
+
+    **Tactic records** are bounded by the next signature, never by the walk: the bytes after a
+    record's last slot block are not decoded, so the record after it starts at the next
+    `user_signature` or `preset_signature` hit, and the count says how many to read. A record
+    is its signature, a length-prefixed name within `name_length_range`, `name_zero_bytes`
+    zero bytes, `team_instruction_bytes` instruction bytes of which `mentality_index` is the
+    mentality code, a length-prefixed style label, `style_code_bytes` of style code, and then
+    `slot_count` **pairs** of slot blocks: the in-possession block and then the
+    out-of-possession block, which is the one carrying the extra per-position index byte. The
+    22 blocks of a record are pairs and not two runs of eleven: walked as two runs the walk
+    stops at the third block on every record of every save measured, and walked as pairs it
+    completes on all of them with the index bytes a permutation of 0 to `slot_count` less one.
+
+    **A slot block** is `slot_tag`, a u32 position mask whose bits 0 to `position_bit_count`
+    less one are positions and whose higher bits are column flags, `slot_constant`, a u32
+    count of setting units inside `unit_count_range`, `role_bits_bytes` of role bits, that many
+    `unit_bytes` units and `trail_bytes` of trailing bits. A unit is `unit_lead`, a head byte,
+    `unit_first_field_bytes` of one bit field, `unit_separator` and
+    `unit_second_field_bytes` of another.
+
+    **Set-piece routines** follow a block's tactic records. Each ends with a length-prefixed
+    name inside `routine_name_length_range` and then `routine_terminator`, so they are found by
+    searching the block for that terminator and decoding the name backwards from it: the
+    smallest length whose stored u32 sits exactly that many bytes in front of the terminator and
+    whose bytes are text. `routine_count` of them sit in every block of every save measured, and
+    not one terminator falls inside a tactic record, including on the save whose style code is
+    the terminator's own last four bytes. A routine's name is never matched against text: an
+    unnamed slot stores a name of length zero.
+    """
+
+    header_marker_offset: int
+    header_marker: int
+    selector_offset: int
+    block_count_offset: int
+    first_block_offset: int
+    block_marker: bytes
+    selection_slot_count: int
+    selection_end_marker: bytes
+    list_item_lead_byte: int
+    taker_marker: bytes
+    taker_list_count: int
+    order_marker: bytes
+    order_list_count: int
+    no_tactics_value: int
+    tactic_count_lead_byte: int
+    user_signature: bytes
+    preset_signature: bytes
+    name_zero_bytes: int
+    team_instruction_bytes: int
+    mentality_index: int
+    style_code_bytes: int
+    slot_count: int
+    slot_tag: bytes
+    slot_constant: bytes
+    role_bits_bytes: int
+    unit_bytes: int
+    unit_lead: bytes
+    unit_first_field_bytes: int
+    unit_separator: int
+    unit_second_field_bytes: int
+    trail_bytes: int
+    unit_count_range: tuple[int, int]
+    position_bit_count: int
+    routine_terminator: bytes
+    routine_count: int
+    routine_name_length_range: tuple[int, int]
+    name_length_range: tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
 class GateBounds:
     """Loose bounds for the reader checks on what the `game_db` readers decode.
 
@@ -1515,6 +1605,25 @@ class GateBounds:
     one byte late, the block share on a name-block window that starts past the block, and the
     unowned count on a kind byte read one byte out. `staff_block_40_in_range` holds at 1.0 with
     the ability block read one byte early, which the three shares beside it catch instead.
+
+    Tactics: `tactics_manager_selector_matches` (1 when the section header names the same human
+    manager as `humans`), `tactics_team_blocks_match_club` (blocks found, of the managed club's
+    teams, and 0 when the header claims a different number of blocks),
+    `tactic_slot_walks_complete` and `tactic_oop_index_permutations` (user tactic records whose
+    22 slot blocks walked, and whose out-of-possession index bytes are a permutation, of user
+    tactic records), `tactic_selection_selectors_resolved` (selectors the player records name,
+    of selectors) and `tactic_selection_selectors_at_club` (of those, the ones at the managed
+    club); in `set_pieces()`, `set_piece_blocks_with_twenty` (blocks holding exactly
+    `TacticsLayout.routine_count` routines, of blocks). They apply on a full-size `game_db` and
+    only where the save lists a managed club, because a manager between jobs has no team block
+    to read and an empty result is a fact about the career.
+
+    The two walk shares are judged on the user tactic records, and they are deliberately **not**
+    excused when there are none: a managed club whose blocks hold no readable tactic record is
+    what a signature that has moved looks like. The two selector shares and the routine share
+    are excused without a denominator, since a block legitimately stores no selection at all.
+    Mentality in 1 to 7 is **not** a gate: instruction byte 3 is 6 on every record of every save
+    measured, so a record read one byte late passes it.
     """
 
     minimum_applies_from_bytes: int
@@ -1631,6 +1740,13 @@ class GateBounds:
     staff_minimum: BoundPair
     staff_listed_contracted_here: BoundPair
     staff_unowned_tailed_contracts: BoundPair
+    tactics_manager_selector_matches: BoundPair
+    tactics_team_blocks_match_club: BoundPair
+    tactic_slot_walks_complete: BoundPair
+    tactic_oop_index_permutations: BoundPair
+    tactic_selection_selectors_resolved: BoundPair
+    tactic_selection_selectors_at_club: BoundPair
+    set_piece_blocks_with_twenty: BoundPair
 
 
 type Layout = (
@@ -1663,6 +1779,7 @@ type Layout = (
     | RulesPreambleLayout
     | TaggedStreamLayout
     | TransferWindowLayout
+    | TacticsLayout
     | GateBounds
 )
 

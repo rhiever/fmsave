@@ -68,6 +68,14 @@ from fmsave.models.rules import (
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffAttributes, StaffList, StaffPreferences
 from fmsave.models.suspensions import PlayerSuspension, Suspension
+from fmsave.models.tactics import (
+    Mentality,
+    SetPieceRoutine,
+    Tactic,
+    TacticPosition,
+    TacticSettingUnit,
+    TacticSlot,
+)
 from fmsave.name_maps import read_competition_names
 from fmsave.table import Table
 
@@ -109,6 +117,7 @@ __all__ = [
     "ManagedClub",
     "MatchOutcome",
     "MatchPosition",
+    "Mentality",
     "NotAFmSaveError",
     "Personality",
     "Player",
@@ -125,6 +134,7 @@ __all__ = [
     "SaveClosedError",
     "SaveInfo",
     "SectionInfo",
+    "SetPieceRoutine",
     "SponsorType",
     "Sponsorship",
     "SquadStatus",
@@ -136,6 +146,10 @@ __all__ = [
     "Stage",
     "Suspension",
     "Table",
+    "Tactic",
+    "TacticPosition",
+    "TacticSettingUnit",
+    "TacticSlot",
     "Team",
     "Trait",
     "TransferWindow",

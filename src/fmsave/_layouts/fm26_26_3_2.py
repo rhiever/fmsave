@@ -36,6 +36,7 @@ from fmsave._layouts import (
     StageTableLayout,
     SummaryStringsLayout,
     SuspensionLayout,
+    TacticsLayout,
     TaggedStreamLayout,
     TeamListLayout,
     TransferWindowLayout,
@@ -144,6 +145,48 @@ JOB_CENTRE = JobCentreLayout(
     league_position_offset=22,
     reserved_u8_offset=23,
     flag_offset=24,
+)
+
+# The manager's own team blocks in the `tactics_man` section, each holding that team's copy of
+# every tactic and its twenty set-piece routine slots.
+TACTICS = TacticsLayout(
+    header_marker_offset=10,
+    header_marker=0x0D,
+    selector_offset=11,
+    block_count_offset=15,
+    first_block_offset=19,
+    block_marker=bytes.fromhex("0903"),
+    selection_slot_count=26,
+    selection_end_marker=bytes.fromhex("4200"),
+    list_item_lead_byte=2,
+    taker_marker=bytes.fromhex("080502"),
+    taker_list_count=10,
+    order_marker=b"\x08",
+    order_list_count=8,
+    no_tactics_value=0xFFFFFFFF,
+    tactic_count_lead_byte=0,
+    user_signature=bytes.fromhex("2242001a03000102"),
+    preset_signature=bytes.fromhex("2242001a03000101"),
+    name_zero_bytes=12,
+    team_instruction_bytes=19,
+    mentality_index=2,
+    style_code_bytes=4,
+    slot_count=11,
+    slot_tag=bytes.fromhex("420002"),
+    slot_constant=bytes.fromhex("ff000101"),
+    role_bits_bytes=8,
+    unit_bytes=24,
+    unit_lead=bytes.fromhex("010202"),
+    unit_first_field_bytes=7,
+    unit_separator=0xFF,
+    unit_second_field_bytes=12,
+    trail_bytes=4,
+    unit_count_range=(0, 64),
+    position_bit_count=15,
+    routine_terminator=bytes.fromhex("014c4c554e"),
+    routine_count=20,
+    routine_name_length_range=(0, 64),
+    name_length_range=(0, 256),
 )
 
 NAME_POOLS = NamePoolLayout(
@@ -1235,6 +1278,35 @@ GATE_BOUNDS = GateBounds(
     # saves. With the kind byte read one byte out, no header is accepted and 13,504 records are
     # left unowned.
     staff_unowned_tailed_contracts=(None, 0),
+    # The section header names the same human manager as `humans` on all three saves; read one
+    # byte or four bytes late it names nobody at all, so only equality passes.
+    tactics_manager_selector_matches=(1, 1),
+    # Every team of the managed club has exactly one block on all three saves (5, 4 and 5 of
+    # them), and the header claims that same number. Reading the count four bytes late gives a
+    # team id instead, and one byte late gives 1,610,612,736, so the header agreement fails on
+    # its own; a team-id locator read one byte late matches 7, 4 and 7 places over the same
+    # team ids, which leaves a team without its single block.
+    tactics_team_blocks_match_club=(1.0, None),
+    # All 4, 4 and 6 user tactic records walk their 22 slot blocks, and the eleven
+    # out-of-possession index bytes of each are a permutation of 0 to 10. Walked from one byte,
+    # four bytes or a byte short of the signature, not one record completes on any save, which
+    # leaves both shares at zero.
+    tactic_slot_walks_complete=(1.0, None),
+    tactic_oop_index_permutations=(1.0, None),
+    # Every one of the 318, 265 and 1,069 selectors the blocks hold names a player record:
+    # 1.0 on all three saves. Reading each selector's value one byte late leaves 0.003, 0.004
+    # and 0.001 of them resolving, so the floor sits far above its control.
+    tactic_selection_selectors_resolved=(0.95, None),
+    # 1.0, 0.9358 and 1.0 of the selectors that resolve name a player at the managed club; the
+    # rest are players who have left. Taking a selector for a player index without subtracting
+    # one still resolves 0.937, 0.819 and 0.993 of them, but only 0.154, 0.0 and 0.206 of those
+    # are at the club, so that off-by-one fails here on every save.
+    tactic_selection_selectors_at_club=(0.85, None),
+    # Twenty routine slots in every block of every save (100, 80 and 100 in all). Decoding the
+    # name from one or two bytes either side of the terminator leaves no block with twenty:
+    # 0 routines decode from three of those four shifts and 66, 50 and 66 from the fourth,
+    # spread over the blocks.
+    set_piece_blocks_with_twenty=(1.0, None),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (
@@ -1262,6 +1334,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="injury_manager", schema=8, build=BUILD, layout=INJURY_MANAGER),
     LayoutEntry(region="job_centre", schema=1, build=BUILD, layout=JOB_CENTRE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STAFF),
+    LayoutEntry(region="tactics_man", schema=26, build=BUILD, layout=TACTICS),
     LayoutEntry(region=MATCH_FILE_REGION_NAME, schema=None, build=BUILD, layout=INJURY_TYPE_TABLE),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=FIXTURE_CALENDAR),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=STAGE_RESULTS),

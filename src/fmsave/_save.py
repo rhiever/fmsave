@@ -23,7 +23,7 @@ from fmsave._layouts import (
     SuspensionLayout,
     find_layout,
 )
-from fmsave._reader_stats import ResultStats
+from fmsave._reader_stats import ResultStats, TacticStats
 from fmsave._version import read_save_info
 from fmsave.checks import ReaderCheck
 from fmsave.models.affiliates import AffiliateGroup
@@ -43,6 +43,7 @@ from fmsave.models.rules import CompetitionRules, TransferWindow
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
+from fmsave.models.tactics import SetPieceRoutine, Tactic
 from fmsave.name_maps import EMPTY_COMPETITION_NAMES, normalize_competition_names
 from fmsave.readers._common import (
     FEEDER_SECTION,
@@ -52,6 +53,7 @@ from fmsave.readers._common import (
     JOB_CENTRE_SECTION,
     SAVE_SUMMARY_SECTION,
     SPAN_REGION,
+    TACTICS_SECTION,
 )
 from fmsave.readers.affiliates import (
     build_affiliate_groups,
@@ -69,7 +71,11 @@ from fmsave.readers.injuries import (
 )
 from fmsave.readers.jobs import find_job_centre_layout, read_job_vacancies
 from fmsave.readers.league_tables import build_league_tables
-from fmsave.readers.managed import find_managed_club_layouts, resolve_managed_clubs
+from fmsave.readers.managed import (
+    find_managed_club_layouts,
+    first_human_selector,
+    resolve_managed_clubs,
+)
 from fmsave.readers.matches import (
     build_player_match_stats,
     find_match_record_layout,
@@ -104,6 +110,12 @@ from fmsave.readers.suspensions import (
     suspension_rows,
     suspension_stats,
 )
+from fmsave.readers.tactics import (
+    build_tactic_tables,
+    find_tactics_layout,
+    read_tactics_header,
+    walk_tactic_blocks,
+)
 from fmsave.table import Table
 
 CLUBS_TABLE_CACHE_KEY = "table:clubs"
@@ -127,6 +139,8 @@ JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
 STADIUMS_TABLE_CACHE_KEY = "table:stadiums"
 STAFF_TABLE_CACHE_KEY = "table:staff"
 STAFF_LISTS_TABLE_CACHE_KEY = "table:staff_lists"
+TACTICS_TABLE_CACHE_KEY = "table:tactics"
+SET_PIECES_TABLE_CACHE_KEY = "table:set_pieces"
 
 # What each shared decode is kept under. While nothing is stored there the decode has not
 # finished, which is what tells a failed pass from a failed reader of a pass that ran.
@@ -135,6 +149,7 @@ _SHARED_PASS_CACHE_KEYS: Mapping[str, str] = {
     checks.SPAN_PASS: SPAN_RECORDS_CACHE_KEY,
     checks.FINANCE_PASS: FINANCES_TABLE_CACHE_KEY,
     checks.STAFF_PASS: STAFF_TABLE_CACHE_KEY,
+    checks.TACTICS_PASS: TACTICS_TABLE_CACHE_KEY,
 }
 
 
@@ -143,6 +158,38 @@ class _FinanceTables(NamedTuple):
 
     finances: Table[FinanceMonth]
     sponsorships: Table[Sponsorship]
+    reader_checks: tuple[ReaderCheck, ...]
+
+
+# What a save with no managed club counts: a manager between jobs has no team block at all, so
+# every tactic check stands aside rather than judging an empty result.
+_EMPTY_TACTIC_STATS = TacticStats(
+    managed_club_exists=False,
+    club_team_count=0,
+    header_blocks=0,
+    blocks_found=0,
+    selector_matches=False,
+    selection_selectors=0,
+    selection_selectors_resolved=0,
+    selection_selectors_at_club=0,
+    tactic_blocks=0,
+    tactic_blocks_count_matching=0,
+    user_tactics=0,
+    preset_tactics=0,
+    slot_walks_complete=0,
+    oop_index_permutations=0,
+    routine_blocks=0,
+    routine_blocks_with_twenty=0,
+    routines=0,
+    named_routines=0,
+)
+
+
+class _TacticTables(NamedTuple):
+    """The two tables one walk over the manager's team blocks builds, and their checks."""
+
+    tactics: Table[Tactic]
+    set_pieces: Table[SetPieceRoutine]
     reader_checks: tuple[ReaderCheck, ...]
 
 
@@ -1313,6 +1360,154 @@ class Save:
         )
         checks.enforce_checks(reader_checks)
         return _StaffTables(Table(staff_rows, Staff), Table(list_rows, StaffList), reader_checks)
+
+    def tactics(self) -> Table[Tactic]:
+        """Every tactic the manager's teams store, by team and then in stored order.
+
+        **A tactic belongs to a team, not to a club.** The save keeps each team's own copy of
+        every tactic the manager has, so the same tactic name appears once per team and a row
+        is one stored copy, keyed on `team_id` and `index`. The copies are not byte-identical.
+        **Nothing stored says which tactic is selected**, so there is no such field: the word
+        that might hold it is the same on every block that carries a tactic at all.
+
+        Only the manager's own teams are here. No other club stores a tactic in this form, and
+        the line-ups the section keeps for thousands of other clubs are a different structure
+        that fmsave does not read.
+
+        `mentality` and every position bit are **raw codes with the label UNKNOWN**: they are
+        read from offsets a strict walk of every record lands on exactly, but no displayed
+        mentality or formation has been matched to one of those numbers. The 19 team
+        instructions and the setting units of each slot are unidentified numbers in the same
+        way, and ship in `unknown` and as `TacticSettingUnit` values rather than under names
+        they have not earned.
+
+        The table is read on the first call to `tactics()` or `set_pieces()`, from one walk;
+        later calls to either return the same tables. When a check of that walk fails, neither
+        table is kept, so both raise. A cold call pays for the player pass, because the
+        selectors the reader's checks judge resolve through the player records.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: The tactics section is too short to hold its header, a constant a
+                team block is built around is not where fmsave expects it, a count inside a
+                block runs past the end of the section, a name does not decode, no club record
+                is accepted, a club uid or club index appears in two records, a team id is
+                listed twice, or, on a full-size save that lists a managed club, what the walk
+                read falls outside the checks' bounds.
+        """
+        context = self._context
+        return context.cached(TACTICS_TABLE_CACHE_KEY, self._tactics_table_entry_point)
+
+    def set_pieces(self) -> Table[SetPieceRoutine]:
+        """Every set-piece routine slot of the manager's teams, by team and then slot.
+
+        Each team has twenty slots and each is a row, whose `name` is None when the slot holds
+        no routine: that is half the slots of a first team and all twenty of every other team
+        on the saves measured. **Which set-piece situation a slot is for is not stored as
+        text**, so the slot number is all there is to go on, and a routine is never recognised
+        by its name.
+
+        The table is read on the first call to `tactics()` or `set_pieces()`, from one walk;
+        later calls to either return the same tables. When a check of that walk fails, neither
+        table is kept, so both raise.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: The tactics section is too short to hold its header, a constant a
+                team block is built around is not where fmsave expects it, a count inside a
+                block runs past the end of the section, a name does not decode, no club record
+                is accepted, a club uid or club index appears in two records, a team id is
+                listed twice, or, on a full-size save that lists a managed club, what the walk
+                read falls outside the checks' bounds.
+        """
+        context = self._context
+        return context.cached(SET_PIECES_TABLE_CACHE_KEY, self._set_pieces_table_entry_point)
+
+    def _tactics_table_entry_point(self) -> Table[Tactic]:
+        tables = self._decode_tactics_tables()
+        self._store_reader_checks(tables.reader_checks)
+        self._context.cached(SET_PIECES_TABLE_CACHE_KEY, lambda: tables.set_pieces)
+        return tables.tactics
+
+    def _set_pieces_table_entry_point(self) -> Table[SetPieceRoutine]:
+        tables = self._decode_tactics_tables()
+        self._store_reader_checks(tables.reader_checks)
+        self._context.cached(TACTICS_TABLE_CACHE_KEY, lambda: tables.tactics)
+        return tables.set_pieces
+
+    def _decode_tactics_tables(self) -> _TacticTables:
+        context = self._context
+        save_info = context.info
+        gate_bounds = self._gate_bounds()
+        layout = find_tactics_layout(
+            save_info.section_schemas.get(TACTICS_SECTION), save_info.build
+        )
+        humans_layout = find_managed_club_layouts(save_info.section_schemas, save_info.build).humans
+        # Every read of `game_db` sits inside one borrow, the managed club's own included, so a
+        # cold call decompresses that section once. The managed-club reader needs it too, and
+        # calling it before the borrow opened cost a second decompression of several hundred
+        # megabytes. The two small sections are held across it, which costs a few megabytes.
+        with (
+            context.section(HUMANS_SECTION) as humans,
+            context.section(TACTICS_SECTION) as tactics_section,
+            context.section(GAME_DB_SECTION) as game_db,
+        ):
+            managed_clubs = self.managed_clubs()
+            if not managed_clubs:
+                return self._empty_tactic_tables(gate_bounds)
+            managed_club_uid = managed_clubs[0].club_uid
+            human_selector = first_human_selector(humans, humans_layout, save_info.file_name)
+            header_selector, _header_blocks = read_tactics_header(
+                tactics_section, layout, save_info.file_name
+            )
+            # Every row hands out a club name and the selector counts go through the players, so
+            # both are read through the readers that enforce their own checks rather than
+            # through the indexes behind them.
+            self.clubs()
+            players = self.players()
+            club_index = context.club_index()
+            player_records = context.player_records()
+            game_db_length = len(game_db)
+            managed_club = club_index.club_by_uid.get(managed_club_uid)
+            club_team_ids = (
+                [] if managed_club is None else [team.team_id for team in managed_club.teams]
+            )
+            blocks, walk_counts = walk_tactic_blocks(
+                tactics_section, club_team_ids, layout, save_info.file_name
+            )
+        tactics, set_pieces, tactic_stats = build_tactic_tables(
+            blocks,
+            club_index,
+            player_records,
+            players,
+            managed_club_uid,
+            header_selector,
+            human_selector,
+            walk_counts,
+        )
+        # Both checks run before either table is built: when one fails, nothing is cached and
+        # the next call walks and checks again.
+        reader_checks = (
+            checks.check_tactics(tactic_stats, gate_bounds, game_db_length),
+            checks.check_set_pieces(tactic_stats, gate_bounds, game_db_length),
+        )
+        checks.enforce_checks(reader_checks)
+        return _TacticTables(
+            Table(tactics, Tactic), Table(set_pieces, SetPieceRoutine), reader_checks
+        )
+
+    def _empty_tactic_tables(self, gate_bounds: GateBounds) -> _TacticTables:
+        """Both tables empty, for a manager with no club: nothing here is judged."""
+        empty_stats = _EMPTY_TACTIC_STATS
+        reader_checks = (
+            checks.check_tactics(empty_stats, gate_bounds, 0),
+            checks.check_set_pieces(empty_stats, gate_bounds, 0),
+        )
+        return _TacticTables(Table((), Tactic), Table((), SetPieceRoutine), reader_checks)
 
     def _reader_check(self, reader_name: str) -> ReaderCheck | None:
         """The checks a reader passed when its table was read, or None before it was read."""
