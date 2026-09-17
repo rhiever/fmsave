@@ -981,8 +981,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Say plainly what did not run. Without the private folder the copied-text and
         # denylist checks are skipped, and a bare "ok" reads like a full pass.
         print(
-            "guard: ok (structural checks only) -- private folder not found, so the "
-            "copied-text and denylist checks DID NOT RUN",
+            "guard: ok (structural checks only -- private-folder checks did NOT run)",
             file=sys.stderr,
         )
     return 0

@@ -353,7 +353,7 @@ def test_submodule_in_history_is_blocked(
 
 HEX_ALPHABET = "0123456789abcdefABCDEF"
 BASE64_ALPHABET = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo+/_-="
-STRUCTURAL_OK_LINE = "guard: ok (structural checks only)"
+STRUCTURAL_OK_LINE = "guard: ok (structural checks only -- private-folder checks did NOT run)"
 # A lookbehind for the repeated unit, then that unit (bare or in a group) repeated at least N times.
 LOOKBEHIND_RUN_SHAPE = re.compile(r"\(\?<!(?P<unit>.+)\)(?:(?P=unit)|\(\?:(?P=unit)\))\{\d+,\}\+?")
 
