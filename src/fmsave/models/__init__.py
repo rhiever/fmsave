@@ -1,5 +1,6 @@
 """Public record types."""
 
+from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.clubs import Club, Team
 from fmsave.models.common import CodedValue, ContractEndSource, TransferValueState
 from fmsave.models.competitions import Competition, CompetitionRound, Stage
@@ -14,6 +15,7 @@ from fmsave.models.contracts import (
 from fmsave.models.finances import FinanceMonth, Sponsorship, SponsorType
 from fmsave.models.fixtures import Fixture
 from fmsave.models.injuries import InjuryType
+from fmsave.models.jobs import JobVacancy
 from fmsave.models.league_tables import (
     LeagueTable,
     LeagueTableMatch,
@@ -44,6 +46,7 @@ from fmsave.models.suspensions import PlayerSuspension, Suspension
 
 __all__ = [
     "Ability",
+    "AffiliateGroup",
     "Attributes",
     "Clause",
     "ClauseKind",
@@ -59,6 +62,7 @@ __all__ = [
     "FinanceMonth",
     "Fixture",
     "InjuryType",
+    "JobVacancy",
     "LeagueTable",
     "LeagueTableMatch",
     "LeagueTableRow",

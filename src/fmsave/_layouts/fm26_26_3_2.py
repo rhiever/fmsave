@@ -7,6 +7,7 @@ import struct
 from fmsave._layouts import (
     FULL_SAVE_MINIMUM_GAME_DB_BYTES,
     FULL_SAVE_MINIMUM_SPAN_BYTES,
+    AffiliateGroupLayout,
     ClubRecordLayout,
     ClubStatusLayout,
     CompetitionIdPairLayout,
@@ -17,6 +18,7 @@ from fmsave._layouts import (
     GateBounds,
     HumansLayout,
     InjuryTypeTableLayout,
+    JobCentreLayout,
     LayoutEntry,
     LeagueTableLayout,
     MatchRecordLayout,
@@ -87,6 +89,33 @@ INJURY_TYPE_TABLE = InjuryTypeTableLayout(
     # four to try. Every save measured carries the magic on all of them, so nothing reaches it.
     maximum_entries_opened=8,
     payload_prefix=b"\x03\x01",
+)
+
+# The groups of clubs the `feeder_man` section stores. Groups run from 2 to 9 members on every
+# save measured; the cap is far wider so that only a count read from the wrong bytes trips it.
+AFFILIATE_GROUPS = AffiliateGroupLayout(
+    count_offset=12,
+    groups_offset=16,
+    group_size_range=(1, 64),
+)
+
+# The open vacancies the `job_centre` section stores, 25 bytes each with no trailer.
+JOB_CENTRE = JobCentreLayout(
+    count_offset=8,
+    records_offset=12,
+    record_bytes=25,
+    tag=bytes.fromhex("060000"),
+    team_id_offset=3,
+    role_offset=7,
+    advertised_offset=8,
+    date_12_offset=12,
+    reserved_u16_offset=16,
+    competition_offset=18,
+    no_competition=0xFFFF,
+    u20_offset=20,
+    league_position_offset=22,
+    reserved_u8_offset=23,
+    flag_offset=24,
 )
 
 NAME_POOLS = NamePoolLayout(
@@ -948,6 +977,30 @@ GATE_BOUNDS = GateBounds(
     # career where a few clubs hold none while still failing a sponsor search that has moved,
     # which finds nothing at all.
     finance_clubs_with_sponsors=(0.95, None),
+    # 419 of 426, 417 of 424 and 419 of 426 group members are club indexes a club record
+    # claims; the seven that are not fall in gaps of the index. Reading the index one higher
+    # drops the share to 0.859, 0.870 and 0.859, below the 0.91 a random index of this range
+    # would hit by chance, so the floor sits between the two.
+    affiliate_members_resolved=(0.95, None),
+    # 134, 44 and 122 records on the saves measured. The threshold is not a bound on the feed's
+    # size: it is how small a feed the shares below stop being judged on, because a short feed
+    # is a fact about a quiet job market and the smallest feed measured holds 44.
+    job_vacancy_minimum_applies_from_records=20,
+    # Every record of every save carries the tag. A record start shifted one byte either way,
+    # or four bytes back, carries it on none; shifted four bytes on, on 0.015, 0.070 and 0.008.
+    job_vacancy_tag=(1.0, None),
+    # 1.0, 1.0 and 0.9918 of records have an advertised date on or before the in-game date and
+    # a second date on or after it. Every shift measured drops it to zero, since neither date
+    # decodes at all from the wrong offset.
+    job_vacancy_dates_ordered=(0.95, None),
+    # The feed is stored in ascending advertised date, so every step forward on every save
+    # measured reaches a date no earlier than the one before. Shifted four bytes on, 0.849,
+    # 0.976 and 0.850 of steps do; shifted the other three ways no date decodes, which leaves
+    # the share without a denominator and fails on that.
+    job_vacancy_advertised_ascending=(0.99, None),
+    # Both reserved fields are zero on every record of every save measured, and on at most
+    # 0.008 of records under any of the four shifts.
+    job_vacancy_reserved_zero=(0.99, None),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (
@@ -970,6 +1023,8 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TAGGED_STREAM),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TRANSFER_WINDOWS),
     LayoutEntry(region="humans", schema=21, build=BUILD, layout=HUMANS),
+    LayoutEntry(region="feeder_man", schema=5, build=BUILD, layout=AFFILIATE_GROUPS),
+    LayoutEntry(region="job_centre", schema=1, build=BUILD, layout=JOB_CENTRE),
     LayoutEntry(region=MATCH_FILE_REGION_NAME, schema=None, build=BUILD, layout=INJURY_TYPE_TABLE),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=FIXTURE_CALENDAR),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=STAGE_RESULTS),

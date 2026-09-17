@@ -370,3 +370,53 @@ class InjuryTypeStats:
     entries_with_magic_tried: int
     entries_without_magic: int
     table_entries: int
+
+
+@dataclass(frozen=True, slots=True)
+class AffiliateStats:
+    """What the affiliate-group walk and its club join counted.
+
+    `groups` counts the groups the walk consumed, `members` every stored club index they hold,
+    and `members_resolved` those a club record claims. A section storing no group leaves all
+    three at zero, which is why the resolve share is judged only where there is a member.
+    """
+
+    groups: int
+    members: int
+    members_resolved: int
+
+
+@dataclass(frozen=True, slots=True)
+class JobVacancyStats:
+    """What reading the job-centre feed counted.
+
+    `records` counts every record the section holds. `tagged` counts those carrying the record
+    tag, and `reserved_zero` those whose two reserved fields are both zero.
+
+    `dates_ordered` counts records whose advertised date decodes and is on or before the save's
+    in-game date **and** whose second date decodes and is on or after the advertised one.
+    `advertised_steps` counts the moves from one record with a decodable advertised date to the
+    next, and `advertised_ascending_steps` those that did not reach an earlier date: the save
+    stores the feed in advertised order, so a step backwards is a decode that has moved rather
+    than a quirk of the career.
+
+    `competitions_known` counts records naming no competition or one the stage table holds, and
+    `teams_resolved` those whose team id a club lists. Neither carries a gate: team ids are
+    dense enough over the feed's range that the second cannot fail, and the first is 1.0 both
+    read correctly and with the record start shifted four bytes. Both are reported instead.
+
+    `with_competition` counts records that name a competition at all, `with_league_position`
+    those storing a position in its table, and `flagged` those whose 0/1 flag is set.
+    """
+
+    records: int
+    tagged: int
+    dates_ordered: int
+    advertised_steps: int
+    advertised_ascending_steps: int
+    reserved_zero: int
+    competitions_known: int
+    teams_resolved: int
+    with_competition: int
+    with_league_position: int
+    flagged: int

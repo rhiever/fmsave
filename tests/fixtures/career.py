@@ -14,6 +14,12 @@ import struct
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from tests.fixtures.club_sections import (
+    NO_JOB_COMPETITION,
+    feeder_body,
+    job_centre_body,
+    job_record_bytes,
+)
 from tests.fixtures.container import (
     ContainerFragment,
     SectionFrame,
@@ -1486,6 +1492,89 @@ CAREER_ATTACHMENTS: tuple[tuple[str, str, bytes], ...] = (
 )
 
 
+# Affiliate groups. The first group pairs two clubs the example save lists; the second pairs a
+# club it lists with a public club index no club record claims, so one member resolves to None.
+FEEDER_SECTION_NAME = "feeder_man"
+UNCLAIMED_CLUB_INDEX = 9
+CAREER_AFFILIATE_GROUPS: tuple[tuple[int, ...], ...] = ((1, 2), (4, UNCLAIMED_CLUB_INDEX))
+
+# The job centre. Three vacancies: one at a club with a competition, a league position and a
+# time slot on both dates; one with no competition, no position and the 0/1 flag set; and one
+# at a team no club lists. Every advertised date is on or before the in-game date of 1 March
+# 2031 (day 60), and the three are written in ascending advertised order, as a save stores them.
+JOB_CENTRE_SECTION_NAME = "job_centre"
+FIRST_JOB_ROLE = 16
+SECOND_JOB_ROLE = 14
+THIRD_JOB_ROLE = 2
+FIRST_JOB_ADVERTISED_DAY = 20
+SECOND_JOB_ADVERTISED_DAY = 30
+THIRD_JOB_ADVERTISED_DAY = 45
+FIRST_JOB_ADVERTISED_SLOT = 33
+FIRST_JOB_SECOND_DATE_SLOT = 5
+JOB_YEAR = 2031
+FIRST_JOB_U20 = 57
+SECOND_JOB_U20 = 12
+THIRD_JOB_U20 = 80
+FIRST_JOB_POSITION = 3
+THIRD_JOB_POSITION = 12
+
+
+def career_job_records() -> tuple[bytes, ...]:
+    """The three job-centre records, in the order the save stores them."""
+    return (
+        job_record_bytes(
+            team_id=NORTHBRIDGE_TEAM_A,
+            role=FIRST_JOB_ROLE,
+            advertised=packed_date(FIRST_JOB_ADVERTISED_DAY, JOB_YEAR, FIRST_JOB_ADVERTISED_SLOT),
+            date_12=packed_date(40, JOB_YEAR, FIRST_JOB_SECOND_DATE_SLOT),
+            competition_id=FIRST_COMPETITION_ID,
+            u20=FIRST_JOB_U20,
+            league_position=FIRST_JOB_POSITION,
+            flag=0,
+        ),
+        job_record_bytes(
+            team_id=SOUTHPORT_TEAM,
+            role=SECOND_JOB_ROLE,
+            advertised=packed_date(SECOND_JOB_ADVERTISED_DAY, JOB_YEAR),
+            date_12=packed_date(33, JOB_YEAR),
+            competition_id=NO_JOB_COMPETITION,
+            u20=SECOND_JOB_U20,
+            league_position=0,
+            flag=1,
+        ),
+        job_record_bytes(
+            team_id=UNREGISTERED_FIXTURE_TEAM_ID,
+            role=THIRD_JOB_ROLE,
+            advertised=packed_date(THIRD_JOB_ADVERTISED_DAY, JOB_YEAR),
+            date_12=packed_date(48, JOB_YEAR),
+            competition_id=SECOND_COMPETITION_ID,
+            u20=THIRD_JOB_U20,
+            league_position=THIRD_JOB_POSITION,
+            flag=0,
+        ),
+    )
+
+
+def career_club_section_frames(
+    *, feeder: bytes | None = None, job_centre: bytes | None = None
+) -> list[SectionFrame]:
+    """The `feeder_man` and `job_centre` sections of the career fragment.
+
+    Either body can be replaced, so a test can give the fragment a section the readers have to
+    turn away or an empty one they have to accept.
+    """
+    return [
+        SectionFrame(
+            FEEDER_SECTION_NAME,
+            feeder_body(CAREER_AFFILIATE_GROUPS) if feeder is None else feeder,
+        ),
+        SectionFrame(
+            JOB_CENTRE_SECTION_NAME,
+            job_centre_body(career_job_records()) if job_centre is None else job_centre,
+        ),
+    ]
+
+
 def career_summary(*, linked: bool) -> bytes:
     """The save summary; when linked, the manager's name is followed by his club's link."""
     if linked:
@@ -1512,6 +1601,8 @@ def career_fragment(
     news_results: Sequence[ExampleResult] = (),
     game_db_results: Sequence[ExampleResult] = (),
     attachments: tuple[tuple[str, str, bytes], ...] = CAREER_ATTACHMENTS,
+    feeder_section: bytes | None = None,
+    job_centre_section: bytes | None = None,
 ) -> ContainerFragment:
     """The whole career fragment.
 
@@ -1536,6 +1627,10 @@ def career_fragment(
         attachments: The `(name, extension, payload)` directory entries that are not sections,
             in directory order. The default carries the three per-match entries
             `CAREER_ATTACHMENTS` describes; an empty tuple gives a save with none at all.
+        feeder_section: The whole `feeder_man` section body, in place of the two affiliate
+            groups the fragment writes.
+        job_centre_section: The whole `job_centre` section body, in place of the three
+            vacancies the fragment writes.
     """
     selector = UNMATCHED_MANAGER_SELECTOR if manager_between_jobs else MANAGER_SELECTOR
     replacements = {
@@ -1565,6 +1660,9 @@ def career_fragment(
         )
         for section in default_sections()
     ]
+    sections.extend(
+        career_club_section_frames(feeder=feeder_section, job_centre=job_centre_section)
+    )
     if news_results:
         sections.append(
             SectionFrame(

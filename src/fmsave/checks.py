@@ -31,12 +31,14 @@ from fmsave._frozen import FrozenMapping
 from fmsave._layouts import BoundPair, GateBounds
 from fmsave._package import __version__
 from fmsave._reader_stats import (
+    AffiliateStats,
     ClubStats,
     CompetitionStats,
     ContractStats,
     FinanceStats,
     FixtureStats,
     InjuryTypeStats,
+    JobVacancyStats,
     LeagueTableStats,
     ManagedStats,
     MatchStats,
@@ -85,6 +87,8 @@ PLAYER_MATCH_STATS_READER = "player_match_stats"
 INJURY_TYPES_READER = "injury_types"
 FINANCES_READER = "finances"
 SPONSORSHIPS_READER = "sponsorships"
+AFFILIATES_READER = "affiliates"
+JOB_VACANCIES_READER = "job_vacancies"
 
 # Several readers are built from one decode. A reader whose shared decode did not finish would
 # have every other reader of the same pass redo that decode only to fail the same way, so the
@@ -1133,6 +1137,102 @@ def evaluate_sponsorships(
     )
 
 
+def evaluate_affiliates(
+    stats: AffiliateStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The affiliate-group reader's one check.
+
+    It applies on a full-size save whose section stores at least one group member. A section
+    storing no group has no member to resolve, and an empty population is a fact about the save
+    rather than a layout that has moved, so the check is reported as not applied instead of
+    failing for want of a rate. What the walk itself cannot do is end quietly on the wrong
+    bytes: it has to consume exactly the groups the header claims and stop on the section's last
+    byte, and it raises when it does not.
+
+    What this check judges is the index space rather than the walk. The stored values are club
+    indexes exactly as they are, and reading them one higher still resolves most of them,
+    because the index is dense: the share falls only to about 0.86, which is below both the
+    floor and the 0.91 a random index of this range would reach by chance.
+    """
+    applied = _applies(bounds, game_db_bytes) and stats.members > 0
+    return (
+        _gate(
+            "affiliate_members_resolved",
+            _rate(stats.members_resolved, stats.members),
+            bounds.affiliate_members_resolved,
+            applied,
+        ),
+    )
+
+
+def check_affiliates(stats: AffiliateStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The affiliate-group reader's check, record count and anomaly counts.
+
+    The anomaly counts the members whose stored club index no club record claims, which every
+    save measured carries a handful of: those indexes fall in gaps of the index rather than
+    naming another club.
+    """
+    return ReaderCheck(
+        AFFILIATES_READER,
+        stats.groups,
+        evaluate_affiliates(stats, bounds, game_db_bytes),
+        FrozenMapping({"unresolved_members": stats.members - stats.members_resolved}),
+    )
+
+
+def evaluate_job_vacancies(stats: JobVacancyStats, bounds: GateBounds) -> tuple[GateResult, ...]:
+    """The job-vacancy reader's checks, in a fixed order.
+
+    They judge a section of a few kilobytes rather than `game_db`, so they apply from a record
+    count instead of a section size: a feed of fewer than
+    `GateBounds.job_vacancy_minimum_applies_from_records` records, an empty one included, is a
+    fact about a career rather than a layout that has moved. The feed is career state, it keeps
+    vacancies years old, and a manager between jobs may see very little of it, so **no floor is
+    put under its size at all** and no share is judged on a handful of rows.
+
+    That leaves a hole a share cannot close: a locator reading the wrong section would return an
+    empty table and apply nothing. What closes it is structural rather than statistical, and it
+    sits in the reader: the section's size has to be its header plus its record size times the
+    stored count, exactly, and nothing else about the feed can satisfy that. It is also the one
+    test a start shifted by a whole record fails, since every share below then passes on the
+    next record's bytes.
+
+    `job_vacancy_advertised_ascending` is judged on the steps between records whose advertised
+    date decodes, not on the records, and it is deliberately **not** excused when there are no
+    such steps. A feed of twenty records or more from which not one date decodes is what a
+    decode read one byte out looks like, so it fails there for want of a rate.
+
+    Two counted shares carry no gate. Team ids resolve on 0.93 to 0.98 of records, but ids are
+    about 92% dense over the range the feed uses, so no floor could separate a sound decode from
+    a wrong one. Competition ids the stage table names are 1.0 of records read correctly and
+    also 1.0 with the record start shifted four bytes on all three saves measured, so that share
+    cannot fail either. Both are reported as counts instead.
+    """
+    records = stats.records
+    applied = records >= bounds.job_vacancy_minimum_applies_from_records
+    return (
+        _gate("job_vacancy_tag", _rate(stats.tagged, records), bounds.job_vacancy_tag, applied),
+        _gate(
+            "job_vacancy_dates_ordered",
+            _rate(stats.dates_ordered, records),
+            bounds.job_vacancy_dates_ordered,
+            applied,
+        ),
+        _gate(
+            "job_vacancy_advertised_ascending",
+            _rate(stats.advertised_ascending_steps, stats.advertised_steps),
+            bounds.job_vacancy_advertised_ascending,
+            applied,
+        ),
+        _gate(
+            "job_vacancy_reserved_zero",
+            _rate(stats.reserved_zero, records),
+            bounds.job_vacancy_reserved_zero,
+            applied,
+        ),
+    )
+
+
 def check_finances(stats: FinanceStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
     """The finance reader's checks, record count and anomaly counts.
 
@@ -1149,6 +1249,33 @@ def check_finances(stats: FinanceStats, bounds: GateBounds, game_db_bytes: int) 
             {
                 "clubs_with_series": stats.clubs_with_series,
                 "balance_breaks": stats.balance_steps - stats.balance_continuous_steps,
+            }
+        ),
+    )
+
+
+def check_job_vacancies(stats: JobVacancyStats, bounds: GateBounds) -> ReaderCheck:
+    """The job-vacancy reader's checks, record count and anomaly counts.
+
+    `unresolved_teams` counts the vacancies whose team id no club lists, a handful on every
+    save. `competitions_outside_the_competition_table` counts those naming a competition the
+    stage table does not, which carries no gate and is reported here instead.
+    `without_competition` and `without_league_position` count the rows the save simply stores
+    nothing in those fields for, about a quarter of them for the position, and `flagged` the
+    rows whose unnamed 0/1 flag is set.
+    """
+    records = stats.records
+    return ReaderCheck(
+        JOB_VACANCIES_READER,
+        records,
+        evaluate_job_vacancies(stats, bounds),
+        FrozenMapping(
+            {
+                "unresolved_teams": records - stats.teams_resolved,
+                "competitions_outside_the_competition_table": records - stats.competitions_known,
+                "without_competition": records - stats.with_competition,
+                "without_league_position": records - stats.with_league_position,
+                "flagged": stats.flagged,
             }
         ),
     )

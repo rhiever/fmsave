@@ -25,6 +25,12 @@ MATCH_FILE_REGION = "match_file"
 HUMANS_SECTION = "humans"
 SAVE_SUMMARY_SECTION = "save_game_summary"
 
+# The open-vacancy feed the job centre screen lists, a few KB of fixed-size records.
+JOB_CENTRE_SECTION = "job_centre"
+
+# The groups of clubs the save stores together, a few KB of variable-length groups.
+FEEDER_SECTION = "feeder_man"
+
 
 def section_label(file_name: str, section_name: str = GAME_DB_SECTION) -> str:
     """ "<file name>: section '<section name>'", the common prefix of a reader's error text."""

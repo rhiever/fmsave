@@ -25,12 +25,14 @@ from fmsave._layouts import (
 from fmsave._reader_stats import ResultStats
 from fmsave._version import read_save_info
 from fmsave.checks import ReaderCheck
+from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
 from fmsave.models.finances import FinanceMonth, Sponsorship
 from fmsave.models.fixtures import Fixture
 from fmsave.models.injuries import InjuryType
+from fmsave.models.jobs import JobVacancy
 from fmsave.models.league_tables import LeagueTable
 from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import PlayerMatchStats
@@ -40,14 +42,22 @@ from fmsave.models.rules import CompetitionRules, TransferWindow
 from fmsave.models.suspensions import Suspension
 from fmsave.name_maps import EMPTY_COMPETITION_NAMES, normalize_competition_names
 from fmsave.readers._common import (
+    FEEDER_SECTION,
     GAME_DB_SECTION,
     HUMANS_SECTION,
+    JOB_CENTRE_SECTION,
     SAVE_SUMMARY_SECTION,
     SPAN_REGION,
+)
+from fmsave.readers.affiliates import (
+    build_affiliate_groups,
+    find_affiliate_layout,
+    walk_affiliate_groups,
 )
 from fmsave.readers.finances import find_finance_layouts, read_club_finances
 from fmsave.readers.fixtures import build_fixtures
 from fmsave.readers.injuries import find_injury_type_layout, read_injury_types
+from fmsave.readers.jobs import find_job_centre_layout, read_job_vacancies
 from fmsave.readers.league_tables import build_league_tables
 from fmsave.readers.managed import find_managed_club_layouts, resolve_managed_clubs
 from fmsave.readers.matches import (
@@ -94,6 +104,8 @@ PLAYER_MATCH_STATS_TABLE_CACHE_KEY = "table:player_match_stats"
 INJURY_TYPES_TABLE_CACHE_KEY = "table:injury_types"
 FINANCES_TABLE_CACHE_KEY = "table:finances"
 SPONSORSHIPS_TABLE_CACHE_KEY = "table:sponsorships"
+AFFILIATES_TABLE_CACHE_KEY = "table:affiliates"
+JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
 
 # What each shared decode is kept under. While nothing is stored there the decode has not
 # finished, which is what tells a failed pass from a failed reader of a pass that ran.
@@ -507,6 +519,146 @@ class Save:
         checks.enforce_checks((injury_type_check,))
         self._store_reader_checks((injury_type_check,))
         return Table(injury_types, InjuryType)
+
+    def affiliates(self) -> Table[AffiliateGroup]:
+        """Every group of clubs the save stores together, in stored order.
+
+        **What groups a set of clubs is not established.** These groups live in a section of
+        their own and carry nothing that says what the grouping means: the affiliates a club's
+        Club Site lists and the clubs of one owner both fit what has been measured, and two
+        clubs whose Club Site names an affiliate belong to no group here. Every club field is
+        `unconfirmed` for that reason.
+
+        This is **not** the parent link `Club.parent_club_uid` carries, which comes from the
+        team lists inside the club records; the two relations share no pair at all. A member
+        whose stored club index no club record claims leaves that entry's uid and name empty
+        rather than being guessed, which is about one member in sixty.
+
+        A club's partners are the members of the groups it belongs to, without itself::
+
+            groups = career_save.affiliates()
+            own_groups = groups.filter(lambda group: club_uid in group.club_uids)
+            partners = tuple(
+                member_uid
+                for group in own_groups
+                for member_uid in group.club_uids
+                if member_uid is not None and member_uid != club_uid
+            )
+
+        The table is read on the first call; later calls return the same table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: The group section is too short to hold its header, a group's
+                member count is outside what a group may hold, a group runs past the end of
+                the section, the groups do not end on the section's last byte, no club record
+                is accepted, a club uid or club index appears in two records, a team id is
+                listed twice, or, on a full-size save whose groups hold a member, fewer members
+                resolve to a club than the checks allow.
+        """
+        context = self._context
+        return context.cached(AFFILIATES_TABLE_CACHE_KEY, self._read_affiliates)
+
+    def _read_affiliates(self) -> Table[AffiliateGroup]:
+        context = self._context
+        save_info = context.info
+        gate_bounds = self._gate_bounds()
+        layout = find_affiliate_layout(
+            save_info.section_schemas.get(FEEDER_SECTION), save_info.build
+        )
+        with context.section(FEEDER_SECTION) as feeder:
+            stored_groups = walk_affiliate_groups(feeder, layout, save_info.file_name)
+        # The club index hands its names and uids straight out on every row, so it is read
+        # through the reader that enforces the club checks rather than through the raw index.
+        # It is the one index this reader needs, and it carries the section length the checks
+        # want, so nothing here borrows game_db: the index's own borrow is the only one, and a
+        # warm call decompresses nothing at all.
+        self.clubs()
+        club_index = context.club_index()
+        groups, affiliate_stats = build_affiliate_groups(stored_groups, club_index)
+        affiliate_check = checks.check_affiliates(
+            affiliate_stats, gate_bounds, club_index.game_db_bytes
+        )
+        checks.enforce_checks((affiliate_check,))
+        self._store_reader_checks((affiliate_check,))
+        return Table(groups, AffiliateGroup)
+
+    def job_vacancies(self) -> Table[JobVacancy]:
+        """Every open job the save's job-centre feed holds, in stored order.
+
+        **The feed keeps old rows.** The earliest advertised date on the saves measured is
+        about ten years before the in-game date, and nothing in a row says whether the job has
+        since been filled, so this is what the save still remembers rather than what the game
+        would list today.
+
+        A vacancy is stored against a team, so `team_id` is the save's own key and the club
+        fields come from the club that fields that team; a team no club lists leaves them
+        empty. `league_position` is the team's current position in the competition the row
+        names, which is empty on about a quarter of rows because the save stores none. The job
+        title, the second date and two further numbers have no confirmed meaning and ship in
+        `unknown` rather than under names they have not earned.
+
+        The table is read on the first call; later calls return the same table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: The feed section is too short to hold its header, or its size is
+                not its header and its record size times the count it claims; the save's
+                in-game date is unreadable, so an advertised date cannot be judged against it;
+                no club record is accepted; a club uid or club index appears in two records; a
+                team id is listed twice; no stage table was found in the tail of the game
+                database; or, on a feed of at least twenty records, the records fall outside
+                the checks' bounds. With a competition name map the competition checks run
+                first and raise here too, so no row is named from a table whose checks did not
+                pass.
+        """
+        context = self._context
+        return context.cached(JOB_VACANCIES_TABLE_CACHE_KEY, self._read_job_vacancies)
+
+    def _read_job_vacancies(self) -> Table[JobVacancy]:
+        context = self._context
+        save_info = context.info
+        clock = save_info.game_date
+        if clock is None:
+            raise ReaderCheckError(
+                f"{save_info.file_name}: the save's in-game date is unreadable, so a vacancy's "
+                "advertised date cannot be judged against it"
+            )
+        gate_bounds = self._gate_bounds()
+        layout = find_job_centre_layout(
+            save_info.section_schemas.get(JOB_CENTRE_SECTION), save_info.build
+        )
+        # One game_db borrow covers both indexes the joins go through, so a cold call
+        # decompresses that section once rather than once per index. The feed section is a few
+        # kilobytes, so holding it across that borrow costs nothing.
+        with context.section(JOB_CENTRE_SECTION) as job_centre:
+            with context.section(GAME_DB_SECTION):
+                # The club index hands out a club name and a team slot on every row, so it is
+                # read through the reader that enforces its own checks. With a name map the
+                # competitions are read the same way and for the same reason, since every
+                # competition name a row carries comes out of that index; without one every
+                # competition_name is None anyway, so the id-pair pass is never paid for.
+                self.clubs()
+                if context.competition_names:
+                    self.competitions()
+                club_index = context.club_index()
+                competition_index = context.competition_index()
+            vacancies, vacancy_stats = read_job_vacancies(
+                job_centre,
+                club_index,
+                competition_index,
+                clock,
+                layout,
+                save_info.file_name,
+            )
+        vacancy_check = checks.check_job_vacancies(vacancy_stats, gate_bounds)
+        checks.enforce_checks((vacancy_check,))
+        self._store_reader_checks((vacancy_check,))
+        return Table(vacancies, JobVacancy)
 
     def league_tables(self) -> Table[LeagueTable]:
         """Every live league table the save holds, in the order the save stores them.

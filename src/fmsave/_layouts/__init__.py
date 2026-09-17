@@ -993,6 +993,61 @@ class InjuryTypeTableLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class AffiliateGroupLayout:
+    """Where the groups of clubs sit in the `feeder_man` section.
+
+    The u32 at `count_offset` is how many groups the section holds, and the groups follow back
+    to back from `groups_offset`: each is a u32 member count and that many u32 public club
+    indexes, in the space `ClubIndex.uid_by_club_index` is keyed on and with no offset of one.
+
+    The walk consumes exactly the stored count and must end on the section's last byte.
+    `group_size_range` is an inclusive corruption cap and nothing more: it is far wider than
+    the largest group any save measured holds, and its only job is to stop a count read from
+    the wrong bytes from claiming megabytes of members.
+    """
+
+    count_offset: int
+    groups_offset: int
+    group_size_range: tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class JobCentreLayout:
+    """Where the open vacancies sit in the `job_centre` section, and where a record's fields do.
+
+    The u32 at `count_offset` is how many records the section holds, and they follow back to
+    back from `records_offset`, each `record_bytes` long with no trailer after the last.
+    **`len(section) == records_offset + record_bytes * count` is structural**: a start shifted
+    by a whole record satisfies every per-record check below, and only that identity fails.
+
+    Every other offset counts from a record's start, where `tag` sits. The u32 at
+    `team_id_offset` is a team id, in the space `ClubIndex.team_to_club` is keyed on. The dates
+    at `advertised_offset` and `date_12_offset` both carry non-zero time-slot bits, so they are
+    decoded with `fmsave._scan.decode_date` rather than any validator that wants those bits
+    clear. The u16 at `competition_offset` is a competition id in the stage id space, and
+    `no_competition` is the value that means the record names none. The u16 at
+    `reserved_u16_offset` and the byte at `reserved_u8_offset` are zero on every record of
+    every save measured: they are counted for the reader's checks and never shipped.
+    """
+
+    count_offset: int
+    records_offset: int
+    record_bytes: int
+    tag: bytes
+    team_id_offset: int
+    role_offset: int
+    advertised_offset: int
+    date_12_offset: int
+    reserved_u16_offset: int
+    competition_offset: int
+    no_competition: int
+    u20_offset: int
+    league_position_offset: int
+    reserved_u8_offset: int
+    flag_offset: int
+
+
+@dataclass(frozen=True, slots=True)
 class GateBounds:
     """Loose bounds for the reader checks on what the `game_db` readers decode.
 
@@ -1160,6 +1215,27 @@ class GateBounds:
     denominator, because a save whose clubs keep no series is a save with nothing to judge
     rather than a broken decode; the series floor is what catches a locator that has stopped
     finding chains, and on a save with no human manager nothing does.
+
+    Affiliate groups: `affiliate_members_resolved` (group members the public club index names,
+    of group members). It applies on a full-size `game_db` **and** only when a group holds a
+    member at all, because a save whose section stores no group has no member to resolve and
+    an empty population is not a failure. What it catches is the index space: read one index
+    out and the share falls from 0.9836 to 0.859.
+
+    Job vacancies: `job_vacancy_tag` (records carrying the record tag), `job_vacancy_dates_ordered`
+    (records whose advertised date is on or before the in-game date and whose second date is on
+    or after the advertised one), `job_vacancy_advertised_ascending` (steps from one record's
+    advertised date to the next that did not go backwards, of those steps),
+    `job_vacancy_reserved_zero` (records whose two reserved fields are both zero), all as shares
+    of the records read. They apply from `job_vacancy_minimum_applies_from_records` records,
+    which is what leaves a legitimately short or empty feed alone: the feed is career state, a
+    manager between jobs may see very little of it, and no floor under its size could tell a
+    quiet job market from a layout that has moved. The structural size identity in
+    `JobCentreLayout` is what catches a start shifted by a whole record, which every share here
+    passes. There is no gate on how many team ids resolve: ids are about 92% dense over the
+    range the feed uses, so that share cannot fail. There is none on how many competition ids
+    the stage table names either: it is 1.0 read correctly **and** 1.0 with the record start
+    shifted four bytes on all three saves measured, so it cannot fail.
     """
 
     minimum_applies_from_bytes: int
@@ -1244,6 +1320,12 @@ class GateBounds:
     finance_clubs_with_two_chains: BoundPair
     finance_series_minimum: BoundPair
     finance_clubs_with_sponsors: BoundPair
+    affiliate_members_resolved: BoundPair
+    job_vacancy_minimum_applies_from_records: int
+    job_vacancy_tag: BoundPair
+    job_vacancy_dates_ordered: BoundPair
+    job_vacancy_advertised_ascending: BoundPair
+    job_vacancy_reserved_zero: BoundPair
 
 
 type Layout = (
@@ -1265,6 +1347,8 @@ type Layout = (
     | CompetitionIdPairLayout
     | HumansLayout
     | InjuryTypeTableLayout
+    | AffiliateGroupLayout
+    | JobCentreLayout
     | FixtureCalendarLayout
     | StageResultLayout
     | LeagueTableLayout

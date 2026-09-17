@@ -696,6 +696,41 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'count_offset': 12,
+        'group_size_range': tuple(
+          1,
+          64,
+        ),
+        'groups_offset': 16,
+      }),
+      'region': 'feeder_man',
+      'schema': 5,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
+        'advertised_offset': 8,
+        'competition_offset': 18,
+        'count_offset': 8,
+        'date_12_offset': 12,
+        'flag_offset': 24,
+        'league_position_offset': 22,
+        'no_competition': 65535,
+        'record_bytes': 25,
+        'records_offset': 12,
+        'reserved_u16_offset': 16,
+        'reserved_u8_offset': 23,
+        'role_offset': 7,
+        'tag': b'\x06\x00\x00',
+        'team_id_offset': 3,
+        'u20_offset': 20,
+      }),
+      'region': 'job_centre',
+      'schema': 1,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
         'flag_values': tuple(
           0,
           1,
@@ -875,6 +910,10 @@
           0.005,
           None,
         ),
+        'affiliate_members_resolved': tuple(
+          0.95,
+          None,
+        ),
         'affiliate_teams_linked': tuple(
           0.99,
           None,
@@ -1013,6 +1052,23 @@
         'issued_after_clock': tuple(
           None,
           0.01,
+        ),
+        'job_vacancy_advertised_ascending': tuple(
+          0.99,
+          None,
+        ),
+        'job_vacancy_dates_ordered': tuple(
+          0.95,
+          None,
+        ),
+        'job_vacancy_minimum_applies_from_records': 20,
+        'job_vacancy_reserved_zero': tuple(
+          0.99,
+          None,
+        ),
+        'job_vacancy_tag': tuple(
+          1.0,
+          None,
         ),
         'join_date_valid': tuple(
           0.05,
