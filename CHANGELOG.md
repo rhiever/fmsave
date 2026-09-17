@@ -29,6 +29,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - `fmsave validate` runs and reports all twelve readers, and a reader that fails its checks is reported beside the eleven others rather than stopping the report.
 - `fmsave export` takes a table name for every reader, and a table it will not write under a given scope names the scopes it does take.
+- Squad status reads as a label rather than a raw number for every code a save actually uses: the game offers one set of statuses for goalkeepers and another for everyone else, and the two sets do not share every code. Two codes carry the same words, "Emergency Backup", one from each list, so the code still says which list the status came from. A contract's release clause now also distinguishes a release to domestic clubs in a higher division from a plain domestic one.
 
 ### Fixed
 

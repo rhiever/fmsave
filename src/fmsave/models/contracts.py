@@ -28,6 +28,17 @@ class SquadStatus(IntEnum):
     season. A code is named only where an in-game label confirms that exact code; a code an
     outside name table would name is not named on that basis alone. Every code that is not
     named is UNKNOWN and keeps its raw number.
+
+    The game offers two sets of labels, one for goalkeepers and one for everyone else, and
+    they do not share every code. FIRST_CHOICE_GOALKEEPER, CUP_GOALKEEPER,
+    DOMESTIC_CUP_GOALKEEPER, CONTINENTAL_CUP_GOALKEEPER, BACKUP and
+    GOALKEEPER_EMERGENCY_BACKUP are offered only for goalkeepers, and every holder of them
+    is one. EMERGENCY_BACKUP and GOALKEEPER_EMERGENCY_BACKUP are separate codes that the
+    game displays with the same words, "Emergency Backup", one for outfield players and one
+    for goalkeepers, so the code says which list the status came from.
+
+    BREAKTHROUGH_PROSPECT, FUTURE_PROSPECT and YOUNGSTER are not in either list: they are
+    youth statuses the senior contract screen does not offer.
     """
 
     UNKNOWN = -1
@@ -37,10 +48,18 @@ class SquadStatus(IntEnum):
     SQUAD_PLAYER = 4
     IMPACT_SUB = 5
     FRINGE_PLAYER = 7
+    EMERGENCY_BACKUP = 9
     BREAKTHROUGH_PROSPECT = 10
     FUTURE_PROSPECT = 11
     YOUNGSTER = 13
+    B_TEAM_REGULAR = 14
+    FIRST_CHOICE_GOALKEEPER = 15
     CUP_GOALKEEPER = 16
+    DOMESTIC_CUP_GOALKEEPER = 17
+    CONTINENTAL_CUP_GOALKEEPER = 18
+    BACKUP = 20
+    GOALKEEPER_EMERGENCY_BACKUP = 21
+    SURPLUS_TO_REQUIREMENTS = 22
 
 
 class ContractType(IntEnum):
@@ -55,22 +74,24 @@ class ClauseKind(IntEnum):
     """A contract clause's kind.
 
     Only kinds whose meaning is confirmed in game are named; every other code is UNKNOWN and
-    keeps its raw number. Each code is a distinct kind: MINIMUM_FEE_RELEASE_DOMESTIC is code
-    0x12 only, and the neighbouring code 0x11 stays unnamed because the game truncates its
-    label on screen, which leaves it indistinguishable from 0x12.
+    keeps its raw number. Each code is a distinct kind. MINIMUM_FEE_RELEASE_DOMESTIC (0x12)
+    and MINIMUM_FEE_RELEASE_DOMESTIC_HIGHER_DIVISION (0x11) are separate clauses the game
+    words differently, "Minimum Fee Release Clause (Domestic)" and "Minimum Fee Release
+    Clause (Domestic Clubs in Higher Division)"; no contract in the corpus carries both.
 
     RELEGATION_RELEASE and NON_PROMOTION_RELEASE are the clauses the game calls a relegation
     release clause and a non promotion release clause; what their value and parameter hold is
     not confirmed.
 
-    A clause's value is the release fee for MINIMUM_FEE_RELEASE, MINIMUM_FEE_RELEASE_FOREIGN
-    and MINIMUM_FEE_RELEASE_DOMESTIC, and the amount paid for APPEARANCE_FEE, SHUTOUT_BONUS,
-    INTERNATIONAL_CAP_BONUS, UNUSED_SUBSTITUTE_FEE and
-    SEASONAL_LANDMARK_COMBINED_GOALS_AND_ASSISTS. A clause's parameter is a percentage for
-    TOP_DIVISION_RELEGATION_SALARY_DROP, years for OPTIONAL_EXTENSION_BY_CLUB, the number of
-    goals plus assists that earns the bonus for SEASONAL_LANDMARK_COMBINED_GOALS_AND_ASSISTS,
-    and days to expiry from the contract start for MINIMUM_FEE_RELEASE_DOMESTIC (None means no
-    expiry).
+    A clause's value is the release fee for MINIMUM_FEE_RELEASE, MINIMUM_FEE_RELEASE_FOREIGN,
+    MINIMUM_FEE_RELEASE_DOMESTIC and MINIMUM_FEE_RELEASE_DOMESTIC_HIGHER_DIVISION, and the
+    amount paid for APPEARANCE_FEE, SHUTOUT_BONUS, INTERNATIONAL_CAP_BONUS,
+    UNUSED_SUBSTITUTE_FEE and SEASONAL_LANDMARK_COMBINED_GOALS_AND_ASSISTS. A clause's
+    parameter is a percentage for TOP_DIVISION_RELEGATION_SALARY_DROP, years for
+    OPTIONAL_EXTENSION_BY_CLUB, the number of goals plus assists that earns the bonus for
+    SEASONAL_LANDMARK_COMBINED_GOALS_AND_ASSISTS, and days to expiry from the contract start
+    for MINIMUM_FEE_RELEASE_DOMESTIC and MINIMUM_FEE_RELEASE_DOMESTIC_HIGHER_DIVISION (None
+    means no expiry).
     """
 
     UNKNOWN = -1
@@ -79,6 +100,7 @@ class ClauseKind(IntEnum):
     NON_PROMOTION_RELEASE = 0x02
     TOP_DIVISION_RELEGATION_SALARY_DROP = 0x0F
     MINIMUM_FEE_RELEASE_FOREIGN = 0x10
+    MINIMUM_FEE_RELEASE_DOMESTIC_HIGHER_DIVISION = 0x11
     MINIMUM_FEE_RELEASE_DOMESTIC = 0x12
     OPTIONAL_EXTENSION_BY_CLUB = 0x16
     APPEARANCE_FEE = 0x20

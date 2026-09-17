@@ -2037,8 +2037,7 @@ def test_the_fallback_agrees_with_the_fast_path_on_seeded_tables() -> None:
         (0x29, "SEASONAL_LANDMARK_COMBINED_GOALS_AND_ASSISTS"),
         (0x01, "RELEGATION_RELEASE"),
         (0x02, "NON_PROMOTION_RELEASE"),
-        # The game truncates 0x11's label on screen, so it cannot be told from 0x12.
-        (0x11, "UNKNOWN"),
+        (0x11, "MINIMUM_FEE_RELEASE_DOMESTIC_HIGHER_DIVISION"),
         (0x27, "UNKNOWN"),
     ],
 )
@@ -2053,11 +2052,21 @@ def test_clause_kinds_confirmed_in_game_are_named(raw_kind: int, expected_name: 
     [
         (1, "STAR_PLAYER"),
         (2, "IMPORTANT_PLAYER"),
+        (9, "EMERGENCY_BACKUP"),
+        (14, "B_TEAM_REGULAR"),
+        (15, "FIRST_CHOICE_GOALKEEPER"),
         (16, "CUP_GOALKEEPER"),
-        (14, "UNKNOWN"),
-        (15, "UNKNOWN"),
-        # No in-game label confirms 20; an outside name table is not evidence for one.
-        (20, "UNKNOWN"),
+        (17, "DOMESTIC_CUP_GOALKEEPER"),
+        (18, "CONTINENTAL_CUP_GOALKEEPER"),
+        (20, "BACKUP"),
+        # 9 and 21 both show "Emergency Backup"; the code says which list it came from.
+        (21, "GOALKEEPER_EMERGENCY_BACKUP"),
+        (22, "SURPLUS_TO_REQUIREMENTS"),
+        # No holder of 6, 8, 12 or 19 exists in any corpus save, so no label confirms them.
+        (6, "UNKNOWN"),
+        (8, "UNKNOWN"),
+        (12, "UNKNOWN"),
+        (19, "UNKNOWN"),
     ],
 )
 def test_squad_statuses_confirmed_in_game_are_named(raw_status: int, expected_name: str) -> None:
