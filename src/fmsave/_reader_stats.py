@@ -312,6 +312,40 @@ class MatchStats:
 
 
 @dataclass(frozen=True, slots=True)
+class FinanceStats:
+    """What one pass over the club records counted for the finance and sponsorship checks.
+
+    `records_searched` counts the club records long enough to hold a chain, which is where the
+    search runs at all, and `clubs_with_series` those that held one; most clubs of a save hold
+    none. `clubs_with_two_chains` counts the records where a second chain was accepted behind
+    the first, which no save measured holds and which means the locator has started accepting
+    bytes it should not.
+
+    `rows` counts every month row returned. `net_identity_rows` counts the rows whose net equals
+    total income less total expenditure, and `expenditure_split_rows` those whose expenditure
+    excluding transfers lies between zero and the total. `balance_steps` counts consecutive row
+    pairs inside one club, and `balance_continuous_steps` those where the later balance is the
+    earlier one plus the later month's net.
+
+    `clubs_with_sponsors` counts the clubs with a series that also hold a sponsor run, and
+    `sponsor_rows` the rows those runs hold. `managed_club_exists` says whether the save lists a
+    managed club, which is what decides whether the series floor applies at all.
+    """
+
+    records_searched: int
+    clubs_with_series: int
+    clubs_with_two_chains: int
+    rows: int
+    net_identity_rows: int
+    balance_steps: int
+    balance_continuous_steps: int
+    expenditure_split_rows: int
+    clubs_with_sponsors: int
+    sponsor_rows: int
+    managed_club_exists: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ManagedStats:
     """What the managed-club reader found: human managers, resolved routes (0 or 1) and rows."""
 

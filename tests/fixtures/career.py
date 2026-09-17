@@ -23,6 +23,11 @@ from tests.fixtures.container import (
     save_summary_body,
     section_body,
 )
+from tests.fixtures.finances import (
+    club_finance_bytes,
+    finance_row_bytes,
+    sponsor_row_bytes,
+)
 from tests.fixtures.game_db import (
     NORMAL_STATUS_KIND,
     PLAYER_RECORD_MARKER,
@@ -137,6 +142,134 @@ class ExampleClub:
     nation_id: int
     team_ids: tuple[int, ...]
     float_anchor_only: bool = False
+    staff_lists: tuple[tuple[int, ...], ...] | None = None
+    trailing_bytes: bytes = b""
+
+
+# Monthly finance snapshots, oldest first: the last row is the month before the save's clock of
+# 1 March 2031, so these three are December 2030, January 2031 and February 2031. Each row's
+# net equals its total income less its total expenditure, and each balance is the one before it
+# plus that month's net, which is what the two arithmetic checks judge.
+FINANCE_MONTH_VALUES = (
+    {
+        "balance": 900_000,
+        "transfer_allocated": 500_000,
+        "transfer_remaining": 400_000,
+        "wage_budget_weekly": 30_000,
+        "wage_payroll_weekly": 25_000,
+        "income_excluding_transfers": 120_000,
+        "net_transfers": 0,
+        "wage_bill": 80_000,
+        "net": 20_000,
+        "expenditure_excluding_transfers": 100_000,
+        "total_income": 120_000,
+        "total_expenditure": 100_000,
+    },
+    {
+        "balance": 1_000_000,
+        "transfer_allocated": 500_000,
+        "transfer_remaining": 350_000,
+        "wage_budget_weekly": 30_000,
+        "wage_payroll_weekly": 25_500,
+        "income_excluding_transfers": 250_000,
+        "net_transfers": -30_000,
+        "wage_bill": 90_000,
+        "net": 100_000,
+        "expenditure_excluding_transfers": 180_000,
+        "total_income": 300_000,
+        "total_expenditure": 200_000,
+    },
+    {
+        "balance": 950_000,
+        "transfer_allocated": 450_000,
+        "transfer_remaining": 300_000,
+        "wage_budget_weekly": 30_000,
+        "wage_payroll_weekly": 26_000,
+        "income_excluding_transfers": 150_000,
+        "net_transfers": 40_000,
+        "wage_bill": 95_000,
+        "net": -50_000,
+        "expenditure_excluding_transfers": 160_000,
+        "total_income": 150_000,
+        "total_expenditure": 200_000,
+    },
+)
+FINANCE_MONTH_COUNT = len(FINANCE_MONTH_VALUES)
+
+# Sponsor contracts. A is running, B ended two years before the clock and so carries no annual
+# value, and C is Example Athletic's one running contract.
+SPONSOR_A = {
+    "sponsor_type": 4,
+    "start": packed_date(182, 2030),
+    "end": packed_date(181, 2033),
+    "flag10": 1,
+    "total": 3_000_000,
+    "u15": 77,
+    "b17": 0,
+    "enum18": 2,
+    "b19": 5,
+    "annual": 1_000_000,
+}
+SPONSOR_B = {
+    "sponsor_type": 1,
+    "start": packed_date(1, 2026),
+    "end": packed_date(366, 2028),
+    "flag10": 0,
+    "total": 400_000,
+    "u15": 3,
+    "b17": 1,
+    "enum18": 255,
+    "b19": 0,
+    "annual": 0,
+}
+SPONSOR_C = {
+    "sponsor_type": 9,
+    "start": packed_date(182, 2030),
+    "end": packed_date(182, 2032),
+    "flag10": 1,
+    "total": 500_000,
+    "u15": 0,
+    "b17": 0,
+    "enum18": 0,
+    "b19": 0,
+    "annual": 250_000,
+}
+# A second, dead run of sponsor rows, which the save holds for a handful of clubs: every row
+# has ended and carries no annual value. A reader taking the longest run reads these instead.
+DEAD_SPONSOR = {
+    "sponsor_type": 3,
+    "start": packed_date(1, 2020),
+    "end": packed_date(1, 2022),
+    "flag10": 0,
+    "total": 10_000,
+    "u15": 0,
+    "b17": 0,
+    "enum18": 0,
+    "b19": 0,
+    "annual": 0,
+}
+DEAD_SPONSOR_COUNT = 2
+NORTHBRIDGE_FACILITY_BYTE = 17
+ATHLETIC_FACILITY_BYTE = 12
+
+
+def career_finance_rows() -> tuple[bytes, ...]:
+    return tuple(finance_row_bytes(**values) for values in FINANCE_MONTH_VALUES)
+
+
+def club_finance_trailing_bytes(
+    sponsors: Sequence[dict[str, object]],
+    *,
+    facility_byte: int,
+    dead_sponsors: Sequence[dict[str, object]] = (),
+) -> bytes:
+    """One club's finance bytes: the three months, then the sponsors it holds."""
+    return club_finance_bytes(
+        rows=career_finance_rows(),
+        sponsors=[sponsor_row_bytes(**values) for values in sponsors],  # pyright: ignore[reportArgumentType]
+        facility_byte=facility_byte,
+        dead_sponsors=[sponsor_row_bytes(**values) for values in dead_sponsors],  # pyright: ignore[reportArgumentType]
+    )
 
 
 EXAMPLE_CLUBS = (
@@ -147,6 +280,9 @@ EXAMPLE_CLUBS = (
         "Northbridge",
         HOME_NATION_ID,
         (NORTHBRIDGE_TEAM_A, NORTHBRIDGE_TEAM_B),
+        trailing_bytes=club_finance_trailing_bytes(
+            (SPONSOR_A, SPONSOR_B), facility_byte=NORTHBRIDGE_FACILITY_BYTE
+        ),
     ),
     ExampleClub(
         2,
@@ -158,7 +294,17 @@ EXAMPLE_CLUBS = (
         float_anchor_only=True,
     ),
     ExampleClub(
-        4, ATHLETIC_UID, "Example Athletic", "Athletic", ATHLETIC_NATION_ID, (70005, 70004, 70006)
+        4,
+        ATHLETIC_UID,
+        "Example Athletic",
+        "Athletic",
+        ATHLETIC_NATION_ID,
+        (70005, 70004, 70006),
+        trailing_bytes=club_finance_trailing_bytes(
+            (SPONSOR_C,),
+            facility_byte=ATHLETIC_FACILITY_BYTE,
+            dead_sponsors=(DEAD_SPONSOR,) * DEAD_SPONSOR_COUNT,
+        ),
     ),
 )
 SECOND_NORTHBRIDGE_CLUB = ExampleClub(
@@ -185,6 +331,8 @@ def clubs_region_bytes(
             short_name=club.short_name,
             team_ids=club.team_ids,
             float_anchor_only=club.float_anchor_only,
+            staff_lists=club.staff_lists,
+            trailing_bytes=club.trailing_bytes,
         )
         for club in clubs
     ]

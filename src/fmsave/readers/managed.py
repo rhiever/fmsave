@@ -245,6 +245,21 @@ def _first_human(humans: bytes, layout: HumansLayout, file_name: str) -> tuple[i
         raise damaged_part_error(file_name, f"section {HUMANS_SECTION!r}", error) from error
 
 
+def first_human_selector(humans: bytes, layout: HumansLayout, file_name: str) -> int | None:
+    """The first human manager's selector (person id plus 1), or None.
+
+    None means the save lists no human manager, or stores no person id for him.
+
+    Raises:
+        CorruptSaveError: The `humans` section ends before the count or the selector.
+    """
+    first_human = _first_human(humans, layout, file_name)
+    if first_human is None:
+        return None
+    _human_count, selector = first_human
+    return None if selector in _NO_PERSON_UIDS else selector
+
+
 class ManagedClubsResult(NamedTuple):
     """The managed-club rows, and what the reader found on the way for the checks."""
 

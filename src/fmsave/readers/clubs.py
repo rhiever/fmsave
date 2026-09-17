@@ -11,7 +11,7 @@ from __future__ import annotations
 import functools
 import struct
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from statistics import median_low
 
 from fmsave._layouts import ClubRecordLayout, ClubStatusLayout, TeamListLayout, find_layout
@@ -48,6 +48,25 @@ def find_club_layouts(game_db_schema: int | None, build: str) -> ClubLayouts:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class ClubRecordSpan:
+    """Where one club record starts and ends, and where its own team ids end.
+
+    Attributes:
+        club_uid: Uid of the club the record holds.
+        record_start: Offset of the record's first byte in `game_db`.
+        record_end: Offset one past the record's last byte, which is where the next record
+            starts, or where the club scan ended for the last record.
+        team_list_end: Offset of the affiliated-team count byte, just past the club's own team
+            ids; None when no team list parsed.
+    """
+
+    club_uid: int
+    record_start: int
+    record_end: int
+    team_list_end: int | None
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class ClubIndex:
     """Every club in club index order, with the lookups other readers join through.
@@ -68,6 +87,9 @@ class ClubIndex:
             registered with such a team is a player of the parent club.
         stats: What the club pass counted, for the club checks.
         game_db_bytes: The length of the `game_db` the index was read from.
+        record_spans: The byte range of each club record and where its team ids end, for
+            readers that work inside a club's own record. One span per accepted record, in
+            record (file) order, which is not the club index order the clubs come in.
     """
 
     clubs: tuple[Club, ...]
@@ -77,6 +99,7 @@ class ClubIndex:
     affiliate_team_to_club: Mapping[int, tuple[int, int]]
     stats: ClubStats
     game_db_bytes: int
+    record_spans: tuple[ClubRecordSpan, ...] = field(repr=False)
 
     def __repr__(self) -> str:
         return f"<fmsave ClubIndex {len(self.clubs)} clubs, {len(self.team_to_club)} teams>"
@@ -98,13 +121,18 @@ class _ClubRecord:
 
 @dataclass(frozen=True, slots=True)
 class _TeamList:
-    """One club record's own team ids, then the ids of the teams it lists as affiliates."""
+    """One club record's own team ids, then the ids of the teams it lists as affiliates.
+
+    `affiliate_count_offset` is where the affiliated-team count byte sits, just past the club's
+    own team ids, and is None when no list parsed.
+    """
 
     team_ids: tuple[int, ...]
     affiliate_team_ids: tuple[int, ...]
+    affiliate_count_offset: int | None
 
 
-_NO_TEAM_LIST = _TeamList((), ())
+_NO_TEAM_LIST = _TeamList((), (), None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +217,15 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         reputation_found=len(reputations),
         reputations_median=median_low(reputations) if reputations else None,
     )
+    record_spans = tuple(
+        ClubRecordSpan(
+            club_uid=record.uid,
+            record_start=record.record_start,
+            record_end=record_end,
+            team_list_end=team_list.affiliate_count_offset,
+        )
+        for record, record_end, team_list in zip(records, record_ends, team_lists, strict=True)
+    )
     return ClubIndex(
         clubs=tuple(clubs),
         uid_by_club_index=uid_by_club_index,
@@ -197,6 +234,7 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         affiliate_team_to_club=affiliates.team_to_club,
         stats=stats,
         game_db_bytes=len(game_db),
+        record_spans=record_spans,
     )
 
 
@@ -474,11 +512,11 @@ def _parse_team_list(
     for team_id in team_ids:
         if not lowest_team_id <= team_id <= highest_team_id:
             return None
+    affiliate_count_offset = team_ids_start + team_ids_struct.size
     return _TeamList(
         team_ids,
-        _parse_affiliate_team_ids(
-            game_db, team_ids_start + team_ids_struct.size, record_end, layout
-        ),
+        _parse_affiliate_team_ids(game_db, affiliate_count_offset, record_end, layout),
+        affiliate_count_offset,
     )
 
 

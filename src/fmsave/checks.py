@@ -34,6 +34,7 @@ from fmsave._reader_stats import (
     ClubStats,
     CompetitionStats,
     ContractStats,
+    FinanceStats,
     FixtureStats,
     InjuryTypeStats,
     LeagueTableStats,
@@ -82,21 +83,28 @@ LEAGUE_TABLES_READER = "league_tables"
 COMPETITION_RULES_READER = "competition_rules"
 PLAYER_MATCH_STATS_READER = "player_match_stats"
 INJURY_TYPES_READER = "injury_types"
+FINANCES_READER = "finances"
+SPONSORSHIPS_READER = "sponsorships"
 
 # Several readers are built from one decode. A reader whose shared decode did not finish would
 # have every other reader of the same pass redo that decode only to fail the same way, so the
 # first failure is carried to the rest of the pass instead of being raised again.
 PLAYER_PASS = "player"
 SPAN_PASS = "span"
+FINANCE_PASS = "finance"
 # Players, contracts and suspensions are decoded in one pass, so they fail or succeed together.
 _PLAYER_PASS_READERS = frozenset({PLAYERS_READER, CONTRACTS_READER, SUSPENSIONS_READER})
 # Fixtures, league tables and competition rules read one streamed pass over the unnamed span,
 # which is far the most expensive read fmsave makes.
 _SPAN_PASS_READERS = frozenset({FIXTURES_READER, LEAGUE_TABLES_READER, COMPETITION_RULES_READER})
+# The months and the sponsors come out of one pass over the club records, so they fail or
+# succeed together.
+_FINANCE_PASS_READERS = frozenset({FINANCES_READER, SPONSORSHIPS_READER})
 _READER_PASSES: FrozenMapping[str, str] = FrozenMapping(
     {
         **dict.fromkeys(_PLAYER_PASS_READERS, PLAYER_PASS),
         **dict.fromkeys(_SPAN_PASS_READERS, SPAN_PASS),
+        **dict.fromkeys(_FINANCE_PASS_READERS, FINANCE_PASS),
     }
 )
 
@@ -1047,6 +1055,113 @@ def check_injury_types(
                 "entries_without_magic": stats.entries_without_magic,
                 "entries_tried": stats.entries_with_magic_tried,
             }
+        ),
+    )
+
+
+def evaluate_finances(
+    stats: FinanceStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The finance reader's checks, in a fixed order.
+
+    The three shares judge the rows that were decoded, so each applies only where it has a
+    denominator: a save whose clubs keep no series at all is a save with nothing to judge, not a
+    broken decode. Only the clubs of the one or two league nations a save tracks keep a series,
+    and which nations those are changes during a career, so an empty result has to be allowed.
+
+    The series floor is what catches a locator that has stopped finding chains, and it applies
+    only where the save lists a managed club, whose own club held a series on every save
+    measured. That leaves one hole, deliberately: on a save with no human manager a locator
+    finding nothing returns an empty table and raises nothing. No count of club records could
+    close it without failing a save that legitimately tracks no league nation the manager is in,
+    and `clubs_with_series` and `records_searched` are reported as anomalies either way.
+    """
+    applied = _applies(bounds, game_db_bytes)
+    rows = stats.rows
+    return (
+        _gate(
+            "finance_net_identity",
+            _rate(stats.net_identity_rows, rows),
+            bounds.finance_net_identity,
+            applied and rows > 0,
+        ),
+        _gate(
+            "finance_balance_continuity",
+            _rate(stats.balance_continuous_steps, stats.balance_steps),
+            bounds.finance_balance_continuity,
+            applied and stats.balance_steps > 0,
+        ),
+        _gate(
+            "finance_expenditure_split",
+            _rate(stats.expenditure_split_rows, rows),
+            bounds.finance_expenditure_split,
+            applied and rows > 0,
+        ),
+        _gate(
+            "finance_clubs_with_two_chains",
+            stats.clubs_with_two_chains,
+            bounds.finance_clubs_with_two_chains,
+            applied,
+        ),
+        _gate(
+            "finance_series_minimum",
+            stats.clubs_with_series,
+            bounds.finance_series_minimum,
+            applied and stats.managed_club_exists,
+        ),
+    )
+
+
+def evaluate_sponsorships(
+    stats: FinanceStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The sponsorship reader's one check.
+
+    It judges the clubs that have a series, so it applies only where there is one of those to
+    judge: a save whose clubs keep no series has no sponsor run to miss. Where clubs do have a
+    series, every one of them had a sponsor run on each save measured, so a sponsor search that
+    has moved fails here.
+    """
+    applied = _applies(bounds, game_db_bytes)
+    return (
+        _gate(
+            "finance_clubs_with_sponsors",
+            _rate(stats.clubs_with_sponsors, stats.clubs_with_series),
+            bounds.finance_clubs_with_sponsors,
+            applied and stats.clubs_with_series > 0,
+        ),
+    )
+
+
+def check_finances(stats: FinanceStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The finance reader's checks, record count and anomaly counts.
+
+    `clubs_with_series` is reported as an anomaly because it is career state rather than a
+    fault: a save tracks one or two league nations, and only their clubs keep a series at all.
+    `balance_breaks` counts the consecutive months whose balance step differs from the month's
+    net, which every save holds some of, clustered in the transfer-window months.
+    """
+    return ReaderCheck(
+        FINANCES_READER,
+        stats.rows,
+        evaluate_finances(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {
+                "clubs_with_series": stats.clubs_with_series,
+                "balance_breaks": stats.balance_steps - stats.balance_continuous_steps,
+            }
+        ),
+    )
+
+
+def check_sponsorships(stats: FinanceStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The sponsorship reader's check, record count and anomaly count."""
+    return ReaderCheck(
+        SPONSORSHIPS_READER,
+        stats.sponsor_rows,
+        evaluate_sponsorships(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {"clubs_without_sponsors": stats.clubs_with_series - stats.clubs_with_sponsors}
         ),
     )
 

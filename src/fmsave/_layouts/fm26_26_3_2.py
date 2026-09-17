@@ -11,6 +11,7 @@ from fmsave._layouts import (
     ClubStatusLayout,
     CompetitionIdPairLayout,
     ContractLayout,
+    FinanceChainLayout,
     FixtureCalendarLayout,
     GameInfoLayout,
     GateBounds,
@@ -24,6 +25,7 @@ from fmsave._layouts import (
     PlayerRecordLayout,
     RulesPreambleLayout,
     SaveSummaryLayout,
+    SponsorChainLayout,
     StageResultLayout,
     StageTableLayout,
     SummaryStringsLayout,
@@ -351,6 +353,61 @@ CONTRACTS = ContractLayout(
     fallback_end_date_offset=0,
     fallback_start_date_offset=4,
     fallback_gate_length=16,
+)
+
+# A monthly finance snapshot row is 49 bytes and the row count sits in the four bytes in front
+# of the first row. Every club holding a chain has a record of at least 2,347 bytes on the saves
+# measured, so searching only records of 1,500 bytes or more loses no club and skips most of
+# them. The balance range and the weekly ceiling are far outside anything a club holds (the
+# largest weekly wage budget measured is a small fraction of 20 million) and are there to reject
+# look-alike bytes rather than to bound a real value.
+FINANCE_CHAINS = FinanceChainLayout(
+    row_bytes=49,
+    tag=0x01,
+    count_offset=-4,
+    count_range=(3, 1_000),
+    balance_range=(-400_000_000, 2_000_000_000),
+    weekly_maximum=20_000_000,
+    balance_offset=1,
+    transfer_allocated_offset=5,
+    transfer_remaining_offset=9,
+    wage_budget_offset=13,
+    wage_payroll_offset=17,
+    income_excluding_transfers_offset=21,
+    net_transfers_offset=25,
+    wage_bill_offset=29,
+    net_offset=33,
+    expenditure_excluding_transfers_offset=37,
+    total_income_offset=41,
+    total_expenditure_offset=45,
+    minimum_record_bytes=1_500,
+    # The last row is the month before the save's clock month. Across two saves of one career
+    # ten months apart the series agree row for row at that lag on all 1,740 overlapping rows of
+    # 145 clubs, and at no other lag on a single row; the lag itself is supported indirectly,
+    # because the months whose balance step differs from the month's net fall in the transfer
+    # windows under this lag and in February and September under a lag of zero.
+    month_lag=1,
+)
+
+# A sponsor row is 25 bytes and its run is counted by the single byte in front of it. Years from
+# 1991 are what the corpus holds; the ceiling on a value is far above any contract measured.
+SPONSOR_CHAINS = SponsorChainLayout(
+    row_bytes=25,
+    tag=0x02,
+    count_offset=-1,
+    type_offset=1,
+    start_offset=2,
+    end_offset=6,
+    flag10_offset=10,
+    flag10_maximum=1,
+    total_offset=11,
+    u15_offset=15,
+    b17_offset=17,
+    enum18_offset=18,
+    b19_offset=19,
+    annual_offset=21,
+    year_range=(1991, 2099),
+    value_maximum=2_000_000_000,
 )
 
 # A suspension entry is 20 bytes long; its signature bytes pin 5 of them.
@@ -866,6 +923,31 @@ GATE_BOUNDS = GateBounds(
     # all, so either misalignment fails it. The floor stays loose because the table is database
     # content: an installed database with fewer injuries legitimately carries fewer records.
     injury_type_entries_minimum=(50, None),
+    # Every one of the 11,399 / 3,081 / 3,460 finance rows on the three saves measured has a net
+    # equal to its total income less its total expenditure, and an expenditure excluding
+    # transfers between zero and its total. Both are what fail when the row is read from the
+    # wrong offset: one field late leaves 0.11% / 0.26% / 0.12% of rows on the net identity and
+    # 0.9% on the split, and one field early leaves 0.0.
+    finance_net_identity=(0.99, None),
+    finance_expenditure_split=(0.99, None),
+    # 91.4% / 92.5% / 97.6% of consecutive row pairs have the later balance equal to the earlier
+    # one plus the later month's net; the rest cluster in the transfer-window months. The floor
+    # is below the lowest of those by 57% of the bound's width. Reading the rows one field out
+    # leaves at most 0.3% here, except one field early, which leaves 82.5% / 78.6% / 91.7% and
+    # is what the net identity catches instead.
+    finance_balance_continuity=(0.80, None),
+    # No club on any save measured holds a second snapshot chain, and a second one would mean
+    # the locator is accepting bytes inside or behind the chain it already found.
+    finance_clubs_with_two_chains=(None, 0),
+    # 335 / 57 / 172 clubs keep a series: those of the one or two league nations the save
+    # tracks, not every club, and which nations those are changes during a career. So there is
+    # no count to bound from below beyond one, and only where a managed club exists, whose club
+    # held a series on every save measured.
+    finance_series_minimum=(1, None),
+    # Every club with a series has a sponsor run on all three saves. The floor leaves room for a
+    # career where a few clubs hold none while still failing a sponsor search that has moved,
+    # which finds nothing at all.
+    finance_clubs_with_sponsors=(0.95, None),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (
@@ -879,6 +961,8 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=PLAYER_RECORDS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=PERSON_BLOCKS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CONTRACTS),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=FINANCE_CHAINS),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=SPONSOR_CHAINS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=SUSPENSIONS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=MATCH_RECORDS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STAGE_TABLE),

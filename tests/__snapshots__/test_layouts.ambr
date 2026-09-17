@@ -372,6 +372,65 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'balance_offset': 1,
+        'balance_range': tuple(
+          -400000000,
+          2000000000,
+        ),
+        'count_offset': -4,
+        'count_range': tuple(
+          3,
+          1000,
+        ),
+        'expenditure_excluding_transfers_offset': 37,
+        'income_excluding_transfers_offset': 21,
+        'minimum_record_bytes': 1500,
+        'month_lag': 1,
+        'net_offset': 33,
+        'net_transfers_offset': 25,
+        'row_bytes': 49,
+        'tag': 1,
+        'total_expenditure_offset': 45,
+        'total_income_offset': 41,
+        'transfer_allocated_offset': 5,
+        'transfer_remaining_offset': 9,
+        'wage_bill_offset': 29,
+        'wage_budget_offset': 13,
+        'wage_payroll_offset': 17,
+        'weekly_maximum': 20000000,
+      }),
+      'region': 'game_db',
+      'schema': 4000,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
+        'annual_offset': 21,
+        'b17_offset': 17,
+        'b19_offset': 19,
+        'count_offset': -1,
+        'end_offset': 6,
+        'enum18_offset': 18,
+        'flag10_maximum': 1,
+        'flag10_offset': 10,
+        'row_bytes': 25,
+        'start_offset': 2,
+        'tag': 2,
+        'total_offset': 11,
+        'type_offset': 1,
+        'u15_offset': 15,
+        'value_maximum': 2000000000,
+        'year_range': tuple(
+          1991,
+          2099,
+        ),
+      }),
+      'region': 'game_db',
+      'schema': 4000,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
         'competition_id_exclusive_range': tuple(
           0,
           60000,
@@ -875,6 +934,30 @@
         ),
         'double_round_robin_divisions': tuple(
           5,
+          None,
+        ),
+        'finance_balance_continuity': tuple(
+          0.8,
+          None,
+        ),
+        'finance_clubs_with_sponsors': tuple(
+          0.95,
+          None,
+        ),
+        'finance_clubs_with_two_chains': tuple(
+          None,
+          0,
+        ),
+        'finance_expenditure_split': tuple(
+          0.99,
+          None,
+        ),
+        'finance_net_identity': tuple(
+          0.99,
+          None,
+        ),
+        'finance_series_minimum': tuple(
+          1,
           None,
         ),
         'fixture_cluster_share': tuple(

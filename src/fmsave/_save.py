@@ -28,6 +28,7 @@ from fmsave.checks import ReaderCheck
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
+from fmsave.models.finances import FinanceMonth, Sponsorship
 from fmsave.models.fixtures import Fixture
 from fmsave.models.injuries import InjuryType
 from fmsave.models.league_tables import LeagueTable
@@ -44,6 +45,7 @@ from fmsave.readers._common import (
     SAVE_SUMMARY_SECTION,
     SPAN_REGION,
 )
+from fmsave.readers.finances import find_finance_layouts, read_club_finances
 from fmsave.readers.fixtures import build_fixtures
 from fmsave.readers.injuries import find_injury_type_layout, read_injury_types
 from fmsave.readers.league_tables import build_league_tables
@@ -90,13 +92,24 @@ LEAGUE_TABLES_TABLE_CACHE_KEY = "table:league_tables"
 COMPETITION_RULES_TABLE_CACHE_KEY = "table:competition_rules"
 PLAYER_MATCH_STATS_TABLE_CACHE_KEY = "table:player_match_stats"
 INJURY_TYPES_TABLE_CACHE_KEY = "table:injury_types"
+FINANCES_TABLE_CACHE_KEY = "table:finances"
+SPONSORSHIPS_TABLE_CACHE_KEY = "table:sponsorships"
 
 # What each shared decode is kept under. While nothing is stored there the decode has not
 # finished, which is what tells a failed pass from a failed reader of a pass that ran.
 _SHARED_PASS_CACHE_KEYS: Mapping[str, str] = {
     checks.PLAYER_PASS: PLAYERS_TABLE_CACHE_KEY,
     checks.SPAN_PASS: SPAN_RECORDS_CACHE_KEY,
+    checks.FINANCE_PASS: FINANCES_TABLE_CACHE_KEY,
 }
+
+
+class _FinanceTables(NamedTuple):
+    """The two tables one decode pass over the club records builds, and their checks."""
+
+    finances: Table[FinanceMonth]
+    sponsorships: Table[Sponsorship]
+    reader_checks: tuple[ReaderCheck, ...]
 
 
 class _PlayerTables(NamedTuple):
@@ -680,6 +693,129 @@ class Save:
         checks.enforce_checks((match_check,))
         self._store_reader_checks((match_check,))
         return Table(match_rows, PlayerMatchStats)
+
+    def finances(self) -> Table[FinanceMonth]:
+        """Every month of club money the save keeps, by club and then oldest month first.
+
+        **Only some clubs have a series at all.** The save keeps one for the clubs of the one or
+        two league nations it tracks, not for every club it holds, and which nations those are
+        changes as a career moves on, so a club with no rows here is ordinary rather than a
+        failure. On the saves measured 57 to 335 clubs of the 48,000 to 51,000 each save holds
+        had one, of between 3 and 60 months each; 60 months is as many as a club keeps. A save
+        whose clubs keep none at all returns an empty table, and on a save with no human manager
+        that is also what a search finding nothing would return: the checks bound the rows that
+        were decoded, and the one count they bound from below applies only where the save lists
+        a managed club. `fmsave validate` reports the clubs with a series and the club records
+        searched either way.
+
+        `balance` is the balance at the **end** of the row's month, and `net_transfers` is
+        positive for a net **spend**. Money is a whole number in the save's base currency, which
+        is not necessarily the one the game displays: one save measured shows euros at about
+        1.157 times the stored value, and nothing here is converted. The weekly fields are
+        weekly; every other money field is one month's amount.
+
+        `month` is worked out from the save's own date rather than stored: the last row of a
+        club is the month before the save's month. Several useful figures are arithmetic on
+        these rows rather than fields: wage headroom is `wage_budget_weekly` less
+        `wage_payroll_weekly`, a yearly figure is a weekly one times 52, a club's latest month
+        is its last row, and a club summary is its rows grouped by `club_uid`.
+
+        The table is read on the first call to `finances()` or `sponsorships()`, from one decode
+        pass; later calls to either return the same tables. When a check of that pass fails,
+        neither table is kept, so both raise.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: No club record is accepted, a club uid or club index appears in
+                two records, a team id is listed twice, the save's in-game date is unreadable,
+                so no month can be dated, or, on a full-size save, the months and sponsors
+                decoded fall outside the checks' bounds.
+        """
+        context = self._context
+        return context.cached(FINANCES_TABLE_CACHE_KEY, self._finances_table_entry_point)
+
+    def sponsorships(self) -> Table[Sponsorship]:
+        """Every sponsorship contract the save lists for a club, in stored order.
+
+        The clubs are the ones `finances()` keeps a series for, in the same order, and each
+        club's contracts keep the order the save stores them in. **The list keeps contracts that
+        have ended**, whose `annual_value` is zero, so a club's current sponsorship income is the
+        sum of `annual_value` over the rows whose `end` is after the save's date.
+
+        Every `type` code is UNKNOWN: the save groups its sponsorships into about twenty kinds
+        and no displayed label has pinned one of those codes. Money is a whole number in the
+        save's base currency, as in `finances()`.
+
+        The table is read on the first call to `finances()` or `sponsorships()`, from one decode
+        pass; later calls to either return the same tables. When a check of that pass fails,
+        neither table is kept, so both raise.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: No club record is accepted, a club uid or club index appears in
+                two records, a team id is listed twice, the save's in-game date is unreadable,
+                so no month can be dated, or, on a full-size save, the months and sponsors
+                decoded fall outside the checks' bounds.
+        """
+        context = self._context
+        return context.cached(SPONSORSHIPS_TABLE_CACHE_KEY, self._sponsorships_table_entry_point)
+
+    def _finances_table_entry_point(self) -> Table[FinanceMonth]:
+        tables = self._decode_finance_tables()
+        self._store_reader_checks(tables.reader_checks)
+        self._context.cached(SPONSORSHIPS_TABLE_CACHE_KEY, lambda: tables.sponsorships)
+        return tables.finances
+
+    def _sponsorships_table_entry_point(self) -> Table[Sponsorship]:
+        tables = self._decode_finance_tables()
+        self._store_reader_checks(tables.reader_checks)
+        self._context.cached(FINANCES_TABLE_CACHE_KEY, lambda: tables.finances)
+        return tables.sponsorships
+
+    def _decode_finance_tables(self) -> _FinanceTables:
+        context = self._context
+        save_info = context.info
+        clock = save_info.game_date
+        if clock is None:
+            raise ReaderCheckError(
+                f"{save_info.file_name}: the save's in-game date is unreadable, so the month "
+                "each finance row covers cannot be worked out"
+            )
+        gate_bounds = self._gate_bounds()
+        layouts = find_finance_layouts(
+            save_info.section_schemas.get(GAME_DB_SECTION), save_info.build
+        )
+        # One game_db borrow covers the club records, the club index and the managed club, so a
+        # cold call decompresses that section once rather than once per reader.
+        with context.section(GAME_DB_SECTION) as game_db:
+            # Every row carries a club name, so the club table is read through the reader that
+            # enforces the club checks rather than through the index behind them: forcing those
+            # bounds to something unmeetable must stop this call instead of leaving it handing
+            # out names from an index whose checks never ran.
+            self.clubs()
+            # Whether a managed club exists is what decides whether the series floor applies,
+            # and this reader hands out nothing of that table, but it is read through the same
+            # accessor for the borrow it shares.
+            managed_clubs = self.managed_clubs()
+            club_index = context.club_index()
+            months, sponsorships, finance_stats = read_club_finances(
+                game_db, club_index, clock, layouts, len(managed_clubs) > 0
+            )
+            game_db_length = len(game_db)
+        # Both checks run before either table is built: when one fails, nothing is cached and
+        # the next call decodes and checks again.
+        reader_checks = (
+            checks.check_finances(finance_stats, gate_bounds, game_db_length),
+            checks.check_sponsorships(finance_stats, gate_bounds, game_db_length),
+        )
+        checks.enforce_checks(reader_checks)
+        return _FinanceTables(
+            Table(months, FinanceMonth), Table(sponsorships, Sponsorship), reader_checks
+        )
 
     def _reader_check(self, reader_name: str) -> ReaderCheck | None:
         """The checks a reader passed when its table was read, or None before it was read."""

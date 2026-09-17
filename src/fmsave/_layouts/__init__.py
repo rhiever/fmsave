@@ -180,6 +180,77 @@ class ClubStatusLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class FinanceChainLayout:
+    """How to find a club's chain of monthly finance snapshots inside its own record.
+
+    The chain sits inside one club record and is found by its head: a `tag` byte at `h` opens a
+    chain when the u32 at `h + count_offset` is a row count inside `count_range` (inclusive),
+    the whole chain fits in the record, and every one of those rows carries `tag` at its own
+    start, a balance inside `balance_range` and a weekly wage budget and payroll of at most
+    `weekly_maximum`. Rows are `row_bytes` long and every field offset counts from a row's
+    start. Only records of at least `minimum_record_bytes` are searched at all, which no club
+    holding a chain falls below.
+
+    Rows run oldest first. `month_lag` is how many months before the save's clock month the
+    last row's month is, so a lag of 1 makes the last row the month before the clock's.
+    """
+
+    row_bytes: int
+    tag: int
+    count_offset: int
+    count_range: tuple[int, int]
+    balance_range: tuple[int, int]
+    weekly_maximum: int
+    balance_offset: int
+    transfer_allocated_offset: int
+    transfer_remaining_offset: int
+    wage_budget_offset: int
+    wage_payroll_offset: int
+    income_excluding_transfers_offset: int
+    net_transfers_offset: int
+    wage_bill_offset: int
+    net_offset: int
+    expenditure_excluding_transfers_offset: int
+    total_income_offset: int
+    total_expenditure_offset: int
+    minimum_record_bytes: int
+    month_lag: int
+
+
+@dataclass(frozen=True, slots=True)
+class SponsorChainLayout:
+    """How to find a club's sponsor contracts, which follow its finance chain in the record.
+
+    A run starts at the first offset `s` after the finance chain where the byte at
+    `s + count_offset` is a row count of at least one, the whole run fits in the record, and
+    every one of its `row_bytes`-long rows carries `tag` at its start, a flag of at most
+    `flag10_maximum`, a start and an end date whose years lie inside `year_range` (inclusive)
+    with the end after the start, and an annual value no greater than a total value of at most
+    `value_maximum`. Every field offset counts from a row's start.
+
+    The **first** such run is the club's sponsor list. A few clubs hold a second, dead run
+    behind it, and a rule taking the longest run reads that one instead.
+    """
+
+    row_bytes: int
+    tag: int
+    count_offset: int
+    type_offset: int
+    start_offset: int
+    end_offset: int
+    flag10_offset: int
+    flag10_maximum: int
+    total_offset: int
+    u15_offset: int
+    b17_offset: int
+    enum18_offset: int
+    b19_offset: int
+    annual_offset: int
+    year_range: tuple[int, int]
+    value_maximum: int
+
+
+@dataclass(frozen=True, slots=True)
 class PersonBlockLayout:
     """How to locate and parse a player's person block inside its record window.
 
@@ -1074,6 +1145,21 @@ class GateBounds:
     which is a fact about the save rather than a layout that has moved. The floor sits far
     below the 93 records every save measured carries: what it catches is a record shape read
     from the wrong offset, which decodes a handful of records at most before its chain breaks.
+    Club finances: `finance_net_identity` (rows whose net equals total income less total
+    expenditure, of rows), `finance_balance_continuity` (consecutive row pairs where the later
+    balance is the earlier one plus the later month's net, of such pairs),
+    `finance_expenditure_split` (rows whose expenditure excluding transfers lies between zero
+    and the total, of rows), `finance_clubs_with_two_chains` (clubs holding a second snapshot
+    chain), `finance_series_minimum` (clubs with a series) and, in `sponsorships()`,
+    `finance_clubs_with_sponsors` (clubs with a sponsor run, of clubs with a series).
+
+    Only some of a save's clubs keep a finance series at all -- those of the one or two league
+    nations the save tracks, which changes during a career -- so `finance_series_minimum` bounds
+    it at one and applies only where a managed club exists, whose club held a series on every
+    save measured. The three shares and the sponsor share each apply only where they have a
+    denominator, because a save whose clubs keep no series is a save with nothing to judge
+    rather than a broken decode; the series floor is what catches a locator that has stopped
+    finding chains, and on a save with no human manager nothing does.
     """
 
     minimum_applies_from_bytes: int
@@ -1152,6 +1238,12 @@ class GateBounds:
     per_match_minutes_in_range: BoundPair
     per_match_rating_in_range: BoundPair
     injury_type_entries_minimum: BoundPair
+    finance_net_identity: BoundPair
+    finance_balance_continuity: BoundPair
+    finance_expenditure_split: BoundPair
+    finance_clubs_with_two_chains: BoundPair
+    finance_series_minimum: BoundPair
+    finance_clubs_with_sponsors: BoundPair
 
 
 type Layout = (
@@ -1165,6 +1257,8 @@ type Layout = (
     | PlayerRecordLayout
     | PersonBlockLayout
     | ContractLayout
+    | FinanceChainLayout
+    | SponsorChainLayout
     | SuspensionLayout
     | MatchRecordLayout
     | StageTableLayout

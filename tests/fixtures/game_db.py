@@ -84,6 +84,19 @@ def club_record_names_end(name: str, short_name: str) -> int:
     return 39 + len(length_prefixed(name)) + len(length_prefixed(short_name))
 
 
+def staff_list_bytes(staff_lists: Sequence[Sequence[int]]) -> bytes:
+    """The staff lists a club record holds after its affiliated-team ids.
+
+    Each list is a count byte and that many u32 values, written exactly as given: a caller
+    passes a person id plus 1, the way the save stores it.
+    """
+    output = bytearray()
+    for staff_list in staff_lists:
+        output.append(len(staff_list))
+        output.extend(struct.pack(f"<{len(staff_list)}I", *staff_list))
+    return bytes(output)
+
+
 def club_record_bytes(
     *,
     club_index: int,
@@ -96,11 +109,18 @@ def club_record_bytes(
     team_ids: Sequence[int],
     affiliate_team_ids: Sequence[int] = (),
     float_anchor_only: bool = False,
+    staff_lists: Sequence[Sequence[int]] | None = None,
+    trailing_bytes: bytes = b"",
 ) -> bytes:
     """One club record: fixed header, both names, 16 zero bytes, then the team list block.
 
     The index and uid are stored minus 1, the league nation twice, and the anchor sits at
     record offset 17. `affiliate_team_ids` are the teams of other clubs this club controls.
+
+    `staff_lists` writes one staff list per sequence right after the affiliated-team ids, and
+    `None` writes nothing at all, so a record built without them is byte for byte the record
+    the save's older fragments hold. `trailing_bytes` follows whatever the lists wrote, which
+    is where a club's own finance and sponsor chains sit.
     """
     output = bytearray()
     output.extend(struct.pack("<III", club_index - 1, uid - 1, uid - 1))
@@ -119,6 +139,9 @@ def club_record_bytes(
             float_anchor_only=float_anchor_only,
         )
     )
+    if staff_lists is not None:
+        output.extend(staff_list_bytes(staff_lists))
+    output.extend(trailing_bytes)
     return bytes(output)
 
 

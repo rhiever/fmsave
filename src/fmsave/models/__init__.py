@@ -11,6 +11,7 @@ from fmsave.models.contracts import (
     ContractType,
     SquadStatus,
 )
+from fmsave.models.finances import FinanceMonth, Sponsorship, SponsorType
 from fmsave.models.fixtures import Fixture
 from fmsave.models.injuries import InjuryType
 from fmsave.models.league_tables import (
@@ -55,6 +56,7 @@ __all__ = [
     "ContractChainEntry",
     "ContractEndSource",
     "ContractType",
+    "FinanceMonth",
     "Fixture",
     "InjuryType",
     "LeagueTable",
@@ -74,6 +76,8 @@ __all__ = [
     "RulesRound",
     "SaveInfo",
     "SectionInfo",
+    "SponsorType",
+    "Sponsorship",
     "SquadStatus",
     "Stage",
     "Suspension",

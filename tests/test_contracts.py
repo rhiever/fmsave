@@ -83,6 +83,7 @@ EMPTY_CLUB_INDEX = ClubIndex(
         reputations_median=None,
     ),
     game_db_bytes=0,
+    record_spans=(),
 )
 
 FILE_NAME = "career example.fm"
