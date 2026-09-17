@@ -38,6 +38,10 @@ INJURY_MANAGER_SECTION = "injury_manager"
 # store of line-ups for other clubs that fmsave never walks.
 TACTICS_SECTION = "tactics_man"
 
+# The training calendars, mentoring groups and saved schedules of the managed club's teams,
+# tens of KB of variable-length blocks.
+TRAINING_SECTION = "training_man"
+
 
 def section_label(file_name: str, section_name: str = GAME_DB_SECTION) -> str:
     """ "<file name>: section '<section name>'", the common prefix of a reader's error text."""

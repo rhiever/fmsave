@@ -59,6 +59,12 @@ from fmsave.models.tactics import (
     TacticSettingUnit,
     TacticSlot,
 )
+from fmsave.models.training import (
+    MentoringGroup,
+    TeamTraining,
+    TrainingSchedule,
+    TrainingWeek,
+)
 
 __all__ = [
     "Ability",
@@ -91,6 +97,7 @@ __all__ = [
     "MatchOutcome",
     "MatchPosition",
     "Mentality",
+    "MentoringGroup",
     "Personality",
     "Player",
     "PlayerMatchStats",
@@ -117,6 +124,9 @@ __all__ = [
     "TacticSettingUnit",
     "TacticSlot",
     "Team",
+    "TeamTraining",
+    "TrainingSchedule",
+    "TrainingWeek",
     "Trait",
     "TransferValueState",
     "TransferWindow",

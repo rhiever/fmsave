@@ -1025,6 +1025,55 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'block_entry_bytes': 14,
+        'block_entry_lead_byte': 5,
+        'block_lead_byte': 1,
+        'block_tail_bytes': 36,
+        'block_terminator': 0,
+        'day_block_bytes': 7,
+        'day_block_count': 7,
+        'day_block_lead_byte': 3,
+        'day_blocks_offset': 6,
+        'group_label_marker': 4,
+        'group_lead_byte': 1,
+        'header_count_offset': 26,
+        'header_entry_bytes': 13,
+        'header_gap_bytes': 3,
+        'header_list_offset': 30,
+        'library_day_blocks_offset': 6,
+        'library_entry_lead_byte': 5,
+        'library_entry_marker_offset': 5,
+        'library_entry_marker_value': 1,
+        'library_entry_word_offset': 1,
+        'library_entry_word_value': 1,
+        'library_folder_offset': 55,
+        'library_group_prefix': b'\x01\x01\x00\x00\x00\x01',
+        'library_group_size_range': tuple(
+          1,
+          64,
+        ),
+        'member_count_range': tuple(
+          0,
+          64,
+        ),
+        'name_length_range': tuple(
+          0,
+          256,
+        ),
+        'seven_day_step': 7,
+        'week_date_offset': 1,
+        'week_lead_byte': 11,
+        'week_marker_offset': 5,
+        'week_marker_value': 1,
+        'week_name_offset': 55,
+        'week_record_fixed_bytes': 73,
+      }),
+      'region': 'training_man',
+      'schema': 31,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
         'flag_values': tuple(
           0,
           1,
@@ -1409,6 +1458,10 @@
           0.05,
           0.95,
         ),
+        'mentoring_members_at_club': tuple(
+          0.9,
+          None,
+        ),
         'minimum_applies_from_bytes': 16777216,
         'names_resolved': tuple(
           0.995,
@@ -1642,6 +1695,14 @@
         ),
         'team_resolved': tuple(
           0.98,
+          None,
+        ),
+        'training_blocks_match_club_teams': tuple(
+          1.0,
+          None,
+        ),
+        'training_week_steps': tuple(
+          1.0,
           None,
         ),
         'transfer_window_dates': tuple(

@@ -51,6 +51,7 @@ from fmsave._reader_stats import (
     StageStats,
     SuspensionStats,
     TacticStats,
+    TrainingStats,
     TransferWindowStats,
 )
 from fmsave._status import registered_statuses
@@ -99,6 +100,8 @@ STAFF_READER = "staff"
 STAFF_LISTS_READER = "staff_lists"
 TACTICS_READER = "tactics"
 SET_PIECES_READER = "set_pieces"
+TRAINING_READER = "training"
+MENTORING_READER = "mentoring"
 
 # Several readers are built from one decode. A reader whose shared decode did not finish would
 # have every other reader of the same pass redo that decode only to fail the same way, so the
@@ -108,6 +111,7 @@ SPAN_PASS = "span"
 FINANCE_PASS = "finance"
 STAFF_PASS = "staff"
 TACTICS_PASS = "tactics"
+TRAINING_PASS = "training"
 # Players, contracts and suspensions are decoded in one pass, so they fail or succeed together.
 _PLAYER_PASS_READERS = frozenset({PLAYERS_READER, CONTRACTS_READER, SUSPENSIONS_READER})
 # Fixtures, league tables and competition rules read one streamed pass over the unnamed span,
@@ -122,6 +126,9 @@ _STAFF_PASS_READERS = frozenset({STAFF_READER, STAFF_LISTS_READER})
 # The tactics and the set-piece routines come out of one walk over the manager's team blocks,
 # so they fail or succeed together.
 _TACTICS_PASS_READERS = frozenset({TACTICS_READER, SET_PIECES_READER})
+# The calendars and the mentoring groups come out of one walk over the training section, so
+# they fail or succeed together.
+_TRAINING_PASS_READERS = frozenset({TRAINING_READER, MENTORING_READER})
 _READER_PASSES: FrozenMapping[str, str] = FrozenMapping(
     {
         **dict.fromkeys(_PLAYER_PASS_READERS, PLAYER_PASS),
@@ -129,6 +136,7 @@ _READER_PASSES: FrozenMapping[str, str] = FrozenMapping(
         **dict.fromkeys(_FINANCE_PASS_READERS, FINANCE_PASS),
         **dict.fromkeys(_STAFF_PASS_READERS, STAFF_PASS),
         **dict.fromkeys(_TACTICS_PASS_READERS, TACTICS_PASS),
+        **dict.fromkeys(_TRAINING_PASS_READERS, TRAINING_PASS),
     }
 )
 
@@ -1821,6 +1829,112 @@ def check_set_pieces(stats: TacticStats, bounds: GateBounds, game_db_bytes: int)
         stats.routines,
         evaluate_set_pieces(stats, bounds, game_db_bytes),
         FrozenMapping({"named_routines": stats.named_routines}),
+    )
+
+
+def evaluate_training(
+    stats: TrainingStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The training reader's checks, in a fixed order.
+
+    Both apply on a full-size save where the manager runs a club, and only there: the section
+    holds one calendar per team of that club and nothing for any other club, so a save with no
+    managed club has nothing here to judge rather than a decode that went wrong.
+
+    The first says the walk found the whole team list, which it did on every save measured;
+    started one byte or four bytes late it finds no block at all. The second says consecutive
+    weeks step a week, which held on every pair of every calendar measured, and it is
+    deliberately **not** excused when there are no steps: a walk that has moved leaves the
+    share without a denominator, and failing there is the point, since the alternative is
+    reporting a career whose teams train in no week at all.
+    """
+    applied = _applies(bounds, game_db_bytes) and stats.managed_club_exists
+    return (
+        _gate(
+            "training_blocks_match_club_teams",
+            _rate(stats.blocks, stats.club_team_count),
+            bounds.training_blocks_match_club_teams,
+            applied,
+        ),
+        _gate(
+            "training_week_steps",
+            _rate(stats.seven_day_steps, stats.week_steps),
+            bounds.training_week_steps,
+            applied,
+        ),
+    )
+
+
+def evaluate_mentoring(
+    stats: TrainingStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The mentoring reader's one check.
+
+    It applies on a full-size save where the manager runs a club **and** a group member
+    resolved to a player, because a manager who mentors nobody is ordinary: every save measured
+    has teams with no group at all, and one has a whole team of the club with none.
+
+    What it judges is the index space the stored selectors live in. Each is a player's record
+    index plus one, and reading one of them a place out still finds a player, because the
+    index is dense over the range a squad occupies: on the three saves measured that read
+    resolves 1.0, 0.958 and 0.667 of members, which no floor can tell from the 1.0 a correct
+    read scores. So **there is no check on how many members resolve**; what the wrong read
+    cannot do is land on players of the right club, and this share falls from 1.0 to between
+    0.0 and 0.174 when it happens. A shifted walk cannot reach here at all: the groups sit
+    inside a block, so the training checks fail first.
+    """
+    applied = (
+        _applies(bounds, game_db_bytes) and stats.managed_club_exists and stats.members_resolved > 0
+    )
+    return (
+        _gate(
+            "mentoring_members_at_club",
+            _rate(stats.members_at_club, stats.members_resolved),
+            bounds.mentoring_members_at_club,
+            applied,
+        ),
+    )
+
+
+def check_training(stats: TrainingStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The training reader's checks, record count and anomaly counts.
+
+    The anomalies are counts rather than faults: the weeks whose stored date does not decode,
+    the per-person header entries the reader does not decode at all, and the saved schedules
+    found after the last block, which a manager who has saved none legitimately has none of.
+    """
+    return ReaderCheck(
+        TRAINING_READER,
+        stats.blocks,
+        evaluate_training(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {
+                "undated_weeks": stats.undated_weeks,
+                "header_entries": stats.header_entries,
+                "library_entries": stats.library_entries,
+            }
+        ),
+    )
+
+
+def check_mentoring(stats: TrainingStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The mentoring reader's check, record count and anomaly counts.
+
+    `members_without_a_player` counts the members whose stored selector names no player record,
+    and `members_elsewhere` the resolved members who are not players of the managed club. The
+    first carries no gate, because a selector read a place out still resolves; see
+    `evaluate_mentoring`.
+    """
+    return ReaderCheck(
+        MENTORING_READER,
+        stats.groups,
+        evaluate_mentoring(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {
+                "members_without_a_player": stats.members - stats.members_resolved,
+                "members_elsewhere": stats.members_resolved - stats.members_at_club,
+            }
+        ),
     )
 
 

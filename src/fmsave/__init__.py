@@ -76,6 +76,12 @@ from fmsave.models.tactics import (
     TacticSettingUnit,
     TacticSlot,
 )
+from fmsave.models.training import (
+    MentoringGroup,
+    TeamTraining,
+    TrainingSchedule,
+    TrainingWeek,
+)
 from fmsave.name_maps import read_competition_names
 from fmsave.table import Table
 
@@ -118,6 +124,7 @@ __all__ = [
     "MatchOutcome",
     "MatchPosition",
     "Mentality",
+    "MentoringGroup",
     "NotAFmSaveError",
     "Personality",
     "Player",
@@ -151,6 +158,9 @@ __all__ = [
     "TacticSettingUnit",
     "TacticSlot",
     "Team",
+    "TeamTraining",
+    "TrainingSchedule",
+    "TrainingWeek",
     "Trait",
     "TransferWindow",
     "UnknownBuildWarning",

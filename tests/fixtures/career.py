@@ -92,6 +92,14 @@ from tests.fixtures.tactics import (
     tactic_record_bytes,
     tactics_man_body,
 )
+from tests.fixtures.training import (
+    mentoring_group_bytes,
+    schedule_library_bytes,
+    training_block_bytes,
+    training_header_entry_bytes,
+    training_man_body,
+    training_week_bytes,
+)
 
 GAME_DB_SCHEMA = 4000
 BUILD_STRING = "26.3.2+2329565"
@@ -2082,6 +2090,105 @@ def career_injury_manager() -> bytes:
     )
 
 
+# Training. One block per team of the managed club, in the order the save stores them: the
+# reserve team first, then the first team, which is the one carrying mentoring groups. The
+# calendars straddle the in-game date of 1 March 2031 (day 60), so the week starting on day 55
+# is the active one for both teams. The saved-schedule library sits after the last block, past
+# a run of bytes that is none of its own.
+TRAINING_SECTION_NAME = "training_man"
+TRAINING_YEAR = 2031
+FIRST_TRAINING_WEEK_DAY = 48
+SECOND_TRAINING_WEEK_DAY = 55
+THIRD_TRAINING_WEEK_DAY = 62
+TRAINING_WEEK_SLOT = 61
+LIGHT_SCHEDULE_NAME = "Example Light"
+BALANCED_SCHEDULE_NAME = "Example Balanced"
+RECOVERY_SCHEDULE_NAME = "Example Recovery"
+TRAINING_HEADER_SELECTOR = 12
+FIRST_MENTORING_LABEL = "Group 1"
+SECOND_MENTORING_LABEL = "Group 2"
+# Player C (pindex 13) and player A (pindex 11), each stored as its pindex plus one.
+FIRST_MENTORING_SELECTORS = (14, 12)
+# A selector no player record claims, so its member resolves to no player at all.
+SECOND_MENTORING_SELECTORS = (999,)
+CAREER_SCHEDULE_LIBRARY = (
+    ("Example Folder", 17, LIGHT_SCHEDULE_NAME),
+    ("Example Folder", 18, RECOVERY_SCHEDULE_NAME),
+    ("Other Folder", 19, BALANCED_SCHEDULE_NAME),
+)
+TRAINING_FILLER_BYTES = b"\x77" * 64
+
+
+def career_training_blocks() -> tuple[bytes, ...]:
+    """The two team blocks, in the order the save stores them."""
+    reserve_weeks = (
+        training_week_bytes(
+            week_start=packed_date(FIRST_TRAINING_WEEK_DAY, TRAINING_YEAR, TRAINING_WEEK_SLOT),
+            schedule_name=LIGHT_SCHEDULE_NAME,
+        ),
+        training_week_bytes(
+            week_start=packed_date(SECOND_TRAINING_WEEK_DAY, TRAINING_YEAR),
+            schedule_name=LIGHT_SCHEDULE_NAME,
+        ),
+    )
+    first_team_weeks = (
+        training_week_bytes(
+            week_start=packed_date(FIRST_TRAINING_WEEK_DAY, TRAINING_YEAR),
+            schedule_name=BALANCED_SCHEDULE_NAME,
+        ),
+        training_week_bytes(
+            week_start=packed_date(SECOND_TRAINING_WEEK_DAY, TRAINING_YEAR),
+            schedule_name=RECOVERY_SCHEDULE_NAME,
+        ),
+        training_week_bytes(
+            week_start=packed_date(THIRD_TRAINING_WEEK_DAY, TRAINING_YEAR),
+            schedule_name=BALANCED_SCHEDULE_NAME,
+        ),
+    )
+    first_team_groups = (
+        mentoring_group_bytes(
+            number=1,
+            label=FIRST_MENTORING_LABEL,
+            member_selectors=FIRST_MENTORING_SELECTORS,
+        ),
+        mentoring_group_bytes(
+            number=2,
+            label=SECOND_MENTORING_LABEL,
+            member_selectors=SECOND_MENTORING_SELECTORS,
+        ),
+    )
+    return (
+        training_block_bytes(
+            team_id=NORTHBRIDGE_TEAM_B, entries=1, weeks=reserve_weeks, groups=(), last=False
+        ),
+        training_block_bytes(
+            team_id=NORTHBRIDGE_TEAM_A,
+            entries=0,
+            weeks=first_team_weeks,
+            groups=first_team_groups,
+            last=True,
+        ),
+    )
+
+
+def career_training_section(*, library: bool = True) -> bytes:
+    """The whole `training_man` section; without the library nothing after the blocks holds one."""
+    after_blocks = TRAINING_FILLER_BYTES
+    if library:
+        after_blocks += schedule_library_bytes(CAREER_SCHEDULE_LIBRARY)
+    return training_man_body(
+        header_entries=(
+            training_header_entry_bytes(
+                selector=TRAINING_HEADER_SELECTOR,
+                first_date=packed_date(50, TRAINING_YEAR),
+                second_date=packed_date(57, TRAINING_YEAR),
+            ),
+        ),
+        blocks=career_training_blocks(),
+        after_blocks=after_blocks,
+    )
+
+
 def career_summary(*, linked: bool) -> bytes:
     """The save summary; when linked, the manager's name is followed by his club's link."""
     if linked:
@@ -2112,6 +2219,7 @@ def career_fragment(
     job_centre_section: bytes | None = None,
     injury_manager_section: bytes | None = None,
     tactics_section: bytes | None = None,
+    training_section: bytes | None = None,
     stadium_table: bool = True,
     staff_affiliate: bool = False,
     extra_staff: bytes = b"",
@@ -2145,6 +2253,8 @@ def career_fragment(
             vacancies the fragment writes.
         tactics_section: The whole `tactics_man` section body, in place of the two team
             blocks the fragment writes.
+        training_section: The whole `training_man` section body, in place of the two team
+            blocks and the saved-schedule library the fragment writes.
         injury_manager_section: The whole `injury_manager` section body, in place of the
             three log rows and three typed rows the fragment writes.
         stadium_table: Write the stadium table into `game_db`. False leaves it out, so a
@@ -2199,6 +2309,12 @@ def career_fragment(
         SectionFrame(
             TACTICS_SECTION_NAME,
             career_tactics_body(selector=selector) if tactics_section is None else tactics_section,
+        )
+    )
+    sections.append(
+        SectionFrame(
+            TRAINING_SECTION_NAME,
+            career_training_section() if training_section is None else training_section,
         )
     )
     if news_results:

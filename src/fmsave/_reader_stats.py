@@ -627,3 +627,39 @@ class TacticStats:
     routine_blocks_with_twenty: int
     routines: int
     named_routines: int
+
+
+@dataclass(frozen=True, slots=True)
+class TrainingStats:
+    """What the training block walk and its club and player joins counted.
+
+    `managed_club_exists` says whether the save lists a club for its manager at all; without
+    one the section holds no calendar and every count below is zero. `club_team_count` is how
+    many teams that club fields, its own and those at the clubs it controls, and `blocks` how
+    many blocks the walk read: the two are equal on every save measured, and a walk started
+    one byte or four bytes late reads none.
+
+    `header_entries` counts the per-person entries of the section header, which are not
+    decoded. `weeks` counts every weekly record read, `undated_weeks` those whose stored date
+    does not decode, `week_steps` the moves from one week of a block to the next where both
+    carry a date, and `seven_day_steps` those that stepped exactly a week.
+
+    `library_entries` counts the saved schedules found after the last block. `groups` counts
+    the mentoring groups, `members` their members, `members_resolved` those whose stored
+    selector names a player record, and `members_at_club` the resolved members who are
+    players of the managed club.
+    """
+
+    managed_club_exists: bool
+    club_team_count: int
+    blocks: int
+    header_entries: int
+    weeks: int
+    week_steps: int
+    seven_day_steps: int
+    undated_weeks: int
+    library_entries: int
+    groups: int
+    members: int
+    members_resolved: int
+    members_at_club: int

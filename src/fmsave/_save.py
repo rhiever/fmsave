@@ -44,6 +44,7 @@ from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
 from fmsave.models.tactics import SetPieceRoutine, Tactic
+from fmsave.models.training import MentoringGroup, TeamTraining
 from fmsave.name_maps import EMPTY_COMPETITION_NAMES, normalize_competition_names
 from fmsave.readers._common import (
     FEEDER_SECTION,
@@ -54,6 +55,7 @@ from fmsave.readers._common import (
     SAVE_SUMMARY_SECTION,
     SPAN_REGION,
     TACTICS_SECTION,
+    TRAINING_SECTION,
 )
 from fmsave.readers.affiliates import (
     build_affiliate_groups,
@@ -116,6 +118,13 @@ from fmsave.readers.tactics import (
     read_tactics_header,
     walk_tactic_blocks,
 )
+from fmsave.readers.training import (
+    build_training_tables,
+    find_training_layout,
+    locate_schedule_library,
+    unmanaged_training_stats,
+    walk_training_blocks,
+)
 from fmsave.table import Table
 
 CLUBS_TABLE_CACHE_KEY = "table:clubs"
@@ -141,6 +150,8 @@ STAFF_TABLE_CACHE_KEY = "table:staff"
 STAFF_LISTS_TABLE_CACHE_KEY = "table:staff_lists"
 TACTICS_TABLE_CACHE_KEY = "table:tactics"
 SET_PIECES_TABLE_CACHE_KEY = "table:set_pieces"
+TRAINING_TABLE_CACHE_KEY = "table:training"
+MENTORING_TABLE_CACHE_KEY = "table:mentoring"
 
 # What each shared decode is kept under. While nothing is stored there the decode has not
 # finished, which is what tells a failed pass from a failed reader of a pass that ran.
@@ -150,6 +161,7 @@ _SHARED_PASS_CACHE_KEYS: Mapping[str, str] = {
     checks.FINANCE_PASS: FINANCES_TABLE_CACHE_KEY,
     checks.STAFF_PASS: STAFF_TABLE_CACHE_KEY,
     checks.TACTICS_PASS: TACTICS_TABLE_CACHE_KEY,
+    checks.TRAINING_PASS: TRAINING_TABLE_CACHE_KEY,
 }
 
 
@@ -198,6 +210,14 @@ class _StaffTables(NamedTuple):
 
     staff: Table[Staff]
     staff_lists: Table[StaffList]
+    reader_checks: tuple[ReaderCheck, ...]
+
+
+class _TrainingTables(NamedTuple):
+    """The two tables one walk over the training section builds, and their checks."""
+
+    training: Table[TeamTraining]
+    mentoring: Table[MentoringGroup]
     reader_checks: tuple[ReaderCheck, ...]
 
 
@@ -1508,6 +1528,152 @@ class Save:
             checks.check_set_pieces(empty_stats, gate_bounds, 0),
         )
         return _TacticTables(Table((), Tactic), Table((), SetPieceRoutine), reader_checks)
+
+    def training(self) -> Table[TeamTraining]:
+        """The training calendar of each team of the club the save's manager runs.
+
+        One row per team, in the order the save stores them: the first team, the reserves, the
+        youth side and each team the club fields at a club it controls, which maps back to the
+        managed club with the slot it holds in that club's list. **No other club has a
+        calendar at all**, and a save whose manager runs no club returns an empty table.
+
+        **Which week runs which schedule is read as the save stores it, and the pairing is not
+        yet confirmed against the game.** Each weekly record holds the week's start date and
+        then a schedule name, and this reads the name as the schedule of the week whose date
+        came before it. The dates themselves are solid: consecutive weeks step exactly seven
+        days on every pair of every calendar measured, and the calendar runs from well before
+        the save's date to well after it.
+
+        The active week of a team is the latest one that has started::
+
+            weeks = career_save.training()[0].weeks
+            active = max(
+                (week for week in weeks if week.week_start <= career_save.info.game_date),
+                key=lambda week: week.week_start,
+            )
+
+        What a schedule asks of a day is **not** read: each day of a week holds three codes
+        whose meaning is unknown. `schedule_library` is the manager's own saved schedules,
+        which the save keeps once per section rather than per team, so every row carries the
+        same tuple.
+
+        The table is read on the first call to `training()` or `mentoring()`, from one walk;
+        later calls to either return the same tables. When a check of that walk fails, neither
+        table is kept, so both raise.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: The training section is too short to hold its header list, a
+                block the walk accepted holds a weekly record or a mentoring group it cannot
+                read, no club record is accepted, a club uid or club index appears in two
+                records, a team id is listed twice, no player record is found, or, on a
+                full-size save whose manager runs a club, the blocks and weeks read fall
+                outside the checks' bounds.
+        """
+        context = self._context
+        return context.cached(TRAINING_TABLE_CACHE_KEY, self._training_table_entry_point)
+
+    def mentoring(self) -> Table[MentoringGroup]:
+        """Every mentoring group of every team of the club the save's manager runs.
+
+        A group belongs to a **team**, not to the club: the rows come team by team in the
+        order the save stores the teams, and within a team in stored order. Only the managed
+        club has groups at all, and a team with none has no row here, which is ordinary -- on
+        the saves measured only the first team and one other side mentor anybody.
+
+        `label` is the stored text. Every group of every save measured carries the game's own
+        default wording with the group's number, and whether renaming a group in game changes
+        what is stored has not been checked. A member whose stored selector names no player
+        record leaves that entry's uid and name empty rather than guessing.
+
+        The table is read on the first call to `training()` or `mentoring()`, from one walk;
+        later calls to either return the same tables. When a check of that walk fails, neither
+        table is kept, so both raise.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: The training section is too short to hold its header list, a
+                block the walk accepted holds a weekly record or a mentoring group it cannot
+                read, no club record is accepted, a club uid or club index appears in two
+                records, a team id is listed twice, no player record is found, or, on a
+                full-size save whose manager runs a club, the members read fall outside the
+                checks' bounds.
+        """
+        context = self._context
+        return context.cached(MENTORING_TABLE_CACHE_KEY, self._mentoring_table_entry_point)
+
+    def _training_table_entry_point(self) -> Table[TeamTraining]:
+        tables = self._decode_training_tables()
+        self._store_reader_checks(tables.reader_checks)
+        self._context.cached(MENTORING_TABLE_CACHE_KEY, lambda: tables.mentoring)
+        return tables.training
+
+    def _mentoring_table_entry_point(self) -> Table[MentoringGroup]:
+        tables = self._decode_training_tables()
+        self._store_reader_checks(tables.reader_checks)
+        self._context.cached(TRAINING_TABLE_CACHE_KEY, lambda: tables.training)
+        return tables.mentoring
+
+    def _decode_training_tables(self) -> _TrainingTables:
+        context = self._context
+        save_info = context.info
+        gate_bounds = self._gate_bounds()
+        # Whether the save lists a club for its manager decides whether there is anything to
+        # read: the section holds one calendar per team of that club and nothing else.
+        managed_clubs = self.managed_clubs()
+        team_rows: tuple[TeamTraining, ...] = ()
+        group_rows: tuple[MentoringGroup, ...] = ()
+        training_stats = unmanaged_training_stats()
+        # Nothing is read without a managed club, and no check applies without one either, so
+        # the section's own size is never wanted in that case and game_db is not touched.
+        game_db_length = 0
+        if len(managed_clubs) > 0:
+            managed_club_uid = managed_clubs[0].club_uid
+            layout = find_training_layout(
+                save_info.section_schemas.get(TRAINING_SECTION), save_info.build
+            )
+            with context.section(TRAINING_SECTION) as training:
+                with context.section(GAME_DB_SECTION) as game_db:
+                    # Every row carries a club name and every member a player name, so both
+                    # tables are read through the readers that enforce their own checks rather
+                    # than through the indexes behind them. Both calls sit inside this borrow,
+                    # so a cold call decompresses game_db once rather than once per index.
+                    self.clubs()
+                    players = self.players()
+                    club_index = context.club_index()
+                    player_records = context.player_records()
+                    game_db_length = len(game_db)
+                managed_club = club_index.club_by_uid.get(managed_club_uid)
+                club_team_ids = frozenset(
+                    () if managed_club is None else (team.team_id for team in managed_club.teams)
+                )
+                blocks, walk_counts = walk_training_blocks(
+                    training, club_team_ids, layout, save_info.file_name
+                )
+                library = locate_schedule_library(training, walk_counts.blocks_end, layout)
+            team_rows, group_rows, training_stats = build_training_tables(
+                blocks,
+                library,
+                club_index,
+                player_records,
+                players,
+                managed_club_uid,
+                walk_counts,
+            )
+        # Both checks run before either table is built: when one fails, nothing is cached and
+        # the next call walks and checks again.
+        reader_checks = (
+            checks.check_training(training_stats, gate_bounds, game_db_length),
+            checks.check_mentoring(training_stats, gate_bounds, game_db_length),
+        )
+        checks.enforce_checks(reader_checks)
+        return _TrainingTables(
+            Table(team_rows, TeamTraining), Table(group_rows, MentoringGroup), reader_checks
+        )
 
     def _reader_check(self, reader_name: str) -> ReaderCheck | None:
         """The checks a reader passed when its table was read, or None before it was read."""

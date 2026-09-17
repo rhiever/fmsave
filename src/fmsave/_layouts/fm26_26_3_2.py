@@ -39,6 +39,7 @@ from fmsave._layouts import (
     TacticsLayout,
     TaggedStreamLayout,
     TeamListLayout,
+    TrainingLayout,
     TransferWindowLayout,
 )
 
@@ -187,6 +188,46 @@ TACTICS = TacticsLayout(
     routine_count=20,
     routine_name_length_range=(0, 64),
     name_length_range=(0, 256),
+)
+
+# The training calendars, mentoring groups and saved schedules the `training_man` section
+# stores. A weekly record is 73 bytes plus its schedule name, measured by walking every record
+# of every save to the next record's lead byte; the fourteen bytes that follow the name are a
+# flag, a word that is FFFF while the flag is set, and two counts, none of them decoded.
+TRAINING = TrainingLayout(
+    header_count_offset=26,
+    header_list_offset=30,
+    header_entry_bytes=13,
+    header_gap_bytes=3,
+    block_lead_byte=1,
+    block_entry_bytes=14,
+    block_entry_lead_byte=5,
+    block_tail_bytes=36,
+    block_terminator=0,
+    week_lead_byte=0x0B,
+    week_date_offset=1,
+    week_marker_offset=5,
+    week_marker_value=1,
+    day_blocks_offset=6,
+    day_block_count=7,
+    day_block_bytes=7,
+    day_block_lead_byte=3,
+    week_name_offset=55,
+    week_record_fixed_bytes=73,
+    group_lead_byte=1,
+    group_label_marker=4,
+    name_length_range=(0, 256),
+    member_count_range=(0, 64),
+    seven_day_step=7,
+    library_group_prefix=bytes([1, 1, 0, 0, 0, 1]),
+    library_group_size_range=(1, 64),
+    library_entry_lead_byte=5,
+    library_entry_word_offset=1,
+    library_entry_word_value=1,
+    library_entry_marker_offset=5,
+    library_entry_marker_value=1,
+    library_day_blocks_offset=6,
+    library_folder_offset=55,
 )
 
 NAME_POOLS = NamePoolLayout(
@@ -1307,6 +1348,19 @@ GATE_BOUNDS = GateBounds(
     # 0 routines decode from three of those four shifts and 66, 50 and 66 from the fourth,
     # spread over the blocks.
     set_piece_blocks_with_twenty=(1.0, None),
+    # The blocks are the managed club's own teams: 5 of 5, 4 of 4 and 5 of 5 on the saves
+    # measured, and each block's team id appears once. Starting the walk one byte or four bytes
+    # late parses no block at all on any save, so the bound sits at the whole team list.
+    training_blocks_match_club_teams=(1.0, None),
+    # Consecutive weeks step exactly seven days on every pair of every block of every save.
+    # A walk that has moved parses no block, which leaves no step to judge and fails here for
+    # want of a rate rather than reporting a career with no training.
+    training_week_steps=(1.0, None),
+    # Every mentoring member is a player of the managed club on all three saves. Reading each
+    # selector one higher still resolves nearly all of them, but to players of other clubs:
+    # 0.048, 0.174 and 0.0 are then at the managed club. The floor leaves room for a member
+    # sold or loaned out between the save and the read.
+    mentoring_members_at_club=(0.90, None),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (
@@ -1335,6 +1389,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="job_centre", schema=1, build=BUILD, layout=JOB_CENTRE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STAFF),
     LayoutEntry(region="tactics_man", schema=26, build=BUILD, layout=TACTICS),
+    LayoutEntry(region="training_man", schema=31, build=BUILD, layout=TRAINING),
     LayoutEntry(region=MATCH_FILE_REGION_NAME, schema=None, build=BUILD, layout=INJURY_TYPE_TABLE),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=FIXTURE_CALENDAR),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=STAGE_RESULTS),
