@@ -24,8 +24,10 @@ TABLE_RECORD_TYPES = (
     fmsave.Stage,
     fmsave.Competition,
     fmsave.Fixture,
+    fmsave.LeagueTable,
     fmsave.TransferWindow,
     fmsave.CompetitionRules,
+    fmsave.PlayerMatchStats,
 )
 
 
