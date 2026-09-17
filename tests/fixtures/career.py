@@ -2093,14 +2093,16 @@ def career_injury_manager() -> bytes:
 # Training. One block per team of the managed club, in the order the save stores them: the
 # reserve team first, then the first team, which is the one carrying mentoring groups. The
 # calendars straddle the in-game date of 1 March 2031 (day 60), so the week starting on day 55
-# is the active one for both teams. The saved-schedule library sits after the last block, past
-# a run of bytes that is none of its own.
+# is the active one for both teams, and the reserve calendar ends on a week with the null date.
+# The saved-schedule library sits after the last block, past a run of bytes that is none of its
+# own.
 TRAINING_SECTION_NAME = "training_man"
 TRAINING_YEAR = 2031
 FIRST_TRAINING_WEEK_DAY = 48
 SECOND_TRAINING_WEEK_DAY = 55
 THIRD_TRAINING_WEEK_DAY = 62
 TRAINING_WEEK_SLOT = 61
+NULL_TRAINING_DATE = bytes(4)
 LIGHT_SCHEDULE_NAME = "Example Light"
 BALANCED_SCHEDULE_NAME = "Example Balanced"
 RECOVERY_SCHEDULE_NAME = "Example Recovery"
@@ -2130,6 +2132,9 @@ def career_training_blocks() -> tuple[bytes, ...]:
             week_start=packed_date(SECOND_TRAINING_WEEK_DAY, TRAINING_YEAR),
             schedule_name=LIGHT_SCHEDULE_NAME,
         ),
+        # A week whose stored date is the null one, so it decodes to nothing: the reader has to
+        # return the week, count it as undated and step over it when it measures week steps.
+        training_week_bytes(week_start=NULL_TRAINING_DATE, schedule_name=LIGHT_SCHEDULE_NAME),
     )
     first_team_weeks = (
         training_week_bytes(

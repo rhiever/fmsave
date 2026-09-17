@@ -3,12 +3,14 @@ from __future__ import annotations
 import copy
 import pickle
 import random
+from collections import Counter
 from datetime import date
 from pathlib import Path
 
 import pytest
 
 import fmsave
+import fmsave._context as context_module
 from fmsave._errors import FmsaveError, ReaderCheckError, SaveClosedError
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import TrainingStats
@@ -43,8 +45,10 @@ from tests.fixtures.career import (
 )
 from tests.fixtures.container import packed_date
 from tests.fixtures.training import (
+    LIBRARY_GROUP_PREFIX,
     TRAINING_SCHEMA,
     mentoring_group_bytes,
+    schedule_library_bytes,
     training_block_bytes,
     training_header_entry_bytes,
     training_man_body,
@@ -62,6 +66,10 @@ CLUB_TEAM_IDS = frozenset({NORTHBRIDGE_TEAM_A, NORTHBRIDGE_TEAM_B})
 BLOCKS_GATE_NAME = "training_blocks_match_club_teams"
 WEEK_STEPS_GATE_NAME = "training_week_steps"
 MEMBERS_AT_CLUB_GATE_NAME = "mentoring_members_at_club"
+# Both caps are corruption caps rather than measurements, so each is pinned here at its own
+# boundary: a group of exactly this many walks, and one of one more is turned away.
+MENTORING_MEMBER_CAP = 64
+LIBRARY_GROUP_ENTRY_CAP = 64
 CAREER_LIBRARY_ROWS = tuple(
     TrainingSchedule(folder, name, {"schedule_id": schedule_id})
     for folder, schedule_id, name in CAREER_SCHEDULE_LIBRARY
@@ -188,17 +196,32 @@ def test_the_walk_counts_every_block_week_and_step(career_path: Path) -> None:
             blocks, counts = walk_training_blocks(training, CLUB_TEAM_IDS, LAYOUT, FILE_NAME)
 
     assert len(blocks) == 2
-    assert counts.weeks == 5
+    assert counts.weeks == 6
     assert counts.week_steps == 3
     assert counts.seven_day_steps == 3
+    assert counts.undated_weeks == 1
     assert counts.header_entries == 1
     assert reader_check is not None
     assert reader_check.record_count == 2
     assert reader_check.anomalies == {
-        "undated_weeks": 0,
+        "undated_weeks": 1,
         "header_entries": 1,
         "library_entries": 3,
     }
+
+
+def test_a_week_whose_date_does_not_decode_is_returned_and_steps_over(
+    career_path: Path,
+) -> None:
+    with fmsave.open(career_path) as save:
+        teams = save.training()
+
+    reserve_team = next(row for row in teams if row.team_id == NORTHBRIDGE_TEAM_B)
+    assert reserve_team.weeks == (
+        TrainingWeek(date(2031, 2, 17), "Example Light"),
+        TrainingWeek(date(2031, 2, 24), "Example Light"),
+        TrainingWeek(None, "Example Light"),
+    )
 
 
 def test_the_active_week_of_each_team_is_the_latest_one_already_started(
@@ -249,10 +272,9 @@ def test_a_block_of_another_clubs_team_ends_the_walk_before_it(tmp_path: Path) -
     assert len(teams) == 0
     assert stats.blocks == 0
     assert stats.club_team_count == 2
-    assert failed_gate_names(evaluate_training(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)) == [
-        BLOCKS_GATE_NAME,
-        WEEK_STEPS_GATE_NAME,
-    ]
+    training_gates = evaluate_training(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert failed_gate_names(training_gates) == [BLOCKS_GATE_NAME]
+    assert [gate.applied for gate in training_gates] == [True, False]
 
 
 def test_a_step_of_eight_days_is_returned_and_counted_apart() -> None:
@@ -436,16 +458,22 @@ def test_a_misaligned_count_fails_each_gate_and_the_measured_counts_pass() -> No
 
     assert failed_gate_names(fewer_blocks) == [BLOCKS_GATE_NAME]
     assert failed_gate_names(longer_step) == [WEEK_STEPS_GATE_NAME]
-    assert failed_gate_names(no_steps) == [BLOCKS_GATE_NAME, WEEK_STEPS_GATE_NAME]
+    assert failed_gate_names(no_steps) == [BLOCKS_GATE_NAME]
+    assert [gate.applied for gate in no_steps] == [True, False]
     assert failed_gate_names(members_elsewhere) == [MEMBERS_AT_CLUB_GATE_NAME]
     assert failed_gate_names(passing_training) == []
     assert failed_gate_names(passing_mentoring) == []
 
 
-def test_no_gate_applies_on_a_small_save_or_without_a_managed_club_or_a_member() -> None:
+def test_no_gate_applies_on_a_small_save_or_without_a_managed_club_or_a_population() -> None:
     small_game_db = evaluate_training(healthy_stats(blocks=4), BOUNDS, SMALL_GAME_DB_BYTES)
     no_managed_club = evaluate_training(
         healthy_stats(managed_club_exists=False, blocks=4), BOUNDS, FULL_SIZE_GAME_DB_BYTES
+    )
+    one_week_a_team = evaluate_training(
+        healthy_stats(weeks=MEASURED_CLUB_TEAMS, week_steps=0, seven_day_steps=0),
+        BOUNDS,
+        FULL_SIZE_GAME_DB_BYTES,
     )
     no_members = evaluate_mentoring(
         healthy_stats(groups=0, members=0, members_resolved=0, members_at_club=0),
@@ -455,6 +483,9 @@ def test_no_gate_applies_on_a_small_save_or_without_a_managed_club_or_a_member()
 
     assert [gate.applied for gate in small_game_db] == [False, False]
     assert [gate.applied for gate in no_managed_club] == [False, False]
+    # A club whose every team holds one weekly record is a healthy save with nothing to judge.
+    assert [gate.applied for gate in one_week_a_team] == [True, False]
+    assert failed_gate_names(one_week_a_team) == []
     assert [gate.applied for gate in no_members] == [False]
 
 
@@ -490,7 +521,9 @@ def test_no_gate_applies_on_a_small_save_or_without_a_managed_club_or_a_member()
                         weeks=(week_bytes(48, "Example Light"),),
                         groups=(
                             mentoring_group_bytes(
-                                number=1, label="Group 1", member_selectors=range(200)
+                                number=1,
+                                label="Group 1",
+                                member_selectors=range(MENTORING_MEMBER_CAP + 1),
                             ),
                         ),
                         last=True,
@@ -521,3 +554,146 @@ def test_random_and_truncated_bodies_raise_only_fmsave_errors() -> None:
         except FmsaveError:
             continue
         assert isinstance(blocks, tuple)
+
+
+def test_a_cold_read_decompresses_the_game_database_once(
+    career_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reads: Counter[str] = Counter()
+    original_read_section = context_module.read_section
+
+    def counting_read_section(container_index: object, name: str) -> bytes:
+        reads[name] += 1
+        return original_read_section(container_index, name)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr(context_module, "read_section", counting_read_section)
+    with fmsave.open(career_path) as save:
+        save.training()
+        save.mentoring()
+
+    assert reads[GAME_DB_SECTION] == 1
+    assert reads[TRAINING_SECTION] == 1
+
+
+def test_an_entry_without_its_lead_byte_names_its_section() -> None:
+    body = training_man_body(
+        header_entries=(),
+        blocks=(
+            training_block_bytes(
+                team_id=NORTHBRIDGE_TEAM_A,
+                entries=3,
+                weeks=(week_bytes(48, "Example Light"),),
+                groups=(),
+                last=True,
+                entry_lead=6,
+            ),
+        ),
+    )
+
+    with pytest.raises(ReaderCheckError, match="'training_man'"):
+        walk_training_blocks(body, CLUB_TEAM_IDS, LAYOUT, FILE_NAME)
+
+
+def library_group_of(entry_count: int) -> bytes:
+    """A library group of `entry_count` schedules, all of them well formed."""
+    return schedule_library_bytes(
+        tuple(
+            ("Example Folder", index + 1, f"Example Schedule {index}")
+            for index in range(entry_count)
+        )
+    )
+
+
+def one_entry_library_with(position: int, replacement: int) -> bytes:
+    """The bytes of a one-schedule library with one byte of its entry replaced."""
+    group = bytearray(schedule_library_bytes((("Example Folder", 17, "Example Light"),)))
+    group[position] = replacement
+    return bytes(group)
+
+
+LIBRARY_ENTRY_OFFSET = len(LIBRARY_GROUP_PREFIX) + 4
+
+
+@pytest.mark.parametrize(
+    "after_blocks",
+    [
+        pytest.param(LIBRARY_GROUP_PREFIX + b"\x04\x00\x00\x00" + b"\x99" * 400, id="garbage"),
+        pytest.param(LIBRARY_GROUP_PREFIX + bytes(400), id="zero bytes"),
+        pytest.param(library_group_of(0), id="a group claiming no entry"),
+        pytest.param(library_group_of(65), id="a group above the corruption cap"),
+        pytest.param(one_entry_library_with(LIBRARY_ENTRY_OFFSET, 6), id="a wrong lead byte"),
+        pytest.param(one_entry_library_with(LIBRARY_ENTRY_OFFSET + 1, 2), id="a wrong word"),
+        pytest.param(one_entry_library_with(LIBRARY_ENTRY_OFFSET + 5, 2), id="a wrong marker"),
+        pytest.param(one_entry_library_with(LIBRARY_ENTRY_OFFSET + 6, 4), id="a wrong day block"),
+        pytest.param(
+            one_entry_library_with(LIBRARY_ENTRY_OFFSET + 55, 0), id="a folder with no name"
+        ),
+        pytest.param(library_group_of(1)[:-4], id="an entry that runs past the section"),
+    ],
+)
+def test_bytes_that_are_not_a_library_group_leave_the_library_empty(after_blocks: bytes) -> None:
+    body = training_man_body(
+        header_entries=(),
+        blocks=(
+            training_block_bytes(
+                team_id=NORTHBRIDGE_TEAM_A,
+                entries=0,
+                weeks=(week_bytes(48, "Example Light"),),
+                groups=(),
+                last=True,
+            ),
+        ),
+        after_blocks=after_blocks,
+    )
+
+    blocks, counts = walk_training_blocks(body, CLUB_TEAM_IDS, LAYOUT, FILE_NAME)
+
+    assert len(blocks) == 1
+    assert locate_schedule_library(body, counts.blocks_end, LAYOUT) == ()
+
+
+def test_a_library_group_at_the_corruption_cap_is_read_whole() -> None:
+    body = training_man_body(
+        header_entries=(),
+        blocks=(
+            training_block_bytes(
+                team_id=NORTHBRIDGE_TEAM_A,
+                entries=0,
+                weeks=(week_bytes(48, "Example Light"),),
+                groups=(),
+                last=True,
+            ),
+        ),
+        after_blocks=library_group_of(LIBRARY_GROUP_ENTRY_CAP),
+    )
+
+    _blocks, counts = walk_training_blocks(body, CLUB_TEAM_IDS, LAYOUT, FILE_NAME)
+
+    assert len(locate_schedule_library(body, counts.blocks_end, LAYOUT)) == (
+        LIBRARY_GROUP_ENTRY_CAP
+    )
+
+
+def test_a_mentoring_group_at_the_corruption_cap_is_read_whole() -> None:
+    body = training_man_body(
+        header_entries=(),
+        blocks=(
+            training_block_bytes(
+                team_id=NORTHBRIDGE_TEAM_A,
+                entries=0,
+                weeks=(week_bytes(48, "Example Light"),),
+                groups=(
+                    mentoring_group_bytes(
+                        number=1,
+                        label="Group 1",
+                        member_selectors=range(MENTORING_MEMBER_CAP),
+                    ),
+                ),
+                last=True,
+            ),
+        ),
+    )
+
+    blocks, _counts = walk_training_blocks(body, CLUB_TEAM_IDS, LAYOUT, FILE_NAME)
+
+    assert len(blocks[0].groups[0][2]) == MENTORING_MEMBER_CAP

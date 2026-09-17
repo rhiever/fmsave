@@ -1352,19 +1352,19 @@ class TrainingLayout:
     pinned, so nothing reads it and the block walk is judged by its own check instead.
 
     **A team block** is a u32 team id, the byte `block_lead_byte`, a u32 count of
-    `block_entry_bytes` entries each starting `block_entry_lead_byte` (not decoded), a u32
-    count of weekly records, those records, `block_tail_bytes` of tail (not decoded), a u32
-    count of mentoring groups, those groups, and the byte `block_terminator` -- except after
-    the last block, which is followed by unrelated data. The walk reads a block only while the
-    stored team id is a team of the managed club it has not already read, which is what ends it
-    on the last block.
+    `block_entry_bytes` entries, each of which the walk requires to start with
+    `block_entry_lead_byte` although nothing else in it is decoded, a u32 count of weekly
+    records, those records, `block_tail_bytes` of tail (not decoded), a u32 count of mentoring
+    groups, those groups, and the byte `block_terminator` -- except after the last block, which
+    is followed by unrelated data. The walk reads a block only while the stored team id is a
+    team of the managed club it has not already read, which is what ends it on the last block.
 
     **A weekly record** is the byte `week_lead_byte`, a 4-byte date at `week_date_offset`
     carrying time-of-day bits, the byte `week_marker_value` at `week_marker_offset`,
     `day_block_count` blocks of `day_block_bytes` at `day_blocks_offset` each starting
     `day_block_lead_byte` (session codes, not decoded), then at `week_name_offset` a u32 length
-    inside `name_length_range` and that many text bytes. **The record is
-    `week_record_fixed_bytes` plus that length**, which leaves fourteen bytes after the name:
+    of at most `longest_name_bytes` and that many text bytes. **The record is
+    `week_record_fixed_bytes` plus that length**, so `week_trailer_bytes` follow the name:
     that length was measured on every record of every save by walking to the next record's lead
     byte, because reading it four bytes short lands a record's end inside the next one.
 
@@ -1372,15 +1372,19 @@ class TrainingLayout:
     written before it rather than with the following record's.
 
     **A mentoring group** is the byte `group_lead_byte`, a u32 group number, the byte
-    `group_label_marker`, a u32 length and that many label bytes, then a u32 member count
-    inside `member_count_range` and that many u32 selectors, each a player's record index plus
-    one. `member_count_range` and `name_length_range` are inclusive corruption caps and nothing
-    more: both are far wider than anything a save measured holds.
+    `group_label_marker`, a u32 length and that many label bytes, then a u32 member count of at
+    most `most_members_per_group` and that many u32 selectors, each a player's record index plus
+    one. `most_members_per_group`, `longest_name_bytes` and `most_library_entries` are
+    corruption caps and nothing more: each is far wider than anything a save measured holds (3
+    members, 18 name bytes, 4 entries a group), and their one job is to stop a count read from
+    the wrong bytes claiming megabytes. Tightening one to what a save holds today would be an
+    unmeasured bound, so each is pinned by a test at its own boundary rather than by a saved
+    figure.
 
     **The schedule library** sits somewhere after the last block, at no fixed distance from it
     or from the section's end, so it is found by shape. `library_group_prefix` is the run of
     bytes that sits immediately before a group's u32 entry count on every group of every save
-    measured; a group is accepted only when its count is inside `library_group_size_range` and
+    measured; a group is accepted only when its count is at most `most_library_entries` and
     every one of its entries decodes. An entry is `library_entry_lead_byte`, a u32
     `library_entry_word_value` at `library_entry_word_offset`, the byte
     `library_entry_marker_value` at `library_entry_marker_offset`, `day_block_count` day blocks
@@ -1411,11 +1415,11 @@ class TrainingLayout:
     week_record_fixed_bytes: int
     group_lead_byte: int
     group_label_marker: int
-    name_length_range: tuple[int, int]
-    member_count_range: tuple[int, int]
+    longest_name_bytes: int
+    most_members_per_group: int
     seven_day_step: int
     library_group_prefix: bytes
-    library_group_size_range: tuple[int, int]
+    most_library_entries: int
     library_entry_lead_byte: int
     library_entry_word_offset: int
     library_entry_word_value: int
@@ -1717,20 +1721,21 @@ class GateBounds:
     Training and mentoring: `training_blocks_match_club_teams` (blocks walked, of the managed
     club's teams), `training_week_steps` (steps from one week to the next that step seven days,
     of those steps) and `mentoring_members_at_club` (group members whose own club is the managed
-    club, of the members that resolve to a player). The first two apply on a full-size `game_db`
-    where the save lists a managed club, since a save with no manager has no calendar to read;
-    the third also needs a member that resolved, because a manager who mentors nobody is
-    ordinary and every save measured has teams with no group at all.
+    club, of the members that resolve to a player). All three apply on a full-size `game_db`
+    where the save lists a managed club, since a save with no manager has no calendar to read.
 
-    `training_week_steps` is deliberately **not** excused when there are no steps. A block walk
-    that has moved parses no block, which leaves the share without a denominator, and that is
-    the only way this check sees such a walk; `training_blocks_match_club_teams` fails beside it
-    on the same fault. There is **no** check on how many members resolve to a player: the player
-    index is dense over the range a squad occupies, so a selector read one too high still
-    resolves 1.0, 0.958 and 0.667 of members on the three saves measured, and no floor separates
-    that from the 1.0 a correct read scores. `mentoring_members_at_club` is what catches that
-    read instead, because the players it wrongly resolves to belong to other clubs: the share
-    falls to 0.048, 0.174 and 0.0.
+    Only the first is applied whatever the walk found, because its denominator is the club's own
+    team count: it is what fails when the block walk has moved, since a shifted walk parses no
+    block at all. The other two judge what was read and are not applied on an empty population,
+    which is what a club whose teams hold one week or fewer, and a manager who mentors nobody,
+    legitimately look like; every save measured has teams with no mentoring group.
+
+    There is **no** check on how many members resolve to a player: the player index is dense
+    over the range a squad occupies, so a selector read one too high still resolves 0.958, 0.667
+    and 1.0 of members on the three saves measured, and no floor separates that from the 1.0 a
+    correct read scores. `mentoring_members_at_club` is what catches that read instead, because
+    the players it wrongly resolves to belong to other clubs: the share falls to 0.174, 0.0 and
+    0.048.
     """
 
     minimum_applies_from_bytes: int

@@ -113,7 +113,6 @@ def _read_week(
     section: bytes, cursor: int, layout: TrainingLayout, file_name: str
 ) -> tuple[TrainingWeek, int]:
     """One weekly record, and the offset just past it."""
-    shortest_name, longest_name = layout.name_length_range
     if cursor + layout.week_name_offset + _UINT32.size > len(section):
         raise layout_mismatch(
             file_name,
@@ -141,18 +140,16 @@ def _read_week(
                 f"day {day_index} of a weekly record does not carry its lead byte",
                 section_name=TRAINING_SECTION,
             )
-    schedule_name, _text_end = _read_text(
-        section, cursor + layout.week_name_offset, longest_name, "a schedule name", file_name
+    schedule_name, name_end = _read_text(
+        section,
+        cursor + layout.week_name_offset,
+        layout.longest_name_bytes,
+        "a schedule name",
+        file_name,
     )
-    name_bytes = len(schedule_name.encode("utf-8"))
-    if name_bytes < shortest_name:
-        raise layout_mismatch(
-            file_name,
-            f"a schedule name of {name_bytes} bytes is shorter than the {shortest_name} a "
-            "record may hold",
-            section_name=TRAINING_SECTION,
-        )
-    record_end = cursor + layout.week_record_fixed_bytes + name_bytes
+    # The name's own end is what the trailer is counted from, so the record's length has one
+    # source of truth: the length the save stored, not that length worked out again.
+    record_end = name_end + layout.week_trailer_bytes
     if record_end > len(section):
         raise layout_mismatch(
             file_name,
@@ -167,7 +164,6 @@ def _read_group(
     section: bytes, cursor: int, layout: TrainingLayout, file_name: str
 ) -> tuple[tuple[int, str, tuple[int, ...]], int]:
     """One mentoring group, and the offset just past it."""
-    fewest_members, most_members = layout.member_count_range
     if cursor + 6 > len(section):
         raise layout_mismatch(
             file_name,
@@ -192,16 +188,16 @@ def _read_group(
     label, after_label = _read_text(
         section,
         label_marker_offset + 1,
-        layout.name_length_range[1],
+        layout.longest_name_bytes,
         "a mentoring group's label",
         file_name,
     )
     member_count = _read_word(section, after_label, "a mentoring group's member count", file_name)
-    if not fewest_members <= member_count <= most_members:
+    if member_count > layout.most_members_per_group:
         raise layout_mismatch(
             file_name,
-            f"a mentoring group claims {member_count} members, outside the {fewest_members} to "
-            f"{most_members} a group may hold",
+            f"a mentoring group claims {member_count} members, more than the "
+            f"{layout.most_members_per_group} a group may hold",
             section_name=TRAINING_SECTION,
         )
     members_offset = after_label + _UINT32.size
@@ -277,6 +273,14 @@ def walk_training_blocks(
                 f"a block claims {entry_count} entries and the section ends first",
                 section_name=TRAINING_SECTION,
             )
+        for entry_index in range(entry_count):
+            entry_offset = entries_offset + entry_index * layout.block_entry_bytes
+            if section[entry_offset] != layout.block_entry_lead_byte:
+                raise layout_mismatch(
+                    file_name,
+                    f"entry {entry_index} of a block does not carry its lead byte",
+                    section_name=TRAINING_SECTION,
+                )
         stored_week_count = _read_word(
             section, weeks_count_offset, "a block's week count", file_name
         )
@@ -331,7 +335,6 @@ def _library_entry(
     section: bytes, cursor: int, layout: TrainingLayout
 ) -> tuple[TrainingSchedule, int] | None:
     """One saved schedule and the offset past it, or None when no entry starts at `cursor`."""
-    longest_name = layout.name_length_range[1]
     folder_offset = cursor + layout.library_folder_offset
     if folder_offset + _UINT32.size > len(section):
         return None
@@ -346,14 +349,14 @@ def _library_entry(
         day_offset = cursor + layout.library_day_blocks_offset + day_index * layout.day_block_bytes
         if section[day_offset] != layout.day_block_lead_byte:
             return None
-    read_folder = _optional_text(section, folder_offset, longest_name)
+    read_folder = _optional_text(section, folder_offset, layout.longest_name_bytes)
     if read_folder is None:
         return None
     folder, after_folder = read_folder
     if after_folder + _UINT32.size > len(section):
         return None
     schedule_id: int = _UINT32.unpack_from(section, after_folder)[0]
-    read_name = _optional_text(section, after_folder + _UINT32.size, longest_name)
+    read_name = _optional_text(section, after_folder + _UINT32.size, layout.longest_name_bytes)
     if read_name is None:
         return None
     name, after_name = read_name
@@ -365,11 +368,10 @@ def _library_group(
     section: bytes, cursor: int, layout: TrainingLayout
 ) -> tuple[tuple[TrainingSchedule, ...], int] | None:
     """One count-prefixed group of saved schedules, or None when none starts at `cursor`."""
-    fewest_entries, most_entries = layout.library_group_size_range
     if cursor + _UINT32.size > len(section):
         return None
     entry_count: int = _UINT32.unpack_from(section, cursor)[0]
-    if not fewest_entries <= entry_count <= most_entries:
+    if entry_count > layout.most_library_entries:
         return None
     schedules: list[TrainingSchedule] = []
     position = cursor + _UINT32.size

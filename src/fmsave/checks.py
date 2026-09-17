@@ -1842,11 +1842,15 @@ def evaluate_training(
     managed club has nothing here to judge rather than a decode that went wrong.
 
     The first says the walk found the whole team list, which it did on every save measured;
-    started one byte or four bytes late it finds no block at all. The second says consecutive
-    weeks step a week, which held on every pair of every calendar measured, and it is
-    deliberately **not** excused when there are no steps: a walk that has moved leaves the
-    share without a denominator, and failing there is the point, since the alternative is
-    reporting a career whose teams train in no week at all.
+    started one byte or four bytes late it finds no block at all, and its denominator is the
+    club's own team count, which is zero only when something is already broken. So it is the
+    one that fails when the walk has moved, and it applies whatever the walk found.
+
+    The second says consecutive weeks step a week, which held on every pair of every calendar
+    measured. It judges the steps that were read, so it is not applied when there are none: a
+    club whose every team held one weekly record or fewer would otherwise fail a check on a
+    healthy save, and the shifted walk that leaves no step to judge is already caught beside
+    it, on the same fault.
     """
     applied = _applies(bounds, game_db_bytes) and stats.managed_club_exists
     return (
@@ -1856,9 +1860,10 @@ def evaluate_training(
             bounds.training_blocks_match_club_teams,
             applied,
         ),
-        _gate(
+        _share_gate(
             "training_week_steps",
-            _rate(stats.seven_day_steps, stats.week_steps),
+            stats.seven_day_steps,
+            stats.week_steps,
             bounds.training_week_steps,
             applied,
         ),
@@ -1877,19 +1882,18 @@ def evaluate_mentoring(
     What it judges is the index space the stored selectors live in. Each is a player's record
     index plus one, and reading one of them a place out still finds a player, because the
     index is dense over the range a squad occupies: on the three saves measured that read
-    resolves 1.0, 0.958 and 0.667 of members, which no floor can tell from the 1.0 a correct
+    resolves 0.958, 0.667 and 1.0 of members, which no floor can tell from the 1.0 a correct
     read scores. So **there is no check on how many members resolve**; what the wrong read
-    cannot do is land on players of the right club, and this share falls from 1.0 to between
-    0.0 and 0.174 when it happens. A shifted walk cannot reach here at all: the groups sit
-    inside a block, so the training checks fail first.
+    cannot do is land on players of the right club, and this share falls from 1.0 to 0.174, 0.0
+    and 0.048 when it happens. A shifted walk cannot reach here at all: the groups sit inside a
+    block, so the training checks fail first.
     """
-    applied = (
-        _applies(bounds, game_db_bytes) and stats.managed_club_exists and stats.members_resolved > 0
-    )
+    applied = _applies(bounds, game_db_bytes) and stats.managed_club_exists
     return (
-        _gate(
+        _share_gate(
             "mentoring_members_at_club",
-            _rate(stats.members_at_club, stats.members_resolved),
+            stats.members_at_club,
+            stats.members_resolved,
             bounds.mentoring_members_at_club,
             applied,
         ),

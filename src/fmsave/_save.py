@@ -1544,18 +1544,23 @@ class Save:
         days on every pair of every calendar measured, and the calendar runs from well before
         the save's date to well after it.
 
-        The active week of a team is the latest one that has started::
+        The active week of a team is the latest one that has started. A week whose stored date
+        does not decode carries None, and a save whose date is unreadable has nothing to
+        compare against, so both are stepped around::
 
+            clock = career_save.info.game_date
             weeks = career_save.training()[0].weeks
-            active = max(
-                (week for week in weeks if week.week_start <= career_save.info.game_date),
-                key=lambda week: week.week_start,
-            )
+            started = [
+                week
+                for week in weeks
+                if week.week_start is not None and clock is not None and week.week_start <= clock
+            ]
+            active = max(started, default=None, key=lambda week: week.week_start)
 
         What a schedule asks of a day is **not** read: each day of a week holds three codes
         whose meaning is unknown. `schedule_library` is the manager's own saved schedules,
         which the save keeps once per section rather than per team, so every row carries the
-        same tuple.
+        same tuple, and the save may hold the same schedule twice over under two ids.
 
         The table is read on the first call to `training()` or `mentoring()`, from one walk;
         later calls to either return the same tables. When a check of that walk fails, neither
@@ -1622,48 +1627,49 @@ class Save:
         context = self._context
         save_info = context.info
         gate_bounds = self._gate_bounds()
-        # Whether the save lists a club for its manager decides whether there is anything to
-        # read: the section holds one calendar per team of that club and nothing else.
-        managed_clubs = self.managed_clubs()
         team_rows: tuple[TeamTraining, ...] = ()
         group_rows: tuple[MentoringGroup, ...] = ()
         training_stats = unmanaged_training_stats()
-        # Nothing is read without a managed club, and no check applies without one either, so
-        # the section's own size is never wanted in that case and game_db is not touched.
-        game_db_length = 0
-        if len(managed_clubs) > 0:
-            managed_club_uid = managed_clubs[0].club_uid
-            layout = find_training_layout(
-                save_info.section_schemas.get(TRAINING_SECTION), save_info.build
-            )
-            with context.section(TRAINING_SECTION) as training:
-                with context.section(GAME_DB_SECTION) as game_db:
-                    # Every row carries a club name and every member a player name, so both
-                    # tables are read through the readers that enforce their own checks rather
-                    # than through the indexes behind them. Both calls sit inside this borrow,
-                    # so a cold call decompresses game_db once rather than once per index.
-                    self.clubs()
-                    players = self.players()
-                    club_index = context.club_index()
-                    player_records = context.player_records()
-                    game_db_length = len(game_db)
+        # One game_db borrow covers the managed club, the club records and the players, so a
+        # cold call decompresses that section once rather than once per reader. The managed
+        # club is read inside it and not before it, because that reader reads game_db too.
+        with context.section(GAME_DB_SECTION) as game_db:
+            game_db_length = len(game_db)
+            # Whether the save lists a club for its manager decides whether there is anything
+            # to read: the section holds one calendar per team of that club and nothing else.
+            managed_clubs = self.managed_clubs()
+            if len(managed_clubs) > 0:
+                managed_club_uid = managed_clubs[0].club_uid
+                # Every row carries a club name and every member a player name, so both tables
+                # are read through the readers that enforce their own checks rather than through
+                # the indexes behind them: forcing those bounds to something unmeetable must
+                # stop this call instead of leaving it handing out names from indexes whose
+                # checks never ran.
+                self.clubs()
+                players = self.players()
+                club_index = context.club_index()
+                player_records = context.player_records()
                 managed_club = club_index.club_by_uid.get(managed_club_uid)
                 club_team_ids = frozenset(
                     () if managed_club is None else (team.team_id for team in managed_club.teams)
                 )
-                blocks, walk_counts = walk_training_blocks(
-                    training, club_team_ids, layout, save_info.file_name
+                layout = find_training_layout(
+                    save_info.section_schemas.get(TRAINING_SECTION), save_info.build
                 )
-                library = locate_schedule_library(training, walk_counts.blocks_end, layout)
-            team_rows, group_rows, training_stats = build_training_tables(
-                blocks,
-                library,
-                club_index,
-                player_records,
-                players,
-                managed_club_uid,
-                walk_counts,
-            )
+                with context.section(TRAINING_SECTION) as training:
+                    blocks, walk_counts = walk_training_blocks(
+                        training, club_team_ids, layout, save_info.file_name
+                    )
+                    library = locate_schedule_library(training, walk_counts.blocks_end, layout)
+                team_rows, group_rows, training_stats = build_training_tables(
+                    blocks,
+                    library,
+                    club_index,
+                    player_records,
+                    players,
+                    managed_club_uid,
+                    walk_counts,
+                )
         # Both checks run before either table is built: when one fails, nothing is cached and
         # the next call walks and checks again.
         reader_checks = (

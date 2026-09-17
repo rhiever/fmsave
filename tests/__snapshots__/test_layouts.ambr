@@ -1048,18 +1048,9 @@
         'library_entry_word_value': 1,
         'library_folder_offset': 55,
         'library_group_prefix': b'\x01\x01\x00\x00\x00\x01',
-        'library_group_size_range': tuple(
-          1,
-          64,
-        ),
-        'member_count_range': tuple(
-          0,
-          64,
-        ),
-        'name_length_range': tuple(
-          0,
-          256,
-        ),
+        'longest_name_bytes': 256,
+        'most_library_entries': 64,
+        'most_members_per_group': 64,
         'seven_day_step': 7,
         'week_date_offset': 1,
         'week_lead_byte': 11,

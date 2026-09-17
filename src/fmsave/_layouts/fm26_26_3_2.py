@@ -216,11 +216,11 @@ TRAINING = TrainingLayout(
     week_record_fixed_bytes=73,
     group_lead_byte=1,
     group_label_marker=4,
-    name_length_range=(0, 256),
-    member_count_range=(0, 64),
+    longest_name_bytes=256,
+    most_members_per_group=64,
     seven_day_step=7,
     library_group_prefix=bytes([1, 1, 0, 0, 0, 1]),
-    library_group_size_range=(1, 64),
+    most_library_entries=64,
     library_entry_lead_byte=5,
     library_entry_word_offset=1,
     library_entry_word_value=1,
@@ -1353,12 +1353,13 @@ GATE_BOUNDS = GateBounds(
     # late parses no block at all on any save, so the bound sits at the whole team list.
     training_blocks_match_club_teams=(1.0, None),
     # Consecutive weeks step exactly seven days on every pair of every block of every save.
-    # A walk that has moved parses no block, which leaves no step to judge and fails here for
-    # want of a rate rather than reporting a career with no training.
+    # A walk that has moved parses no block, which leaves no step to judge at all, so the check
+    # beside this one is what fails then: a club whose every team held one week or fewer would
+    # otherwise raise on a healthy save.
     training_week_steps=(1.0, None),
     # Every mentoring member is a player of the managed club on all three saves. Reading each
     # selector one higher still resolves nearly all of them, but to players of other clubs:
-    # 0.048, 0.174 and 0.0 are then at the managed club. The floor leaves room for a member
+    # 0.174, 0.0 and 0.048 are then at the managed club. The floor leaves room for a member
     # sold or loaned out between the save and the read.
     mentoring_members_at_club=(0.90, None),
 )

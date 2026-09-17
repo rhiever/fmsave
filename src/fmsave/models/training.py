@@ -49,7 +49,8 @@ class TrainingSchedule:
         folder: The folder the schedule is filed under (unconfirmed).
         name: The schedule's name (unconfirmed).
         unknown: Numeric fields with no known meaning: the id the save stores with the
-            schedule, which is not the key a week's name is matched on (unconfirmed).
+            schedule, which is not the key a week's name is matched on. Where the save stores
+            the same schedule twice, the copies differ only in this id (unconfirmed).
     """
 
     folder: str
@@ -76,7 +77,11 @@ class TeamTraining:
         schedule_library: The schedules the manager has saved, in stored order. It is one
             library per save rather than per team, so every row carries the same one, and it
             holds only saved schedules: the game's own built-in ones are not in it, although a
-            week may well name one (unconfirmed).
+            week may well name one. **The save may store a schedule more than once**: two of
+            the three saves measured hold eight entries for the four schedules the Schedules
+            screen lists, the same four twice over under two runs of ids, so count the distinct
+            `(folder, name)` pairs rather than the entries to compare with a screen
+            (unconfirmed).
     """
 
     team_id: int

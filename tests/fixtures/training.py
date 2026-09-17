@@ -14,6 +14,7 @@ from tests.fixtures.container import length_prefixed, section_body
 TRAINING_SCHEMA = 31
 HEADER_ENTRY_BYTES = 13
 BLOCK_ENTRY_BYTES = 14
+BLOCK_ENTRY_LEAD_BYTE = 5
 # Measured on every save: a weekly record carries fourteen bytes after its schedule name.
 WEEK_TRAILER_BYTES = 14
 BLOCK_TAIL_BYTES = 36
@@ -79,16 +80,18 @@ def training_block_bytes(
     weeks: Sequence[bytes],
     groups: Sequence[bytes],
     last: bool,
+    entry_lead: int = BLOCK_ENTRY_LEAD_BYTE,
 ) -> bytes:
     """One team's block: its unidentified entries, its calendar, its tail and its groups.
 
     `last` leaves out the zero byte that separates one block from the next, which is what the
-    section's own last block does.
+    section's own last block does. `entry_lead` replaces the byte every entry starts with, so a
+    test can hand the walk entries it must turn away.
     """
     block = bytearray(_WORD.pack(team_id))
     block.append(1)
     block.extend(_WORD.pack(entries))
-    block.extend((b"\x05" + b"\x11" * (BLOCK_ENTRY_BYTES - 1)) * entries)
+    block.extend((bytes((entry_lead,)) + b"\x11" * (BLOCK_ENTRY_BYTES - 1)) * entries)
     block.extend(_WORD.pack(len(weeks)))
     for week in weeks:
         block.extend(week)
