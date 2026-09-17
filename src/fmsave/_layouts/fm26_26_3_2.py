@@ -29,6 +29,7 @@ from fmsave._layouts import (
     SaveSummaryLayout,
     SponsorChainLayout,
     StadiumTableLayout,
+    StaffLayout,
     StageResultLayout,
     StageTableLayout,
     SummaryStringsLayout,
@@ -810,6 +811,66 @@ TRANSFER_WINDOWS = TransferWindowLayout(
 
 # Bounds that depend on career stage (join dates, contract chains, bans) are kept wide, since a
 # failed check on the player pass stops players, contracts and suspensions together.
+# A club's three staff lists and one staff person's object. The value range on a list id is a
+# corruption cap far above the largest person id any save measured holds: its job is to turn
+# away a count read from the wrong bytes, not to bound a real id. The 14 codes are every value
+# the eight bytes after the role-like byte take on 99.95% of staff objects. The search for a
+# person's header behind his own contract record is four times the largest distance measured
+# (8,161 bytes on one save; 1,894 on the other two), and the two name-block windows are wider
+# than the 1,534 bytes the furthest block measured sits from its contract tag.
+STAFF = StaffLayout(
+    kind_offset=12,
+    staff_kind=1,
+    human_kind=9,
+    uid_offset=4,
+    uid_copy_offset=8,
+    entry_count_offset=13,
+    entry_bytes=7,
+    ability_base_offset=21,
+    current_ability_offset=0,
+    potential_ability_offset=2,
+    ability_range=(1, 200),
+    r4_offset=4,
+    codes_offset=5,
+    code_count=8,
+    code_set=frozenset({3, 4, 7, 22, 27, 28, 29, 30, 32, 33, 35, 62, 63, 64}),
+    sentinel_offset=13,
+    sentinel_value=12,
+    preferences_offset=14,
+    preference_count=26,
+    preference_range=(1, 20),
+    # The 14 slots two exact editor readings pinned; every other slot ships as a raw number.
+    named_preference_slots=(
+        ("attacking", 0),
+        ("business", 1),
+        ("directness", 3),
+        ("interference", 6),
+        ("patience", 9),
+        ("trigger_press", 10),
+        ("resources", 11),
+        ("buying_players", 14),
+        ("mind_games", 15),
+        ("flexibility", 21),
+        ("hardness_of_training", 22),
+        ("squad_rotation", 23),
+        ("tempo", 24),
+        ("width", 25),
+    ),
+    unnamed_preference_slots=(2, 4, 5, 7, 8, 12, 13, 16, 17, 18, 19, 20),
+    # Slot 13 holds a 0..100 number rather than a 1..20 one, so it is the one slot left out.
+    range_checked_preference_slots=tuple(slot for slot in range(26) if slot != 13),
+    block_40_offset=40,
+    block_40_count=26,
+    block_40_range=(1, 100),
+    list_count=3,
+    list_value_range=(1, 1_000_000),
+    discovery_selector_maximum=0x06FFFF,
+    contract_header_search_bytes=32_768,
+    person_block_offset_after_tag=60,
+    person_block_search_bytes=4_096,
+    list_only_block_search_bytes=20_000,
+)
+
 GATE_BOUNDS = GateBounds(
     minimum_applies_from_bytes=FULL_SAVE_MINIMUM_GAME_DB_BYTES,
     span_minimum_applies_from_bytes=FULL_SAVE_MINIMUM_SPAN_BYTES,
@@ -1078,6 +1139,40 @@ GATE_BOUNDS = GateBounds(
     # gives no owner. Shifting the ordinal a fixture stores by one either way scores 0.0008 to
     # 0.0016, so the floor sits far below the observed share and far above the control.
     stadium_home_grounds_owned=(0.50, None),
+    # Every club record of every save measured holds its affiliated-team list and exactly three
+    # staff lists inside the record. Reading the lists one byte late leaves 0.729 of records
+    # fitting and four bytes late 0.271, so nothing but an exact bound would catch either.
+    staff_lists_fit=(1.0, None),
+    # 14,989 of 14,990, 2,866 of 2,867 and 13,532 of 13,533 listed people have a staff object
+    # with a name block; the one that does not has two headers to choose between. Reading the
+    # list start one byte early drops it to 0.934 and one byte late to 0.378.
+    staff_list_ids_are_staff=(0.99, None),
+    # Every staff object a row was built from carries an ability signature, preference slots all
+    # in range and the block of 1..100 bytes. Reading the entry count one byte late leaves
+    # 0.725 on the first two, and reading the ability block one byte either way or four bytes
+    # late leaves at most 0.027 on either.
+    staff_ability_signature=(0.99, None),
+    staff_preference_slots=(0.99, None),
+    # Six staff objects of 18,238 and two of 4,108 carry a code outside the 14-value set, so the
+    # floor sits below 0.9995. One byte early leaves 0.019 and every other shift 0.
+    staff_codes_in_set=(0.98, None),
+    # 1.0 on all three saves, and 0.075 with the ability block one byte late and 0 four bytes
+    # late. One byte early leaves it at 1.0, which the three shares above catch instead.
+    staff_block_40_in_range=(0.99, None),
+    # Every person a row was built from has a name block the player decoder validates. A window
+    # that starts past where the block sits leaves 0.121.
+    staff_person_blocks=(0.99, None),
+    # 18,239 / 4,109 / 16,473 people on the saves measured. The floor is far below the smallest
+    # of those: what it catches is a list read or a discovery pass that finds next to nothing.
+    staff_minimum=(1_000, None),
+    # 0.916 / 0.689 / 0.911 of listed pairs have a contract at the listing club or at its
+    # parent. The floor clears the lowest of those by 22% of its width, which is thin, and it
+    # was kept because the list start read one byte late leaves 0.230, far below it.
+    staff_listed_contracted_here=(0.60, None),
+    # Every contract record with a tail has its person's header in front of it on all three
+    # saves. With the kind byte read one byte out, no header is accepted and 13,504 records are
+    # left unowned.
+    staff_unowned_tailed_contracts=(None, 0),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (
@@ -1103,6 +1198,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="humans", schema=21, build=BUILD, layout=HUMANS),
     LayoutEntry(region="feeder_man", schema=5, build=BUILD, layout=AFFILIATE_GROUPS),
     LayoutEntry(region="job_centre", schema=1, build=BUILD, layout=JOB_CENTRE),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STAFF),
     LayoutEntry(region=MATCH_FILE_REGION_NAME, schema=None, build=BUILD, layout=INJURY_TYPE_TABLE),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=FIXTURE_CALENDAR),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=STAGE_RESULTS),

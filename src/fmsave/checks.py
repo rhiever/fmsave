@@ -46,6 +46,7 @@ from fmsave._reader_stats import (
     ResultStats,
     RulesStats,
     StadiumStats,
+    StaffStats,
     StageStats,
     SuspensionStats,
     TransferWindowStats,
@@ -91,6 +92,8 @@ SPONSORSHIPS_READER = "sponsorships"
 AFFILIATES_READER = "affiliates"
 JOB_VACANCIES_READER = "job_vacancies"
 STADIUMS_READER = "stadiums"
+STAFF_READER = "staff"
+STAFF_LISTS_READER = "staff_lists"
 
 # Several readers are built from one decode. A reader whose shared decode did not finish would
 # have every other reader of the same pass redo that decode only to fail the same way, so the
@@ -98,6 +101,7 @@ STADIUMS_READER = "stadiums"
 PLAYER_PASS = "player"
 SPAN_PASS = "span"
 FINANCE_PASS = "finance"
+STAFF_PASS = "staff"
 # Players, contracts and suspensions are decoded in one pass, so they fail or succeed together.
 _PLAYER_PASS_READERS = frozenset({PLAYERS_READER, CONTRACTS_READER, SUSPENSIONS_READER})
 # Fixtures, league tables and competition rules read one streamed pass over the unnamed span,
@@ -106,11 +110,15 @@ _SPAN_PASS_READERS = frozenset({FIXTURES_READER, LEAGUE_TABLES_READER, COMPETITI
 # The months and the sponsors come out of one pass over the club records, so they fail or
 # succeed together.
 _FINANCE_PASS_READERS = frozenset({FINANCES_READER, SPONSORSHIPS_READER})
+# The staff rows and the club staff lists come out of one pass over the club records and one
+# over the whole section, so they fail or succeed together.
+_STAFF_PASS_READERS = frozenset({STAFF_READER, STAFF_LISTS_READER})
 _READER_PASSES: FrozenMapping[str, str] = FrozenMapping(
     {
         **dict.fromkeys(_PLAYER_PASS_READERS, PLAYER_PASS),
         **dict.fromkeys(_SPAN_PASS_READERS, SPAN_PASS),
         **dict.fromkeys(_FINANCE_PASS_READERS, FINANCE_PASS),
+        **dict.fromkeys(_STAFF_PASS_READERS, STAFF_PASS),
     }
 )
 
@@ -1406,6 +1414,140 @@ def check_job_vacancies(stats: JobVacancyStats, bounds: GateBounds) -> ReaderChe
                 "flagged": stats.flagged,
             }
         ),
+    )
+
+
+def evaluate_staff(
+    stats: StaffStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The staff reader's checks, in a fixed order.
+
+    The four object shares judge the staff objects the rows were built from, so each applies
+    only where one was read; the block share and the count floor apply on a full-size save,
+    where the smallest population measured is 4,109 people. The listing share judges the pairs
+    the club lists give, so it applies only where a club lists somebody, which the smallest
+    save measured does 2,867 times.
+
+    The unowned count is what catches a header test that has stopped recognising a person's own
+    object: every contract record with a tail on all three saves has its person's header in
+    front of it, and with the kind byte read one place out none of them does.
+    """
+    applied = _applies(bounds, game_db_bytes)
+    staff_objects = stats.staff_objects
+    return (
+        _gate(
+            "staff_ability_signature",
+            _rate(stats.ability_signatures, staff_objects),
+            bounds.staff_ability_signature,
+            applied and staff_objects > 0,
+        ),
+        _gate(
+            "staff_preference_slots",
+            _rate(stats.preference_slots_in_range, staff_objects),
+            bounds.staff_preference_slots,
+            applied and staff_objects > 0,
+        ),
+        _gate(
+            "staff_codes_in_set",
+            _rate(stats.codes_in_set, staff_objects),
+            bounds.staff_codes_in_set,
+            applied and staff_objects > 0,
+        ),
+        _gate(
+            "staff_block_40_in_range",
+            _rate(stats.block_40_in_range, staff_objects),
+            bounds.staff_block_40_in_range,
+            applied and staff_objects > 0,
+        ),
+        _gate(
+            "staff_person_blocks",
+            _rate(stats.persons_with_block, stats.persons),
+            bounds.staff_person_blocks,
+            applied and stats.persons > 0,
+        ),
+        _gate("staff_minimum", stats.persons, bounds.staff_minimum, applied),
+        _gate(
+            "staff_listed_contracted_here",
+            _rate(stats.listed_pairs_contracted_here, stats.listed_pairs),
+            bounds.staff_listed_contracted_here,
+            applied and stats.listed_pairs > 0,
+        ),
+        _gate(
+            "staff_unowned_tailed_contracts",
+            stats.unowned_tailed_hits,
+            bounds.staff_unowned_tailed_contracts,
+            applied,
+        ),
+    )
+
+
+def evaluate_staff_lists(
+    stats: StaffStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The club staff lists reader's two checks, in a fixed order.
+
+    The first judges the club records that carry a team list, which is where the staff lists
+    follow, and the second the people those lists name. Both apply only where they have a
+    denominator: a fragment holding no club record with a team list, or no club that lists
+    anybody, has nothing to judge rather than a layout that has moved.
+    """
+    applied = _applies(bounds, game_db_bytes)
+    return (
+        _gate(
+            "staff_lists_fit",
+            _rate(stats.clubs_lists_fit, stats.clubs_checked),
+            bounds.staff_lists_fit,
+            applied and stats.clubs_checked > 0,
+        ),
+        _gate(
+            "staff_list_ids_are_staff",
+            _rate(stats.listed_persons_staff, stats.listed_persons),
+            bounds.staff_list_ids_are_staff,
+            applied and stats.listed_persons > 0,
+        ),
+    )
+
+
+def check_staff(stats: StaffStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The staff reader's checks, record count and anomaly counts.
+
+    `untailed_hits` counts the filtered pass's hits that are not a contract record at all,
+    which every save has tens of thousands of. `ambiguous_headers` and `unlocated_persons`
+    count the people left without a row, a handful at most. `unresolved_contract_teams` counts
+    the records naming a team no club lists, `repeat_contracts` the people holding two records
+    at one club, and `merged_affiliate_pairs` the listings an affiliate side made that became a
+    row at its parent. `human_manager_missing` is one where the save lists a human manager
+    whose own object or contract could not be read, and zero otherwise.
+    """
+    return ReaderCheck(
+        STAFF_READER,
+        stats.rows,
+        evaluate_staff(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {
+                "untailed_hits": stats.untailed_hits,
+                "ambiguous_headers": stats.ambiguous_headers,
+                "unlocated_persons": stats.unlocated_persons,
+                "unresolved_contract_teams": stats.unresolved_contract_teams,
+                "repeat_contracts": stats.repeat_contracts,
+                "merged_affiliate_pairs": stats.merged_affiliate_pairs,
+                "human_manager_missing": 0 if stats.human_found else 1,
+            }
+        ),
+    )
+
+
+def check_staff_lists(stats: StaffStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The club staff lists reader's checks, record count and anomaly count.
+
+    The anomaly counts the list values that turn out to be player pindexes, which a handful of
+    clubs on every save hold and which no list row keeps.
+    """
+    return ReaderCheck(
+        STAFF_LISTS_READER,
+        stats.list_rows,
+        evaluate_staff_lists(stats, bounds, game_db_bytes),
+        FrozenMapping({"player_values_in_lists": stats.player_values_in_lists}),
     )
 
 

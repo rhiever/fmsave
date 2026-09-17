@@ -1115,6 +1115,89 @@ class JobCentreLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class StaffLayout:
+    """Where a club lists its staff, and how one staff person's object is laid out.
+
+    **The club lists.** From `ClubRecordSpan.team_list_end`, a club record holds a count byte
+    and that many affiliated-team ids, and then exactly `list_count` staff lists, each its own
+    count byte followed by that many u32 values, each a person id plus one. The bytes after the
+    last list are other data and are never read as a fourth list. A club's lists are read only
+    when they all end at or before the record's end and every value lies inside
+    `list_value_range`, which no club of any save measured fails.
+
+    **The person object.** `header` is the offset of the u32 person id. The uid sits twice, at
+    `uid_offset` and `uid_copy_offset`, and `kind_offset` holds `staff_kind` for a staff member
+    and `human_kind` for the human manager. `entry_count_offset` holds how many `entry_bytes`
+    entries the object carries; they start two bytes later, behind a zero byte, and nothing
+    reads either of those two positions. Three
+    reputation words follow the entries, so the ability block starts at
+
+        ability = header + ability_base_offset + entry_bytes * entry_count
+
+    and every offset below counts from there: the current ability, the potential ability, the
+    role-like byte at `r4_offset`, `code_count` bytes from `codes_offset`, the sentinel byte,
+    `preference_count` preference slots from `preferences_offset`, and `block_40_count` further
+    bytes from `block_40_offset`.
+
+    An object carries a readable **ability signature** when both abilities lie inside
+    `ability_range` and the sentinel byte equals `sentinel_value`. Without one, nothing read
+    from the ability block is shipped: the block's position rests on the entry count, and an
+    object whose signature does not read is an object whose position is not to be trusted. The
+    human manager's object has no readable signature at all.
+
+    `named_preference_slots` pairs each named preference with its slot;
+    `unnamed_preference_slots` are the slots that ship as raw numbers, and
+    `range_checked_preference_slots` the slots whose value is counted for the checks, which is
+    every slot but the one holding a number outside `preference_range`.
+
+    **Discovery.** A staff member's contract record sits inside his own object, so it is found
+    by one filtered pass over the section for the contract tag followed by a selector no larger
+    than `discovery_selector_maximum` and a team id inside the contract layout's range. From a
+    hit's tag the person's header is searched for backwards inside
+    `contract_header_search_bytes`; the largest distance measured is 8,161 bytes.
+
+    **Person blocks.** A contracted person's name block follows his own contract record, so it
+    is searched for from `person_block_offset_after_tag` past the tag, for at most
+    `person_block_search_bytes` and never past the next header. A person with no contract is
+    searched for from just past his header for at most `list_only_block_search_bytes`.
+    """
+
+    kind_offset: int
+    staff_kind: int
+    human_kind: int
+    uid_offset: int
+    uid_copy_offset: int
+    entry_count_offset: int
+    entry_bytes: int
+    ability_base_offset: int
+    current_ability_offset: int
+    potential_ability_offset: int
+    ability_range: tuple[int, int]
+    r4_offset: int
+    codes_offset: int
+    code_count: int
+    code_set: frozenset[int]
+    sentinel_offset: int
+    sentinel_value: int
+    preferences_offset: int
+    preference_count: int
+    preference_range: tuple[int, int]
+    named_preference_slots: tuple[tuple[str, int], ...]
+    unnamed_preference_slots: tuple[int, ...]
+    range_checked_preference_slots: tuple[int, ...]
+    block_40_offset: int
+    block_40_count: int
+    block_40_range: tuple[int, int]
+    list_count: int
+    list_value_range: tuple[int, int]
+    discovery_selector_maximum: int
+    contract_header_search_bytes: int
+    person_block_offset_after_tag: int
+    person_block_search_bytes: int
+    list_only_block_search_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
 class GateBounds:
     """Loose bounds for the reader checks on what the `game_db` readers decode.
 
@@ -1320,6 +1403,27 @@ class GateBounds:
     range the feed uses, so that share cannot fail. There is none on how many competition ids
     the stage table names either: it is 1.0 read correctly **and** 1.0 with the record start
     shifted four bytes on all three saves measured, so it cannot fail.
+
+    Staff: `staff_lists_fit` (club records whose affiliated-team list and three staff lists end
+    inside the record with every value in range, of club records carrying a team list) and
+    `staff_list_ids_are_staff` (listed people whose header is a staff object with a name block,
+    of listed people), both in `staff_lists()`; and in `staff()` `staff_ability_signature`,
+    `staff_preference_slots`, `staff_codes_in_set` and `staff_block_40_in_range`, each of the
+    staff objects the rows were built from, `staff_person_blocks` (people with a name block, of
+    people), `staff_minimum` (people), `staff_listed_contracted_here` (listed pairs whose
+    person holds a contract at the listing club or at its parent, of listed pairs) and
+    `staff_unowned_tailed_contracts` (contract records with a tail whose person has no header
+    in front of them).
+
+    The four object shares apply only where a staff object was read, and the block share and
+    the count floor only on a full-size `game_db`; the list shares apply only where a club
+    record carries a team list and where a club lists somebody. Each separates a sound read
+    from a wrong one under a different misalignment: the fit share fails on a list start read
+    one or four bytes late, the id share on a start read one byte early, the four object shares
+    on an ability block read one byte either way or four bytes late or on the entry count read
+    one byte late, the block share on a name-block window that starts past the block, and the
+    unowned count on a kind byte read one byte out. `staff_block_40_in_range` holds at 1.0 with
+    the ability block read one byte early, which the three shares beside it catch instead.
     """
 
     minimum_applies_from_bytes: int
@@ -1416,6 +1520,16 @@ class GateBounds:
     stadium_owners_resolved: BoundPair
     stadium_capacity_within_all_seater: BoundPair
     stadium_home_grounds_owned: BoundPair
+    staff_lists_fit: BoundPair
+    staff_list_ids_are_staff: BoundPair
+    staff_ability_signature: BoundPair
+    staff_preference_slots: BoundPair
+    staff_codes_in_set: BoundPair
+    staff_block_40_in_range: BoundPair
+    staff_person_blocks: BoundPair
+    staff_minimum: BoundPair
+    staff_listed_contracted_here: BoundPair
+    staff_unowned_tailed_contracts: BoundPair
 
 
 type Layout = (
@@ -1440,6 +1554,7 @@ type Layout = (
     | InjuryTypeTableLayout
     | AffiliateGroupLayout
     | JobCentreLayout
+    | StaffLayout
     | FixtureCalendarLayout
     | StageResultLayout
     | LeagueTableLayout

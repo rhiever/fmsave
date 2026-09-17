@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import struct
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from tests.fixtures.club_sections import (
     NO_JOB_COMPETITION,
@@ -74,6 +74,7 @@ from tests.fixtures.span import (
     table_block_bytes,
 )
 from tests.fixtures.stadiums import career_stadium_rows, stadium_table_bytes
+from tests.fixtures.staff import staff_entry_bytes, staff_object_bytes
 
 GAME_DB_SCHEMA = 4000
 BUILD_STRING = "26.3.2+2329565"
@@ -149,6 +150,7 @@ class ExampleClub:
     nation_id: int
     team_ids: tuple[int, ...]
     float_anchor_only: bool = False
+    affiliate_team_ids: tuple[int, ...] = ()
     staff_lists: tuple[tuple[int, ...], ...] | None = None
     trailing_bytes: bytes = b""
 
@@ -279,6 +281,27 @@ def club_finance_trailing_bytes(
     )
 
 
+# Staff person ids and the values a club list stores for them, which are the id plus 1. Every
+# id sits above every player pindex, so a list-only person is bracketed by the last player.
+STAFF_CONTRACTED_PERSON_ID = 21
+STAFF_LISTED_ONLY_PERSON_ID = 22
+STAFF_CONTRACT_ONLY_PERSON_ID = 23
+STAFF_AFFILIATE_PERSON_ID = 24
+STAFF_CONTRACTED_UID = 810_021
+STAFF_LISTED_ONLY_UID = 810_022
+STAFF_CONTRACT_ONLY_UID = 810_023
+STAFF_AFFILIATE_UID = 810_024
+PLAYER_B_PINDEX = 12
+# Northbridge lists the contracted person in list 0, and in list 1 both the list-only person
+# and player B's pindex plus 1, which a reader has to drop and count.
+NORTHBRIDGE_STAFF_LISTS = (
+    (STAFF_CONTRACTED_PERSON_ID + 1,),
+    (STAFF_LISTED_ONLY_PERSON_ID + 1, PLAYER_B_PINDEX + 1),
+    (),
+)
+NO_STAFF_LISTS: tuple[tuple[int, ...], ...] = ((), (), ())
+COLTS_STAFF_LISTS = ((), (), (STAFF_AFFILIATE_PERSON_ID + 1,))
+
 EXAMPLE_CLUBS = (
     ExampleClub(
         1,
@@ -287,6 +310,7 @@ EXAMPLE_CLUBS = (
         "Northbridge",
         HOME_NATION_ID,
         (NORTHBRIDGE_TEAM_A, NORTHBRIDGE_TEAM_B),
+        staff_lists=NORTHBRIDGE_STAFF_LISTS,
         trailing_bytes=club_finance_trailing_bytes(
             (SPONSOR_A, SPONSOR_B), facility_byte=NORTHBRIDGE_FACILITY_BYTE
         ),
@@ -299,6 +323,7 @@ EXAMPLE_CLUBS = (
         HOME_NATION_ID,
         (SOUTHPORT_TEAM,),
         float_anchor_only=True,
+        staff_lists=NO_STAFF_LISTS,
     ),
     ExampleClub(
         4,
@@ -307,6 +332,7 @@ EXAMPLE_CLUBS = (
         "Athletic",
         ATHLETIC_NATION_ID,
         (70005, 70004, 70006),
+        staff_lists=NO_STAFF_LISTS,
         trailing_bytes=club_finance_trailing_bytes(
             (SPONSOR_C,),
             facility_byte=ATHLETIC_FACILITY_BYTE,
@@ -321,7 +347,34 @@ SECOND_NORTHBRIDGE_CLUB = ExampleClub(
     "Northbridge",
     SECOND_NORTHBRIDGE_NATION_ID,
     (70010,),
+    staff_lists=NO_STAFF_LISTS,
 )
+# The B team Northbridge controls, which lists a person Northbridge itself pays.
+COLTS_CLUB_INDEX = 7
+COLTS_UID = 5007
+COLTS_TEAM = 70007
+COLTS_CLUB = ExampleClub(
+    COLTS_CLUB_INDEX,
+    COLTS_UID,
+    "Northbridge Colts",
+    "Colts",
+    HOME_NATION_ID,
+    (COLTS_TEAM,),
+    staff_lists=COLTS_STAFF_LISTS,
+)
+
+
+def example_clubs(
+    *, staff_affiliate: bool = False, duplicate_club_name: bool = False
+) -> tuple[ExampleClub, ...]:
+    """The example clubs, with the colts and Northbridge's link to them when asked for."""
+    clubs = EXAMPLE_CLUBS
+    if staff_affiliate:
+        northbridge = replace(clubs[0], affiliate_team_ids=(COLTS_TEAM,))
+        clubs = (northbridge, *clubs[1:], COLTS_CLUB)
+    if duplicate_club_name:
+        clubs = (*clubs, SECOND_NORTHBRIDGE_CLUB)
+    return clubs
 
 
 def clubs_region_bytes(
@@ -337,6 +390,7 @@ def clubs_region_bytes(
             name=club.name,
             short_name=club.short_name,
             team_ids=club.team_ids,
+            affiliate_team_ids=club.affiliate_team_ids,
             float_anchor_only=club.float_anchor_only,
             staff_lists=club.staff_lists,
             trailing_bytes=club.trailing_bytes,
@@ -377,11 +431,32 @@ def career_competition_id_pairs() -> bytes:
     )
 
 
+# The human manager's own object. His kind byte is not the staff one, he carries one entry in
+# front of a stretch of bytes where no ability signature reads, and his name block sits after
+# his one contract record rather than in front of it.
+MANAGER_OBJECT_KIND = 9
+MANAGER_ENTRY = (1024, 3212)
+MANAGER_HEADER_BYTES = 12
+MANAGER_ENTRY_LIST_BYTES = 3 + 7
+MANAGER_BEFORE_CONTRACT_BYTES = 64
+MANAGER_BLOCK_AFTER_CONTRACT_BYTES = 24
+MANAGER_BIRTH_DAY = 60
+MANAGER_BIRTH_YEAR = 1975
+MANAGER_NATION_ID = 44
+MANAGER_PERSONALITY = (12,) * 8
+
+
 def manager_region_bytes() -> bytes:
-    """A non-player person header, then the manager's current contract chain record."""
+    """The human manager's object: his header, his contract chain record and his name block.
+
+    The 10 bytes the object-kind byte and the entry list take up come out of the padding in
+    front of the contract record, so the record itself sits exactly where it did before.
+    """
     person_header = struct.pack(
         "<III", MANAGER_SELECTOR - 1, MANAGER_PERSON_UID, MANAGER_PERSON_UID
     )
+    entry_list = bytearray((MANAGER_OBJECT_KIND, 1, 0))
+    entry_list.extend(staff_entry_bytes(*MANAGER_ENTRY))
     chain_record, _tag_offset = contract_bytes(
         selector=MANAGER_SELECTOR,
         team_id=NORTHBRIDGE_TEAM_A,
@@ -390,7 +465,140 @@ def manager_region_bytes() -> bytes:
         tail={"end": packed_date(182, 2032), "status": 3},
         head={"type": 1},
     )
-    return person_header + bytes(64) + chain_record + bytes(64)
+    person_block = person_block_bytes(
+        first_name_id=0,
+        surname_id=1,
+        common_name_id=MISSING_NAME_ID,
+        legal_name=None,
+        birth=packed_date(MANAGER_BIRTH_DAY, MANAGER_BIRTH_YEAR),
+        nation_id=MANAGER_NATION_ID,
+        personality=MANAGER_PERSONALITY,
+        trait_bits=0,
+        relations=(),
+    )
+    return (
+        person_header
+        + bytes(entry_list)
+        + bytes(MANAGER_BEFORE_CONTRACT_BYTES - MANAGER_ENTRY_LIST_BYTES)
+        + chain_record
+        + bytes(MANAGER_BLOCK_AFTER_CONTRACT_BYTES)
+        + person_block
+        + bytes(64)
+    )
+
+
+def staff_region_bytes(*, staff_affiliate: bool = False) -> bytes:
+    """The example staff objects, in ascending person id.
+
+    The contracted person, the list-only person (whose two entries move his ability block), the
+    contract-only person and, when asked for, the person the colts list and Northbridge pays.
+    """
+    contracted_record, _tag_offset = contract_bytes(
+        selector=STAFF_CONTRACTED_PERSON_ID + 1,
+        team_id=NORTHBRIDGE_TEAM_A,
+        wage=2500,
+        start=packed_date(183, 2029),
+        tail={"end": packed_date(182, 2032), "status": 0, "e39": 0x40},
+        head={"type": 1},
+    )
+    contract_only_record, _tag_offset = contract_bytes(
+        selector=STAFF_CONTRACT_ONLY_PERSON_ID + 1,
+        team_id=SOUTHPORT_TEAM,
+        wage=900,
+        start=packed_date(1, 2030),
+        tail={"end": packed_date(181, 2031), "status": 3},
+        head={"type": 0},
+    )
+    objects = [
+        staff_object_bytes(
+            person_id=STAFF_CONTRACTED_PERSON_ID,
+            uid=STAFF_CONTRACTED_UID,
+            current_ability=120,
+            potential_ability=140,
+            r4=16,
+            contract=contracted_record,
+            person_block=person_block_bytes(
+                first_name_id=1,
+                surname_id=0,
+                common_name_id=MISSING_NAME_ID,
+                legal_name=None,
+                birth=packed_date(167, 1980),
+                nation_id=PLAYER_NATION_ID,
+                personality=(14, 10, 12, 8, 16, 11, 9, 5),
+                trait_bits=0,
+                relations=(),
+            ),
+        ),
+        staff_object_bytes(
+            person_id=STAFF_LISTED_ONLY_PERSON_ID,
+            uid=STAFF_LISTED_ONLY_UID,
+            entries=((6792, 3212), (6658, 3212)),
+            current_ability=80,
+            potential_ability=95,
+            r4=20,
+            person_block=person_block_bytes(
+                first_name_id=1,
+                surname_id=1,
+                common_name_id=MISSING_NAME_ID,
+                legal_name=None,
+                birth=packed_date(100, 1975),
+                nation_id=PLAYER_D_NATION_ID,
+                personality=(9,) * 8,
+                trait_bits=0,
+                relations=(),
+            ),
+        ),
+        staff_object_bytes(
+            person_id=STAFF_CONTRACT_ONLY_PERSON_ID,
+            uid=STAFF_CONTRACT_ONLY_UID,
+            current_ability=100,
+            potential_ability=100,
+            r4=16,
+            contract=contract_only_record,
+            person_block=person_block_bytes(
+                first_name_id=0,
+                surname_id=0,
+                common_name_id=MISSING_NAME_ID,
+                legal_name=None,
+                birth=packed_date(1, 1970),
+                nation_id=PLAYER_NATION_ID,
+                personality=(7,) * 8,
+                trait_bits=0,
+                relations=(),
+            ),
+        ),
+    ]
+    if staff_affiliate:
+        affiliate_record, _tag_offset = contract_bytes(
+            selector=STAFF_AFFILIATE_PERSON_ID + 1,
+            team_id=NORTHBRIDGE_TEAM_A,
+            wage=1200,
+            start=packed_date(1, 2030),
+            tail={"end": packed_date(181, 2031), "status": 0},
+            head={"type": 1},
+        )
+        objects.append(
+            staff_object_bytes(
+                person_id=STAFF_AFFILIATE_PERSON_ID,
+                uid=STAFF_AFFILIATE_UID,
+                current_ability=110,
+                potential_ability=115,
+                r4=14,
+                contract=affiliate_record,
+                person_block=person_block_bytes(
+                    first_name_id=1,
+                    surname_id=0,
+                    common_name_id=MISSING_NAME_ID,
+                    legal_name=None,
+                    birth=packed_date(1, 1990),
+                    nation_id=PLAYER_NATION_ID,
+                    personality=(11,) * 8,
+                    trait_bits=0,
+                    relations=(),
+                ),
+            )
+        )
+    return b"".join(objects)
 
 
 # Per-match player records. The four matches sit inside player A's own window; player B plays
@@ -1463,13 +1671,16 @@ def career_game_db(
     duplicate_club_name: bool = False,
     game_db_results: Sequence[ExampleResult] = (),
     stadium_table: bool = True,
+    staff_affiliate: bool = False,
+    extra_staff: bytes = b"",
 ) -> bytes:
     """The game database. `game_db_results` writes result records into a region no result
     reader may scan, so a reader that widened its regions is caught by the score appearing.
     `stadium_table=False` leaves the stadium table out, so every reader that needs a ground
-    has nothing to read.
+    has nothing to read. `extra_staff` is written at the start of the staff region, in front
+    of the example staff.
     """
-    clubs = EXAMPLE_CLUBS + ((SECOND_NORTHBRIDGE_CLUB,) if duplicate_club_name else ())
+    clubs = example_clubs(staff_affiliate=staff_affiliate, duplicate_club_name=duplicate_club_name)
     payload = (
         name_pools_bytes(FIRST_NAMES, SURNAMES, COMMON_NAMES)
         + clubs_region_bytes(clubs, competition_id_pairs=career_competition_id_pairs())
@@ -1483,6 +1694,8 @@ def career_game_db(
         + player_b_bytes()
         + player_c_bytes()
         + player_d_bytes()
+        + extra_staff
+        + staff_region_bytes(staff_affiliate=staff_affiliate)
         # The save keeps its stage table in the last stretch of game_db, so it goes last here.
         + stage_table_bytes(career_stage_rows())
     )
@@ -1624,6 +1837,8 @@ def career_fragment(
     feeder_section: bytes | None = None,
     job_centre_section: bytes | None = None,
     stadium_table: bool = True,
+    staff_affiliate: bool = False,
+    extra_staff: bytes = b"",
 ) -> ContainerFragment:
     """The whole career fragment.
 
@@ -1654,6 +1869,10 @@ def career_fragment(
             vacancies the fragment writes.
         stadium_table: Write the stadium table into `game_db`. False leaves it out, so a
             reader that needs a ground finds no table at all.
+        staff_affiliate: Add the B team Northbridge controls, which lists a person Northbridge
+            itself pays, and that person's own object.
+        extra_staff: Bytes to write at the start of the staff region, in front of the example
+            staff objects.
     """
     selector = UNMATCHED_MANAGER_SELECTOR if manager_between_jobs else MANAGER_SELECTOR
     replacements = {
@@ -1661,6 +1880,8 @@ def career_fragment(
             duplicate_club_name=duplicate_club_name,
             game_db_results=game_db_results,
             stadium_table=stadium_table,
+            staff_affiliate=staff_affiliate,
+            extra_staff=extra_staff,
         ),
         "humans": humans_body(count=1, selector=selector),
         "save_game_summary": career_summary(linked=not manager_between_jobs),

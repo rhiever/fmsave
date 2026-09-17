@@ -71,10 +71,25 @@ type _ChainRecordTuple = tuple[
     "dict[str, int] | None",
 ]
 
-# Positions in a decoded chain record tuple, for readers outside this module.
+# The same tuple under a name readers outside this module can spell, since the staff reader
+# decodes chain records of its own through `ContractDecoder.decode_chain_record`.
+type ChainRecordTuple = _ChainRecordTuple
+
+# Positions in a decoded chain record tuple, for readers outside this module. The status
+# position holds the raw byte a player's squad status is read from; a reader of people who are
+# not players takes it as an unnamed code and never as a `SquadStatus`.
 CHAIN_RECORD_CLUB_UID = 0
+CHAIN_RECORD_CLUB_NAME = 1
+CHAIN_RECORD_TEAM_ID = 2
+CHAIN_RECORD_WAGE = 3
+CHAIN_RECORD_START = 4
 CHAIN_RECORD_END = 5
 CHAIN_RECORD_HAS_TAIL = 6
+CHAIN_RECORD_SQUAD_STATUS = 7
+CHAIN_RECORD_EVENT_COUNT = 8
+CHAIN_RECORD_CLAUSES = 9
+CHAIN_RECORD_CONTRACT_TYPE = 10
+CHAIN_RECORD_UNKNOWN = 11
 
 
 def _carries_no_contract(record: _ChainRecordTuple) -> bool:

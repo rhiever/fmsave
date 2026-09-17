@@ -350,6 +350,67 @@ class FinanceStats:
 
 
 @dataclass(frozen=True, slots=True)
+class StaffStats:
+    """What one pass over the club staff lists and the staff objects counted.
+
+    The club lists: `clubs_checked` counts the club records carrying a team list, which is
+    where the staff lists follow, and `clubs_lists_fit` those whose lists all ended inside the
+    record with every value in range. `list_values` counts the values those lists hold and
+    `player_values_in_lists` the few that turn out to be player pindexes, which are dropped.
+    `listed_persons` counts the distinct people the lists name and `listed_persons_staff` those
+    whose header is a staff object with a name block.
+
+    The objects: `staff_objects` counts the staff objects the rows were built from, and
+    `ability_signatures`, `preference_slots_in_range`, `codes_in_set` and `block_40_in_range`
+    how many of them read as the layout says. `persons` counts the people a row was built for,
+    the human manager included, and `persons_with_block` those with a name block.
+
+    Discovery: `discovery_hits` counts the filtered contract-tag hits, `untailed_hits` those
+    whose record has no tail, which no person owns, `unowned_tailed_hits` those with a tail
+    whose person has no header in front of them, and `owned_records` the records a person was
+    found to own.
+
+    Membership: `listed_pairs` counts the (club, person) pairs the lists give, and
+    `listed_pairs_contracted_here` those whose person holds a contract at the listing club or
+    at its parent. `merged_affiliate_pairs` counts the pairs an affiliate side listed that
+    became a row at its parent instead. `ambiguous_headers` counts the people with more than
+    one header that passes the test and `unlocated_persons` those with none; neither gets a
+    row. `unresolved_contract_teams` counts the own records whose team no club lists, and
+    `repeat_contracts` the people holding more than one record at one club, of which the latest
+    to start is taken. `human_found` says whether the save's human manager was located, and
+    `rows` and `list_rows` count the rows the two tables returned.
+    """
+
+    clubs_checked: int
+    clubs_lists_fit: int
+    list_values: int
+    player_values_in_lists: int
+    listed_persons: int
+    listed_persons_staff: int
+    staff_objects: int
+    ability_signatures: int
+    preference_slots_in_range: int
+    codes_in_set: int
+    block_40_in_range: int
+    persons: int
+    persons_with_block: int
+    discovery_hits: int
+    untailed_hits: int
+    unowned_tailed_hits: int
+    owned_records: int
+    listed_pairs: int
+    listed_pairs_contracted_here: int
+    merged_affiliate_pairs: int
+    ambiguous_headers: int
+    unlocated_persons: int
+    unresolved_contract_teams: int
+    repeat_contracts: int
+    human_found: bool
+    rows: int
+    list_rows: int
+
+
+@dataclass(frozen=True, slots=True)
 class ManagedStats:
     """What the managed-club reader found: human managers, resolved routes (0 or 1) and rows."""
 

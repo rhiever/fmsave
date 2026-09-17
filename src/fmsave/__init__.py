@@ -60,6 +60,7 @@ from fmsave.models.rules import (
     TransferWindow,
 )
 from fmsave.models.stadiums import Stadium
+from fmsave.models.staff import Staff, StaffAttributes, StaffList, StaffPreferences
 from fmsave.models.suspensions import PlayerSuspension, Suspension
 from fmsave.name_maps import read_competition_names
 from fmsave.table import Table
@@ -118,6 +119,10 @@ __all__ = [
     "Sponsorship",
     "SquadStatus",
     "Stadium",
+    "Staff",
+    "StaffAttributes",
+    "StaffList",
+    "StaffPreferences",
     "Stage",
     "Suspension",
     "Table",

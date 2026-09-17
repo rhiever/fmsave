@@ -41,6 +41,7 @@ from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
 from fmsave.models.stadiums import Stadium
+from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
 from fmsave.name_maps import EMPTY_COMPETITION_NAMES, normalize_competition_names
 from fmsave.readers._common import (
@@ -88,6 +89,7 @@ from fmsave.readers.stadiums import (
     find_stadium_layout,
     stadium_table_stats,
 )
+from fmsave.readers.staff import find_staff_layouts, read_staff
 from fmsave.readers.stages import StageIndex, named_stages
 from fmsave.readers.suspensions import (
     SuspensionEntry,
@@ -115,6 +117,8 @@ SPONSORSHIPS_TABLE_CACHE_KEY = "table:sponsorships"
 AFFILIATES_TABLE_CACHE_KEY = "table:affiliates"
 JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
 STADIUMS_TABLE_CACHE_KEY = "table:stadiums"
+STAFF_TABLE_CACHE_KEY = "table:staff"
+STAFF_LISTS_TABLE_CACHE_KEY = "table:staff_lists"
 
 # What each shared decode is kept under. While nothing is stored there the decode has not
 # finished, which is what tells a failed pass from a failed reader of a pass that ran.
@@ -122,6 +126,7 @@ _SHARED_PASS_CACHE_KEYS: Mapping[str, str] = {
     checks.PLAYER_PASS: PLAYERS_TABLE_CACHE_KEY,
     checks.SPAN_PASS: SPAN_RECORDS_CACHE_KEY,
     checks.FINANCE_PASS: FINANCES_TABLE_CACHE_KEY,
+    checks.STAFF_PASS: STAFF_TABLE_CACHE_KEY,
 }
 
 
@@ -130,6 +135,14 @@ class _FinanceTables(NamedTuple):
 
     finances: Table[FinanceMonth]
     sponsorships: Table[Sponsorship]
+    reader_checks: tuple[ReaderCheck, ...]
+
+
+class _StaffTables(NamedTuple):
+    """The two tables one decode pass over the club lists and the staff objects builds."""
+
+    staff: Table[Staff]
+    staff_lists: Table[StaffList]
     reader_checks: tuple[ReaderCheck, ...]
 
 
@@ -1062,6 +1075,136 @@ class Save:
         return _FinanceTables(
             Table(months, FinanceMonth), Table(sponsorships, Sponsorship), reader_checks
         )
+
+    def staff(self) -> Table[Staff]:
+        """Everyone a club employs who is not a player, in the order their objects are stored.
+
+        A row is one person at one club: the department lists the club keeps him in, what his
+        contract pays and until when, his ability and the preferences a staff profile shows.
+        **A person an affiliate side lists whose contract is with that side's parent is one row
+        at the parent**, with the side that lists him in `listed_club_uid`, the same rule a
+        player on a B team follows. A person a club lists but pays nothing has no contract to
+        read, so his `wage` and both dates are empty rather than zero; about one listed person
+        in seven of a save is like that.
+
+        **The save's human manager is a row of his own**, with `is_human_manager` true. His
+        object is laid out differently, so no ability, no preferences and none of the
+        ability-block `unknown` keys read for him, while his name, birth date, personality and
+        contract read as anyone's do.
+
+        **The contract codes are not player squad statuses.** `unknown["contract_e36"]` comes
+        from the byte a player's squad status is read from, but it takes different values on
+        staff and no displayed label has named one, so it and the three codes beside it ship as
+        raw numbers. The job title is not readable at all: the byte most likely to carry it
+        ships as `unknown["r4"]`.
+
+        Several useful figures are arithmetic on these rows rather than fields: a club's
+        non-playing wage bill is the sum of `wage` over its rows, how many of its staff it
+        lists is `where(in_club_lists=True)`, and who it pays without listing is
+        `where(has_contract=True, in_club_lists=False)`.
+
+        The table is read on the first call to `staff()` or `staff_lists()`, from one decode
+        pass; later calls to either return the same tables. When a check of that pass fails,
+        neither table is kept, so both raise.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written, a contract record runs
+                past the end of the game database, or a name block's relation list runs past
+                the window it was found in.
+            ReaderCheckError: The club or player readers' own checks stopped them, the save's
+                in-game date is unreadable, so no contract can be dated, or, on a full-size
+                save, the staff decoded fall outside the checks' bounds.
+        """
+        context = self._context
+        return context.cached(STAFF_TABLE_CACHE_KEY, self._staff_table_entry_point)
+
+    def staff_lists(self) -> Table[StaffList]:
+        """The three staff lists each club record holds, in club index order.
+
+        A club that lists nobody has no row at all, and a club that lists somebody has all
+        three rows, empty lists included. Only 733 to 1,957 of a save's 48,000 to 51,000 clubs
+        list anybody, so most clubs are absent, which is ordinary rather than a failure.
+
+        The lists split a club's staff into groups whose codes differ from list to list, but no
+        displayed label has named a list, so `list_index` is a number and nothing more. People
+        a list names who turn out to be players are dropped, and `fmsave validate` reports how
+        many; so are the few whose object cannot be told from another's, so a list's people are
+        those `staff()` also has a row for. A list's size is `len(person_uids)`.
+
+        The table is read on the first call to `staff()` or `staff_lists()`, from one decode
+        pass; later calls to either return the same tables. When a check of that pass fails,
+        neither table is kept, so both raise.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written, a contract record runs
+                past the end of the game database, or a name block's relation list runs past
+                the window it was found in.
+            ReaderCheckError: The club or player readers' own checks stopped them, the save's
+                in-game date is unreadable, so no contract can be dated, or, on a full-size
+                save, the staff decoded fall outside the checks' bounds.
+        """
+        context = self._context
+        return context.cached(STAFF_LISTS_TABLE_CACHE_KEY, self._staff_lists_table_entry_point)
+
+    def _staff_table_entry_point(self) -> Table[Staff]:
+        tables = self._decode_staff_tables()
+        self._store_reader_checks(tables.reader_checks)
+        self._context.cached(STAFF_LISTS_TABLE_CACHE_KEY, lambda: tables.staff_lists)
+        return tables.staff
+
+    def _staff_lists_table_entry_point(self) -> Table[StaffList]:
+        tables = self._decode_staff_tables()
+        self._store_reader_checks(tables.reader_checks)
+        self._context.cached(STAFF_TABLE_CACHE_KEY, lambda: tables.staff)
+        return tables.staff_lists
+
+    def _decode_staff_tables(self) -> _StaffTables:
+        context = self._context
+        save_info = context.info
+        clock = save_info.game_date
+        if clock is None:
+            raise ReaderCheckError(
+                f"{save_info.file_name}: the save's in-game date is unreadable, so no staff "
+                "contract can be dated"
+            )
+        gate_bounds = self._gate_bounds()
+        layouts = find_staff_layouts(save_info.section_schemas, save_info.build)
+        # One game_db borrow covers the club records, the player scan, the name pools and the
+        # pass over the section, so a cold call decompresses that section once.
+        with context.section(GAME_DB_SECTION) as game_db:
+            # The player population decides which list values and which selectors belong to a
+            # player, so a player pass whose own checks failed has to stop this reader too;
+            # and every row carries a club name, so the clubs come through the reader that
+            # enforces the club checks rather than through the index behind them.
+            self.players()
+            self.clubs()
+            club_index = context.club_index()
+            player_records = context.player_records()
+            name_pools = context.name_pools()
+            with context.section(HUMANS_SECTION) as humans:
+                staff_rows, list_rows, staff_stats = read_staff(
+                    game_db,
+                    humans,
+                    club_index,
+                    player_records,
+                    name_pools,
+                    clock,
+                    layouts,
+                    save_info.file_name,
+                )
+            game_db_length = len(game_db)
+        # Both checks run before either table is built: when one fails, nothing is cached and
+        # the next call decodes and checks again.
+        reader_checks = (
+            checks.check_staff(staff_stats, gate_bounds, game_db_length),
+            checks.check_staff_lists(staff_stats, gate_bounds, game_db_length),
+        )
+        checks.enforce_checks(reader_checks)
+        return _StaffTables(Table(staff_rows, Staff), Table(list_rows, StaffList), reader_checks)
 
     def _reader_check(self, reader_name: str) -> ReaderCheck | None:
         """The checks a reader passed when its table was read, or None before it was read."""
