@@ -877,7 +877,8 @@ class Save:
 
         A vacancy is stored against a team, so `team_id` is the save's own key and the club
         fields come from the club that fields that team; a team no club lists leaves them
-        empty. `league_position` is the team's current position in the competition the row
+        empty, and a record naming no team at all leaves `team_id` empty too.
+        `league_position` is the team's current position in the competition the row
         names, which is empty on about a quarter of rows because the save stores none. The job
         title, the second date and two further numbers have no confirmed meaning and ship in
         `unknown` rather than under names they have not earned.

@@ -50,10 +50,17 @@ from fmsave.checks import (
 )
 from fmsave.readers.clubs import find_club_layouts, read_club_index
 from tests.fixtures.career import (
+    INJURY_MANAGER_SECTION_NAME,
     MANAGER_SELECTOR,
     STAGE_ROW_COUNT,
+    TACTICS_SECTION_NAME,
+    TRAINING_SECTION_NAME,
+    career_club_section_frames,
+    career_injury_manager,
     career_stage_rows,
     career_summary,
+    career_tactics_body,
+    career_training_section,
     manager_region_bytes,
 )
 from tests.fixtures.container import (
@@ -154,6 +161,19 @@ READER_ORDER = (
     "transfer_windows",
     "competition_rules",
     "player_match_stats",
+    "stadiums",
+    "finances",
+    "sponsorships",
+    "affiliates",
+    "job_vacancies",
+    "staff",
+    "staff_lists",
+    "injury_types",
+    "injury_history",
+    "training",
+    "mentoring",
+    "tactics",
+    "set_pieces",
 )
 EXAMPLE_COMPETITION_COUNT = 3
 
@@ -903,6 +923,13 @@ def write_counted_fragment(
         )
         for section in default_sections()
     ]
+    # The club, medical and setup readers each have a section of their own, and a save without
+    # one is damaged rather than empty, so the fragment carries all five: a reader that never
+    # ran could not show its checks standing aside.
+    sections.extend(career_club_section_frames())
+    sections.append(SectionFrame(INJURY_MANAGER_SECTION_NAME, career_injury_manager()))
+    sections.append(SectionFrame(TACTICS_SECTION_NAME, career_tactics_body()))
+    sections.append(SectionFrame(TRAINING_SECTION_NAME, career_training_section()))
     return build_container_fragment(sections).write(tmp_path / "Private Folder" / FILE_NAME)
 
 
@@ -953,6 +980,22 @@ def test_validate_save_reports_every_reader_ok_with_gates_not_applied(
         "competition_rules": 0,
         # This fragment's players carry no match records at all.
         "player_match_stats": 0,
+        "stadiums": 101,
+        # The two clubs of this fragment carry no finance chain, so neither table has a row.
+        "finances": 0,
+        "sponsorships": 0,
+        "affiliates": 2,
+        "job_vacancies": 3,
+        # Only the human manager has a person object here; no club record lists anybody.
+        "staff": 1,
+        "staff_lists": 0,
+        # The one attachment this fragment lists is not a per-match file, so there is no table.
+        "injury_types": 0,
+        "injury_history": 6,
+        "training": 2,
+        "mentoring": 2,
+        "tactics": 2,
+        "set_pieces": 40,
     }
     assert report.game == save_info.game
     assert report.build == save_info.build
@@ -1077,6 +1120,56 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "bodies_outside_their_ranges": 0,
             "records_without_an_owner": 0,
         },
+        "stadiums": {
+            "walk_stopped_before_the_table_end": 0,
+            "named_rows": 1,
+            "template_rows": 1,
+            "unresolved_owners": 1,
+            "unset_capacities": 100,
+            "clubs_with_home_ground": 0,
+        },
+        "finances": {"clubs_with_series": 0, "balance_breaks": 0},
+        "sponsorships": {"clubs_without_sponsors": 0},
+        "affiliates": {"unresolved_members": 2},
+        "job_vacancies": {
+            "unresolved_teams": 1,
+            "competitions_outside_the_competition_table": 0,
+            "without_competition": 1,
+            "without_league_position": 1,
+            "flagged": 1,
+        },
+        "staff": {
+            "untailed_hits": 0,
+            "ambiguous_headers": 0,
+            "unlocated_persons": 0,
+            "unresolved_contract_teams": 0,
+            "repeat_contracts": 0,
+            "merged_affiliate_pairs": 0,
+            "human_manager_missing": 0,
+        },
+        "staff_lists": {"player_values_in_lists": 0},
+        "injury_types": {"match_entries": 1, "entries_without_magic": 1, "entries_tried": 0},
+        "injury_history": {
+            "window_a_rows": 1,
+            "window_b_rows": 1,
+            "list_0_entries": 1,
+            "list_1_entries": 0,
+            "list_2_entries": 1,
+            "log_rows_without_a_player": 2,
+            "typed_rows_without_a_player": 2,
+            "unresolved_log_teams": 1,
+            "untyped_rows": 3,
+            "undated_typed_rows": 1,
+            "typed_rows_outside_retention": 0,
+        },
+        "training": {"undated_weeks": 1, "header_entries": 1, "library_entries": 3},
+        "mentoring": {"members_without_a_player": 2, "members_elsewhere": 0},
+        "tactics": {
+            "preset_tactics": 0,
+            "tactic_blocks_count_mismatched": 0,
+            "unresolved_selectors": 5,
+        },
+        "set_pieces": {"named_routines": 2},
     }
 
 
@@ -1206,10 +1299,12 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_caches_nothin
                 assert cache_key not in career_save._context._cache
         assert len(evaluations) == 3
         report = validate_save(career_save)
-    # Once for the player pass itself, which the two readers sharing it then skip, and once more
-    # for the per-match reader, which decodes the players to name its rows and so pays for that
-    # pass again before raising the same error.
-    assert len(evaluations) == 5
+    # Once for the player pass itself, which the two readers sharing it then skip, and once
+    # each for the five readers that decode the players to name their rows and so pay for that
+    # pass again before raising the same error: the per-match stats, the staff, the injury
+    # history, the training and the tactics. Each of those three that shares a pass carries its
+    # partner (staff lists, mentoring, set pieces), so the partner pays nothing.
+    assert len(evaluations) == 9
     readers = reader_by_name(report)
     assert {name: reader.status for name, reader in readers.items()} == {
         "clubs": "ok",
@@ -1225,6 +1320,22 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_caches_nothin
         "competition_rules": "ok",
         # This reader decodes the players to name its rows, so the failed player pass stops it.
         "player_match_stats": "failed",
+        # These read no player, so a failed player pass leaves them alone.
+        "stadiums": "ok",
+        "finances": "ok",
+        "sponsorships": "ok",
+        "affiliates": "ok",
+        "job_vacancies": "ok",
+        "injury_types": "ok",
+        # These name a person or a squad member from the players, so the failed pass stops each
+        # of them, and each one's pass partner is carried with it.
+        "staff": "failed",
+        "staff_lists": "failed",
+        "injury_history": "failed",
+        "training": "failed",
+        "mentoring": "failed",
+        "tactics": "failed",
+        "set_pieces": "failed",
     }
     assert readers["contracts"].gates == (failing_gate("tails_parsed"),)
     assert tuple(gate.name for gate in readers["players"].gates) == PLAYER_GATE_NAMES
@@ -1312,6 +1423,22 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # apply rather than report a career with no competition rules of its own.
         "competition_rules": "failed",
         "player_match_stats": "failed",
+        # Every club, staff, medical and setup reader names its rows from the clubs or the
+        # players, so the failed club and player checks stop each of them before it reaches a
+        # gate of its own. Only the injury types, which need neither, fail on a gate here.
+        "stadiums": "failed",
+        "finances": "failed",
+        "sponsorships": "failed",
+        "affiliates": "failed",
+        "job_vacancies": "failed",
+        "staff": "failed",
+        "staff_lists": "failed",
+        "injury_types": "failed",
+        "injury_history": "failed",
+        "training": "failed",
+        "mentoring": "failed",
+        "tactics": "failed",
+        "set_pieces": "failed",
     }
     assert {name: failed_gate_names(reader.gates) for name, reader in readers.items()} == {
         "clubs": ["clubs_minimum", "status_confirmation", "reputation_median"],
@@ -1389,6 +1516,26 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # before it reaches a gate of its own. Its three gates are judged on their own counts in
         # the per-match tests, where a search that found nothing fails all three.
         "player_match_stats": [],
+        # Each of these reads the clubs or the players to name its rows, through the readers
+        # that enforce their own checks, so the failed club and player gates raise before any
+        # of them reaches a gate of its own. Each one's gates are judged on their own counts in
+        # its own tests.
+        "stadiums": [],
+        "finances": [],
+        "sponsorships": [],
+        "affiliates": [],
+        "job_vacancies": [],
+        "staff": [],
+        "staff_lists": [],
+        # The one exception: the type table is read out of a per-match entry and names nothing
+        # from the save, so it reaches its own gate, and this fragment's one attachment is not
+        # a per-match file, which leaves the table empty and the floor unmet.
+        "injury_types": ["injury_type_entries_minimum"],
+        "injury_history": [],
+        "training": [],
+        "mentoring": [],
+        "tactics": [],
+        "set_pieces": [],
     }
 
 

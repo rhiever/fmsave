@@ -2,7 +2,9 @@
 
 While a reader decodes, it counts what it sees into a stats record from `fmsave._reader_stats`
 (`PlayerStats`, `ContractStats`, `ClubStats`, `SuspensionStats`, `ManagedStats`, `StageStats`,
-`CompetitionStats`, `FixtureStats`, `TransferWindowStats`, `LeagueTableStats`, `RulesStats` or `MatchStats`).
+`CompetitionStats`, `FixtureStats`, `TransferWindowStats`, `LeagueTableStats`, `RulesStats`,
+`MatchStats`, `StadiumStats`, `FinanceStats`, `AffiliateStats`, `JobVacancyStats`, `StaffStats`,
+`InjuryTypeStats`, `InjuryStats`, `TrainingStats` or `TacticStats`).
 The `evaluate_*` functions compare those counts with the loose `GateBounds` registered for the
 save's layout and return one `GateResult` per check, and `enforce` raises `ReaderCheckError`
 when an applied check failed, before the reader caches its table. The checks apply only to a
@@ -115,8 +117,12 @@ TRAINING_PASS = "training"
 # Players, contracts and suspensions are decoded in one pass, so they fail or succeed together.
 _PLAYER_PASS_READERS = frozenset({PLAYERS_READER, CONTRACTS_READER, SUSPENSIONS_READER})
 # Fixtures, league tables and competition rules read one streamed pass over the unnamed span,
-# which is far the most expensive read fmsave makes.
-_SPAN_PASS_READERS = frozenset({FIXTURES_READER, LEAGUE_TABLES_READER, COMPETITION_RULES_READER})
+# which is far the most expensive read fmsave makes. Stadiums join the pass because the home
+# clubs of a ground are counted from the fixture calendar: a stadium read after that pass
+# failed would stream the whole span a second time only to raise the same error.
+_SPAN_PASS_READERS = frozenset(
+    {FIXTURES_READER, LEAGUE_TABLES_READER, COMPETITION_RULES_READER, STADIUMS_READER}
+)
 # The months and the sponsors come out of one pass over the club records, so they fail or
 # succeed together.
 _FINANCE_PASS_READERS = frozenset({FINANCES_READER, SPONSORSHIPS_READER})
@@ -2084,13 +2090,17 @@ class ReaderValidation:
     Players, contracts and suspensions are decoded in one pass. When a check of any of the three
     fails, all three are reported "failed" and none of their tables is read, and each of them
     still lists its own gates: a reader can be "failed" while every one of its own gates
-    passed. Fixtures, league tables and competition rules share the one streamed pass over the
-    span the same way, and are reported together when that pass itself is what failed.
+    passed. Fixtures, league tables, competition rules and stadiums share the one streamed pass
+    over the span the same way, and are reported together when that pass itself is what failed.
+    Four more pairs share a decode in the same way: finances with sponsorships, staff with
+    staff lists, training with mentoring, and tactics with set pieces.
 
     Attributes:
         reader: The reader: "clubs", "players", "contracts", "suspensions", "managed_clubs",
             "stages", "competitions", "fixtures", "league_tables", "transfer_windows",
-            "competition_rules" or "player_match_stats".
+            "competition_rules", "player_match_stats", "stadiums", "finances", "sponsorships",
+            "affiliates", "job_vacancies", "staff", "staff_lists", "injury_types",
+            "injury_history", "training", "mentoring", "tactics" or "set_pieces".
         status: "ok" when the reader returned its table, "failed" when checks stopped it, and
             "error" when it raised another fmsave error.
         record_count: How many records the reader decoded, or None when it did not get far
@@ -2184,15 +2194,21 @@ def validate_save(career_save: Save) -> ValidationReport:
 
     Readers run in the order clubs, players, contracts, suspensions, managed clubs, stages,
     competitions, fixtures, league tables, transfer windows, competition rules, per-match
-    player stats. A reader whose checks fail is reported "failed" with its checks, and one
-    that raises another fmsave error
+    player stats, stadiums, finances, sponsorships, affiliates, job vacancies, staff, staff
+    lists, injury types, injury history, training, mentoring, tactics, set pieces. The order
+    puts each reader after the ones whose work it reuses, so a shared decode that fails is
+    reported where it failed: stadiums follow the fixtures whose calendar they read, injury
+    types precede the injury history that names its types, and the two readers of each shared
+    pass sit side by side. A reader whose checks fail is reported "failed" with its checks, and
+    one that raises another fmsave error
     is reported "error" without the error's text; the remaining readers still run. The report
     holds only structural facts, counts and rates, never names, uids or other values from the
     save.
 
     Some readers share one decode: the players, contracts and suspensions of the player pass,
-    and the fixtures, league tables and competition rules built from the one streamed pass over
-    the span. When that shared decode is what failed, its error is reported for every reader of
+    the fixtures, league tables, competition rules and stadiums that all need the one streamed
+    pass over the span, and the finance, staff, training and tactics pairs, each built by one
+    pass of its own. When that shared decode is what failed, its error is reported for every reader of
     the pass and the decode is not attempted again, so the span is streamed once however many of
     its readers report it. A reader that failed after its pass had been decoded failed on its
     own, and the others still run.
@@ -2216,6 +2232,19 @@ def validate_save(career_save: Save) -> ValidationReport:
         (TRANSFER_WINDOWS_READER, career_save.transfer_windows),
         (COMPETITION_RULES_READER, career_save.competition_rules),
         (PLAYER_MATCH_STATS_READER, career_save.player_match_stats),
+        (STADIUMS_READER, career_save.stadiums),
+        (FINANCES_READER, career_save.finances),
+        (SPONSORSHIPS_READER, career_save.sponsorships),
+        (AFFILIATES_READER, career_save.affiliates),
+        (JOB_VACANCIES_READER, career_save.job_vacancies),
+        (STAFF_READER, career_save.staff),
+        (STAFF_LISTS_READER, career_save.staff_lists),
+        (INJURY_TYPES_READER, career_save.injury_types),
+        (INJURY_HISTORY_READER, career_save.injury_history),
+        (TRAINING_READER, career_save.training),
+        (MENTORING_READER, career_save.mentoring),
+        (TACTICS_READER, career_save.tactics),
+        (SET_PIECES_READER, career_save.set_pieces),
     )
     validations: list[ReaderValidation] = []
     failed_passes: dict[str, FmsaveError] = {}

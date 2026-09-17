@@ -48,11 +48,41 @@ EXPECTED_READERS = (
     "transfer_windows",
     "competition_rules",
     "player_match_stats",
+    "stadiums",
+    "finances",
+    "sponsorships",
+    "affiliates",
+    "job_vacancies",
+    "staff",
+    "staff_lists",
+    "injury_types",
+    "injury_history",
+    "training",
+    "mentoring",
+    "tactics",
+    "set_pieces",
 )
 # Readers whose ranges the recorded baselines do not hold yet. The baselines are written by a
 # separate tool against the whole corpus, so a reader added since they were last written has no
 # range to be compared with, and its own checks are what bound it until they are written again.
-READERS_WITHOUT_RECORDED_RANGES = frozenset({"player_match_stats"})
+READERS_WITHOUT_RECORDED_RANGES = frozenset(
+    {
+        "player_match_stats",
+        "stadiums",
+        "finances",
+        "sponsorships",
+        "affiliates",
+        "job_vacancies",
+        "staff",
+        "staff_lists",
+        "injury_types",
+        "injury_history",
+        "training",
+        "mentoring",
+        "tactics",
+        "set_pieces",
+    }
+)
 
 
 def save_label(relative_name: str) -> str:

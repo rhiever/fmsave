@@ -31,6 +31,9 @@ PRIVATE_TEXTS = (
     "900001",
     "5001",
     "Ünïcode",
+    # A staff row, a mentoring group and a stadium name that none of the texts above catches.
+    "Sam Sample",
+    "Group 1",
     FILE_NAME,
 )
 READER_ORDER = (
@@ -46,9 +49,30 @@ READER_ORDER = (
     "transfer_windows",
     "competition_rules",
     "player_match_stats",
+    "stadiums",
+    "finances",
+    "sponsorships",
+    "affiliates",
+    "job_vacancies",
+    "staff",
+    "staff_lists",
+    "injury_types",
+    "injury_history",
+    "training",
+    "mentoring",
+    "tactics",
+    "set_pieces",
 )
-# The three readers built from the one streamed pass over the span.
-SPAN_PASS_READERS = ("fixtures", "league_tables", "competition_rules")
+# The readers that cannot run without the one streamed pass over the span: the three built
+# from it, and the stadiums whose home clubs are counted from the calendar it carries.
+SPAN_PASS_READERS = ("fixtures", "league_tables", "competition_rules", "stadiums")
+# The four pairs that each come out of one decode, with the function that decode goes through.
+SHARED_PASS_PAIRS = (
+    ("fmsave._save.read_club_finances", ("finances", "sponsorships")),
+    ("fmsave._save.read_staff", ("staff", "staff_lists")),
+    ("fmsave._save.walk_training_blocks", ("training", "mentoring")),
+    ("fmsave._save.walk_tactic_blocks", ("tactics", "set_pieces")),
+)
 
 
 @pytest.fixture
@@ -64,6 +88,10 @@ def failing_contract_gates(*arguments: object) -> tuple[GateResult, ...]:
 
 def failing_league_table_gates(*arguments: object) -> tuple[GateResult, ...]:
     return (GateResult("table_blocks_minimum", 2, 1_000, None, passed=False, applied=True),)
+
+
+def failing_staff_gates(*arguments: object) -> tuple[GateResult, ...]:
+    return (GateResult("staff_people", 4, 1_000, None, passed=False, applied=True),)
 
 
 def test_validate_json_prints_only_the_report_allowlist(
@@ -97,6 +125,19 @@ def test_validate_text_lists_each_reader_and_the_build(
         "transfer_windows: ok (2 records)",
         "competition_rules: ok (2 records)",
         "player_match_stats: ok (4 records)",
+        "stadiums: ok (101 records)",
+        "finances: ok (6 records)",
+        "sponsorships: ok (3 records)",
+        "affiliates: ok (2 records)",
+        "job_vacancies: ok (3 records)",
+        "staff: ok (4 records)",
+        "staff_lists: ok (3 records)",
+        "injury_types: ok (5 records)",
+        "injury_history: ok (6 records)",
+        "training: ok (2 records)",
+        "mentoring: ok (2 records)",
+        "tactics: ok (2 records)",
+        "set_pieces: ok (40 records)",
         "game FM26, build 26.3.2+2329565",
     ]
     for private_text in PRIVATE_TEXTS:
@@ -128,7 +169,7 @@ def test_a_failed_check_in_json_exits_3(
 def test_a_failed_span_pass_is_reported_for_its_readers_and_scans_the_span_once(
     save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The span is streamed once however many of its three readers report the failure."""
+    """The span is streamed once however many of its readers report the failure."""
     span_scans = 0
 
     def counting_read_region_frames(
@@ -170,6 +211,56 @@ def test_a_failed_league_table_check_leaves_the_other_span_readers_ok(
     assert "  table_blocks_minimum = 2 expected 1000.." in output_lines
     assert "fixtures: ok (6 records)" in output_lines
     assert "competition_rules: failed" in output_lines
+
+
+@pytest.mark.parametrize(("decode_target", "pass_readers"), SHARED_PASS_PAIRS)
+def test_a_failed_shared_decode_is_reported_for_both_its_readers_and_runs_once(
+    save_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    decode_target: str,
+    pass_readers: tuple[str, str],
+) -> None:
+    """A pass whose decode raises is reported for both its readers, and is not decoded twice.
+
+    The second reader of a pass would run the same decode again only to raise the same error,
+    which is what the carried failure exists to stop: the count proves it was carried rather
+    than repeated.
+    """
+    decode_calls = 0
+
+    def failing_decode(*arguments: object, **keyword_arguments: object) -> object:
+        nonlocal decode_calls
+        decode_calls += 1
+        raise fmsave.CorruptSaveError("career example.fm: this pass cannot be decoded")
+
+    monkeypatch.setattr(decode_target, failing_decode)
+    assert cli.main(["validate", str(save_path)]) == cli.EXIT_UNEXPECTED
+    output_lines = capsys.readouterr().out.splitlines()
+    for reader_name in pass_readers:
+        assert f"{reader_name}: error" in output_lines
+    assert decode_calls == 1
+
+
+def test_a_failed_staff_check_fails_both_staff_readers_with_their_own_gates(
+    save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A check that fails before the pass is cached fails the pass, as the player pass does.
+
+    Both staff tables and both sets of checks are built by the one decode, and the checks are
+    enforced before either table is kept, so a failed staff gate leaves nothing cached and the
+    staff-list reader is reported failed as well. Each reader still lists its own gates, so
+    the report names the gate that failed and not the other reader's.
+    """
+    monkeypatch.setattr("fmsave.checks.evaluate_staff", failing_staff_gates)
+    assert cli.main(["validate", str(save_path), "--json"]) == cli.EXIT_UNSUPPORTED
+    report = json.loads(capsys.readouterr().out)
+    readers = {reader["reader"]: reader for reader in report["readers"]}
+    assert readers["staff"]["status"] == "failed"
+    assert readers["staff_lists"]["status"] == "failed"
+    assert [gate["name"] for gate in readers["staff"]["gates"]] == ["staff_people"]
+    assert "staff_people" not in [gate["name"] for gate in readers["staff_lists"]["gates"]]
+    assert readers["clubs"]["status"] == "ok"
 
 
 def raise_corrupt_save(career_save: fmsave.Save) -> object:

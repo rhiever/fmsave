@@ -29,17 +29,25 @@ from fmsave._errors import (
 )
 from fmsave._package import __version__
 from fmsave.checks import ValidationReport, validate_save
+from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
+from fmsave.models.finances import FinanceMonth, Sponsorship
 from fmsave.models.fixtures import Fixture
+from fmsave.models.injuries import InjuryRecord, InjuryType
+from fmsave.models.jobs import JobVacancy
 from fmsave.models.league_tables import LeagueTable
 from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import PlayerMatchStats
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
+from fmsave.models.stadiums import Stadium
+from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
+from fmsave.models.tactics import SetPieceRoutine, Tactic
+from fmsave.models.training import MentoringGroup, TeamTraining
 from fmsave.table import Table
 
 EXIT_OK = 0
@@ -58,7 +66,11 @@ NO_MANAGED_CLUB_MESSAGE = "no managed club found in this save"
 NO_COMPETITION_NAMES_MESSAGE = (
     "competition names come from --competition-names, and the save stores none"
 )
-COMPETITION_RULES_NOTE = "no rules block names a competition, so --competition returns no rows"
+COMPETITION_RULES_NOTE = (
+    "a rules block's competition is read from the table stored after it, so --competition "
+    "returns only the blocks that link to one"
+)
+MANAGED_CLUB_ONLY_NOTE = "only the manager's own club has these, so any other club returns no rows"
 
 CLUB_SCOPE = "club"
 MANAGED_CLUB_SCOPE = "managed-club"
@@ -199,10 +211,11 @@ def add_save_argument(command_parser: argparse.ArgumentParser) -> None:
 
 
 def table_argument_help() -> str:
-    """The tables to choose from, and the note any one of them carries about its own scopes.
+    """The tables to choose from, and the note each of them carries about its own scopes.
 
-    A note belongs to the single table it is true of. On the shared --competition help it would
-    tell every table that a competition scope returns no rows, which is true of one of them.
+    A note belongs to the tables it is true of and is printed beside each of their names. On
+    the shared --club or --competition help it would tell every table what is true of a few of
+    them.
     """
     table_notes = [
         f"{table_name} ({export_table.note})"
@@ -704,6 +717,150 @@ def player_match_stats_rows(career_save: fmsave.Save, scope: ExportScope) -> Ite
     return (row for row in match_stats if row.player_uid in player_uids)
 
 
+def stadium_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """A club or nation scope keeps a ground the scope's clubs own or play their home games at.
+
+    A ground belongs to a club two ways round, and both count: the club that owns it, and the
+    clubs the calendar shows playing at home there. The two differ often enough to matter,
+    since a club can own a ground it no longer plays at and can ground-share at one it does not
+    own.
+    """
+    stadiums = career_save.stadiums()
+    if scope.club_uids is None and scope.nation_id is None:
+        return stadiums
+    keeps_club = club_uid_filter(career_save, scope)
+    return (
+        stadium
+        for stadium in stadiums
+        if keeps_club(stadium.owner_club_uid)
+        or any(keeps_club(club_uid) for club_uid in stadium.home_club_uids)
+    )
+
+
+def finance_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """The months of the scope's clubs. Most clubs have no series at all, which is ordinary."""
+    finances = career_save.finances()
+    if scope.club_uids is None and scope.nation_id is None:
+        return finances
+    keeps_club = club_uid_filter(career_save, scope)
+    return (month for month in finances if keeps_club(month.club_uid))
+
+
+def sponsorship_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """The sponsorship contracts of the scope's clubs, ended ones included."""
+    sponsorships = career_save.sponsorships()
+    if scope.club_uids is None and scope.nation_id is None:
+        return sponsorships
+    keeps_club = club_uid_filter(career_save, scope)
+    return (sponsorship for sponsorship in sponsorships if keeps_club(sponsorship.club_uid))
+
+
+def affiliate_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """A club or nation scope keeps a whole group one of the scope's clubs belongs to.
+
+    A group is one record with its members nested inside it, as a league table is, so a scope
+    either keeps the group a club sits in or it does not.
+    """
+    affiliates = career_save.affiliates()
+    if scope.club_uids is None and scope.nation_id is None:
+        return affiliates
+    keeps_club = club_uid_filter(career_save, scope)
+    return (
+        group for group in affiliates if any(keeps_club(club_uid) for club_uid in group.club_uids)
+    )
+
+
+def job_vacancy_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """The vacancies at the scope's clubs, or those of one competition.
+
+    A vacancy names a team, so a club scope keeps the vacancies of the teams that club fields,
+    and a vacancy whose team no club lists is kept only by --all.
+    """
+    vacancies = career_save.job_vacancies()
+    competition_id = scope.competition_id
+    if competition_id is not None:
+        return (vacancy for vacancy in vacancies if vacancy.competition_id == competition_id)
+    if scope.club_uids is None and scope.nation_id is None:
+        return vacancies
+    keeps_club = club_uid_filter(career_save, scope)
+    return (vacancy for vacancy in vacancies if keeps_club(vacancy.club_uid))
+
+
+def staff_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """The people the scope's clubs employ. A person is scoped by the club that pays him."""
+    staff = career_save.staff()
+    if scope.club_uids is None and scope.nation_id is None:
+        return staff
+    keeps_club = club_uid_filter(career_save, scope)
+    return (person for person in staff if keeps_club(person.club_uid))
+
+
+def staff_list_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """The staff lists the scope's clubs keep, empty lists included."""
+    staff_lists = career_save.staff_lists()
+    if scope.club_uids is None and scope.nation_id is None:
+        return staff_lists
+    keeps_club = club_uid_filter(career_save, scope)
+    return (club_list for club_list in staff_lists if keeps_club(club_list.club_uid))
+
+
+def injury_type_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """Every injury the game can hand out. The table belongs to the game, not to a club."""
+    return career_save.injury_types()
+
+
+def injury_history_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """A club or nation scope keeps the rows of the players now in it, wherever they happened.
+
+    An injury row carries the club the person was registered with when it happened, which for
+    an old row is often a club he has since left. Scoping on where he is now is what a squad's
+    medical history means, so the scope is the scope's current players, as suspensions is. A
+    row whose person the save no longer keeps as a player is kept only by --all.
+    """
+    injuries = career_save.injury_history()
+    keeps_player = player_filter(scope)
+    if keeps_player is None:
+        return injuries
+    player_uids = scoped_player_uids(career_save, keeps_player)
+    return (row for row in injuries if row.player_uid in player_uids)
+
+
+def training_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """The training calendars of the scope's clubs, which only the managed club has."""
+    training = career_save.training()
+    if scope.club_uids is None:
+        return training
+    keeps_club = club_uid_filter(career_save, scope)
+    return (team for team in training if keeps_club(team.club_uid))
+
+
+def mentoring_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """The mentoring groups of the scope's clubs, which only the managed club has."""
+    mentoring = career_save.mentoring()
+    if scope.club_uids is None:
+        return mentoring
+    keeps_club = club_uid_filter(career_save, scope)
+    return (group for group in mentoring if keeps_club(group.club_uid))
+
+
+def tactic_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """The tactics of the scope's clubs, which only the managed club has."""
+    tactics = career_save.tactics()
+    if scope.club_uids is None:
+        return tactics
+    keeps_club = club_uid_filter(career_save, scope)
+    return (tactic for tactic in tactics if keeps_club(tactic.club_uid))
+
+
+def set_piece_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """The set-piece routines of the scope's clubs, which only the managed club has."""
+    set_pieces = career_save.set_pieces()
+    if scope.club_uids is None:
+        return set_pieces
+    keeps_club = club_uid_filter(career_save, scope)
+    return (routine for routine in set_pieces if keeps_club(routine.club_uid))
+
+
 @dataclass(frozen=True, slots=True)
 class ExportTable:
     """One table `export` writes: its record type, the scopes it takes and how it reads rows.
@@ -747,6 +904,23 @@ EXPORT_TABLES: dict[str, ExportTable] = {
         CompetitionRules, COMPETITION_SCOPES, competition_rules_rows, note=COMPETITION_RULES_NOTE
     ),
     "player-match-stats": ExportTable(PlayerMatchStats, EVERY_SCOPE, player_match_stats_rows),
+    "stadiums": ExportTable(Stadium, CLUB_AND_NATION_SCOPES, stadium_rows),
+    "finances": ExportTable(FinanceMonth, CLUB_AND_NATION_SCOPES, finance_rows),
+    "sponsorships": ExportTable(Sponsorship, CLUB_AND_NATION_SCOPES, sponsorship_rows),
+    "affiliates": ExportTable(AffiliateGroup, CLUB_AND_NATION_SCOPES, affiliate_rows),
+    "job-vacancies": ExportTable(JobVacancy, EVERY_SCOPE, job_vacancy_rows),
+    "staff": ExportTable(Staff, CLUB_AND_NATION_SCOPES, staff_rows),
+    "staff-lists": ExportTable(StaffList, CLUB_AND_NATION_SCOPES, staff_list_rows),
+    "injury-types": ExportTable(InjuryType, EVERY_ROW_ONLY, injury_type_rows),
+    "injury-history": ExportTable(InjuryRecord, CLUB_AND_NATION_SCOPES, injury_history_rows),
+    "training": ExportTable(TeamTraining, CLUB_SCOPES, training_rows, note=MANAGED_CLUB_ONLY_NOTE),
+    "mentoring": ExportTable(
+        MentoringGroup, CLUB_SCOPES, mentoring_rows, note=MANAGED_CLUB_ONLY_NOTE
+    ),
+    "tactics": ExportTable(Tactic, CLUB_SCOPES, tactic_rows, note=MANAGED_CLUB_ONLY_NOTE),
+    "set-pieces": ExportTable(
+        SetPieceRoutine, CLUB_SCOPES, set_piece_rows, note=MANAGED_CLUB_ONLY_NOTE
+    ),
 }
 
 

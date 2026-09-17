@@ -28,6 +28,19 @@ TABLE_RECORD_TYPES = (
     fmsave.TransferWindow,
     fmsave.CompetitionRules,
     fmsave.PlayerMatchStats,
+    fmsave.Stadium,
+    fmsave.FinanceMonth,
+    fmsave.Sponsorship,
+    fmsave.AffiliateGroup,
+    fmsave.JobVacancy,
+    fmsave.Staff,
+    fmsave.StaffList,
+    fmsave.InjuryType,
+    fmsave.InjuryRecord,
+    fmsave.TeamTraining,
+    fmsave.MentoringGroup,
+    fmsave.Tactic,
+    fmsave.SetPieceRoutine,
 )
 
 

@@ -24,6 +24,7 @@ from fmsave._scan import decode_date, decode_time_slot
 from fmsave.models.jobs import JobVacancy
 from fmsave.readers._common import (
     JOB_CENTRE_SECTION,
+    MISSING_REFERENCE,
     build_gap_padded_struct,
     layout_mismatch,
 )
@@ -31,6 +32,9 @@ from fmsave.readers.clubs import ClubIndex
 from fmsave.readers.competitions import CompetitionIndex
 
 _UINT32 = struct.Struct("<I")
+# What a record's team field holds when it names no team. No save measured stores either, but
+# every other reader that ships a stored id reads them this way.
+_NO_TEAM = frozenset({0, MISSING_REFERENCE})
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,8 +155,10 @@ def read_job_vacancies(
     what stops a wrong decode is the section's size identity and the shares those counts feed.
 
     The competition id is the record's own, so the competition index supplies a name and
-    nothing else. The team id is looked up as stored, in the team-to-club map rather than the
-    club index: a vacancy names a team, and the club is whichever one fields it.
+    nothing else. The team id is looked up in the team-to-club map rather than the club index:
+    a vacancy names a team, and the club is whichever one fields it. A stored 0 or the
+    missing-reference word is no team at all and ships as None, as every other reader that
+    hands out a stored id reads them.
 
     Raises:
         ReaderCheckError: The section is too short to hold its header, or its size is not the
@@ -206,8 +212,9 @@ def read_job_vacancies(
         ):
             reserved_zero += 1
 
-        team_id: int = field_values[fields.team_id_index]
-        team_club = club_for_team(team_id)
+        stored_team_id: int = field_values[fields.team_id_index]
+        team_id = None if stored_team_id in _NO_TEAM else stored_team_id
+        team_club = None if team_id is None else club_for_team(team_id)
         if team_club is None:
             club_uid: int | None = None
             team_slot: int | None = None

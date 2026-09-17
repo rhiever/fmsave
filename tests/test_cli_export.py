@@ -1299,3 +1299,179 @@ def test_a_failed_fixture_check_exits_3(
     assert exit_code == cli.EXIT_UNSUPPORTED
     assert output_text == ""
     assert "fixtures_minimum" in error_text
+
+
+# What the shared career fragment holds in the club, staff, medical and setup tables, counted
+# from the fixture rather than from a reader.
+STADIUM_COUNT = 101
+NORTHBRIDGE_GROUND_UID = 610010
+FINANCE_MONTH_COUNT = 6
+NORTHBRIDGE_FINANCE_MONTH_COUNT = 3
+SPONSORSHIP_COUNT = 3
+AFFILIATE_GROUP_COUNT = 2
+JOB_VACANCY_COUNT = 3
+STAFF_COUNT = 4
+NORTHBRIDGE_STAFF_COUNT = 3
+STAFF_LIST_COUNT = 3
+INJURY_TYPE_COUNT = 5
+INJURY_RECORD_COUNT = 6
+PLAYER_A_INJURY_COUNT = 2
+TEAM_TRAINING_COUNT = 2
+MENTORING_GROUP_COUNT = 2
+TACTIC_COUNT = 2
+SET_PIECE_COUNT = 40
+# Every table the club, staff, medical and setup readers add, with how many rows --all writes.
+NEW_TABLE_ROW_COUNTS = (
+    ("stadiums", STADIUM_COUNT),
+    ("finances", FINANCE_MONTH_COUNT),
+    ("sponsorships", SPONSORSHIP_COUNT),
+    ("affiliates", AFFILIATE_GROUP_COUNT),
+    ("job-vacancies", JOB_VACANCY_COUNT),
+    ("staff", STAFF_COUNT),
+    ("staff-lists", STAFF_LIST_COUNT),
+    ("injury-types", INJURY_TYPE_COUNT),
+    ("injury-history", INJURY_RECORD_COUNT),
+    ("training", TEAM_TRAINING_COUNT),
+    ("mentoring", MENTORING_GROUP_COUNT),
+    ("tactics", TACTIC_COUNT),
+    ("set-pieces", SET_PIECE_COUNT),
+)
+# The tables only the manager's own club has rows in, and how many --managed-club writes.
+MANAGED_CLUB_ONLY_TABLES = (
+    ("training", TEAM_TRAINING_COUNT),
+    ("mentoring", MENTORING_GROUP_COUNT),
+    ("tactics", TACTIC_COUNT),
+    ("set-pieces", SET_PIECE_COUNT),
+)
+
+
+@pytest.mark.parametrize(("table_name", "expected_count"), NEW_TABLE_ROW_COUNTS)
+def test_every_club_and_staff_table_writes_its_rows_as_json(
+    save_path: Path, capsys: pytest.CaptureFixture[str], table_name: str, expected_count: int
+) -> None:
+    """Each new table is reachable from the command line and writes what its reader returned."""
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), table_name, "--all", "--format", "json"
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert len(json.loads(output_text)) == expected_count
+
+
+@pytest.mark.parametrize(("table_name", "expected_count"), MANAGED_CLUB_ONLY_TABLES)
+def test_the_managed_club_scope_keeps_the_setup_tables_rows(
+    save_path: Path, capsys: pytest.CaptureFixture[str], table_name: str, expected_count: int
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), table_name, "--managed-club", "--format", "jsonl"
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert len(output_text.splitlines()) == expected_count
+
+
+@pytest.mark.parametrize(
+    ("table_name", "expected_count"),
+    [
+        pytest.param("staff", NORTHBRIDGE_STAFF_COUNT, id="staff"),
+        pytest.param("finances", NORTHBRIDGE_FINANCE_MONTH_COUNT, id="finances"),
+    ],
+)
+def test_the_managed_club_scope_keeps_that_clubs_staff_and_months(
+    save_path: Path, capsys: pytest.CaptureFixture[str], table_name: str, expected_count: int
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), table_name, "--managed-club", "--format", "jsonl"
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert len(output_text.splitlines()) == expected_count
+
+
+def test_a_club_with_no_tactics_writes_a_header_and_exits_0(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Only the manager's club has a tactic, so another club is empty rather than an error."""
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "tactics", "--club", "Southport Example"
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert csv_records(output_text) == []
+
+
+def test_staff_scoped_to_a_nation_with_no_staff_writes_no_rows(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "staff", "--nation", str(ATHLETIC_NATION_ID)
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert csv_records(output_text) == []
+
+
+def test_training_takes_no_nation_scope_and_names_its_note(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "training", "--nation", str(ATHLETIC_NATION_ID)
+    )
+    assert exit_code == cli.EXIT_USAGE
+    assert output_text == ""
+    assert "training cannot be scoped by nation" in error_text
+    assert "use --club, --managed-club or --all" in error_text
+    assert cli.MANAGED_CLUB_ONLY_NOTE in error_text
+
+
+def test_job_vacancies_scoped_to_a_competition_keeps_that_competitions_rows(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "job-vacancies", "--competition", str(FIRST_COMPETITION_ID)
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    records = csv_records(output_text)
+    assert [record["competition_id"] for record in records] == [str(FIRST_COMPETITION_ID)]
+    assert [record["club_uid"] for record in records] == [str(NORTHBRIDGE_UID)]
+
+
+def test_the_competition_rules_help_carries_the_note_about_linked_blocks() -> None:
+    help_text = cli.table_argument_help()
+    assert f"competition-rules ({cli.COMPETITION_RULES_NOTE})" in help_text
+    assert "returns only the blocks that link to one" in help_text
+
+
+def test_injury_history_follows_the_players_current_club(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A row is kept for where its person plays now, not for the club he was hurt at."""
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "injury-history", "--club", str(SOUTHPORT_UID)
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    records = csv_records(output_text)
+    assert len(records) == PLAYER_A_INJURY_COUNT
+    assert {record["player_uid"] for record in records} == {str(PLAYER_A_UID)}
+
+
+def test_stadiums_scoped_to_a_club_keeps_the_ground_it_owns_and_plays_at(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "stadiums", "--club", str(NORTHBRIDGE_UID)
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert [record["uid"] for record in csv_records(output_text)] == [str(NORTHBRIDGE_GROUND_UID)]
+
+
+def test_staff_columns_accept_an_unknown_key_and_reject_an_unread_one(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "staff", "--all", "--columns", "uid,unknown_r4"
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert csv_rows(output_text)[0] == ["uid", "unknown_r4"]
+
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "staff", "--all", "--columns", "uid,unknown_role"
+    )
+    assert exit_code == cli.EXIT_USAGE
+    assert output_text == ""
+    assert "fmsave: error: unknown columns: unknown_role" in error_text

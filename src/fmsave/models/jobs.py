@@ -24,11 +24,12 @@ class JobVacancy:
     """One job the save's job-centre feed holds.
 
     Attributes:
-        team_id: The team the job is at, as the save stores it.
-        club_uid: Uid of the club that fields `team_id`, None for a team no club lists.
-        club_name: Denormalised full name of club_uid.
+        team_id: The team the job is at, None where the record names no team.
+        club_uid: Uid of the club that fields `team_id`, None for a team no club lists and
+            wherever team_id is.
+        club_name: Denormalised full name of club_uid, None wherever club_uid is.
         team_slot: The team's place in that club's own team list, 0 for its first team;
-            None when the team resolves to no club.
+            None when the team resolves to no club (unconfirmed).
         advertised_date: Date the vacancy was advertised, None when the stored date does not
             decode. The time of day the save stores with it is in `unknown["advertised_slot"]`.
         competition_id: Id of the competition the job's team plays in, in the stage id space;
@@ -43,7 +44,7 @@ class JobVacancy:
             attribute of the competition, and a 0/1 flag (unconfirmed).
     """
 
-    team_id: int
+    team_id: int | None
     club_uid: int | None
     club_name: str | None
     team_slot: int | None
@@ -59,9 +60,17 @@ class JobVacancy:
 # The team key, the club join and the advertised date are each pinned by a measurement that
 # separates them from every neighbouring offset. The competition link and the league position
 # agree with the stage table and the live tables but no screen has named either, so both stay
-# unconfirmed along with everything in `unknown`.
+# unconfirmed along with everything in `unknown`. `team_slot` is the place a team takes in a
+# club's own list, which is counted rather than displayed; every other table that ships it
+# reads it from the same map and calls it unconfirmed, and so does this one.
 register_field_statuses(
     JobVacancy,
-    verified=("team_id", "club_uid", "club_name", "team_slot", "advertised_date"),
-    unconfirmed=("competition_id", "competition_name", "league_position", "unknown"),
+    verified=("team_id", "club_uid", "club_name", "advertised_date"),
+    unconfirmed=(
+        "team_slot",
+        "competition_id",
+        "competition_name",
+        "league_position",
+        "unknown",
+    ),
 )
