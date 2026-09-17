@@ -1059,10 +1059,16 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "blocks_outside_resolved_groups": 0,
             "team_ids_out_of_range": 0,
             "unresolved_teams": 0,
+            "in_sync_tables": 0,
+            "venue_slots_decided": 0,
         },
         "competition_rules": {
             "blocks_not_fully_parsed": 0,
             "blocks_without_a_doubled_quad": 0,
+            "blocks_without_a_run": 0,
+            "blocks_with_an_ambiguous_run": 0,
+            "linked_blocks_without_a_competition": 0,
+            "linked_round_shape": 0,
         },
         "player_match_stats": {
             "records_without_a_body": 0,
@@ -1151,7 +1157,6 @@ def test_a_failing_reader_is_reported_failed_and_the_others_still_run(
         "competitions",
         "fixtures",
         "transfer_windows",
-        "competition_rules",
     ):
         assert readers[reader_name].status == "ok"
     # The league-table reader puts a club name and a team slot on every row it returns, so it
@@ -1161,6 +1166,11 @@ def test_a_failing_reader_is_reported_failed_and_the_others_still_run(
     league_tables = readers["league_tables"]
     assert league_tables.status == "failed"
     assert league_tables.gates == ()
+    # The competition-rules reader takes each block's competition from the league table stored
+    # after it, so it reads that table through the same checked reader and stops here too.
+    competition_rules = readers["competition_rules"]
+    assert competition_rules.status == "failed"
+    assert competition_rules.gates == ()
     # The per-match reader takes the club table through that same checked reader, and for the
     # same reason: it puts an opponent club's name on every row it returns.
     player_match_stats = readers["player_match_stats"]
@@ -1369,9 +1379,12 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # them. Its gates are judged on their own counts in the league-table tests, where an
         # empty span fails all five rather than passing for want of a rate.
         "league_tables": [],
-        # An empty span holds no marker to count and leaves the parsed share without a
-        # denominator, so both gates fail rather than one passing quietly.
-        "competition_rules": ["rules_markers_minimum", "rules_fully_parsed"],
+        # This reader takes each block's competition from the league table stored after it, so
+        # it reads that table through the checked league-table reader, and that reader's
+        # checks raise first here as well. Its own gates are judged on their own counts in the
+        # competition-rules tests, where an empty span fails the marker count and leaves the
+        # parsed share without a denominator, which fails too.
+        "competition_rules": [],
         # This reader decodes the players to name its rows, so the failed player pass stops it
         # before it reaches a gate of its own. Its three gates are judged on their own counts in
         # the per-match tests, where a search that found nothing fails all three.

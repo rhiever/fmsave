@@ -100,12 +100,14 @@ class RulesBlockKind(StrEnum):
 
     Derived by fmsave from where the row came from, never read as a code.
 
-    `GROUP` is declared and **not used in this release**: no row carries it. The save's rules
-    database does hold tagged groups of squad and financial rules, but nothing readable ties a
-    group to a competition, none of the groups found carries a name, and no displayed label
-    pins the meaning of the values they hold, so fmsave ships none of them rather than shipping
-    guesses. The member is declared now so that adding those rows later adds rows to this table
-    instead of changing what `kind` can be.
+    `GROUP` is declared and **no row carries it**. The save's rules database does hold tagged
+    groups of squad and financial rules, but nothing readable ties a group to a competition:
+    seven routes were measured, including the positional one a preamble row's competition comes
+    from, which does not carry over because a group is not stored beside a league table. The
+    groups found carry no name either, their content is database content identical on every
+    save of one installed database, and no displayed label pins the meaning of the values they
+    hold. So fmsave ships none of them rather than shipping guesses. The member is declared so
+    that reading them later adds rows to this table instead of changing what `kind` can be.
     """
 
     PREAMBLE = "preamble"
@@ -138,44 +140,58 @@ class RulesRound:
 class CompetitionRules:
     """One competition-rules block: promotion and relegation, prize money and the calendar.
 
-    **The save does not store which competition a rules block belongs to, so
-    `competition_id` is None on every row.** That is a measured result, not an omission: for
-    200 blocks on each of two saves, every `u32` in the 256 bytes before the block's marker and
-    the 256 bytes after its end was tested against the competition ids the stage table holds,
-    and no offset named a known competition on even 90% of blocks while varying from block to
-    block. The one offset that came close sits inside the promotion quad itself, where small
-    counts collide with the low end of the id space, and it took five distinct values across
-    200 blocks. Match a division instead by `fixtures_per_club` against the shape
-    `league_tables()` reports, which carries a club count of its own. **`club_count` on this
-    record cannot serve that**: no fixed position in the block carries it, so it is None on
-    every row.
+    **The block stores no competition. Its competition comes from where the save keeps it.**
+    No field inside a block names one: every `u32` in the 256 bytes before the marker and the
+    256 bytes after the block's end was tested against the competition ids the stage table
+    holds, over 200 blocks on each of two saves, and no offset named a known competition on
+    even 90% of blocks while varying from block to block. What does work is position. The span
+    alternates rules blocks and league-table blocks, and the run of table blocks stored after
+    a block is the table that block's rules govern: on the saves measured 471, 339 and 497 of
+    672, 521 and 655 blocks have such a run, 419, 288 and 445 of those runs are exactly one
+    `league_tables()` table's set of clubs, and 418, 288 and 445 of those tables carry a voted
+    competition. A run matching two tables at once names neither.
 
-    **The field meanings are weakly sourced.** They come from checks against one division's
-    Rules screen in another tool, never re-verified here, and because no row can be tied to a
-    competition, the owner's own Rules screen cannot be matched to a block either. What the
-    corpus does show is that blocks of the right shape exist: 17 blocks on one save and 16 on
-    the other hold 38 rounds, and 5 and 6 of those also hold 3 relegation places, which is the
-    shape of the division that screen describes. That is corroboration, not verification: with
-    no competition to match a block by, no block can be tied to the screen at all, so **no
-    field on this record has been checked against the game** and every one is unconfirmed.
+    **That link is corroborated, and is no stronger than the vote behind it.** 0.75, 0.78 and
+    0.75 of a linked block's dated rounds fall on a date its competition plays a fixture on,
+    against 0.58, 0.55 and 0.57 when each block is linked to the run stored *before* it
+    instead, and 0.134, 0.132 and 0.132 against a competition drawn at random for each block.
+    On the one division whose Rules screen was read in game, the linked block holds 20 clubs,
+    38 rounds and 3 relegation places and its last round is the date that screen gives as the
+    season's end. The competition it hands over is itself a vote on the fixture calendar rather
+    than a stored value, so these two fields are exactly as strong as
+    `LeagueTable.competition_id`: unconfirmed.
+
+    **The other field meanings are weakly sourced.** They come from checks against one
+    division's Rules screen in another tool, never re-verified here. The link above does now
+    reach the one division that screen describes, and the values of that block match it, but a
+    shape that matches a screen is corroboration rather than a field read back, so every field
+    here is unconfirmed.
+
+    `club_count` is empty on every row: no fixed position in the block carries it, so it is not
+    guessed. The linked table's own club count is where a club count comes from.
 
     The squad and financial rules the save's rules database holds (a home-grown minimum, a
-    maximum squad size, a salary cap and a wage-bill percentage) are **not** in this release.
-    They live in tagged groups that carry no name, no competition and no displayed label to pin
-    them, so fmsave ships no field for them rather than a field whose meaning rests on another
-    tool's guess. Adding them later adds columns and renames nothing.
+    maximum squad size, a salary cap and a wage-bill percentage) are **not** read. They live in
+    tagged groups that nothing readable ties to a competition -- seven routes were measured,
+    including the positional one this record uses, and a group is not stored beside a table --
+    and whose content is database content, identical on every save of one installed database.
+    So fmsave ships no field for them rather than a field whose meaning rests on another tool's
+    guess. Adding them later adds columns and renames nothing.
 
     Transfer windows are their own table: see `Save.transfer_windows()`.
 
     Attributes:
-        kind: Which structure the row was read from. Every row in this release is PREAMBLE
-            (unconfirmed).
-        competition_id: Always None; the save stores no link from a block to a competition
-            (unconfirmed).
-        competition_name: Always None, since there is no competition to name (unconfirmed).
-        club_count: How many clubs the competition holds. **Always None in this release**: no
-            fixed offset from the block's marker carries it on the corpus, so it is not
-            guessed (unconfirmed).
+        kind: Which structure the row was read from. Every row is PREAMBLE, since the tagged
+            rules groups are not read (unconfirmed).
+        competition_id: The competition of the league table the save stores right after this
+            block, in the stage id space; None where that run is not exactly one table with a
+            competition of its own, which is 32% to 45% of rows. Not a stored link: a position
+            in the span, resolved through a vote on the fixture calendar (unconfirmed).
+        competition_name: Denormalised name of competition_id, which is None unless a name map
+            is supplied, because the save stores no competition names (unconfirmed).
+        club_count: How many clubs the competition holds. **Always None**: no fixed offset from
+            the block's marker carries it on the corpus, so it is not guessed. Read the linked
+            table's `club_count` instead (unconfirmed).
         fixtures_per_club: How many matches each club plays, which is the number of rounds the
             block holds; None when no round decoded (unconfirmed).
         promotion_places: How many clubs are promoted, or None when the block's two copies of
@@ -185,7 +201,7 @@ class CompetitionRules:
         relegation_places: How many clubs are relegated, or None as promotion_places
             (unconfirmed).
         administration_points_deduction: Points deducted from a club in administration.
-            **Always None in this release**, for the reason club_count is (unconfirmed).
+            **Always None**, for the reason club_count is (unconfirmed).
         prize_money: Prize money by finishing position, in the save's base currency, in
             finishing order. Empty on most blocks: only about one block in eight carries a
             prize list at all (unconfirmed).
@@ -214,10 +230,12 @@ class CompetitionRules:
     )
 
 
-# Nothing this reader returns has been checked against the game. The Rules screen the field
-# meanings come from describes one division, and no block can be tied to a division, because no
-# block names a competition and the hunt for a link came back empty. A shape that matches the
-# screen is corroboration, not a check, so every field here is unconfirmed.
+# Nothing this reader returns has been read back off a screen. The Rules screen the field
+# meanings come from describes one division; the positional link does now reach that division's
+# block, whose clubs, rounds, relegation places and season end all match what the screen shows,
+# but a shape that matches a screen is corroboration rather than a field read back. The
+# competition the link hands over is a vote on the fixture calendar, so it takes the weaker of
+# its inputs and cannot be stronger than that vote. Every field here is unconfirmed.
 register_field_statuses(
     RulesRound,
     unconfirmed=("number", "date", "match_count", "unknown"),

@@ -1566,24 +1566,248 @@ def division_table_blocks(
     ]
 
 
+def twin_table_blocks() -> list[bytes]:
+    """A second table holding the same three clubs as group A, with results of its own.
+
+    The counters differ from group A's in every row, so nothing here is dropped as a repeated
+    copy; what the two tables share is only their set of member clubs, which is what makes a
+    run of these blocks match two tables at once and so name no competition.
+    """
+    return [
+        table_block_bytes(
+            team_id=team_id,
+            rounds_per_venue=GROUP_B_ROUNDS_PER_VENUE,
+            total={"played": 2, "won": 2, "goals_for": 6, "goals_against": 0, "points": 6},
+            home={"played": 1, "won": 1, "goals_for": 3, "goals_against": 0, "points": 3},
+            away={"played": 1, "won": 1, "goals_for": 3, "goals_against": 0, "points": 3},
+            first_half={"played": 1, "won": 1, "goals_for": 3, "goals_against": 0, "points": 3},
+            second_half={"played": 1, "won": 1, "goals_for": 3, "goals_against": 0, "points": 3},
+            matches=[None, None],
+            head_bytes=stored_index_head_bytes(position),
+        )
+        for position, team_id in enumerate((NORTHBRIDGE_TEAM_A, SOUTHPORT_TEAM, ATHLETIC_TEAM_A))
+    ]
+
+
+# A table whose rows account for exactly the matches the calendar holds for their clubs, which
+# is what puts a table in step with one season and so lets the calendar decide its venues. The
+# two clubs meet twice in competition 902, once at each ground, and each row's two slots carry
+# the scores of those two meetings.
+VENUE_TABLE_TEAM_A = NORTHBRIDGE_TEAM_B
+VENUE_TABLE_TEAM_B = 70004
+VENUE_STAGE_ID = 6
+VENUE_ROUNDS_PER_VENUE = 1
+VENUE_FIRST_MATCH_DAY = 100
+VENUE_SECOND_MATCH_DAY = 107
+VENUE_FIRST_MATCH_GOALS = (2, 0)
+VENUE_SECOND_MATCH_GOALS = (1, 0)
+VENUE_EARLIER_SEASON = FIXTURE_SEASON_START_YEAR - 1
+VENUE_EARLIER_FIRST_MATCH_DAY = 20
+VENUE_EARLIER_SECOND_MATCH_DAY = 27
+
+
+def venue_table_blocks() -> list[bytes]:
+    """Two blocks, stored indexes 0 and 1, whose four slots the calendar can all decide."""
+    return [
+        table_block_bytes(
+            team_id=VENUE_TABLE_TEAM_A,
+            rounds_per_venue=VENUE_ROUNDS_PER_VENUE,
+            total={
+                "played": 2,
+                "won": 1,
+                "lost": 1,
+                "goals_for": 2,
+                "goals_against": 1,
+                "points": 3,
+            },
+            home={"played": 1, "won": 1, "goals_for": 2, "goals_against": 0, "points": 3},
+            away={
+                "played": 1,
+                "won": 0,
+                "lost": 1,
+                "goals_for": 0,
+                "goals_against": 1,
+                "points": 0,
+            },
+            first_half={"played": 1, "won": 1, "goals_for": 2, "goals_against": 0, "points": 3},
+            second_half={
+                "played": 1,
+                "won": 0,
+                "lost": 1,
+                "goals_for": 0,
+                "goals_against": 1,
+                "points": 0,
+            },
+            matches=[
+                {
+                    "key": VENUE_TABLE_TEAM_B,
+                    "played": 1,
+                    "won": 1,
+                    "goals_for": 2,
+                    "goals_against": 0,
+                    "points": 3,
+                },
+                {
+                    "key": VENUE_TABLE_TEAM_B,
+                    "played": 1,
+                    "won": 0,
+                    "lost": 1,
+                    "goals_for": 0,
+                    "goals_against": 1,
+                    "points": 0,
+                },
+            ],
+            head_bytes=stored_index_head_bytes(0),
+        ),
+        table_block_bytes(
+            team_id=VENUE_TABLE_TEAM_B,
+            rounds_per_venue=VENUE_ROUNDS_PER_VENUE,
+            total={
+                "played": 2,
+                "won": 1,
+                "lost": 1,
+                "goals_for": 1,
+                "goals_against": 2,
+                "points": 3,
+            },
+            home={"played": 1, "won": 1, "goals_for": 1, "goals_against": 0, "points": 3},
+            away={
+                "played": 1,
+                "won": 0,
+                "lost": 1,
+                "goals_for": 0,
+                "goals_against": 2,
+                "points": 0,
+            },
+            first_half={"played": 1, "won": 1, "goals_for": 1, "goals_against": 0, "points": 3},
+            second_half={
+                "played": 1,
+                "won": 0,
+                "lost": 1,
+                "goals_for": 0,
+                "goals_against": 2,
+                "points": 0,
+            },
+            matches=[
+                {
+                    "key": VENUE_TABLE_TEAM_A,
+                    "played": 1,
+                    "won": 1,
+                    "goals_for": 1,
+                    "goals_against": 0,
+                    "points": 3,
+                },
+                {
+                    "key": VENUE_TABLE_TEAM_A,
+                    "played": 1,
+                    "won": 0,
+                    "lost": 1,
+                    "goals_for": 0,
+                    "goals_against": 2,
+                    "points": 0,
+                },
+            ],
+            head_bytes=stored_index_head_bytes(1),
+        ),
+    ]
+
+
+VENUE_TABLE_BLOCKS = venue_table_blocks()
+# The two meetings the table above accounts for, both played, one at each club's own ground.
+VENUE_FIXTURES = (
+    ExampleFixture(
+        VENUE_STAGE_ID,
+        VENUE_TABLE_TEAM_A,
+        VENUE_TABLE_TEAM_B,
+        VENUE_FIRST_MATCH_DAY,
+        LEAGUE_KICK_OFF_SLOT,
+        20,
+        True,
+        HOME_STADIUM_ORDINAL,
+    ),
+    ExampleFixture(
+        VENUE_STAGE_ID,
+        VENUE_TABLE_TEAM_B,
+        VENUE_TABLE_TEAM_A,
+        VENUE_SECOND_MATCH_DAY,
+        LEAGUE_KICK_OFF_SLOT,
+        21,
+        True,
+        AWAY_STADIUM_ORDINAL,
+    ),
+)
+# The scores of those two meetings. Without them both meetings are played and unscored, so no
+# slot of the table can be decided from a score at all.
+VENUE_RESULTS = (
+    ExampleResult(
+        VENUE_STAGE_ID,
+        VENUE_TABLE_TEAM_A,
+        VENUE_TABLE_TEAM_B,
+        VENUE_FIRST_MATCH_DAY,
+        *VENUE_FIRST_MATCH_GOALS,
+    ),
+    ExampleResult(
+        VENUE_STAGE_ID,
+        VENUE_TABLE_TEAM_B,
+        VENUE_TABLE_TEAM_A,
+        VENUE_SECOND_MATCH_DAY,
+        *VENUE_SECOND_MATCH_GOALS,
+    ),
+)
+# The same two clubs meeting twice a season earlier, so the venue table's row counts account
+# for two seasons rather than one and no season can be said to be the one it describes.
+VENUE_EARLIER_SEASON_FIXTURES = (
+    ExampleFixture(
+        VENUE_STAGE_ID,
+        VENUE_TABLE_TEAM_A,
+        VENUE_TABLE_TEAM_B,
+        VENUE_EARLIER_FIRST_MATCH_DAY,
+        LEAGUE_KICK_OFF_SLOT,
+        22,
+        True,
+        HOME_STADIUM_ORDINAL,
+        VENUE_EARLIER_SEASON,
+    ),
+    ExampleFixture(
+        VENUE_STAGE_ID,
+        VENUE_TABLE_TEAM_B,
+        VENUE_TABLE_TEAM_A,
+        VENUE_EARLIER_SECOND_MATCH_DAY,
+        LEAGUE_KICK_OFF_SLOT,
+        23,
+        True,
+        AWAY_STADIUM_ORDINAL,
+        VENUE_EARLIER_SEASON,
+    ),
+)
+
+
 def career_table_payload(
     *,
     duplicate_head_bytes: Sequence[bytes] = (),
     extra_groups: Sequence[Sequence[bytes]] = (),
+    leading_rules_blocks: Sequence[bytes] = (),
 ) -> bytes:
     """The example tables, each starting its own run of stored indexes at zero.
 
     A copy named in `duplicate_head_bytes` is written inside the first table, right where the
     save writes its own copies: immediately after the block it repeats, where its own stored
     index breaks the run and would split the table around it were it not dropped first.
+
+    A block named in `leading_rules_blocks` is written immediately in front of the table of the
+    same position, which is how a real save interleaves its rules blocks with its tables.
     """
     first_group = table_group_a_blocks()
     for position, head_bytes in enumerate(duplicate_head_bytes, start=1):
         first_group.insert(position, table_group_a_blocks(head_bytes=head_bytes)[0])
     groups = [first_group, table_group_b_blocks(), *(list(group) for group in extra_groups)]
-    return bytes(BETWEEN_TABLE_BYTES).join(
-        span_payloads(*group, separator_bytes=TABLE_SEPARATOR_BYTES) for group in groups
-    )
+    payloads: list[bytes] = []
+    for position, group in enumerate(groups):
+        payload = span_payloads(*group, separator_bytes=TABLE_SEPARATOR_BYTES)
+        if position < len(leading_rules_blocks):
+            payload = leading_rules_blocks[position] + bytes(RULES_SEPARATOR_BYTES) + payload
+        payloads.append(payload)
+    return bytes(BETWEEN_TABLE_BYTES).join(payloads)
 
 
 # Competition rules: two preamble blocks sit in the span after the league tables. The first
@@ -1609,10 +1833,10 @@ def career_rules_rounds() -> list[dict[str, int]]:
     ]
 
 
-def career_rules_payload() -> bytes:
+def career_rules_blocks() -> list[bytes]:
     """One rules preamble whose quad is doubled, then one whose two copies differ."""
     rounds = career_rules_rounds()
-    blocks = [
+    return [
         rules_preamble_bytes(
             promotion=RULES_PROMOTION_PLACES,
             playoff=RULES_PLAYOFF_PLACES,
@@ -1625,7 +1849,11 @@ def career_rules_payload() -> bytes:
         )
         for double_quad in (True, False)
     ]
-    return span_payloads(*blocks, separator_bytes=RULES_SEPARATOR_BYTES)
+
+
+def career_rules_payload() -> bytes:
+    """Both rules preambles back to back, which is where a save with no table would hold them."""
+    return span_payloads(*career_rules_blocks(), separator_bytes=RULES_SEPARATOR_BYTES)
 
 
 def career_span_payload(
@@ -1635,8 +1863,14 @@ def career_span_payload(
     table_duplicate_head_bytes: Sequence[bytes] = (),
     extra_table_groups: Sequence[Sequence[bytes]] = (),
     span_results: Sequence[ExampleResult] = (),
+    interleave_rules: bool = False,
 ) -> bytes:
-    """The calendar, a gap, a stray copy of two, the league tables, the rules, then any results."""
+    """The calendar, a gap, a stray copy of two, the league tables, the rules, then any results.
+
+    With `interleave_rules` the two rules preambles move in front of the first two tables
+    instead, one each, which is the order a real save lays them out in: the run of table blocks
+    that follows a preamble is then the table that preamble belongs to.
+    """
     calendar_blobs = [
         fixture_blob(example, FIRST_MATCH_RECORD_ID + position)
         for position, example in enumerate((*MAIN_CLUSTER_FIXTURES, *extra_fixtures))
@@ -1651,11 +1885,13 @@ def career_span_payload(
         + span_payloads(*stray_blobs, separator_bytes=FIXTURE_SEPARATOR_BYTES)
         + bytes(STRAY_CLUSTER_GAP_BYTES)
         + career_table_payload(
-            duplicate_head_bytes=table_duplicate_head_bytes, extra_groups=extra_table_groups
+            duplicate_head_bytes=table_duplicate_head_bytes,
+            extra_groups=extra_table_groups,
+            leading_rules_blocks=career_rules_blocks() if interleave_rules else (),
         )
-        + bytes(BETWEEN_TABLE_BYTES)
-        + career_rules_payload()
     )
+    if not interleave_rules:
+        payload += bytes(BETWEEN_TABLE_BYTES) + career_rules_payload()
     if span_results:
         payload += bytes(RESULT_SEPARATOR_BYTES) + results_payload(span_results)
     return payload
@@ -2216,6 +2452,7 @@ def career_fragment(
     extra_strays: Sequence[ExampleFixture] = (),
     table_duplicate_head_bytes: Sequence[bytes] = (),
     extra_table_groups: Sequence[Sequence[bytes]] = (),
+    interleave_rules: bool = False,
     span_results: Sequence[ExampleResult] = (),
     news_results: Sequence[ExampleResult] = (),
     game_db_results: Sequence[ExampleResult] = (),
@@ -2243,6 +2480,9 @@ def career_fragment(
             belongs to.
         extra_table_groups: Further league tables, each written after the two the span already
             holds and each starting its own run of stored indexes at zero.
+        interleave_rules: Write the two rules preambles in front of the first two tables, one
+            each, instead of both after every table. That is the order a real save lays them
+            out in, so the table blocks that follow a preamble are the table it belongs to.
         span_results: Stage-keyed result records to write into the span, after the tables.
         news_results: Stage-keyed result records to write into a `news` section, which the
             fragment carries only when this is given, so every other save holds no such
@@ -2288,6 +2528,7 @@ def career_fragment(
                 extra_strays,
                 table_duplicate_head_bytes=table_duplicate_head_bytes,
                 extra_table_groups=extra_table_groups,
+                interleave_rules=interleave_rules,
                 span_results=span_results,
             )
         ]

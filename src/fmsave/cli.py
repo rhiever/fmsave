@@ -678,10 +678,11 @@ def transfer_window_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterab
 
 
 def competition_rules_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
-    """Every rules block, or the blocks of one competition, which is none of them today.
+    """Every rules block, or the blocks whose competition is the one asked for.
 
-    No block names the competition it belongs to, so a competition scope writes an empty table
-    rather than a wrong one.
+    A block's competition comes from the league table the save stores after it, and is empty on
+    32% to 45% of rows, so a competition scope writes the blocks that resolved to it and leaves
+    the rest out rather than guessing which of them might belong.
     """
     competition_rules = career_save.competition_rules()
     competition_id = scope.competition_id

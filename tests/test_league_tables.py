@@ -48,6 +48,14 @@ from tests.fixtures.career import (
     SOUTHPORT_UID,
     TABLE_HEAD_BYTES,
     TABLE_VOTE_FIXTURES,
+    VENUE_EARLIER_SEASON_FIXTURES,
+    VENUE_FIXTURES,
+    VENUE_RESULTS,
+    VENUE_TABLE_BLOCKS,
+    VENUE_TABLE_TEAM_A,
+    VENUE_TABLE_TEAM_B,
+    ExampleFixture,
+    ExampleResult,
     career_fragment,
     division_table_blocks,
     out_of_range_table_blocks,
@@ -67,10 +75,16 @@ GATE_NAMES = (
     "table_block_team_in_range",
     "table_groups_resolved",
     "double_round_robin_divisions",
+    "table_venue_calendar_agreement",
 )
+# The venue check has no population when no table is in step with the calendar, so it is the
+# one gate here an empty decode leaves unapplied rather than failed.
+GATE_NAMES_AN_EMPTY_DECODE_FAILS = GATE_NAMES[:-1]
 GROUP_A_CLUB_COUNT = 3
 GROUP_B_CLUB_COUNT = 1
 DEFAULT_BLOCK_COUNT = GROUP_A_CLUB_COUNT + GROUP_B_CLUB_COUNT
+# Two clubs, two slots each, every one of them decided by the calendar.
+VENUE_SLOT_COUNT = 4
 # Bounds the example calendar cannot meet, so the fixture checks raise before this reader
 # builds anything. The span threshold is lifted so the fixture gates apply to a small span.
 UNMEETABLE_FIXTURE_BOUNDS = dataclasses.replace(
@@ -86,15 +100,43 @@ def write_career(tmp_path: Path, **fragment_arguments: object) -> Path:
     ).write(tmp_path / "Private Folder" / FILE_NAME)
 
 
-def built_from(career_save: fmsave.Save) -> tuple[tuple[LeagueTable, ...], LeagueTableStats]:
+def write_venue_career(
+    tmp_path: Path,
+    *,
+    results: Sequence[ExampleResult] = VENUE_RESULTS,
+    extra_fixtures: Sequence[ExampleFixture] = (),
+) -> Path:
+    """A career whose third table accounts for exactly the two matches its clubs have played.
+
+    `results` narrows which of the two meetings carry a score, and `extra_fixtures` adds
+    calendar records that take the table out of step.
+    """
+    return career_fragment(
+        extra_fixtures=(*TABLE_VOTE_FIXTURES, *VENUE_FIXTURES, *extra_fixtures),
+        extra_table_groups=(VENUE_TABLE_BLOCKS,),
+        span_results=results,
+    ).write(tmp_path / "Private Folder" / FILE_NAME)
+
+
+def built_with_layout(
+    career_save: fmsave.Save, layout: LeagueTableLayout
+) -> tuple[tuple[LeagueTable, ...], LeagueTableStats]:
     """The tables and their counts, built straight from the save's own shared indexes."""
     context = career_save._context  # pyright: ignore[reportPrivateUsage]
     fixtures_table = career_save.fixtures()
     club_index = context.club_index()
     competition_index = context.competition_index()
     return build_league_tables(
-        context.span_records(), fixtures_table, competition_index, club_index, TABLE_LAYOUT
+        context.span_records(), fixtures_table, competition_index, club_index, layout
     )
+
+
+def built_from(career_save: fmsave.Save) -> tuple[tuple[LeagueTable, ...], LeagueTableStats]:
+    return built_with_layout(career_save, TABLE_LAYOUT)
+
+
+def gate_named(results: tuple[GateResult, ...], name: str) -> GateResult:
+    return next(result for result in results if result.name == name)
 
 
 def raw_block(
@@ -127,7 +169,8 @@ def healthy_stats() -> LeagueTableStats:
 
     These are the shape the stored-index boundary gives: about 830 tables out of the 4,800
     blocks that survive deduplication, almost every one of them voted a competition, and 60
-    shaped like a division.
+    shaped like a division. 151 of those tables account for exactly one season of the
+    calendar, and the 7,548 slots they let the calendar decide agree with the parity on 7,530.
     """
     return LeagueTableStats(
         blocks=4_817,
@@ -139,6 +182,9 @@ def healthy_stats() -> LeagueTableStats:
         team_id_in_range=4_815,
         team_resolved=3_941,
         double_round_robin_divisions=60,
+        in_sync_tables=151,
+        venue_slots_decided=7_548,
+        venue_slots_agreeing=7_530,
     )
 
 
@@ -252,38 +298,191 @@ def test_a_slot_carries_its_outcome_points_and_opponent_or_keeps_its_place_empty
     assert unplayed.points is None
 
 
-def test_no_venue_is_named_while_the_slot_parity_is_unsettled(tmp_path: Path) -> None:
-    """The save alternates venue by slot parity but never says which parity is home.
+def test_every_slot_alternates_its_venue_from_the_even_slot_home(tmp_path: Path) -> None:
+    """Even slots are home matches, so a row's venues alternate from the first slot on.
 
-    Over every block measured, the played even-slot count matches the home aggregate on 85.8%
-    to 89.8%, short of the 99% a named meaning needs here. It reaches 99.6% only on the blocks
-    whose played match rows account for their own total, which is about 85% of blocks, and no
-    check would fail if the parity were wrong, so the layout names no parity and every venue
-    reads as None. Forcing a parity in still turns the slots into venues, which is what keeps
-    the decode ready for the screen that settles it.
+    A slot never played keeps a venue too: the parity is a property of the slot, not of what
+    happened in it, so the shape of the season stays readable where the season is unplayed.
     """
     career_path = write_career(tmp_path)
 
     with fmsave.open(career_path) as career_save:
-        shipped = career_save.league_tables()[0].rows[0]
-        home_first_tables, _stats = build_league_tables(
-            career_save._context.span_records(),  # pyright: ignore[reportPrivateUsage]
-            career_save.fixtures(),
-            career_save._context.competition_index(),  # pyright: ignore[reportPrivateUsage]
-            career_save._context.club_index(),  # pyright: ignore[reportPrivateUsage]
-            dataclasses.replace(TABLE_LAYOUT, home_slot_parity=0),
-        )
+        first_row = career_save.league_tables()[0].rows[0]
 
-    assert TABLE_LAYOUT.home_slot_parity is None
-    assert all(match_row.venue is None for match_row in shipped.matches)
-    forced = home_first_tables[0].rows[0]
-    assert [match_row.venue for match_row in forced.matches] == [
+    assert TABLE_LAYOUT.home_slot_parity == 0
+    assert [match_row.venue for match_row in first_row.matches] == [
         Venue.HOME,
         Venue.AWAY,
         Venue.HOME,
         Venue.AWAY,
     ]
-    assert field_status(fmsave.LeagueTableMatch, "venue") == "unconfirmed"
+    assert first_row.matches[2].opponent_team_id is None
+    assert first_row.matches[2].venue is Venue.HOME
+    assert field_status(fmsave.LeagueTableMatch, "venue") == "verified"
+
+
+def test_a_layout_with_no_parity_leaves_every_venue_empty_and_checks_nothing(
+    tmp_path: Path,
+) -> None:
+    """A build that has not settled the parity returns no venue and decides no slot.
+
+    The check then has no population at all, which is reported rather than failed: there is
+    nothing wrong with a save read by a layout that names no parity.
+    """
+    career_path = write_career(tmp_path)
+
+    with fmsave.open(career_path) as career_save:
+        tables, stats = built_with_layout(
+            career_save, dataclasses.replace(TABLE_LAYOUT, home_slot_parity=None)
+        )
+
+    assert all(
+        match_row.venue is None
+        for table in tables
+        for row in table.rows
+        for match_row in row.matches
+    )
+    assert (stats.in_sync_tables, stats.venue_slots_decided, stats.venue_slots_agreeing) == (
+        0,
+        0,
+        0,
+    )
+    venue_gate = gate_named(
+        evaluate_league_tables(stats, BOUNDS, FULL_SIZE_SPAN_BYTES),
+        "table_venue_calendar_agreement",
+    )
+    assert not venue_gate.applied
+
+
+def test_the_calendar_decides_the_venue_of_every_slot_of_an_in_step_table(
+    tmp_path: Path,
+) -> None:
+    """A table whose rows account for one season's matches is checked against the calendar.
+
+    Both meetings of these two clubs are played, so neither slot is decided by there being
+    only one meeting: each is decided because exactly one of the two scores, oriented to the
+    row's own club, is the score the slot carries. The calendar's own home team then names the
+    venue, and it agrees with the parity on all four slots.
+    """
+    career_path = write_venue_career(tmp_path)
+
+    with fmsave.open(career_path) as career_save:
+        tables = career_save.league_tables()
+        _tables, stats = built_from(career_save)
+
+    assert stats.in_sync_tables >= 1
+    assert stats.venue_slots_decided == VENUE_SLOT_COUNT
+    assert stats.venue_slots_agreeing == VENUE_SLOT_COUNT
+    venue_table = tables[2]
+    assert [row.team_id for row in venue_table.rows] == [VENUE_TABLE_TEAM_A, VENUE_TABLE_TEAM_B]
+    assert [match_row.venue for match_row in venue_table.rows[0].matches] == [
+        Venue.HOME,
+        Venue.AWAY,
+    ]
+
+
+def test_the_flipped_parity_agrees_with_the_calendar_on_no_slot_at_all(tmp_path: Path) -> None:
+    """The check that keeps the parity honest: read the other way round, nothing agrees.
+
+    On the corpus the same flip drops agreement from 0.998 to 0.002, so this is the failure the
+    gate exists for, and here it is the whole population rather than a sample of it.
+    """
+    career_path = write_venue_career(tmp_path)
+
+    with fmsave.open(career_path) as career_save:
+        _tables, stats = built_with_layout(
+            career_save, dataclasses.replace(TABLE_LAYOUT, home_slot_parity=1)
+        )
+
+    assert stats.venue_slots_decided == VENUE_SLOT_COUNT
+    assert stats.venue_slots_agreeing == 0
+    # The fragment's own block counts are far below the corpus floors, so the gate is judged
+    # here on the corpus counts with this fragment's agreement put in place of the corpus one.
+    flipped_on_a_full_save = dataclasses.replace(
+        healthy_stats(),
+        venue_slots_decided=stats.venue_slots_decided,
+        venue_slots_agreeing=stats.venue_slots_agreeing,
+    )
+    results = evaluate_league_tables(flipped_on_a_full_save, BOUNDS, FULL_SIZE_SPAN_BYTES)
+    assert failed_gate_names(results) == ["table_venue_calendar_agreement"]
+    with pytest.raises(fmsave.ReaderCheckError) as error_info:
+        enforce("league_tables", results)
+    assert "table_venue_calendar_agreement" in str(error_info.value)
+
+
+def test_two_played_meetings_with_no_score_decide_nothing(tmp_path: Path) -> None:
+    """Without the scores the two meetings are indistinguishable, so no slot is decided.
+
+    Nothing is guessed from the order the save lists the slots in: that order is the very
+    thing the check is there to judge.
+    """
+    career_path = write_venue_career(tmp_path, results=())
+
+    with fmsave.open(career_path) as career_save:
+        _tables, stats = built_from(career_save)
+
+    assert stats.in_sync_tables >= 1
+    assert stats.venue_slots_decided == 0
+    assert stats.venue_slots_agreeing == 0
+
+
+def test_one_scored_meeting_and_one_unscored_decide_nothing_either(tmp_path: Path) -> None:
+    """Every played meeting must carry a score before a score may decide a slot.
+
+    With one of the two meetings scored, the scored one matches a slot uniquely among the
+    meetings that have a score -- and that is not the same as matching uniquely among the
+    meetings that were played. Deciding on it would name a venue from an incomplete comparison,
+    so the whole slot is left undecided, which is why this is the case that separates skipping
+    an unscored meeting from refusing the slot outright.
+    """
+    career_path = write_venue_career(tmp_path, results=VENUE_RESULTS[:1])
+
+    with fmsave.open(career_path) as career_save:
+        _tables, stats = built_from(career_save)
+
+    assert stats.in_sync_tables >= 1
+    assert stats.venue_slots_decided == 0
+    assert stats.venue_slots_agreeing == 0
+
+
+def test_a_table_matching_two_seasons_is_turned_away_like_one_matching_none(
+    tmp_path: Path,
+) -> None:
+    """Exactly one season may match, because two leave no season the row counts describe.
+
+    These clubs played each other twice in each of two seasons, so the table's row counts hold
+    in both and a slot cannot be matched to the meeting it records. On the corpus 9, 14 and 0
+    tables are in this position, and taking either season would compare half the slots against
+    the wrong pair of matches.
+    """
+    career_path = write_venue_career(tmp_path, extra_fixtures=VENUE_EARLIER_SEASON_FIXTURES)
+
+    with fmsave.open(career_path) as career_save:
+        _tables, stats = built_from(career_save)
+
+    assert stats.in_sync_tables == 0
+    assert stats.venue_slots_decided == 0
+
+
+def test_a_table_out_of_step_with_the_calendar_decides_nothing(tmp_path: Path) -> None:
+    """Only a table that accounts for one season's matches may judge the parity.
+
+    The example's first table is out of step in exactly the way most of the corpus is:
+    Southport's row says four matches played where the calendar holds three of its league
+    fixtures. Over every table rather than the tables in step, corpus agreement falls from
+    0.998 to about 0.91, because an out-of-step table is compared against the wrong meetings.
+    """
+    career_path = write_career(tmp_path)
+
+    with fmsave.open(career_path) as career_save:
+        tables = career_save.league_tables()
+        _tables, stats = built_from(career_save)
+
+    southport_row = tables[0].rows[1]
+    assert southport_row.team_id == SOUTHPORT_TEAM
+    assert southport_row.played == 4
+    assert stats.in_sync_tables == 0
+    assert stats.venue_slots_decided == 0
 
 
 def test_the_head_blob_ships_as_one_unknown_int_per_byte(tmp_path: Path) -> None:
@@ -574,6 +773,9 @@ def test_the_build_counts_exactly_what_the_checks_read(tmp_path: Path) -> None:
         team_id_in_range=DEFAULT_BLOCK_COUNT,
         team_resolved=DEFAULT_BLOCK_COUNT,
         double_round_robin_divisions=0,
+        in_sync_tables=0,
+        venue_slots_decided=0,
+        venue_slots_agreeing=0,
     )
     assert stats.block_candidates >= stats.blocks
     reader_check = check_league_tables(stats, BOUNDS, SMALL_SPAN_BYTES)
@@ -586,6 +788,8 @@ def test_the_build_counts_exactly_what_the_checks_read(tmp_path: Path) -> None:
         "blocks_outside_resolved_groups": GROUP_B_CLUB_COUNT,
         "team_ids_out_of_range": 0,
         "unresolved_teams": 0,
+        "in_sync_tables": 0,
+        "venue_slots_decided": 0,
     }
 
 
@@ -628,8 +832,13 @@ def test_healthy_stats_pass_every_gate_and_a_small_span_applies_none() -> None:
             id="the-grouping-stopped-separating-tables",
         ),
         pytest.param(
-            LeagueTableStats(0, 0, 0, 0, 0, 0, 0, 0, 0),
-            list(GATE_NAMES),
+            dataclasses.replace(healthy_stats(), venue_slots_agreeing=18),
+            ["table_venue_calendar_agreement"],
+            id="the-slot-parity-is-the-wrong-way-round",
+        ),
+        pytest.param(
+            LeagueTableStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            list(GATE_NAMES_AN_EMPTY_DECODE_FAILS),
             id="a-decode-that-found-nothing",
         ),
     ],
@@ -637,8 +846,12 @@ def test_healthy_stats_pass_every_gate_and_a_small_span_applies_none() -> None:
 def test_league_table_gates_fail_one_at_a_time(
     stats: LeagueTableStats, expected_failures: Sequence[str]
 ) -> None:
-    """A span pass that finds nothing fails every gate rather than reporting a career with no
-    tables, and each filter that stopped filtering fails its own gate alone."""
+    """A span pass that finds nothing fails every gate it has a population for, and each
+    filter that stopped filtering fails its own gate alone.
+
+    The parity case carries the corpus's own flipped figure, 18 slots of 7,548, which is what
+    reading the slots the other way round scores on every save measured.
+    """
     results = evaluate_league_tables(stats, BOUNDS, FULL_SIZE_SPAN_BYTES)
 
     assert failed_gate_names(results) == list(expected_failures)

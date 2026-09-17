@@ -1098,12 +1098,37 @@ def test_competition_rules_all_and_the_empty_competition_scope(
     )
     assert exit_code == cli.EXIT_OK, error_text
     assert len(csv_records(output_text)) == COMPETITION_RULES_COUNT
-    # No rules block names a competition, so a competition scope writes a header and no rows.
+    # This save keeps both rules blocks after every table, so neither has a run of table blocks
+    # after it to take a competition from, and a competition scope writes a header and no rows.
     exit_code, output_text, error_text = run_export(
         capsys, str(save_path), "competition-rules", "--competition", str(FIRST_COMPETITION_ID)
     )
     assert exit_code == cli.EXIT_OK, error_text
     assert csv_records(output_text) == []
+
+
+def test_competition_rules_scoped_to_a_competition_writes_the_blocks_that_linked(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A save laid out as the game lays one out links a block, so the scope writes it.
+
+    The fragment above cannot show this: its rules blocks sit after every table. Written with
+    each block in front of its own table, the first links to the table the calendar votes the
+    first competition onto and the second links to a table with no competition, so the scope
+    keeps exactly one row and leaves the other out rather than guessing where it belongs.
+    """
+    career_path = career_fragment(interleave_rules=True).write(
+        tmp_path / PRIVATE_FOLDER / FILE_NAME
+    )
+
+    exit_code, output_text, error_text = run_export(
+        capsys, str(career_path), "competition-rules", "--competition", str(FIRST_COMPETITION_ID)
+    )
+
+    assert exit_code == cli.EXIT_OK, error_text
+    scoped_records = csv_records(output_text)
+    assert len(scoped_records) == 1
+    assert scoped_records[0]["competition_id"] == str(FIRST_COMPETITION_ID)
 
 
 @pytest.mark.parametrize(

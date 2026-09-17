@@ -954,8 +954,10 @@ class Save:
         tables the vote cannot settle, which are still returned; one competition names
         several tables, since a cup's group stage holds a table per group. Rows are in the
         order the save stores, which is the table's own standings order, so `position` is the
-        league position. The table is read on the first call; later calls return the same
-        table.
+        league position. Each match slot says whether it was played at home or away, from the
+        parity the save alternates venue by; the same calendar checks that parity on every
+        table whose results account for one season of it. The table is read on the first call;
+        later calls return the same table.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -1012,26 +1014,39 @@ class Save:
         A block carries a competition's promotion, play-off and relegation places, its
         tie-break codes, its prize money by finishing position and its round calendar.
 
-        **No row says which competition it belongs to.** The save stores no such link, and a
-        measured hunt for one found none, so `competition_id` and `competition_name` are None
-        on every row: match a division by `club_count` and `fixtures_per_club` against
-        `league_tables()` instead. `club_count` is itself empty in this release, because no
-        fixed position in the block carries it.
+        **A row's competition comes from where the save keeps the block, not from a field it
+        stores.** The span alternates rules blocks and league-table blocks, and the table
+        stored right after a block is the one that block's rules govern. `competition_id` and
+        `competition_name` are that table's, and are empty where the run of blocks after the
+        preamble is not exactly one table `league_tables()` returned with a competition of its
+        own, which on the saves measured is 32% to 45% of rows. It is a position in the file
+        rather than a stored link, and the competition it hands over is itself a vote on the
+        fixture calendar, so both fields are as strong as `LeagueTable.competition_id` and no
+        stronger. `club_count` stays empty, because no fixed position in the block carries it;
+        the linked table's own club count is where a club count comes from.
 
-        The squad and financial rules the save's rules database holds are not in this release:
-        the groups that carry them have no name, no competition and no displayed label to pin
-        their values, so `kind` is PREAMBLE on every row. Transfer windows are their own table,
-        `transfer_windows()`.
+        The squad and financial rules the save's rules database holds are not read: nothing
+        readable ties one of those groups to a competition, and their content is database
+        content, identical on every save of one installed database. So `kind` is PREAMBLE on
+        every row. Transfer windows are their own table, `transfer_windows()`.
 
-        The table is read on the first call; later calls return the same table. It reads only
-        the shared span pass, so it decompresses nothing of its own once that pass has run.
+        **A cold call builds the league tables and the fixture calendar**, since that is where
+        the competition comes from. A caller who has already read either pays nothing extra;
+        one who has read neither pays for both here. The table is read on the first call; later
+        calls return the same table.
 
         Raises:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
-            ReaderCheckError: The save's in-game date is unreadable, so the span pass cannot
-                run, or, on a full-size span, the blocks fall outside the checks' bounds.
+            ReaderCheckError: The league tables this reader links to, the fixture calendar
+                their vote runs on, or the club, stage or competition table those readers join
+                through, failed its own checks; no club record is accepted; a club uid or club
+                index appears in two records; a team id is listed twice; no stage table was
+                found in the tail of the game database; a stage id appears in two rows; no
+                stadium table was found; the save's in-game date is unreadable, so the span
+                pass cannot run; or, on a full-size span, the blocks or the link fall outside
+                the checks' bounds.
         """
         context = self._context
         return context.cached(COMPETITION_RULES_TABLE_CACHE_KEY, self._read_competition_rules)
@@ -1039,10 +1054,20 @@ class Save:
     def _read_competition_rules(self) -> Table[CompetitionRules]:
         context = self._context
         gate_bounds = self._gate_bounds()
-        # No index is borrowed and no join is made: no block names a competition, so there is
-        # nothing to look up and nothing of another reader's to hand out.
+        # The link reads the tables this reader asks the league-table reader for, not the
+        # span's raw table blocks, so every set of clubs it matches comes from a table whose
+        # own checks have passed: a table decode that had shattered, or run two tables
+        # together, would otherwise hand over sets that match nothing and leave every row
+        # unlinked without raising at all. That call builds the calendar too, which is where
+        # the round dates the link is checked by come from, and it takes the club, stage and
+        # competition indexes through their own checked readers.
+        league_tables = self.league_tables()
+        fixtures_table = self.fixtures()
+        competition_index = context.competition_index()
         span_records = context.span_records()
-        rules, rules_stats = build_competition_rules(span_records)
+        rules, rules_stats = build_competition_rules(
+            span_records, league_tables, fixtures_table, competition_index
+        )
         rules_check = checks.check_competition_rules(
             rules_stats, gate_bounds, span_records.span_bytes
         )

@@ -661,16 +661,13 @@ class LeagueTableLayout:
     twice is a division.
 
     `home_slot_parity` is the slot parity played at home, and None when no parity is settled,
-    which is what every build ships today: the reader then returns None for every venue rather
-    than guessing one. The save alternates venue with the slot's parity but never says which
-    parity is home. The even slots are the candidate: the count of played even-slot rows equals
-    the HOME aggregate's played count on 99.68%, 99.94% and 99.61% of the blocks whose played
-    match rows account for their own total aggregate, against 66.6%, 38.1% and 45.0% for odd
-    slots. That population is only 85.1%, 88.3% and 85.5% of blocks, and over every
-    deduplicated block the even-slot share falls to 85.8%, 89.8% and 87.1%, short of the 99% a
-    named meaning needs here. A block whose match rows do not add up to its own total cannot
-    satisfy the test at either parity, so the restricted figure is the more informative one --
-    but it is also the narrower one, and it is not on its own enough to name the parity.
+    in which case the reader returns None for every venue rather than guessing one and checks
+    nothing. The save alternates venue with the slot's parity and never says which parity is
+    home; the fixture calendar is what says it, because a calendar record stores its home team
+    outright. On the tables whose rows account for exactly one season of that calendar, the
+    slots the calendar can decide by itself agree with the even slot being home on 99.762%,
+    99.870% and 99.780% of 7,548, 8,454 and 9,086 slots on the three saves measured, and with
+    the odd slot being home on 0.24%, 0.13% and 0.22% of them.
     """
 
     row_bytes: int
@@ -1547,19 +1544,49 @@ class GateBounds:
 
     League tables: `table_blocks_minimum` (blocks left after repeated content is dropped),
     `table_block_duplicates_minimum` (blocks dropped as repeats),
-    `table_block_team_in_range` (of the blocks kept), `table_groups_resolved` (of groups) and
+    `table_block_team_in_range` (of the blocks kept), `table_groups_resolved` (of groups),
     `double_round_robin_divisions` (groups shaped like a division whose clubs play each other
-    twice). These judge the span pass, so they apply from `span_minimum_applies_from_bytes`.
+    twice) and `table_venue_calendar_agreement` (slots whose venue the calendar decides and
+    the slot parity names the same way, of the slots the calendar decides). These judge the
+    span pass, so they apply from `span_minimum_applies_from_bytes`.
 
-    Competition rules: `rules_markers_minimum` (rules preamble blocks the span pass judged)
-    and `rules_fully_parsed` (of those blocks). These judge the span pass, so they apply from
-    `span_minimum_applies_from_bytes`. `rules_fully_parsed` counts the **strict** sense of a
+    `table_venue_calendar_agreement` is what keeps the slot parity honest, and it is the one
+    league-table gate an empty population leaves unjudged rather than failed: a layout that
+    settles no parity decides nothing, and so does a career whose tables are all out of step
+    with its calendar, which is a fact about the save. The count gates beside it are what fail
+    when the table decode itself has found nothing.
+
+    Competition rules: `rules_markers_minimum` (rules preamble blocks the span pass judged),
+    `rules_fully_parsed` (of those blocks), `rules_linked_blocks_minimum` (blocks whose
+    following run of table blocks is exactly one league table with a competition of its own)
+    and `rules_link_round_dates` (dated rounds falling on a date the linked competition plays a
+    fixture on, of the dated rounds linked blocks hold). These judge the span pass, so they
+    apply from `span_minimum_applies_from_bytes`.
+    `rules_fully_parsed` counts the **strict** sense of a
     parsed block, the one `RawRulesBlock.fully_parsed` carries: the promotion quad written
     twice identically and the tie-break list, the prize list and every round record decoded.
     A count that ignored the quad would sit about ten points higher, so this floor must not be
     read against a figure measured the other way. A marker search that has moved finds nothing
     and fails the count on its floor; a body decode that has moved keeps the markers and drops
     the share instead, so the two fail on different faults.
+
+    The last two judge the positional competition link, and the pair is deliberate: **one is a
+    count precisely because no share of this link can fail when it stops linking.** The
+    misalignment a share could catch is taking the table run before a block instead of the run
+    after it, and that permutes the same runs among the same blocks, so every share built from
+    the link is invariant under it by construction: the share of blocks that link at all is
+    0.55 to 0.68 whichever run is taken. `rules_link_round_dates` escapes that because it is a
+    share of *round dates* rather than of blocks, and it separates cleanly (0.74 to 0.78
+    against 0.55 to 0.58) -- but it is a share with no population of its own to fall back on,
+    so R22 leaves it unjudged when nothing links at all. `rules_linked_blocks_minimum` is what
+    closes that hole: a link that quietly stops linking scores zero on it, which no share here
+    would notice. It applies only above `rules_link_minimum_applies_from_runs` blocks with a
+    run, so a save holding few divisions is not held to a count measured on saves holding many.
+
+    A third measure was dropped rather than shipped: the round-count shape separates only from
+    0.62 to 0.64, a window two points wide, which is too little to rest a bound on when the
+    corpus holds two careers and the round dates already judge the same alignment with room to
+    spare. It ships as an anomaly count.
 
     The duplicate floor is what fails when the deduplication stops deduplicating. Every save
     measured repeats about 45% of its table blocks, so the count is always in the thousands and
@@ -1862,6 +1889,10 @@ class GateBounds:
     training_blocks_match_club_teams: BoundPair
     training_week_steps: BoundPair
     mentoring_members_at_club: BoundPair
+    table_venue_calendar_agreement: BoundPair
+    rules_linked_blocks_minimum: BoundPair
+    rules_link_minimum_applies_from_runs: int
+    rules_link_round_dates: BoundPair
 
 
 type Layout = (

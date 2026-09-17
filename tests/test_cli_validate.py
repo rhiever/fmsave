@@ -157,14 +157,19 @@ def test_a_failed_span_pass_is_reported_for_its_readers_and_scans_the_span_once(
 def test_a_failed_league_table_check_leaves_the_other_span_readers_ok(
     save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A reader that failed after its shared pass ran fails alone: the pass is already read."""
+    """A reader that failed after its shared pass ran fails alone: the pass is already read.
+
+    The competition-rules reader is the exception, and not because of the shared pass: it
+    takes each block's competition from the league table stored after it, so a failed
+    league-table check stops it as well, and it reports no gate of its own.
+    """
     monkeypatch.setattr("fmsave.checks.evaluate_league_tables", failing_league_table_gates)
     assert cli.main(["validate", str(save_path)]) == cli.EXIT_UNSUPPORTED
     output_lines = capsys.readouterr().out.splitlines()
     assert "league_tables: failed (2 records)" in output_lines
     assert "  table_blocks_minimum = 2 expected 1000.." in output_lines
     assert "fixtures: ok (6 records)" in output_lines
-    assert "competition_rules: ok (2 records)" in output_lines
+    assert "competition_rules: failed" in output_lines
 
 
 def raise_corrupt_save(career_save: fmsave.Save) -> object:

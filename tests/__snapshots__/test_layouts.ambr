@@ -1182,7 +1182,7 @@
         'goals_for_offset': 10,
         'head_bytes_count': 19,
         'head_bytes_offset': -19,
-        'home_slot_parity': None,
+        'home_slot_parity': 0,
         'key_offset': 0,
         'lost_offset': 8,
         'matches_offset': 87,
@@ -1523,6 +1523,15 @@
           0.8,
           None,
         ),
+        'rules_link_minimum_applies_from_runs': 200,
+        'rules_link_round_dates': tuple(
+          0.65,
+          None,
+        ),
+        'rules_linked_blocks_minimum': tuple(
+          100,
+          None,
+        ),
         'rules_markers_minimum': tuple(
           20,
           None,
@@ -1646,6 +1655,10 @@
         ),
         'table_groups_resolved': tuple(
           0.7,
+          None,
+        ),
+        'table_venue_calendar_agreement': tuple(
+          0.95,
           None,
         ),
         'tactic_oop_index_permutations': tuple(

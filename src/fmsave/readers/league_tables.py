@@ -41,6 +41,18 @@ tables of two blocks or more the share is 0.9983 / 1.0000 / 1.0000. That is the 
 shows the vote is sound rather than merely permissive, and a minimum size for the vote is worth
 weighing against it.
 
+**Each match slot says which ground it was played at**, from the parity the save alternates
+venue by: the even slots are the home ones. The calendar is what says so, and it says it again
+on every save read. For each table whose every row's played count equals that club's played
+calendar fixtures in the table's competition in exactly one season, each played slot is matched
+to the meetings the calendar holds between those two clubs in that season; where one of them
+has been played, or where the scores name one of them and only one, the calendar's own stored
+home team gives the venue. Those slots are then compared with the parity's: 7,530 of 7,548,
+8,443 of 8,454 and 9,066 of 9,086 agree on the three saves measured, against 18, 11 and 20 had
+the parity been the other way round. Out-of-step tables are left out, because a table that does
+not account for a season is compared against the wrong meetings; over every table the agreement
+falls to about 0.91.
+
 Every join goes through an index another reader already built, and an id that does not resolve
 leaves its fields empty and is counted rather than guessed.
 """
@@ -238,13 +250,16 @@ def _outcome(row: RawTableRow) -> MatchOutcome | None:
 def _venue(slot: int, layout: LeagueTableLayout) -> Venue | None:
     """Which ground a slot is played at, or None when a layout leaves the parity unset.
 
-    Every shipped layout leaves it unset, so every venue this reader returns is None. The save
-    alternates venue with the slot's parity and never says which parity is home; the even slots
-    are the candidate, matching the HOME aggregate on 99.6% to 99.9% of the blocks whose played
-    match rows account for their own total, but that population is only about 85% of blocks and
-    over every block the share falls to 85.8% to 89.8%, short of the bar for naming a meaning.
-    The mapping stays here so that a layout which settles the parity turns the slots into
-    venues without further work.
+    The save alternates venue with the slot's parity and never says which parity is home. The
+    fixture calendar says it, because a calendar record stores its home team outright: on the
+    tables whose rows account for exactly one season of that calendar, the slots the calendar
+    can settle by itself are home where the even slot is home on 99.762%, 99.870% and 99.780%
+    of them on the three saves measured, and where the odd slot is home on a fifth of a percent.
+    `_venue_agreement` re-runs that comparison on every save read, so the parity this returns
+    is checked rather than assumed.
+
+    A slot never played gets a venue too: the parity belongs to the slot, not to what happened
+    in it, so the shape of a season stays readable where the season is unplayed.
     """
     home_slot_parity = layout.home_slot_parity
     if home_slot_parity is None:
@@ -291,6 +306,166 @@ def _match_rows(
             )
         )
     return tuple(matches)
+
+
+def _club_pair(one_team_id: int, other_team_id: int) -> tuple[int, int]:
+    """The two team ids in a fixed order, so one meeting has one key whichever side asks."""
+    if one_team_id <= other_team_id:
+        return one_team_id, other_team_id
+    return other_team_id, one_team_id
+
+
+@dataclass(frozen=True, slots=True)
+class _CalendarMeetings:
+    """The fixture calendar indexed the two ways the venue check reads it.
+
+    `played_per_team` counts each club's played fixtures per competition and season, which is
+    what says whether a table's rows account for a season. `meetings` holds the fixtures
+    between one pair of clubs in one competition and season, at either ground, which is what a
+    slot is compared against. `seasons` lists the seasons each competition has fixtures in.
+
+    A fixture whose season did not decode is left out of all three: it cannot place a match in
+    a season, so it has no business in a check about which season a table describes.
+    """
+
+    played_per_team: dict[tuple[int, int, int], int]
+    meetings: dict[tuple[int, int, tuple[int, int]], list[Fixture]]
+    seasons: dict[int, set[int]]
+
+
+def _index_calendar(fixtures: Sequence[Fixture]) -> _CalendarMeetings:
+    played_per_team: dict[tuple[int, int, int], int] = {}
+    meetings: dict[tuple[int, int, tuple[int, int]], list[Fixture]] = {}
+    seasons: dict[int, set[int]] = {}
+    for fixture in fixtures:
+        competition_id = fixture.competition_id
+        season = fixture.season_start_year
+        if competition_id is None or season is None:
+            continue
+        seasons.setdefault(competition_id, set()).add(season)
+        home_team_id = fixture.home_team_id
+        away_team_id = fixture.away_team_id
+        meetings.setdefault(
+            (competition_id, season, _club_pair(home_team_id, away_team_id)), []
+        ).append(fixture)
+        if fixture.played:
+            for team_id in (home_team_id, away_team_id):
+                played_key = (competition_id, season, team_id)
+                played_per_team[played_key] = played_per_team.get(played_key, 0) + 1
+    return _CalendarMeetings(played_per_team, meetings, seasons)
+
+
+def _season_in_step(
+    competition_id: int, rows: Sequence[LeagueTableRow], calendar: _CalendarMeetings
+) -> int | None:
+    """The one season whose played counts match every row of a table, or None.
+
+    A table matching two seasons is turned away as firmly as one matching none: the population
+    is worth having only where there is no doubt which season the row counts describe. On the
+    corpus 9, 14 and 0 tables match two of the three saves measured.
+    """
+    in_step: int | None = None
+    seasons_matched = 0
+    for season in calendar.seasons.get(competition_id, ()):
+        if all(
+            row.played == calendar.played_per_team.get((competition_id, season, row.team_id), 0)
+            for row in rows
+        ):
+            in_step = season
+            seasons_matched += 1
+    return in_step if seasons_matched == 1 else None
+
+
+def _decided_venue(
+    row_team_id: int, slot: LeagueTableMatch, meetings: Sequence[Fixture]
+) -> Venue | None:
+    """The venue the calendar itself gives a played slot, or None where it cannot say.
+
+    One played meeting between the two clubs settles it outright, from that record's own
+    stored home team. Where both meetings have been played the scores decide, and only when
+    every played meeting carries one and exactly one of them is the slot's own score read from
+    the row club's side: two meetings that ended alike say nothing and are left undecided. On
+    the corpus the first rule decides 6,400 / 7,912 / 7,120 slots and the second 1,148 / 542 /
+    1,966, with 22,628 / 4,290 / 30,254 left undecided.
+    """
+    played = [fixture for fixture in meetings if fixture.played]
+    if len(played) == 1:
+        return Venue.HOME if played[0].home_team_id == row_team_id else Venue.AWAY
+    if not played:
+        return None
+    row_club_at_home: list[bool] = []
+    for fixture in played:
+        home_goals = fixture.home_goals
+        away_goals = fixture.away_goals
+        if home_goals is None or away_goals is None:
+            return None
+        at_home = fixture.home_team_id == row_team_id
+        scored = home_goals if at_home else away_goals
+        conceded = away_goals if at_home else home_goals
+        if scored == slot.goals_for and conceded == slot.goals_against:
+            row_club_at_home.append(at_home)
+    if len(row_club_at_home) != 1:
+        return None
+    return Venue.HOME if row_club_at_home[0] else Venue.AWAY
+
+
+@dataclass(frozen=True, slots=True)
+class _VenueAgreement:
+    """How far the slot parity's venues agree with the fixture calendar's own home teams."""
+
+    in_sync_tables: int
+    slots_decided: int
+    slots_agreeing: int
+
+
+def _venue_agreement(
+    tables: Sequence[LeagueTable], fixtures: Sequence[Fixture], layout: LeagueTableLayout
+) -> _VenueAgreement:
+    """Check the slot parity against the calendar, on the tables entitled to judge it.
+
+    A table is entitled when it has a competition and its every row's played count equals that
+    club's played calendar fixtures in the competition in exactly one season: the row counts
+    then describe that season and no other, so a slot can be matched to the meeting it records.
+    Out-of-step tables are compared against the wrong meetings, and over every table instead of
+    these the agreement falls from 0.998 to 0.91 on the corpus, so the population is the check.
+
+    Nothing is read here that the two readers have not already returned, and no second pass
+    over the span happens: the tables are the ones just built and the fixtures the calendar
+    the caller passed in. A layout that settles no parity checks nothing at all, since there
+    is then no venue to compare.
+    """
+    if layout.home_slot_parity is None:
+        return _VenueAgreement(0, 0, 0)
+    calendar = _index_calendar(fixtures)
+    in_sync_tables = 0
+    slots_decided = 0
+    slots_agreeing = 0
+    for table in tables:
+        competition_id = table.competition_id
+        if competition_id is None:
+            continue
+        season = _season_in_step(competition_id, table.rows, calendar)
+        if season is None:
+            continue
+        in_sync_tables += 1
+        for row in table.rows:
+            row_team_id = row.team_id
+            for slot in row.matches:
+                opponent_team_id = slot.opponent_team_id
+                if opponent_team_id is None:
+                    continue
+                meeting_key = (
+                    competition_id,
+                    season,
+                    _club_pair(row_team_id, opponent_team_id),
+                )
+                decided = _decided_venue(row_team_id, slot, calendar.meetings.get(meeting_key, ()))
+                if decided is None:
+                    continue
+                slots_decided += 1
+                if decided is slot.venue:
+                    slots_agreeing += 1
+    return _VenueAgreement(in_sync_tables, slots_decided, slots_agreeing)
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,7 +542,10 @@ def build_league_tables(
     """Deduplicate, group, vote and join the span's table blocks into live tables.
 
     `fixtures` is the calendar the fixtures reader returned, so the vote runs on rows whose own
-    checks have already passed rather than on the raw span records.
+    checks have already passed rather than on the raw span records. The same calendar then
+    checks the slot parity every match row's venue comes from, on the tables whose rows account
+    for exactly one season of it; that costs one more read of the rows already built and no
+    further pass over the span.
     """
     kept_blocks, duplicate_blocks = distinct_blocks(span_records.table_blocks)
     groups = group_blocks(kept_blocks, layout)
@@ -399,6 +577,7 @@ def build_league_tables(
             )
         )
 
+    venue_agreement = _venue_agreement(tables, fixtures, layout)
     stats = LeagueTableStats(
         blocks=len(kept_blocks),
         duplicate_blocks=duplicate_blocks,
@@ -409,5 +588,8 @@ def build_league_tables(
         team_id_in_range=team_id_in_range,
         team_resolved=team_resolved,
         double_round_robin_divisions=double_round_robin_divisions,
+        in_sync_tables=venue_agreement.in_sync_tables,
+        venue_slots_decided=venue_agreement.slots_decided,
+        venue_slots_agreeing=venue_agreement.slots_agreeing,
     )
     return tuple(tables), stats

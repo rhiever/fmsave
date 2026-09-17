@@ -250,6 +250,15 @@ class LeagueTableStats:
     lists. `double_round_robin_divisions` counts the tables shaped like a division whose clubs
     all play each other twice, which is what collapses if the grouping ever starts running one
     table into the next, since a merged table holds its clubs twice over.
+
+    The last three count what the fixture calendar had to say about the slot parity the venues
+    are read from. `in_sync_tables` counts the tables with a competition whose every row's
+    played count equals that club's played calendar fixtures in exactly one season, which is
+    the only population entitled to judge the parity: an out-of-step table is compared against
+    the wrong meetings, and over every table instead agreement falls from about 0.998 to about
+    0.91. `venue_slots_decided` counts the played slots of those tables whose venue the
+    calendar settles by itself, and `venue_slots_agreeing` those the parity then names the same
+    way. All three are zero when the layout settles no parity, because nothing is checked then.
     """
 
     blocks: int
@@ -261,6 +270,9 @@ class LeagueTableStats:
     team_id_in_range: int
     team_resolved: int
     double_round_robin_divisions: int
+    in_sync_tables: int
+    venue_slots_decided: int
+    venue_slots_agreeing: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,6 +289,22 @@ class RulesStats:
     than a count that ignores the quad; the check that judges it says which of the two it
     means. `quad_doubled` counts the blocks whose quad was doubled, which is the part of that
     conjunction the four promotion fields depend on. `rows` counts the rows the reader returned.
+
+    The last six count the positional competition link. `blocks_with_run` counts the blocks
+    the span stores at least one table block after, before the next preamble block;
+    `blocks_linked` those whose run is exactly one league table's set of clubs, which is what
+    the link requires, and `blocks_linked_with_competition` those whose table also carries a
+    voted competition, which is the only case a row is given one in.
+
+    `linked_rounds` counts the dated rounds those blocks hold and `linked_rounds_in_calendar`
+    the ones falling on a date that competition plays a fixture on. That is the corroboration
+    the link is judged by, because it separates from its own misalignment: taking the run
+    before each block instead of the run after it leaves 0.55 to 0.58 against 0.74 to 0.78 on
+    the saves measured. `linked_round_shape` counts the blocks whose number of rounds is what
+    a table of that many clubs playing each other once or twice would hold. That one is a
+    count and **not** a gate: it scores 0.71 to 0.77 linked against 0.56 to 0.62 misaligned, so
+    a floor that both fails the misalignment and keeps its margin has to sit in a window two
+    points wide, which is not one to rest a gate on with two careers in the corpus.
     """
 
     markers: int
@@ -284,6 +312,12 @@ class RulesStats:
     fully_parsed: int
     quad_doubled: int
     rows: int
+    blocks_with_run: int
+    blocks_linked: int
+    blocks_linked_with_competition: int
+    linked_rounds: int
+    linked_rounds_in_calendar: int
+    linked_round_shape: int
 
 
 @dataclass(frozen=True, slots=True)

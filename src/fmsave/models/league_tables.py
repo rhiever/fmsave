@@ -87,13 +87,15 @@ class LeagueTableMatch:
 
     Attributes:
         slot: The slot's index in the row, counting from zero.
-        venue: Whether the match was played at home or away. **None on every row in this
-            release.** The save alternates venue with the slot's parity but never says which
-            parity is home, and the evidence does not yet name it: the even slots match the
-            home aggregate on 99.6% to 99.9% of the blocks whose played match rows account for
-            their own total, but that is only about 85% of blocks, and over every block the
-            share falls to 85.8% to 89.8%. Rather than guess, fmsave leaves it empty until a
-            screen settles it (unconfirmed).
+        venue: Whether the match was played at home or away, which the save stores as the
+            slot's parity: the even slots are the home ones. That is checked against the
+            fixture calendar's own stored home team on every table whose rows account for
+            exactly one season of it, and it holds on 99.76% to 99.87% of the slots the
+            calendar can settle by itself, against a fifth of a percent were the parity the
+            other way round; the handful that disagree are consistent with rescheduled or
+            neutral-ground meetings. A slot never played carries a venue too, since the parity
+            belongs to the slot rather than to what happened in it. It is None only where the
+            build fmsave read the save with has not settled the parity.
         opponent_team_id: The opponent's team id exactly as stored, or None for an unplayed
             slot.
         opponent_club_uid: Uid of the club fielding the opponent, or None when the slot is
@@ -228,6 +230,7 @@ register_field_statuses(
     LeagueTableMatch,
     verified=(
         "slot",
+        "venue",
         "opponent_team_id",
         "opponent_club_uid",
         "opponent_club_name",
@@ -237,7 +240,6 @@ register_field_statuses(
         "outcome",
         "points",
     ),
-    unconfirmed=("venue",),
 )
 register_field_statuses(
     LeagueTableRow,

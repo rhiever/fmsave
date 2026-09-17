@@ -681,10 +681,20 @@ def evaluate_league_tables(
     """The league-table reader's checks, in a fixed order.
 
     These judge what one pass over the span read, so they apply from the span's own size
-    threshold. All five apply whenever the span is large enough, including when the pass found
-    no block at all: an empty result scores below the block floor, the duplicate floor and the
-    division floor, and leaves the two shares without a denominator, so a table layout that has
-    moved fails here rather than reporting a career with no tables.
+    threshold. The first five apply whenever the span is large enough, including when the pass
+    found no block at all: an empty result scores below the block floor, the duplicate floor
+    and the division floor, and leaves the two shares without a denominator, so a table layout
+    that has moved fails here rather than reporting a career with no tables.
+
+    `table_venue_calendar_agreement` is the exception, and is the check that keeps the slot
+    parity honest. It compares the venue the slot's parity names against the venue the fixture
+    calendar's own stored home team names, on the tables whose rows account for exactly one
+    season of that calendar. Reading the parity the other way round drops it from about 0.998
+    to about 0.002 on every save measured, so a parity chosen wrongly fails here. Its
+    population is legitimately empty on a layout that settles no parity and on a career whose
+    tables are all out of step with its calendar, so an empty population is reported rather
+    than failed; the four count checks above are what fail when the table decode itself found
+    nothing.
 
     Two of the five exist to catch a filter that stopped filtering, which no rate here can see.
     `table_block_duplicates_minimum` fails when the deduplication stops dropping the save's
@@ -733,6 +743,13 @@ def evaluate_league_tables(
             bounds.double_round_robin_divisions,
             applied,
         ),
+        _share_gate(
+            "table_venue_calendar_agreement",
+            stats.venue_slots_agreeing,
+            stats.venue_slots_decided,
+            bounds.table_venue_calendar_agreement,
+            applied,
+        ),
     )
 
 
@@ -742,9 +759,9 @@ def evaluate_competition_rules(
     """The competition-rules reader's checks, in a fixed order.
 
     These judge what one pass over the span read, so they apply from the span's own size
-    threshold. Both apply whenever the span is large enough, including when the pass found no
-    block at all: an empty result scores no markers, which fails the count, and leaves the
-    parsed share with no denominator, which fails for want of a rate rather than passing
+    threshold. The first two apply whenever the span is large enough, including when the pass
+    found no block at all: an empty result scores no markers, which fails the count, and leaves
+    the parsed share with no denominator, which fails for want of a rate rather than passing
     quietly. That is what a marker that has moved looks like from the counts, and it is why the
     share is not allowed to stand alone.
 
@@ -752,14 +769,44 @@ def evaluate_competition_rules(
     twice identically **and** the tie-break list, the prize list and every round record
     decoded. A share measured without the quad sits about ten points higher, so this gate's
     bound is not comparable with one.
+
+    The last two judge the positional competition link, and they fail on different faults.
+
+    `rules_link_round_dates` is the share of a linked block's dated rounds that fall on a date
+    the linked competition plays a fixture on. Its misalignment is taking the run of table
+    blocks stored before a block rather than the run after it, which drops the share from 0.74
+    to 0.78 down to 0.55 to 0.58 on the saves measured. It is a share with no population of
+    its own to fall back on, so an empty link leaves it without a denominator and is reported
+    rather than failed.
+
+    `rules_linked_blocks_minimum` is the count that closes that hole, and it is a count on
+    purpose: the misalignment above permutes the same runs among the same blocks, so **every
+    share built from this link is invariant under it** -- the share of blocks that link at all
+    is 0.55 to 0.68 whichever run is taken -- and only a count falls when the link stops
+    linking. It applies above `rules_link_minimum_applies_from_runs` blocks with a run, so a
+    save holding few divisions is not judged against a count measured on saves holding many.
     """
     applied = _span_applies(bounds, span_bytes)
+    enough_runs = stats.blocks_with_run >= bounds.rules_link_minimum_applies_from_runs
     return (
         _gate("rules_markers_minimum", stats.markers, bounds.rules_markers_minimum, applied),
         _gate(
             "rules_fully_parsed",
             _rate(stats.fully_parsed, stats.blocks),
             bounds.rules_fully_parsed,
+            applied,
+        ),
+        _gate(
+            "rules_linked_blocks_minimum",
+            stats.blocks_linked_with_competition,
+            bounds.rules_linked_blocks_minimum,
+            applied and enough_runs,
+        ),
+        _share_gate(
+            "rules_link_round_dates",
+            stats.linked_rounds_in_calendar,
+            stats.linked_rounds,
+            bounds.rules_link_round_dates,
             applied,
         ),
     )
@@ -963,6 +1010,12 @@ def check_league_tables(
     `unresolved_groups` groups the calendar vote could not name, `blocks_outside_resolved_groups`
     the rows those groups hold, and the two team counts the rows whose team id is out of range
     or belongs to no club the save lists.
+
+    The last two are the population the venue check judged rather than an anomaly in the usual
+    sense, and they are reported because that check is the one here that an empty population
+    leaves unjudged: `in_sync_tables` counts the tables whose rows account for exactly one
+    season of the calendar, and `venue_slots_decided` the slots of those tables whose venue the
+    calendar settles by itself. Both read zero on a layout that settles no slot parity.
     """
     return ReaderCheck(
         LEAGUE_TABLES_READER,
@@ -978,6 +1031,8 @@ def check_league_tables(
                 "blocks_outside_resolved_groups": stats.blocks - stats.blocks_in_resolved_groups,
                 "team_ids_out_of_range": stats.blocks - stats.team_id_in_range,
                 "unresolved_teams": stats.blocks - stats.team_resolved,
+                "in_sync_tables": stats.in_sync_tables,
+                "venue_slots_decided": stats.venue_slots_decided,
             }
         ),
     )
@@ -986,10 +1041,20 @@ def check_league_tables(
 def check_competition_rules(stats: RulesStats, bounds: GateBounds, span_bytes: int) -> ReaderCheck:
     """The competition-rules reader's checks, record count and anomaly counts.
 
-    The anomalies count the two ways a block falls short of a full decode, which are reported
-    rather than dropped: a block whose quad was not doubled still ships its lists and its
-    calendar with the four quad fields empty, and a block whose lists or rounds did not decode
-    still ships whatever did.
+    The first two anomalies count the two ways a block falls short of a full decode, which are
+    reported rather than dropped: a block whose quad was not doubled still ships its lists and
+    its calendar with the four quad fields empty, and a block whose lists or rounds did not
+    decode still ships whatever did.
+
+    The rest count the three ways the positional competition link comes back empty, which is
+    the usual outcome rather than a fault: `blocks_without_a_run` counts the blocks the span
+    stores no table block after, `blocks_with_an_ambiguous_run` those whose run is not exactly
+    one table's set of clubs, and `linked_blocks_without_a_competition` those whose table the
+    calendar vote could not name. Together they are the 32% to 45% of rows that carry no
+    competition on the saves measured. `linked_round_shape` counts the linked blocks holding
+    as many rounds as a table of that many clubs playing each other once or twice would; it is
+    reported here because it does not separate from its own misalignment well enough to be a
+    gate.
     """
     return ReaderCheck(
         COMPETITION_RULES_READER,
@@ -999,6 +1064,12 @@ def check_competition_rules(stats: RulesStats, bounds: GateBounds, span_bytes: i
             {
                 "blocks_not_fully_parsed": stats.blocks - stats.fully_parsed,
                 "blocks_without_a_doubled_quad": stats.blocks - stats.quad_doubled,
+                "blocks_without_a_run": stats.blocks - stats.blocks_with_run,
+                "blocks_with_an_ambiguous_run": stats.blocks_with_run - stats.blocks_linked,
+                "linked_blocks_without_a_competition": (
+                    stats.blocks_linked - stats.blocks_linked_with_competition
+                ),
+                "linked_round_shape": stats.linked_round_shape,
             }
         ),
     )

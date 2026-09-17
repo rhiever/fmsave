@@ -19,6 +19,7 @@ facts.
 from __future__ import annotations
 
 import datetime
+from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -58,6 +59,17 @@ RULES_ROWS_MINIMUM = 20
 # so the numbering is a strong majority rather than every round: 0.948 and 0.952 of rounds on
 # the corpus are numbered by their own position.
 RULES_ROUND_NUMBERED_BY_POSITION_MINIMUM = 0.90
+# A block's competition comes from the league table the save stores after it, and 0.622 and
+# 0.553 of blocks on the corpus resolve to one. The floor is under the lower of those and the
+# ceiling well over both: a share that reached 1.0 would mean the link had stopped demanding
+# exactly one table, which is the whole of what makes it trustworthy.
+RULES_LINKED_COMPETITION_RANGE = (0.45, 0.90)
+# The linked blocks spread over 148 and 123 distinct competitions on the corpus, 2.8 and 2.3
+# blocks apiece, and the competition most blocks claim takes 0.074 and 0.101 of them. A link
+# that had collapsed onto one enormous table would keep its count and lose that spread, which
+# neither the share above nor the reader's own gates would notice.
+RULES_LINKED_COMPETITIONS_MINIMUM = 40
+RULES_BUSIEST_COMPETITION_SHARE_LIMIT = 0.30
 # Per-match player stats.
 MATCH_COMPETITION_IN_TABLE_MINIMUM = 0.95
 MATCH_MINUTES_LIMIT = 130
@@ -407,12 +419,15 @@ def test_transfer_windows_are_dated_and_are_database_content(
 def test_competition_rules_blocks_are_shaped_like_rules(
     corpus_saves: dict[str, fmsave.Save],
 ) -> None:
-    """Blocks are read, no prize is negative, rounds are numbered from one, and no block
-    claims a competition.
+    """Blocks are read, no prize is negative, rounds are numbered from one, and the positional
+    competition link resolves on a measured share of blocks and no more.
 
-    The last of those is the measured result this reader ships on: the save stores no link
-    from a rules block to a competition, so a row that had acquired one would mean a link was
-    being guessed.
+    The last of those is the measured result this reader ships on. The competition comes from
+    the league table the save stores after the block, which resolves on about three blocks in
+    five; a share at either extreme would mean the link had stopped working or had stopped
+    demanding exactly one table, and the second is what makes it trustworthy. Every row whose
+    competition resolves must name one the competition table holds, since it is copied from a
+    table this save's own reader returned.
     """
     mismatches = CorpusMismatches()
     for relative_name, career_save in corpus_saves.items():
@@ -441,10 +456,25 @@ def test_competition_rules_blocks_are_shaped_like_rules(
                 RULES_ROUND_NUMBERED_BY_POSITION_MINIMUM,
             ),
         )
+        linked = [row for row in rules if row.competition_id is not None]
+        lowest_linked, highest_linked = RULES_LINKED_COMPETITION_RANGE
+        linked_share = share(len(linked), len(rules))
         mismatches.check(
             label,
-            "no rules block claims a competition",
-            all(row.competition_id is None for row in rules),
+            "the positional competition link resolves on its measured share of blocks",
+            linked_share is not None and lowest_linked <= linked_share <= highest_linked,
+        )
+        claims = Counter(row.competition_id for row in linked)
+        busiest_share = share(max(claims.values(), default=0), len(linked))
+        mismatches.check(
+            label,
+            "the linked blocks spread over many competitions",
+            len(claims) >= RULES_LINKED_COMPETITIONS_MINIMUM,
+        )
+        mismatches.check(
+            label,
+            "no one competition takes most of the linked blocks",
+            busiest_share is not None and busiest_share <= RULES_BUSIEST_COMPETITION_SHARE_LIMIT,
         )
     mismatches.fail_if_any()
 

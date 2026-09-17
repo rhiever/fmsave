@@ -723,15 +723,14 @@ LEAGUE_TABLES = LeagueTableLayout(
     # plays in, which the distance rule ran together with its neighbour into 38 rows.
     stored_index_head_byte=0,
     division_club_range=(18, 26),
-    # The parity is not settled, so `venue` is None on every row. The even slots look like the
-    # home ones, but only on a restricted population: played even-slot rows equal the HOME
-    # aggregate's played count on 99.68% / 99.94% / 99.61% of the blocks whose played match rows
-    # account for their own total aggregate, against 66.6% / 38.1% / 45.0% for odd slots -- and
-    # that population is 85.1% / 88.3% / 85.5% of blocks. Over every deduplicated block the
-    # even-slot share is 85.8% / 89.8% / 87.1%, well short of the 99% this project requires
-    # before it names a meaning, and no check here fails if the parity is wrong, so a mistake
-    # would mislabel every venue silently. It stays None until a screen reads it back.
-    home_slot_parity=None,
+    # Even slots are the home ones. The evidence is the fixture calendar's own home team, a
+    # stored field, on the tables whose rows account for exactly one season of it: of the
+    # 7,548 / 8,454 / 9,086 slots that calendar can decide by itself, 99.762% / 99.870% /
+    # 99.780% are home where this parity says so, and 0.24% / 0.13% / 0.22% where the other
+    # parity would. The remaining fifth of a percent is consistent with rescheduled or
+    # neutral-ground meetings. `table_venue_calendar_agreement` re-runs that comparison on
+    # every save read, so this constant cannot be wrong without a check failing.
+    home_slot_parity=0,
 )
 
 # The round-record offsets and the moved-match rule were measured on the corpus: the date
@@ -1362,6 +1361,34 @@ GATE_BOUNDS = GateBounds(
     # 0.174, 0.0 and 0.048 are then at the managed club. The floor leaves room for a member
     # sold or loaned out between the save and the read.
     mentoring_members_at_club=(0.90, None),
+    # 0.99762 / 0.99870 / 0.99780 of the 7,548 / 8,454 / 9,086 slots the calendar decides by
+    # itself are home where the slot parity says so. Reading the parity the other way round
+    # leaves 0.0024 / 0.0013 / 0.0022, so this is what would fail had the parity been chosen
+    # wrongly, and it is measured against the calendar's own stored home team rather than
+    # against another reading of the same block. The floor sits 95% of its own width below the
+    # lowest observed value; it is loose because the population is career-dependent, not
+    # because the agreement is.
+    table_venue_calendar_agreement=(0.95, None),
+    # 418 / 288 / 445 blocks link to exactly one league table carrying a competition, out of
+    # the 471 / 339 / 497 blocks the span stores a run of table blocks after. The lowest of
+    # those clears the floor by 65% of its own value, and the threshold the gate applies from
+    # sits 41% below the smallest run population measured, so a save holding a third of these
+    # divisions still both applies this gate and clears it: the worst run-to-link rate measured
+    # is 0.850, which on 200 runs is 170 blocks. This is a count and not a share because a
+    # share cannot fail here: the misalignment permutes the runs among the same blocks, so
+    # every share of them is invariant, and only a count falls when the link stops linking.
+    rules_linked_blocks_minimum=(100, None),
+    rules_link_minimum_applies_from_runs=200,
+    # 0.7491 / 0.7801 / 0.7477 of the dated rounds of a linked block fall on a date its
+    # competition plays a fixture on. Linking each block to the table run stored *before* it
+    # instead of the run after it leaves 0.5828 / 0.5485 / 0.5724, so the floor sits between
+    # the two: it clears the lowest observed value by 28% of the bound's width and fails the
+    # misalignment by a wide margin; against a competition drawn at random for each block it
+    # leaves 0.1342 / 0.1315 / 0.1322. The round-count shape was measured beside it -- 0.77 /
+    # 0.71 / 0.75 linked against 0.62 / 0.56 / 0.62 misaligned -- and is reported as a count
+    # only: a bound would have to sit between 0.62 and 0.64 to both fail the misalignment and
+    # keep the 20% margin, and a window two points wide is not one to rest a gate on.
+    rules_link_round_dates=(0.65, None),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (
