@@ -40,7 +40,32 @@ with fmsave.open("career.fm") as career_save:
 
 Records and tables are immutable and keep working after the save is closed.
 
-## What you can read in 0.1
+## What 0.2.0 adds
+
+Competitions and the stages they are played in, the fixture calendar, live league tables, transfer windows, competition rules and per-match player stats: seven new readers, and `export` writes all twelve tables.
+
+A club's fixtures and its league table:
+
+```python
+import fmsave
+
+with fmsave.open("career.fm") as career_save:
+    managed_clubs = career_save.managed_clubs()  # empty when the manager is between jobs
+    my_club = managed_clubs[0]  # your club, such as "Northbridge FC"
+    club_fixtures = career_save.fixtures().filter(
+        lambda fixture: my_club.club_uid in (fixture.home_club_uid, fixture.away_club_uid)
+    )
+    for fixture in club_fixtures:
+        print(fixture.date, fixture.home_club_name, fixture.away_club_name, fixture.played)
+    for league_table in career_save.league_tables():
+        if any(table_row.club_uid == my_club.club_uid for table_row in league_table.rows):
+            for table_row in league_table.rows:
+                print(table_row.position, table_row.club_name, table_row.played, table_row.points)
+```
+
+A competition carries the id it has in the game's editor database and no name, because no save stores one; see [Competition names](#competition-names). A fixture, a league table and a rules block each say what they could not be joined to rather than guessing at it, so read [What it cannot read (yet)](#what-it-cannot-read-yet) beside the list below.
+
+## What you can read in 0.2
 
 - **Save info** (`career_save.info`): game, build, database version and in-game date.
 - **Players** (`players()`): names, birth date and age, nationality, club, positions, attributes, personality, traits, reputation, transfer value, contract and unserved suspensions.
@@ -121,8 +146,13 @@ fmsave validate career.fm --json
 
 ## What it cannot read (yet)
 
-- Planned for later releases: nation names, finances, staff, injuries and tactics.
+- Planned for later releases: nation names, stadiums, finances, staff, injuries and tactics.
 - Not stored in the save at all: competition and league names. The game renders them from its own installed database, so fmsave ships none; supply your own map to fill them in, as [Competition names](#competition-names) describes.
+- Not stored in the save at all: which competition a rules block belongs to. The save keeps no link from a block to a competition, and a measured search for one found none, so every `competition_rules()` row has an empty competition; match a division by its fixture count against the shape `league_tables()` reports instead.
+- Not stored in the save at all: which competition a transfer window applies to. A window names no competition, club or nation fmsave can read, so its rows stand on their dates alone.
+- Not named in the save: the meaning of most round codes. Five are named, each from a round label the game itself displayed, and every other code comes back as a raw number rather than a meaning fmsave guessed at.
+- Not shipped yet: a fixture's stadium as a club uid. The fixture stores a stadium ordinal and nothing that turns that ordinal into a uid; the stadium table is a later release. The ordinal is still read, and is what says whether a match was played away from the home club's usual ground.
+- Not shipped: whether a league-table slot was played at home or away. The save alternates venue with the slot's parity but never says which parity is home, so `venue` is empty on every slot until a later release settles it.
 - Kept only in part: the score of a played match. The fixture calendar stores no score, and the records that do are retained for about a quarter of the matches a career has played, so the rest come back with empty goals. The save also keeps several seasons of older results whose fixtures it no longer holds, and those have nothing to attach to.
 - Not stored in a readable way in the save: today's injuries and availability, staff attribute values, card counts, scouting budget and asking prices.
 

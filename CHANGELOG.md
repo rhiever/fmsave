@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-09-17
 
 ### Added
 
@@ -24,3 +24,18 @@ All notable changes to this project are documented here. The format follows [Kee
 - Affiliate teams: a player registered with a team another club controls, such as a B team the save stores as a club of its own, is a player of the controlling club, keeps the club storing his team in `team_club_uid`, and is not on loan. A club's `teams` list the teams it controls after its own slots, and an affiliate club's row carries its `parent_club_uid`.
 - `Player.contract` and `contracts()` rows are the contract in effect at the save's in-game date, taken whole from one chain record; agreed future moves such as pre-contracts stay in the chain but never fill it. `on_loan` marks a real loan, with the club of that contract as the parent club and the loan's own dates in `loan_start` and `loan_end`. For a player away from the club that pays him, the parent club is the club of his oldest running record that carries something of a contract, so an offer from another club is never mistaken for it, whether it was made after that record or days before it.
 - Optional `pandas` and `polars` extras.
+
+### Changed
+
+- `fmsave validate` runs and reports all twelve readers, and a reader that fails its checks is reported beside the eleven others rather than stopping the report.
+- `fmsave export` takes a table name for every reader, and a table it will not write under a given scope names the scopes it does take.
+
+### Fixed
+
+- Nothing: this is the first documented release, so there is no earlier behaviour to correct.
+
+### Notes
+
+- `fmsave.OUTPUT_SCHEMA_VERSION` stays 1: this release adds record types and columns, and renames or removes none.
+- Competition names are not read from any save, and none are shipped. A competition carries its editor database id, and a name only where the map you supply has one.
+- A fixture, a league table and a rules block carry an empty competition rather than a guessed one wherever the save stores no link fmsave can follow.
