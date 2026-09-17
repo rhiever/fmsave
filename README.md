@@ -40,32 +40,7 @@ with fmsave.open("career.fm") as career_save:
 
 Records and tables are immutable and keep working after the save is closed.
 
-## What 0.2.0 adds
-
-Competitions and the stages they are played in, the fixture calendar, live league tables, transfer windows, competition rules and per-match player stats: seven new readers, and `export` writes all twelve tables.
-
-A club's fixtures and its league table:
-
-```python
-import fmsave
-
-with fmsave.open("career.fm") as career_save:
-    managed_clubs = career_save.managed_clubs()  # empty when the manager is between jobs
-    my_club = managed_clubs[0]  # your club, such as "Northbridge FC"
-    club_fixtures = career_save.fixtures().filter(
-        lambda fixture: my_club.club_uid in (fixture.home_club_uid, fixture.away_club_uid)
-    )
-    for fixture in club_fixtures:
-        print(fixture.date, fixture.home_club_name, fixture.away_club_name, fixture.played)
-    for league_table in career_save.league_tables():
-        if any(table_row.club_uid == my_club.club_uid for table_row in league_table.rows):
-            for table_row in league_table.rows:
-                print(table_row.position, table_row.club_name, table_row.played, table_row.points)
-```
-
-A competition carries the id it has in the game's editor database and no name, because no save stores one; see [Competition names](#competition-names). A fixture, a league table and a rules block each say what they could not be joined to rather than guessing at it, so read [What it cannot read (yet)](#what-it-cannot-read-yet) beside the list below.
-
-## What you can read in 0.2
+## What it reads
 
 - **Save info** (`career_save.info`): game, build, database version and in-game date.
 - **Players** (`players()`): names, birth date and age, nationality, club, positions, attributes, personality, traits, reputation, transfer value, contract and unserved suspensions.
@@ -175,8 +150,6 @@ Using fmsave to gain an advantage in shared online careers may break platform or
 ## Support
 
 fmsave is a hobby project, maintained on a best-effort basis. Report problems through [GitHub issues](https://github.com/rhiever/fmsave/issues), and never attach save files. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to report a wrong value without sharing real data.
-
-Report security problems privately as described in [SECURITY.md](SECURITY.md), and follow the [Code of Conduct](CODE_OF_CONDUCT.md) when taking part.
 
 ## Rights holders
 
