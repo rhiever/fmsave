@@ -1,8 +1,14 @@
 name: Publish
 
+# Publishing never starts on its own. It runs only when someone starts it by hand and
+# names the version, and it refuses to run at all while the repository is private.
 on:
-  push:
-    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, without a leading v (for example 0.2.0)"
+        required: true
+        type: string
 
 permissions: {}
 
@@ -11,8 +17,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  allowed:
+    name: Check publishing is allowed
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Refuse to publish a private repository
+        env:
+          REPOSITORY_IS_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          if [ "${REPOSITORY_IS_PRIVATE}" != "false" ]; then
+            echo "This repository is private. Publishing stays closed until it is public." >&2
+            exit 1
+          fi
+          echo "Repository is public; publishing is allowed."
+
   build:
     name: Build distributions
+    needs: allowed
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -30,13 +52,13 @@ jobs:
         run: uv build
       - name: Check distributions
         run: uv run --no-project python scripts/check_dist.py dist
-      - name: Check the tag matches the project version
+      - name: Check the requested version matches the project version
         env:
-          TAG_NAME: ${{ github.ref_name }}
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           project_version="$(uv version --short)"
-          if [ "${TAG_NAME}" != "v${project_version}" ]; then
-            echo "Tag ${TAG_NAME} does not match the project version v${project_version}" >&2
+          if [ "${REQUESTED_VERSION}" != "${project_version}" ]; then
+            echo "Asked to publish ${REQUESTED_VERSION} but the project is ${project_version}" >&2
             exit 1
           fi
       - name: Upload distributions
