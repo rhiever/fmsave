@@ -59,7 +59,12 @@ from tests.fixtures.game_db import (
 from tests.fixtures.injuries import (
     CAREER_INJURY_TYPES,
     DECOY_INJURY_TYPES,
+    NULL_DATE_WORD,
+    injury_log_row_bytes,
+    injury_manager_body,
     injury_type_entries,
+    injury_typed_row_bytes,
+    injury_window_row_bytes,
     match_file_body,
 )
 from tests.fixtures.span import (
@@ -106,6 +111,10 @@ PLAYER_A_UID = 900001
 PLAYER_B_UID = 900002
 PLAYER_C_UID = 900003
 PLAYER_D_UID = 900004
+PLAYER_A_PINDEX = 11
+PLAYER_B_PINDEX = 12
+PLAYER_C_PINDEX = 13
+PLAYER_D_PINDEX = 14
 PLAYER_NATION_ID = 44
 PLAYER_D_NATION_ID = 45
 PLAYER_D_LEGAL_NAME = "Légal Ōnly"
@@ -726,7 +735,7 @@ def player_a_bytes() -> bytes:
     """At Southport: two suspensions, a full person block, two contract chain records and the
     four matches `player_a_match_records` writes at the end of his window.
     """
-    pindex = 11
+    pindex = PLAYER_A_PINDEX
     suspensions = suspension_entry_bytes(
         competition_id=1234, issued=packed_date(51, 2031), e7=3, e14=1
     ) + suspension_entry_bytes(competition_id=4321, issued=packed_date(306, 2030), e7=64, e14=5)
@@ -809,7 +818,7 @@ def player_b_bytes() -> bytes:
     )
     fallback = fallback_contract_bytes(end=packed_date(182, 2032), start=packed_date(1, 2027))
     return player_bytes(
-        pindex=12,
+        pindex=PLAYER_B_PINDEX,
         uid=PLAYER_B_UID,
         team_id=FREE_AGENT_TEAM_ID,
         current_ability=100,
@@ -822,7 +831,7 @@ def player_b_bytes() -> bytes:
 
 def player_c_bytes() -> bytes:
     """A marker-less record at Northbridge, with a chain record whose tail has no end date."""
-    pindex = 13
+    pindex = PLAYER_C_PINDEX
     person_block = person_block_bytes(
         first_name_id=1,
         surname_id=1,
@@ -857,7 +866,7 @@ def player_c_bytes() -> bytes:
 
 def player_d_bytes() -> bytes:
     """A free agent of another nation, known by last name only, with a broken contract tail."""
-    pindex = 14
+    pindex = PLAYER_D_PINDEX
     person_block = person_block_bytes(
         first_name_id=MISSING_NAME_ID,
         surname_id=1,
@@ -1808,6 +1817,113 @@ def career_club_section_frames(
     ]
 
 
+# The injury history. Three log rows, oldest first as the save stores them: one at Southport
+# for player A carrying both codes and a time slot, one at Northbridge for player C dated
+# inside the last month, and one for a selector no player claims. Then three typed rows: one
+# for player A dated after the in-game date of 1 March 2031, one for player C carrying a type
+# the name table has no entry for, and one with no date at all. One window row goes in each
+# window array, the first list holds player A's selector, and the third holds player C's with a
+# flag byte, so that the list whose entries are five bytes rather than four is not empty.
+INJURY_MANAGER_SECTION_NAME = "injury_manager"
+NO_PLAYER_SELECTOR = 999
+FIRST_INJURY_LOG_DAY = 306
+FIRST_INJURY_LOG_YEAR = 2030
+FIRST_INJURY_LOG_SLOT = 33
+SECOND_INJURY_LOG_DAY = 51
+THIRD_INJURY_LOG_DAY = 56
+FIRST_TYPED_INJURY_DAY = 64
+FIRST_TYPED_INJURY_SLOT = 33
+SECOND_TYPED_INJURY_DAY = 55
+INJURY_YEAR = 2031
+NAMED_INJURY_TYPE_ID = CAREER_INJURY_TYPES[1][0]
+UNNAMED_INJURY_TYPE_ID = 39
+FIRST_INJURY_CAUSE = 1
+FIRST_INJURY_SEVERITY = 2
+SECOND_INJURY_SEVERITY = 3
+FLAGGED_LIST_BYTE = 1
+
+
+def career_injury_window_rows() -> tuple[bytes, ...]:
+    """One row for each window array, whose contents no reader keeps."""
+    return (
+        injury_window_row_bytes(
+            first=packed_date(20, INJURY_YEAR),
+            second=packed_date(40, INJURY_YEAR),
+            selector=PLAYER_A_PINDEX + SELECTOR_OFFSET,
+        ),
+    )
+
+
+def career_injury_log_rows() -> tuple[bytes, ...]:
+    """The three log rows, oldest first, as the save stores them."""
+    return (
+        injury_log_row_bytes(
+            date=packed_date(FIRST_INJURY_LOG_DAY, FIRST_INJURY_LOG_YEAR, FIRST_INJURY_LOG_SLOT),
+            selector=PLAYER_A_PINDEX + SELECTOR_OFFSET,
+            team_id=SOUTHPORT_TEAM,
+            cause=FIRST_INJURY_CAUSE,
+            severity=FIRST_INJURY_SEVERITY,
+        ),
+        injury_log_row_bytes(
+            date=packed_date(SECOND_INJURY_LOG_DAY, INJURY_YEAR),
+            selector=PLAYER_C_PINDEX + SELECTOR_OFFSET,
+            team_id=NORTHBRIDGE_TEAM_A,
+            cause=0,
+            severity=SECOND_INJURY_SEVERITY,
+        ),
+        injury_log_row_bytes(
+            date=packed_date(THIRD_INJURY_LOG_DAY, INJURY_YEAR),
+            selector=NO_PLAYER_SELECTOR,
+            team_id=ATHLETIC_TEAM_A,
+            cause=0,
+            severity=0,
+        ),
+    )
+
+
+def career_typed_injury_rows() -> tuple[bytes, ...]:
+    """The three typed rows, in the order the save stores them."""
+    return (
+        injury_typed_row_bytes(
+            date=packed_date(FIRST_TYPED_INJURY_DAY, INJURY_YEAR, FIRST_TYPED_INJURY_SLOT),
+            selector=PLAYER_A_PINDEX + SELECTOR_OFFSET,
+            type_id=NAMED_INJURY_TYPE_ID,
+            r11=2,
+            r12=14,
+        ),
+        injury_typed_row_bytes(
+            date=packed_date(SECOND_TYPED_INJURY_DAY, INJURY_YEAR),
+            selector=PLAYER_C_PINDEX + SELECTOR_OFFSET,
+            type_id=UNNAMED_INJURY_TYPE_ID,
+            r11=1,
+            r12=3,
+        ),
+        injury_typed_row_bytes(
+            date=NULL_DATE_WORD,
+            selector=NO_PLAYER_SELECTOR,
+            type_id=NAMED_INJURY_TYPE_ID,
+            r11=3,
+            r12=1,
+        ),
+    )
+
+
+def career_injury_manager() -> bytes:
+    """The whole `injury_manager` section body of the career fragment."""
+    window_rows = career_injury_window_rows()
+    return injury_manager_body(
+        window_a=window_rows,
+        window_b=window_rows,
+        typed=career_typed_injury_rows(),
+        log=career_injury_log_rows(),
+        lists=(
+            (PLAYER_A_PINDEX + SELECTOR_OFFSET,),
+            (),
+            ((PLAYER_C_PINDEX + SELECTOR_OFFSET, FLAGGED_LIST_BYTE),),
+        ),
+    )
+
+
 def career_summary(*, linked: bool) -> bytes:
     """The save summary; when linked, the manager's name is followed by his club's link."""
     if linked:
@@ -1836,6 +1952,7 @@ def career_fragment(
     attachments: tuple[tuple[str, str, bytes], ...] = CAREER_ATTACHMENTS,
     feeder_section: bytes | None = None,
     job_centre_section: bytes | None = None,
+    injury_manager_section: bytes | None = None,
     stadium_table: bool = True,
     staff_affiliate: bool = False,
     extra_staff: bytes = b"",
@@ -1867,6 +1984,8 @@ def career_fragment(
             groups the fragment writes.
         job_centre_section: The whole `job_centre` section body, in place of the three
             vacancies the fragment writes.
+        injury_manager_section: The whole `injury_manager` section body, in place of the
+            three log rows and three typed rows the fragment writes.
         stadium_table: Write the stadium table into `game_db`. False leaves it out, so a
             reader that needs a ground finds no table at all.
         staff_affiliate: Add the B team Northbridge controls, which lists a person Northbridge
@@ -1908,6 +2027,12 @@ def career_fragment(
     ]
     sections.extend(
         career_club_section_frames(feeder=feeder_section, job_centre=job_centre_section)
+    )
+    sections.append(
+        SectionFrame(
+            INJURY_MANAGER_SECTION_NAME,
+            career_injury_manager() if injury_manager_section is None else injury_manager_section,
+        )
     )
     if news_results:
         sections.append(

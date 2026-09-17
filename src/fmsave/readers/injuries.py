@@ -1,11 +1,18 @@
-"""Reading the injury-type name table out of one of the save's per-match files.
+"""Reading the injury-type names, and the injury history the save keeps against its people.
 
-No section of the save holds these names: every per-match directory entry carries one copy of
-the table, a few hundred bytes into its payload. The table is found structurally and never by
-its text, because the names are in whatever language the save was written in: a compiled seed
-pattern finds every place a record of the right shape could start, each seed is walked as
-strictly as the layout allows, and the longest chain of records is the table. Only as many
-entries are read as it takes to find one, so a save with hundreds of them is never read whole.
+The names come out of a per-match file. No section of the save holds them: every per-match
+directory entry carries one copy of the table, a few hundred bytes into its payload. The table
+is found structurally and never by its text, because the names are in whatever language the
+save was written in: a compiled seed pattern finds every place a record of the right shape
+could start, each seed is walked as strictly as the layout allows, and the longest chain of
+records is the table. Only as many entries are read as it takes to find one, so a save with
+hundreds of them is never read whole.
+
+The history comes out of a section of its own, walked whole: four arrays of fixed-stride rows,
+three lists and an eight-byte tail, back to back with nothing between them. Nothing is searched
+for and there is nothing to resynchronise on, so the walk itself is the structural check: a
+count read one byte out of place claims either far more bytes than the section holds or too few
+to reach the tail.
 """
 
 from __future__ import annotations
@@ -14,20 +21,44 @@ import functools
 import re
 import struct
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from datetime import date, timedelta
 
 from fmsave._container import DirectoryEntry
 from fmsave._frozen import FrozenMapping
-from fmsave._layouts import InjuryTypeTableLayout, find_layout
-from fmsave._reader_stats import InjuryTypeStats
-from fmsave.models.injuries import InjuryType
-from fmsave.readers._common import MATCH_FILE_REGION
+from fmsave._layouts import InjuryManagerLayout, InjuryTypeTableLayout, find_layout
+from fmsave._reader_stats import InjuryStats, InjuryTypeStats
+from fmsave._scan import decode_date, decode_time_slot
+from fmsave.models.common import CodedValue
+from fmsave.models.injuries import (
+    InjuryCause,
+    InjuryRecord,
+    InjuryRecordKind,
+    InjurySeverity,
+    InjuryType,
+)
+from fmsave.models.players import Player
+from fmsave.readers._common import (
+    INJURY_MANAGER_SECTION,
+    MATCH_FILE_REGION,
+    MISSING_REFERENCE,
+    build_gap_padded_struct,
+    layout_mismatch,
+)
+from fmsave.readers.clubs import ClubIndex
+from fmsave.readers.player_scan import PlayerRecords
+from fmsave.table import Table
 
 # (id, name, flag, second id) of one record of the table.
 type InjuryTypeRecord = tuple[int, str, int, int]
 
 _SECOND_ID = struct.Struct("<I")
+_UINT32 = struct.Struct("<I")
 # The flag that sits between a record's text and its second id.
 _FLAG_BYTES = 1
+# What a log row's team field holds when it names no team. No save measured stores either, but
+# every other reader that ships a stored id reads them this way.
+_NO_TEAM = frozenset({0, MISSING_REFERENCE})
 
 
 def find_injury_type_layout(build: str) -> InjuryTypeTableLayout:
@@ -186,3 +217,401 @@ def read_injury_types(
         table_entries=len(injury_types),
     )
     return injury_types, stats
+
+
+@dataclass(frozen=True, slots=True)
+class InjuryManagerWalk:
+    """Where the rows of the `injury_manager` section are, and how much of each part it holds.
+
+    `typed_offset` and `log_offset` are the first row of each of the two arrays whose rows
+    fmsave ships; the window row counts and the list entry counts are all that is kept of the
+    other five parts.
+    """
+
+    window_a_rows: int
+    window_b_rows: int
+    typed_offset: int
+    typed_rows: int
+    log_offset: int
+    log_rows: int
+    list_entries: tuple[int, ...]
+
+    def __repr__(self) -> str:
+        return f"<fmsave InjuryManagerWalk {self.log_rows} log, {self.typed_rows} typed>"
+
+
+@dataclass(frozen=True, slots=True)
+class _InjuryRowFields:
+    """One array's fields as a single struct read from the row start, derived once.
+
+    The date is in the struct only so the build-time overlap and bounds checks cover its four
+    bytes; its value comes from `decode_date`, which masks the time-of-day bits these dates
+    carry. `subject` is a log row's team id and a typed row's injury type, and `code` and
+    `extra` the cause and severity of a log row and the two unnamed bytes of a typed row.
+    """
+
+    fields_struct: struct.Struct
+    lead_index: int
+    selector_index: int
+    subject_index: int
+    code_index: int
+    extra_index: int
+
+
+def _row_fields(
+    layout: InjuryManagerLayout, stride: int, field_specs: Sequence[tuple[int, str, str]]
+) -> _InjuryRowFields:
+    """The struct for one array's rows, with every field held inside the stride.
+
+    Raises:
+        ValueError: A date starts where the lead byte sits, two fields overlap, or a field
+            ends past the row's own last byte.
+    """
+    if layout.date_offset == 0:
+        raise ValueError("the injury row lead byte sits at offset 0, so no date may start there")
+    for offset, format_code, field_name in field_specs:
+        if offset + struct.calcsize(format_code) > stride:
+            raise ValueError(
+                f"field {field_name!r} at offset {offset} ends past the {stride}-byte injury row"
+            )
+    fields_struct, _start_offset, index_by_name = build_gap_padded_struct(
+        [(0, "B", "lead"), *field_specs], start_offset=0
+    )
+    return _InjuryRowFields(
+        fields_struct=fields_struct,
+        lead_index=index_by_name["lead"],
+        selector_index=index_by_name["selector"],
+        subject_index=index_by_name["subject"],
+        code_index=index_by_name["code"],
+        extra_index=index_by_name["extra"],
+    )
+
+
+@functools.lru_cache(maxsize=8)
+def _log_row_fields(layout: InjuryManagerLayout) -> _InjuryRowFields:
+    """The log array's row struct: the date, the person, the team and the two codes."""
+    return _row_fields(
+        layout,
+        layout.array_strides[layout.log_array_index],
+        [
+            (layout.date_offset, "I", "date"),
+            (layout.selector_offset, "I", "selector"),
+            (layout.log_team_offset, "I", "subject"),
+            (layout.log_cause_offset, "B", "code"),
+            (layout.log_severity_offset, "B", "extra"),
+        ],
+    )
+
+
+@functools.lru_cache(maxsize=8)
+def _typed_row_fields(layout: InjuryManagerLayout) -> _InjuryRowFields:
+    """The typed array's row struct: the date, the person, the type and two unnamed bytes."""
+    return _row_fields(
+        layout,
+        layout.array_strides[layout.typed_array_index],
+        [
+            (layout.date_offset, "I", "date"),
+            (layout.selector_offset, "I", "selector"),
+            (layout.typed_type_offset, "H", "subject"),
+            (layout.typed_r11_offset, "B", "code"),
+            (layout.typed_r12_offset, "B", "extra"),
+        ],
+    )
+
+
+def find_injury_manager_layout(schema: int | None, build: str) -> InjuryManagerLayout:
+    """Look up the injury layout for an `injury_manager` schema, falling back to the build."""
+    return find_layout(InjuryManagerLayout, INJURY_MANAGER_SECTION, schema, build).layout
+
+
+def walk_injury_manager(
+    section: bytes, layout: InjuryManagerLayout, file_name: str
+) -> InjuryManagerWalk:
+    """Consume the whole section: four arrays, three lists, then the tail and nothing else.
+
+    Every count is judged against the bytes left before a single row is read from it, and the
+    walk has to end on the section's last byte. That is the structural check in full, and it
+    is what catches a wrong start offset or a wrong stride: there is no signature to search
+    for here, so a walk that reads one count out of the middle of a row claims either far more
+    bytes than the section holds or too few to reach the tail.
+
+    Raises:
+        ReaderCheckError: A count runs past the end of the section, the bytes where the tail
+            belongs are not the tail, or the walk does not end on the section's last byte.
+        ValueError: The layout does not name exactly two arrays besides its typed and log ones.
+    """
+    kept_indexes = (layout.typed_array_index, layout.log_array_index)
+    row_counts: list[int] = []
+    row_offsets: list[int] = []
+    cursor = layout.arrays_offset
+    section_bytes = len(section)
+    for array_index, stride in enumerate(layout.array_strides):
+        if cursor + _UINT32.size > section_bytes:
+            raise layout_mismatch(
+                file_name,
+                f"the section holds {section_bytes} bytes and ends before array {array_index} "
+                "says how many rows it holds",
+                section_name=INJURY_MANAGER_SECTION,
+            )
+        (row_count,) = _UINT32.unpack_from(section, cursor)
+        cursor += _UINT32.size
+        if row_count > (section_bytes - cursor) // stride:
+            raise layout_mismatch(
+                file_name,
+                f"array {array_index} claims {row_count} rows of {stride} bytes and only "
+                f"{section_bytes - cursor} bytes are left",
+                section_name=INJURY_MANAGER_SECTION,
+            )
+        row_offsets.append(cursor)
+        row_counts.append(row_count)
+        cursor += row_count * stride
+    list_entries: list[int] = []
+    for list_index, entry_bytes in enumerate(layout.list_entry_bytes):
+        if cursor + _UINT32.size > section_bytes:
+            raise layout_mismatch(
+                file_name,
+                f"the section ends before list {list_index} says how many entries it holds",
+                section_name=INJURY_MANAGER_SECTION,
+            )
+        (entry_count,) = _UINT32.unpack_from(section, cursor)
+        cursor += _UINT32.size
+        if entry_count > (section_bytes - cursor) // entry_bytes:
+            raise layout_mismatch(
+                file_name,
+                f"list {list_index} claims {entry_count} entries of {entry_bytes} bytes and "
+                f"only {section_bytes - cursor} bytes are left",
+                section_name=INJURY_MANAGER_SECTION,
+            )
+        list_entries.append(entry_count)
+        cursor += entry_count * entry_bytes
+    tail_end = cursor + len(layout.tail)
+    if tail_end > section_bytes or section[cursor:tail_end] != layout.tail:
+        raise layout_mismatch(
+            file_name,
+            f"the {len(layout.tail)} bytes where the section's tail belongs are not it",
+            section_name=INJURY_MANAGER_SECTION,
+        )
+    if tail_end != section_bytes:
+        raise layout_mismatch(
+            file_name,
+            f"{section_bytes - tail_end} bytes follow the section's tail",
+            section_name=INJURY_MANAGER_SECTION,
+        )
+    window_counts = [
+        row_count
+        for array_index, row_count in enumerate(row_counts)
+        if array_index not in kept_indexes
+    ]
+    if len(window_counts) != 2:
+        raise ValueError(
+            "the injury layout must name exactly two arrays besides its typed and log ones, "
+            f"not {len(window_counts)}"
+        )
+    return InjuryManagerWalk(
+        window_a_rows=window_counts[0],
+        window_b_rows=window_counts[1],
+        typed_offset=row_offsets[layout.typed_array_index],
+        typed_rows=row_counts[layout.typed_array_index],
+        log_offset=row_offsets[layout.log_array_index],
+        log_rows=row_counts[layout.log_array_index],
+        list_entries=tuple(list_entries),
+    )
+
+
+def build_injury_records(
+    section: bytes,
+    walk: InjuryManagerWalk,
+    player_records: PlayerRecords,
+    players: Table[Player],
+    club_index: ClubIndex,
+    injury_types: Table[InjuryType],
+    clock: date,
+    layout: InjuryManagerLayout,
+) -> tuple[tuple[InjuryRecord, ...], InjuryStats]:
+    """Every log row as a HISTORY record, then every typed row as a TYPED record.
+
+    A row's person is the stored selector less one, looked up among the player records: a
+    person the save no longer keeps as a player leaves the uid and the name empty and is
+    counted, because the game still shows that injury. A log row's team is looked up as
+    stored, and a team another club controls names that controlling club, so a row against a
+    reserve or affiliate side reads as the club that fields it. A team field holding zero or
+    the missing-reference value names no team at all and leaves the team and club fields
+    empty, as every other reader that ships a stored id does.
+
+    Nothing is dropped and nothing is guessed. Every count the checks need comes out of this
+    one pass, including the two joins that judge it: how many team ids a club lists at all,
+    and how many of the rows from the last month name the team their player is registered
+    with today.
+    """
+    log_fields = _log_row_fields(layout)
+    typed_fields = _typed_row_fields(layout)
+    log_stride = layout.array_strides[layout.log_array_index]
+    typed_stride = layout.array_strides[layout.typed_array_index]
+    position_by_pindex = player_records.position_by_pindex
+    record_uids = player_records.uids
+    # The table keeps its own uid index, so a second one here would hold a reference to every
+    # player beside a table that already does.
+    player_by_uid = players.get_by_uid
+    club_by_team = club_index.team_to_club.get
+    club_by_controlled_team = club_index.affiliate_team_to_club.get
+    club_by_uid = club_index.club_by_uid.get
+    name_by_type_id = {injury_type.id: injury_type.name for injury_type in injury_types}
+    lead_byte = layout.lead_byte
+    recent_from = clock - timedelta(days=layout.recent_log_days)
+    retention = timedelta(days=layout.typed_retention_days)
+
+    records: list[InjuryRecord] = []
+    log_lead_ok = 0
+    log_dates_ok = 0
+    log_steps = 0
+    log_ascending_steps = 0
+    log_players_resolved = 0
+    log_teams_resolved = 0
+    recent_log_rows = 0
+    recent_log_team_matches = 0
+    previous_log_date: date | None = None
+    unpack_log_row = log_fields.fields_struct.unpack_from
+    for row_index in range(walk.log_rows):
+        row_offset = walk.log_offset + row_index * log_stride
+        field_values = unpack_log_row(section, row_offset)
+        stored_lead: int = field_values[log_fields.lead_index]
+        if stored_lead == lead_byte:
+            log_lead_ok += 1
+        date_offset = row_offset + layout.date_offset
+        injury_date = decode_date(section, date_offset)
+        if injury_date is not None:
+            if injury_date <= clock:
+                log_dates_ok += 1
+            if previous_log_date is not None:
+                log_steps += 1
+                if injury_date >= previous_log_date:
+                    log_ascending_steps += 1
+            previous_log_date = injury_date
+        selector: int = field_values[log_fields.selector_index]
+        record_position = position_by_pindex.get(selector - 1)
+        player_uid = None if record_position is None else record_uids[record_position]
+        player = None if player_uid is None else player_by_uid(player_uid)
+        if player_uid is not None:
+            log_players_resolved += 1
+        stored_team_id: int = field_values[log_fields.subject_index]
+        team_id = None if stored_team_id in _NO_TEAM else stored_team_id
+        team_club = (
+            None if team_id is None else club_by_controlled_team(team_id) or club_by_team(team_id)
+        )
+        if team_club is None:
+            club_uid: int | None = None
+            team_slot: int | None = None
+            club_name: str | None = None
+        else:
+            club_uid, team_slot = team_club
+            log_teams_resolved += 1
+            club = club_by_uid(club_uid)
+            club_name = None if club is None else club.name
+        if (
+            injury_date is not None
+            and injury_date >= recent_from
+            and player is not None
+            and player.team_id is not None
+        ):
+            recent_log_rows += 1
+            if player.team_id == team_id:
+                recent_log_team_matches += 1
+        records.append(
+            InjuryRecord(
+                kind=InjuryRecordKind.HISTORY,
+                player_uid=player_uid,
+                player_name=None if player is None else player.name,
+                date=injury_date,
+                team_id=team_id,
+                club_uid=club_uid,
+                club_name=club_name,
+                team_slot=team_slot,
+                type_id=None,
+                type_name=None,
+                cause=CodedValue.from_raw(InjuryCause, field_values[log_fields.code_index]),
+                severity=CodedValue.from_raw(InjurySeverity, field_values[log_fields.extra_index]),
+                unknown=FrozenMapping(
+                    {
+                        "r0": stored_lead,
+                        "hi7_date": decode_time_slot(section, date_offset),
+                    }
+                ),
+            )
+        )
+
+    typed_lead_ok = 0
+    typed_dated = 0
+    typed_within_retention = 0
+    typed_players_resolved = 0
+    typed_types_resolved = 0
+    unpack_typed_row = typed_fields.fields_struct.unpack_from
+    for row_index in range(walk.typed_rows):
+        row_offset = walk.typed_offset + row_index * typed_stride
+        field_values = unpack_typed_row(section, row_offset)
+        stored_lead = field_values[typed_fields.lead_index]
+        if stored_lead == lead_byte:
+            typed_lead_ok += 1
+        date_offset = row_offset + layout.date_offset
+        typed_date = decode_date(section, date_offset)
+        if typed_date is not None:
+            typed_dated += 1
+            if typed_date + retention >= clock:
+                typed_within_retention += 1
+        selector = field_values[typed_fields.selector_index]
+        record_position = position_by_pindex.get(selector - 1)
+        player_uid = None if record_position is None else record_uids[record_position]
+        player = None if player_uid is None else player_by_uid(player_uid)
+        if player_uid is not None:
+            typed_players_resolved += 1
+        type_id: int = field_values[typed_fields.subject_index]
+        type_name = name_by_type_id.get(type_id)
+        if type_name is not None:
+            typed_types_resolved += 1
+        records.append(
+            InjuryRecord(
+                kind=InjuryRecordKind.TYPED,
+                player_uid=player_uid,
+                player_name=None if player is None else player.name,
+                date=typed_date,
+                team_id=None,
+                club_uid=None,
+                club_name=None,
+                team_slot=None,
+                type_id=type_id,
+                type_name=type_name,
+                cause=None,
+                severity=None,
+                unknown=FrozenMapping(
+                    {
+                        "r0": stored_lead,
+                        "r11": field_values[typed_fields.code_index],
+                        "r12": field_values[typed_fields.extra_index],
+                        "hi7_date": decode_time_slot(section, date_offset),
+                    }
+                ),
+            )
+        )
+
+    stats = InjuryStats(
+        section_bytes=len(section),
+        window_a_rows=walk.window_a_rows,
+        window_b_rows=walk.window_b_rows,
+        list_entries=walk.list_entries,
+        log_rows=walk.log_rows,
+        log_lead_ok=log_lead_ok,
+        log_dates_ok=log_dates_ok,
+        log_steps=log_steps,
+        log_ascending_steps=log_ascending_steps,
+        log_players_resolved=log_players_resolved,
+        log_teams_resolved=log_teams_resolved,
+        recent_log_rows=recent_log_rows,
+        recent_log_team_matches=recent_log_team_matches,
+        typed_rows=walk.typed_rows,
+        typed_lead_ok=typed_lead_ok,
+        typed_dated=typed_dated,
+        typed_within_retention=typed_within_retention,
+        typed_players_resolved=typed_players_resolved,
+        typed_types_resolved=typed_types_resolved,
+        type_table_entries=len(injury_types),
+    )
+    return tuple(records), stats

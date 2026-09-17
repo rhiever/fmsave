@@ -37,6 +37,7 @@ from fmsave._reader_stats import (
     ContractStats,
     FinanceStats,
     FixtureStats,
+    InjuryStats,
     InjuryTypeStats,
     JobVacancyStats,
     LeagueTableStats,
@@ -87,6 +88,7 @@ LEAGUE_TABLES_READER = "league_tables"
 COMPETITION_RULES_READER = "competition_rules"
 PLAYER_MATCH_STATS_READER = "player_match_stats"
 INJURY_TYPES_READER = "injury_types"
+INJURY_HISTORY_READER = "injury_history"
 FINANCES_READER = "finances"
 SPONSORSHIPS_READER = "sponsorships"
 AFFILIATES_READER = "affiliates"
@@ -1194,6 +1196,132 @@ def check_injury_types(
                 "match_entries": stats.match_entries,
                 "entries_without_magic": stats.entries_without_magic,
                 "entries_tried": stats.entries_with_magic_tried,
+            }
+        ),
+    )
+
+
+def evaluate_injury_history(stats: InjuryStats, bounds: GateBounds) -> tuple[GateResult, ...]:
+    """The injury-history reader's checks, in a fixed order.
+
+    They judge a section of a few megabytes rather than `game_db`, so they apply from that
+    section's own size: a smaller one comes from a fragment that cannot meet full-save counts.
+
+    The walk is the structural check and it raises rather than scoring here, because the
+    section is four arrays and three lists back to back with no signature to search for: a
+    start or a stride read wrong cannot consume it exactly. What these shares add is a
+    judgement of each row's own shape and of the two joins the rows carry, and every one of
+    them separates a sound decode from the same rows read one or four bytes late.
+
+    `injury_log_ascending` is judged on the steps between rows whose date decodes, and it is
+    deliberately **not** excused when there are no such steps: a section holding at least
+    `injury_log_minimum` rows from which not one date decodes is what a decode read one byte
+    out looks like, so it fails there for want of a rate. The typed shares are excused when
+    the section holds no typed row, and the recent-team share when no row of the last month
+    has a player with a team, because a career can legitimately hold neither. The type share
+    is excused as well when the name table is empty, since a save carrying no per-match file
+    holds these names nowhere at all.
+
+    `injury_typed_retention` is a share of **every** typed row, not of the dated ones. Taken
+    over the dated rows it is 1.0 read correctly and 1.0 read one byte late as well, because
+    the handful of dates that still decode there all happen to land inside the window, so it
+    could not fail its own misalignment; over every typed row it falls from 0.988 to 0.006.
+    It subsumes a plain check on how many rows carry a date, since every dated row of every
+    save measured is inside the window, and it catches one thing more: a date read from
+    neighbouring bytes that decodes to a year the game has long passed.
+
+    One counted share carries no gate: how many log rows still name a player runs 0.94 to
+    0.96 and is career state, since a person the save no longer keeps as a player is a real
+    row the game still shows. It is reported as an anomaly instead.
+    """
+    applied = stats.section_bytes >= bounds.injury_manager_minimum_applies_from_bytes
+    log_rows = stats.log_rows
+    typed_rows = stats.typed_rows
+    typed_applied = applied and typed_rows > 0
+    return (
+        _gate("injury_log_minimum", log_rows, bounds.injury_log_minimum, applied),
+        _gate(
+            "injury_log_lead_byte",
+            _rate(stats.log_lead_ok, log_rows),
+            bounds.injury_log_lead_byte,
+            applied,
+        ),
+        _gate(
+            "injury_log_dates",
+            _rate(stats.log_dates_ok, log_rows),
+            bounds.injury_log_dates,
+            applied,
+        ),
+        _gate(
+            "injury_log_ascending",
+            _rate(stats.log_ascending_steps, stats.log_steps),
+            bounds.injury_log_ascending,
+            applied,
+        ),
+        _gate(
+            "injury_log_teams_resolved",
+            _rate(stats.log_teams_resolved, log_rows),
+            bounds.injury_log_teams_resolved,
+            applied,
+        ),
+        _share_gate(
+            "injury_log_recent_team_matches",
+            stats.recent_log_team_matches,
+            stats.recent_log_rows,
+            bounds.injury_log_recent_team_matches,
+            applied,
+        ),
+        _gate(
+            "injury_typed_lead_byte",
+            _rate(stats.typed_lead_ok, typed_rows),
+            bounds.injury_typed_lead_byte,
+            typed_applied,
+        ),
+        _gate(
+            "injury_typed_retention",
+            _rate(stats.typed_within_retention, typed_rows),
+            bounds.injury_typed_retention,
+            typed_applied,
+        ),
+        _gate(
+            "injury_typed_types_resolved",
+            _rate(stats.typed_types_resolved, typed_rows),
+            bounds.injury_typed_types_resolved,
+            typed_applied and stats.type_table_entries > 0,
+        ),
+    )
+
+
+def check_injury_history(stats: InjuryStats, bounds: GateBounds) -> ReaderCheck:
+    """The injury-history reader's checks, record count and anomaly counts.
+
+    The window row counts and the three list entry counts are the five parts of the section no
+    row comes from: they are reported so that a walk which consumed the section exactly still
+    says what it passed over. `log_rows_without_a_player` and `typed_rows_without_a_player`
+    count the rows whose person the save no longer keeps as a player, which no gate judges.
+    `unresolved_log_teams`, `untyped_rows`, `undated_typed_rows` and
+    `typed_rows_outside_retention` split what the gated shares left out: the last two together
+    are what `injury_typed_retention` counts against, and every save measured holds the first
+    of them and none of the second.
+    """
+    first_list, second_list, third_list = (stats.list_entries + (0, 0, 0))[:3]
+    return ReaderCheck(
+        INJURY_HISTORY_READER,
+        stats.log_rows + stats.typed_rows,
+        evaluate_injury_history(stats, bounds),
+        FrozenMapping(
+            {
+                "window_a_rows": stats.window_a_rows,
+                "window_b_rows": stats.window_b_rows,
+                "list_0_entries": first_list,
+                "list_1_entries": second_list,
+                "list_2_entries": third_list,
+                "log_rows_without_a_player": stats.log_rows - stats.log_players_resolved,
+                "typed_rows_without_a_player": stats.typed_rows - stats.typed_players_resolved,
+                "unresolved_log_teams": stats.log_rows - stats.log_teams_resolved,
+                "untyped_rows": stats.typed_rows - stats.typed_types_resolved,
+                "undated_typed_rows": stats.typed_rows - stats.typed_dated,
+                "typed_rows_outside_retention": stats.typed_dated - stats.typed_within_retention,
             }
         ),
     )

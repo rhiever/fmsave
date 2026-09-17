@@ -754,6 +754,39 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'array_strides': tuple(
+          14,
+          14,
+          13,
+          15,
+        ),
+        'arrays_offset': 12,
+        'date_offset': 1,
+        'lead_byte': 1,
+        'list_entry_bytes': tuple(
+          4,
+          4,
+          5,
+        ),
+        'log_array_index': 3,
+        'log_cause_offset': 13,
+        'log_severity_offset': 14,
+        'log_team_offset': 9,
+        'recent_log_days': 30,
+        'selector_offset': 5,
+        'tail': b'\x01\x00\x00\x00\x00\x00\xff\xff',
+        'typed_array_index': 2,
+        'typed_r11_offset': 11,
+        'typed_r12_offset': 12,
+        'typed_retention_days': 7,
+        'typed_type_offset': 9,
+      }),
+      'region': 'injury_manager',
+      'schema': 8,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
         'advertised_offset': 8,
         'competition_offset': 18,
         'count_offset': 8,
@@ -1257,8 +1290,45 @@
           None,
         ),
         'home_reputation_window': 1000,
+        'injury_log_ascending': tuple(
+          0.99,
+          None,
+        ),
+        'injury_log_dates': tuple(
+          0.999,
+          None,
+        ),
+        'injury_log_lead_byte': tuple(
+          0.999,
+          None,
+        ),
+        'injury_log_minimum': tuple(
+          10000,
+          None,
+        ),
+        'injury_log_recent_team_matches': tuple(
+          0.9,
+          None,
+        ),
+        'injury_log_teams_resolved': tuple(
+          0.95,
+          None,
+        ),
+        'injury_manager_minimum_applies_from_bytes': 262144,
         'injury_type_entries_minimum': tuple(
           50,
+          None,
+        ),
+        'injury_typed_lead_byte': tuple(
+          0.999,
+          None,
+        ),
+        'injury_typed_retention': tuple(
+          0.95,
+          None,
+        ),
+        'injury_typed_types_resolved': tuple(
+          0.8,
           None,
         ),
         'issued_after_clock': tuple(

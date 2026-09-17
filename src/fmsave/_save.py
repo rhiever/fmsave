@@ -32,7 +32,7 @@ from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
 from fmsave.models.finances import FinanceMonth, Sponsorship
 from fmsave.models.fixtures import Fixture
-from fmsave.models.injuries import InjuryType
+from fmsave.models.injuries import InjuryRecord, InjuryType
 from fmsave.models.jobs import JobVacancy
 from fmsave.models.league_tables import LeagueTable
 from fmsave.models.managed import ManagedClub
@@ -48,6 +48,7 @@ from fmsave.readers._common import (
     FEEDER_SECTION,
     GAME_DB_SECTION,
     HUMANS_SECTION,
+    INJURY_MANAGER_SECTION,
     JOB_CENTRE_SECTION,
     SAVE_SUMMARY_SECTION,
     SPAN_REGION,
@@ -59,7 +60,13 @@ from fmsave.readers.affiliates import (
 )
 from fmsave.readers.finances import find_finance_layouts, read_club_finances
 from fmsave.readers.fixtures import build_fixtures
-from fmsave.readers.injuries import find_injury_type_layout, read_injury_types
+from fmsave.readers.injuries import (
+    build_injury_records,
+    find_injury_manager_layout,
+    find_injury_type_layout,
+    read_injury_types,
+    walk_injury_manager,
+)
 from fmsave.readers.jobs import find_job_centre_layout, read_job_vacancies
 from fmsave.readers.league_tables import build_league_tables
 from fmsave.readers.managed import find_managed_club_layouts, resolve_managed_clubs
@@ -112,6 +119,7 @@ LEAGUE_TABLES_TABLE_CACHE_KEY = "table:league_tables"
 COMPETITION_RULES_TABLE_CACHE_KEY = "table:competition_rules"
 PLAYER_MATCH_STATS_TABLE_CACHE_KEY = "table:player_match_stats"
 INJURY_TYPES_TABLE_CACHE_KEY = "table:injury_types"
+INJURY_HISTORY_TABLE_CACHE_KEY = "table:injury_history"
 FINANCES_TABLE_CACHE_KEY = "table:finances"
 SPONSORSHIPS_TABLE_CACHE_KEY = "table:sponsorships"
 AFFILIATES_TABLE_CACHE_KEY = "table:affiliates"
@@ -626,6 +634,106 @@ class Save:
         checks.enforce_checks((injury_type_check,))
         self._store_reader_checks((injury_type_check,))
         return Table(injury_types, InjuryType)
+
+    def injury_history(self) -> Table[InjuryRecord]:
+        """Every injury the save still remembers, in stored order, of both kinds.
+
+        A `HISTORY` row is one the game's Injury History tab shows: when the injury happened,
+        the team the person was at, and how it came about and how bad it was as raw codes no
+        in-game label names yet. **The save keeps only about the last two years of them**: the
+        oldest row on every save measured is 742 days before the in-game date, and rows older
+        than that are gone rather than kept, so this is a rolling window and not a whole
+        career. The store the game itself keeps careers in is not read, because nothing in it
+        says which person a history belongs to.
+
+        A `TYPED` row carries the injury type of a recent or current episode. Its date runs
+        from a week behind the in-game date to weeks ahead of it, and **it is not a list of
+        injuries the player has recovered from**: what it names is the type, which no
+        `HISTORY` row carries. About one type code in fifteen has no entry in
+        `Save.injury_types`, and then `type_name` is empty.
+
+        A row whose person the save no longer keeps as a player leaves `player_uid` and
+        `player_name` empty, which is about one `HISTORY` row in twenty. A `HISTORY` row whose
+        team no club lists, or which names no team at all, leaves `team_id` and the three club
+        fields empty rather than guessing; that is about one row in five hundred. Two views
+        this table has no field for::
+
+            history = career_save.injury_history()
+            own = history.where(player_uid=player_uid)
+            typed_date = next(row.date for row in own if row.kind == "typed")
+            # The latest history row on or before a typed row's date, for the same player.
+            before = [
+                row.date
+                for row in own
+                if row.kind == "history" and row.date is not None and row.date <= typed_date
+            ]
+            days_between = (typed_date - max(before)).days if before else None
+
+        `days_between` is the gap between two dates and never how long the player was out for,
+        which no row of this table holds. Filtering by a player's club today is
+        `where(player_uid=...)` against `Save.players`, since `club_uid` here is the club at
+        the time.
+
+        This reader joins through the player records, so **a cold call pays the player pass**
+        over the game database; a warm one decompresses only this section. The table is read on
+        the first call; later calls return the same table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: The save's in-game date is unreadable, so an injury date cannot
+                be judged against it; a count in the section runs past the end of it, the
+                section's tail is not where it belongs, or bytes follow it; no club or player
+                record is accepted; or, on a full-size section, the rows fall outside the
+                checks' bounds. Every index whose data this reader hands out is read through
+                the reader that enforces that index's own checks, so none of those checks can
+                be skipped.
+        """
+        context = self._context
+        return context.cached(INJURY_HISTORY_TABLE_CACHE_KEY, self._read_injury_history)
+
+    def _read_injury_history(self) -> Table[InjuryRecord]:
+        context = self._context
+        save_info = context.info
+        clock = save_info.game_date
+        if clock is None:
+            raise ReaderCheckError(
+                f"{save_info.file_name}: the save's in-game date is unreadable, so an injury's "
+                "date cannot be judged against it"
+            )
+        gate_bounds = self._gate_bounds()
+        layout = find_injury_manager_layout(
+            save_info.section_schemas.get(INJURY_MANAGER_SECTION), save_info.build
+        )
+        # The names this reader hands out come from three tables, so each is read through the
+        # reader that enforces its own checks rather than through a raw index: a player name,
+        # a club name and an injury-type name all leave fmsave here, and none of them may come
+        # from a table whose shape was never judged.
+        injury_types = self.injury_types()
+        with context.section(INJURY_MANAGER_SECTION) as injury_manager:
+            walk = walk_injury_manager(injury_manager, layout, save_info.file_name)
+            # One game_db borrow covers both indexes the joins go through, so a cold call
+            # decompresses that section once rather than once per index.
+            with context.section(GAME_DB_SECTION):
+                players = self.players()
+                self.clubs()
+                player_records = context.player_records()
+                club_index = context.club_index()
+            injuries, injury_stats = build_injury_records(
+                injury_manager,
+                walk,
+                player_records,
+                players,
+                club_index,
+                injury_types,
+                clock,
+                layout,
+            )
+        injury_check = checks.check_injury_history(injury_stats, gate_bounds)
+        checks.enforce_checks((injury_check,))
+        self._store_reader_checks((injury_check,))
+        return Table(injuries, InjuryRecord)
 
     def affiliates(self) -> Table[AffiliateGroup]:
         """Every group of clubs the save stores together, in stored order.

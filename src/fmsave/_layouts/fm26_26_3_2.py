@@ -6,6 +6,7 @@ import struct
 
 from fmsave._layouts import (
     FULL_SAVE_MINIMUM_GAME_DB_BYTES,
+    FULL_SAVE_MINIMUM_INJURY_MANAGER_BYTES,
     FULL_SAVE_MINIMUM_SPAN_BYTES,
     AffiliateGroupLayout,
     ClubRecordLayout,
@@ -17,6 +18,7 @@ from fmsave._layouts import (
     GameInfoLayout,
     GateBounds,
     HumansLayout,
+    InjuryManagerLayout,
     InjuryTypeTableLayout,
     JobCentreLayout,
     LayoutEntry,
@@ -91,6 +93,30 @@ INJURY_TYPE_TABLE = InjuryTypeTableLayout(
     # four to try. Every save measured carries the magic on all of them, so nothing reaches it.
     maximum_entries_opened=8,
     payload_prefix=b"\x03\x01",
+)
+
+# The injury history the `injury_manager` section stores: four arrays, three lists and an
+# eight-byte tail, back to back from offset 12, ending on the section's last byte. The two
+# arrays of stride 14 hold date pairs no reader ships; array 2 carries one typed row per
+# injured person and array 3 the log of past injuries.
+INJURY_MANAGER = InjuryManagerLayout(
+    arrays_offset=12,
+    array_strides=(14, 14, 13, 15),
+    typed_array_index=2,
+    log_array_index=3,
+    list_entry_bytes=(4, 4, 5),
+    tail=bytes.fromhex("010000000000ffff"),
+    lead_byte=1,
+    date_offset=1,
+    selector_offset=5,
+    log_team_offset=9,
+    log_cause_offset=13,
+    log_severity_offset=14,
+    typed_type_offset=9,
+    typed_r11_offset=11,
+    typed_r12_offset=12,
+    typed_retention_days=7,
+    recent_log_days=30,
 )
 
 # The groups of clubs the `feeder_man` section stores. Groups run from 2 to 9 members on every
@@ -1066,6 +1092,42 @@ GATE_BOUNDS = GateBounds(
     # all, so either misalignment fails it. The floor stays loose because the table is database
     # content: an installed database with fewer injuries legitimately carries fewer records.
     injury_type_entries_minimum=(50, None),
+    injury_manager_minimum_applies_from_bytes=FULL_SAVE_MINIMUM_INJURY_MANAGER_BYTES,
+    # The three saves measured hold 128,866 / 91,474 / 138,330 log rows in a section of 1.4 to
+    # 2.3 MB, so the floor is an order of magnitude below the smallest and cannot trouble a
+    # career of any length that fills a section this size.
+    injury_log_minimum=(10_000, None),
+    # Every log row on every save carries the lead byte and a date that decodes and is on or
+    # before the in-game date. Read one byte late the first falls to 0.0047 / 0.0060 / 0.0060
+    # and the second to zero on all three, and four bytes late both are zero.
+    injury_log_lead_byte=(0.999, None),
+    injury_log_dates=(0.999, None),
+    # The log is stored oldest first: every one of the 128,865 / 91,473 / 138,329 steps between
+    # adjacent dated rows reaches a date no earlier than the one before it. Read one byte late
+    # only a few hundred rows still carry a date and 0.81 / 0.75 / 0.82 of the steps between
+    # them ascend, which is what this floor separates.
+    injury_log_ascending=(0.99, None),
+    # 0.9983 / 0.9976 / 0.9984 of log rows name a team some club lists; the rest name teams the
+    # save no longer keeps. Read one byte late the share falls to 0.196 / 0.180 / 0.207 and
+    # four bytes late to 0.0027 / 0.0024 / 0.0023.
+    injury_log_teams_resolved=(0.95, None),
+    # Of the log rows from the last month whose player resolves and has a team, 0.9868 / 0.9952
+    # / 0.9923 store exactly that team. This is the one check that joins the section to the
+    # player records, and putting a random player in place of the stored one scores 0.0 /
+    # 0.00027 / 0.00016. The floor leaves room for the transfers a month of a career brings.
+    injury_log_recent_team_matches=(0.90, None),
+    # Every typed row carries the lead byte, and 0.9883 / 0.9884 / 0.9929 carry a date that is
+    # inside the window the game keeps a typed row for; the rest store the null date word. Read
+    # one byte late the lead byte falls to 0.0117 / 0.0116 / 0.0071 and the dated-and-in-window
+    # share to 0.0058 / 0.0018 / 0.0040, and four bytes late both are zero. The share is taken
+    # over every typed row on purpose: over the dated rows alone it is 1.0 read one byte late
+    # too, because the few dates that still decode all land inside the window.
+    injury_typed_lead_byte=(0.999, None),
+    injury_typed_retention=(0.95, None),
+    # 0.9157 / 0.9445 / 0.9387 of typed rows carry an injury type the name table holds; the
+    # rest carry one of a dozen codes the table has no entry for at all, so the floor sits well
+    # below them. Read one or four bytes late the share is zero on all three saves.
+    injury_typed_types_resolved=(0.80, None),
     # Every one of the 11,399 / 3,081 / 3,460 finance rows on the three saves measured has a net
     # equal to its total income less its total expenditure, and an expenditure excluding
     # transfers between zero and its total. Both are what fail when the row is read from the
@@ -1197,6 +1259,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TRANSFER_WINDOWS),
     LayoutEntry(region="humans", schema=21, build=BUILD, layout=HUMANS),
     LayoutEntry(region="feeder_man", schema=5, build=BUILD, layout=AFFILIATE_GROUPS),
+    LayoutEntry(region="injury_manager", schema=8, build=BUILD, layout=INJURY_MANAGER),
     LayoutEntry(region="job_centre", schema=1, build=BUILD, layout=JOB_CENTRE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STAFF),
     LayoutEntry(region=MATCH_FILE_REGION_NAME, schema=None, build=BUILD, layout=INJURY_TYPE_TABLE),

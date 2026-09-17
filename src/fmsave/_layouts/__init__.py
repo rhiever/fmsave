@@ -1059,6 +1059,60 @@ class InjuryTypeTableLayout:
         return self.text_offset + self.trailer_bytes
 
 
+# Count and share checks on the injury history apply only to a decompressed `injury_manager`
+# at least this large; a smaller section comes from a fragment that cannot meet full-save
+# counts. Every save measured carries between 1.4 MB and 2.3 MB.
+FULL_SAVE_MINIMUM_INJURY_MANAGER_BYTES = 256 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class InjuryManagerLayout:
+    """How the injury history is laid out in the `injury_manager` section.
+
+    From `arrays_offset`, one array per entry of `array_strides`: a u32 row count and then
+    that many rows of that stride, back to back. Then one list per entry of
+    `list_entry_bytes`, each a u32 entry count and that many entries of that size, and last
+    `tail`. The section ends on the tail's last byte, with nothing after it.
+    `typed_array_index` and `log_array_index` say which two arrays carry the rows fmsave
+    ships; the other two are walked and counted only.
+
+    **The walk is the structural check.** Every count is judged against the bytes left before
+    it is used, so a wrong start offset or a single wrong stride reads a count out of the
+    middle of a row and fails on the first part that does not fit. There is no signature to
+    search for and no way to resynchronise, which is why nothing here is a range or a cap.
+
+    Inside a row, `lead_byte` sits at offset 0, the 4-byte date at `date_offset` and the u32
+    person selector (the person's index plus one) at `selector_offset`. A log row carries a
+    u32 team id at `log_team_offset` and the two coded bytes at `log_cause_offset` and
+    `log_severity_offset`; a typed row carries a u16 injury type at `typed_type_offset` and
+    two unnamed bytes at `typed_r11_offset` and `typed_r12_offset`.
+
+    Both dates carry time-slot bits in the high bits of their first word, so they are decoded
+    with `fmsave._scan.decode_date` rather than any validator that wants those bits clear.
+    `typed_retention_days` is how long past its date the game keeps a typed row, and
+    `recent_log_days` how far back a log row counts as recent for the check that compares its
+    team with the player's current one.
+    """
+
+    arrays_offset: int
+    array_strides: tuple[int, ...]
+    typed_array_index: int
+    log_array_index: int
+    list_entry_bytes: tuple[int, ...]
+    tail: bytes
+    lead_byte: int
+    date_offset: int
+    selector_offset: int
+    log_team_offset: int
+    log_cause_offset: int
+    log_severity_offset: int
+    typed_type_offset: int
+    typed_r11_offset: int
+    typed_r12_offset: int
+    typed_retention_days: int
+    recent_log_days: int
+
+
 @dataclass(frozen=True, slots=True)
 class AffiliateGroupLayout:
     """Where the groups of clubs sit in the `feeder_man` section.
@@ -1367,6 +1421,43 @@ class GateBounds:
     which is a fact about the save rather than a layout that has moved. The floor sits far
     below the 93 records every save measured carries: what it catches is a record shape read
     from the wrong offset, which decodes a handful of records at most before its chain breaks.
+    Injury history: `injury_log_minimum` (log rows walked), `injury_log_lead_byte`,
+    `injury_log_dates` (rows whose date decodes and is on or before the in-game date) and
+    `injury_log_teams_resolved` (rows whose team id a club lists), all as shares of the log
+    rows; `injury_log_ascending` (steps from one dated row to the next that did not reach an
+    earlier date, of those steps); `injury_log_recent_team_matches` (recent rows whose stored
+    team is the player's current team, of recent rows whose player resolves and has a team);
+    `injury_typed_lead_byte`, `injury_typed_retention` (rows whose date decodes **and** falls
+    inside the window the game keeps a typed row for) and `injury_typed_types_resolved` (rows
+    whose injury type the name table holds), all as shares of the typed rows. They apply from
+    `injury_manager_minimum_applies_from_bytes` of decompressed section, because the checks
+    judge full-save counts and a fragment carries none.
+
+    The walk itself is the structural check and it raises rather than scoring: a start or a
+    stride read wrong cannot consume the section exactly. What these shares add is a judgement
+    of each row's own shape, and each one separates a sound decode from the same rows read one
+    or four bytes late: the lead byte falls to at most 0.012, the dated-and-in-window share to
+    at most 0.006 and the injury types to zero, teams to at most 0.21, and the ascending share
+    to at most 0.82. `injury_log_recent_team_matches` is the one join to a table read from
+    another section entirely, and putting a random player in place of the stored one scores at
+    most 0.0003 on it. `injury_log_ascending` is judged on the steps between dated rows and is
+    deliberately **not** excused when there are no such steps: a section holding ten thousand
+    log rows from which not one date decodes is what a decode read one byte out looks like, so
+    it fails there for want of a rate.
+
+    `injury_typed_retention` counts over **every** typed row rather than over the dated ones,
+    and that denominator is the whole reason it can fail. Over the dated rows the share is 1.0
+    read correctly and 1.0 read one byte late too, because the handful of dates that still
+    decode there all happen to land inside the window; over every typed row it falls from
+    0.988 to 0.006, the same margin a plain check on how many rows carry a date has. It also
+    catches what that plain check cannot: a date read from neighbouring bytes that decodes to
+    a year the game has long passed. Since every dated row of every save measured is inside
+    the window, this one check covers both, so there is no separate check on dated rows.
+
+    One counted share carries no gate: how many log rows still name a player is 0.94 to 0.96,
+    and it is career state rather than layout, since a person the save no longer keeps as a
+    player is a real row the game still shows. It is reported as an anomaly instead.
+
     Club finances: `finance_net_identity` (rows whose net equals total income less total
     expenditure, of rows), `finance_balance_continuity` (consecutive row pairs where the later
     balance is the earlier one plus the later month's net, of such pairs),
@@ -1503,6 +1594,16 @@ class GateBounds:
     per_match_minutes_in_range: BoundPair
     per_match_rating_in_range: BoundPair
     injury_type_entries_minimum: BoundPair
+    injury_manager_minimum_applies_from_bytes: int
+    injury_log_minimum: BoundPair
+    injury_log_lead_byte: BoundPair
+    injury_log_dates: BoundPair
+    injury_log_ascending: BoundPair
+    injury_log_teams_resolved: BoundPair
+    injury_log_recent_team_matches: BoundPair
+    injury_typed_lead_byte: BoundPair
+    injury_typed_retention: BoundPair
+    injury_typed_types_resolved: BoundPair
     finance_net_identity: BoundPair
     finance_balance_continuity: BoundPair
     finance_expenditure_split: BoundPair
@@ -1552,6 +1653,7 @@ type Layout = (
     | CompetitionIdPairLayout
     | HumansLayout
     | InjuryTypeTableLayout
+    | InjuryManagerLayout
     | AffiliateGroupLayout
     | JobCentreLayout
     | StaffLayout

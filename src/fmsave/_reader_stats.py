@@ -479,6 +479,54 @@ class InjuryTypeStats:
 
 
 @dataclass(frozen=True, slots=True)
+class InjuryStats:
+    """What the `injury_manager` walk and the joins on its two kinds of row counted.
+
+    `section_bytes` is the decompressed section, which is what says whether these counts come
+    from a full save. `window_a_rows`, `window_b_rows` and `list_entries` are all that is kept
+    of the five parts of the section no row comes from.
+
+    Of the log rows: `log_lead_ok` counts those whose first byte is the constant the layout
+    expects, `log_dates_ok` those whose date decodes and is on or before the in-game date,
+    `log_players_resolved` those whose stored person is still a player and
+    `log_teams_resolved` those whose team id a club lists. `log_steps` counts the moves from
+    one dated row to the next and `log_ascending_steps` those that did not reach an earlier
+    date: the save stores the log oldest first, so a step backwards is a decode that has moved
+    rather than a quirk of the career. `recent_log_rows` counts the rows from the last
+    `recent_log_days` whose player resolves and has a team, and `recent_log_team_matches`
+    those storing exactly the team that player is registered with now.
+
+    Of the typed rows: `typed_lead_ok` and `typed_dated` count the same two shapes,
+    `typed_within_retention` the dated rows the game's retention window still covers,
+    `typed_players_resolved` those whose stored person is still a player and
+    `typed_types_resolved` those whose injury type the name table holds.
+    `type_table_entries` is how many names that table held at all, which is zero on a save
+    carrying no per-match file and is what excuses the type check there.
+    """
+
+    section_bytes: int
+    window_a_rows: int
+    window_b_rows: int
+    list_entries: tuple[int, ...]
+    log_rows: int
+    log_lead_ok: int
+    log_dates_ok: int
+    log_steps: int
+    log_ascending_steps: int
+    log_players_resolved: int
+    log_teams_resolved: int
+    recent_log_rows: int
+    recent_log_team_matches: int
+    typed_rows: int
+    typed_lead_ok: int
+    typed_dated: int
+    typed_within_retention: int
+    typed_players_resolved: int
+    typed_types_resolved: int
+    type_table_entries: int
+
+
+@dataclass(frozen=True, slots=True)
 class AffiliateStats:
     """What the affiliate-group walk and its club join counted.
 

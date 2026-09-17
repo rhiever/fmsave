@@ -14,7 +14,13 @@ from fmsave.models.contracts import (
 )
 from fmsave.models.finances import FinanceMonth, Sponsorship, SponsorType
 from fmsave.models.fixtures import Fixture
-from fmsave.models.injuries import InjuryType
+from fmsave.models.injuries import (
+    InjuryCause,
+    InjuryRecord,
+    InjuryRecordKind,
+    InjurySeverity,
+    InjuryType,
+)
 from fmsave.models.jobs import JobVacancy
 from fmsave.models.league_tables import (
     LeagueTable,
@@ -63,6 +69,10 @@ __all__ = [
     "ContractType",
     "FinanceMonth",
     "Fixture",
+    "InjuryCause",
+    "InjuryRecord",
+    "InjuryRecordKind",
+    "InjurySeverity",
     "InjuryType",
     "JobVacancy",
     "LeagueTable",

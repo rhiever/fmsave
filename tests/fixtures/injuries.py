@@ -5,6 +5,10 @@ carries one copy of it, a few hundred bytes into the entry's payload. `match_fil
 such a payload, so a wrong offset or a wrong record shape inside fmsave has to fail the tests
 built here.
 
+The injury history is the other structure: one section of four fixed-stride arrays, three
+lists and an eight-byte tail, all back to back, which `injury_manager_body` writes from its
+parts so that a reader reading any count or stride wrong lands on the wrong bytes.
+
 This module must never import fmsave. All names are fictional.
 """
 
@@ -79,3 +83,71 @@ def match_file_body(
 def match_file_magic_only(*, extension: str = ".apm") -> bytes:
     """A per-match entry payload with the magic and no table at all."""
     return section_body(extension, MATCH_FILE_SCHEMA, bytes(MATCH_FILE_LEADING_BYTES))
+
+
+# The `injury_manager` section. Its four arrays and three lists run back to back from the
+# arrays offset, so every builder below writes a count and then exactly that many fixed-size
+# rows: a reader reading any one of those counts or strides wrong lands on the wrong bytes for
+# everything after it.
+INJURY_MANAGER_SCHEMA = 8
+INJURY_MANAGER_TAIL = bytes.fromhex("010000000000ffff")
+# The date word a typed row carries when it stores no date at all: day 1 of a year far below
+# any year the game plays in.
+NULL_DATE_WORD = bytes.fromhex("01006c07")
+
+
+def injury_window_row_bytes(
+    *, first: bytes, second: bytes, selector: int, last_byte: int = 0
+) -> bytes:
+    """One row of either window array: the lead byte, two dates, a selector and one byte."""
+    return bytes((1,)) + first + second + struct.pack("<I", selector) + bytes((last_byte,))
+
+
+def injury_typed_row_bytes(
+    *, date: bytes, selector: int, type_id: int, r11: int, r12: int, lead: int = 1
+) -> bytes:
+    """One typed row: the lead byte, a date, a selector, an injury type and two bytes."""
+    return bytes((lead,)) + date + struct.pack("<IHBB", selector, type_id, r11, r12)
+
+
+def injury_log_row_bytes(
+    *, date: bytes, selector: int, team_id: int, cause: int, severity: int, lead: int = 1
+) -> bytes:
+    """One log row: the lead byte, a date, a selector, a team id and two codes."""
+    return bytes((lead,)) + date + struct.pack("<IIBB", selector, team_id, cause, severity)
+
+
+def injury_manager_body(
+    *,
+    window_a: Sequence[bytes],
+    window_b: Sequence[bytes],
+    typed: Sequence[bytes],
+    log: Sequence[bytes],
+    lists: tuple[Sequence[int], Sequence[int], Sequence[tuple[int, int]]],
+    tail: bytes = INJURY_MANAGER_TAIL,
+    trailing_bytes: bytes = b"",
+    log_count: int | None = None,
+) -> bytes:
+    """The whole section: four arrays, three lists, the tail, and any residue after it.
+
+    `log_count` writes a count of its own in front of the log rows, so a test can hand the
+    walk a count that does not match the rows written.
+    """
+    parts = bytearray()
+    for rows in (window_a, window_b, typed):
+        parts.extend(struct.pack("<I", len(rows)))
+        parts.extend(b"".join(rows))
+    parts.extend(struct.pack("<I", len(log) if log_count is None else log_count))
+    parts.extend(b"".join(log))
+    first_selectors, second_selectors, flagged_selectors = lists
+    for selectors in (first_selectors, second_selectors):
+        parts.extend(struct.pack("<I", len(selectors)))
+        for selector in selectors:
+            parts.extend(struct.pack("<I", selector))
+    parts.extend(struct.pack("<I", len(flagged_selectors)))
+    for selector, flag in flagged_selectors:
+        parts.extend(struct.pack("<IB", selector, flag))
+    # The first two zero bytes complete the u32 version whose low half the section header
+    # carries, and the next two are the zero word that sits in front of the arrays.
+    payload = b"\x00\x00" + b"\x00\x00" + bytes(parts) + tail + trailing_bytes
+    return section_body(".dat", INJURY_MANAGER_SCHEMA, payload)

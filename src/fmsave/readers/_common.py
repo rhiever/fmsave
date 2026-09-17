@@ -31,6 +31,9 @@ JOB_CENTRE_SECTION = "job_centre"
 # The groups of clubs the save stores together, a few KB of variable-length groups.
 FEEDER_SECTION = "feeder_man"
 
+# The injury history: a few megabytes of fixed-stride arrays, walked whole.
+INJURY_MANAGER_SECTION = "injury_manager"
+
 
 def section_label(file_name: str, section_name: str = GAME_DB_SECTION) -> str:
     """ "<file name>: section '<section name>'", the common prefix of a reader's error text."""
