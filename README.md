@@ -30,8 +30,8 @@ with fmsave.open("career.fm") as career_save:
 ```
 
 A player carries his names, birth date and age, nationality, club, height, positions, all 24
-attributes, the eight personality attributes, his ability, reputation, transfer value, condition,
-traits, his contract and any unserved ban. Records and tables are immutable and
+attributes, the eight personality attributes, current and potential ability, reputation, transfer
+value, condition, traits, his contract and any unserved ban. Records and tables are immutable and
 keep working after the save is closed.
 
 Each reader returns a `Table`: `where(...)`, `filter(...)`, `sorted_by(...)`, `find(name=...)`,

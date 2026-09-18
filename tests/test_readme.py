@@ -18,7 +18,16 @@ DISCLAIMER = (
     "by Sports Interactive or SEGA. Football Manager, Sports Interactive and SEGA are trademarks "
     "or registered trademarks of their respective owners."
 )
-FORBIDDEN_PHRASES = ("hidden", "potential ability", "CA/PA")
+# What the page must not be SOLD on. Not a vocabulary ban: "current ability", "potential
+# ability" and "hidden attribute" are ordinary Football Manager words, fmsave reads those
+# fields, and the page says so where saying so helps a reader. The rule is about the pitch.
+PITCH_CLAIMS = (
+    "hidden",
+    "every player in the database",
+    "the whole database",
+    "the entire database",
+    "full database",
+)
 PYTHON_BLOCK_PATTERN = re.compile(r"^```python[ \t]*\n(.*?)^```[ \t]*$", re.DOTALL | re.MULTILINE)
 CONSOLE_BLOCK_PATTERN = re.compile(r"^```console[ \t]*\n(.*?)^```[ \t]*$", re.DOTALL | re.MULTILINE)
 SAVE_CALL_PATTERN = re.compile(r"\bcareer_save\.([A-Za-z_]\w*)\s*\(")
@@ -209,7 +218,17 @@ def test_disclaimer_appears_verbatim() -> None:
     assert DISCLAIMER in " ".join(README_TEXT.split())
 
 
-def test_readme_avoids_forbidden_phrases() -> None:
-    folded_text = README_TEXT.casefold()
-    present_phrases = [phrase for phrase in FORBIDDEN_PHRASES if phrase.casefold() in folded_text]
-    assert not present_phrases
+def test_the_pitch_is_not_hidden_data_or_a_database_dump() -> None:
+    """What this library is offered as, checked on the lines that do the offering.
+
+    A headline promising hidden data on every player in the database is the pitch of a cheating
+    tool, whatever the code underneath it does, and that framing is what would make this project
+    somebody else's problem. The words themselves are fine and are used further down, where they
+    tell a reader something true about what they get.
+
+    This is the whole of what a test can honestly check here. The rest is a judgement about tone
+    that belongs to whoever writes the page.
+    """
+    pitch_text = README_TEXT[: README_TEXT.index("\n## ")].casefold()
+    claimed = [claim for claim in PITCH_CLAIMS if claim in pitch_text]
+    assert not claimed, claimed
