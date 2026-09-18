@@ -96,7 +96,7 @@ EXPECTED_COLUMNS = (
     "opponent_club_name",
     "opponent_club_short_name",
     "opponent_team_slot",
-    "played",
+    "has_stats",
     "position",
     "position_code",
     "minutes",
@@ -106,9 +106,10 @@ EXPECTED_COLUMNS = (
     "rating",
     "passes_attempted",
     "passes_completed",
-    "body_valid",
+    "stats_in_range",
     "unknown_tag",
     "unknown_role_code",
+    "unknown_rating_raw",
 )
 
 
@@ -177,6 +178,7 @@ def match_bytes(
     played: bool = True,
     position_mask: int = FIRST_MATCH_POSITION_MASK,
     minutes: int = 90,
+    left_at: int = 90,
     rating_x10: int = 70,
     goals: int = 0,
 ) -> bytes:
@@ -189,6 +191,7 @@ def match_bytes(
         played=played,
         position_mask=position_mask,
         minutes=minutes,
+        left_at=left_at,
         rating_x10=rating_x10,
         goals=goals,
     )
@@ -245,7 +248,7 @@ def test_a_match_with_a_body_carries_every_field_the_body_holds(
     match_rows: tuple[PlayerMatchStats, ...],
 ) -> None:
     first_match = match_rows[0]
-    assert first_match.played is True
+    assert first_match.has_stats is True
     assert first_match.competition_id == FIRST_COMPETITION_ID
     assert first_match.goals == FIRST_MATCH_GOALS
     assert first_match.assists == FIRST_MATCH_ASSISTS
@@ -254,7 +257,7 @@ def test_a_match_with_a_body_carries_every_field_the_body_holds(
     assert first_match.rating == 7.8
     assert first_match.passes_attempted == FIRST_MATCH_PASSES_ATTEMPTED
     assert first_match.passes_completed == FIRST_MATCH_PASSES_COMPLETED
-    assert first_match.body_valid is True
+    assert first_match.stats_in_range is True
 
 
 def test_a_named_mask_bit_labels_the_position_and_keeps_its_raw_mask(
@@ -282,7 +285,7 @@ def test_the_unidentified_bytes_are_exported_as_they_are_stored(
     match_rows: tuple[PlayerMatchStats, ...],
 ) -> None:
     assert dict(match_rows[0].unknown) == {"tag": 0, "role_code": FIRST_MATCH_ROLE_CODE}
-    assert PlayerMatchStats.UNKNOWN_KEYS == ("tag", "role_code")
+    assert PlayerMatchStats.UNKNOWN_KEYS == ("tag", "role_code", "rating_raw")
 
 
 def test_a_match_with_no_body_carries_nothing_from_past_the_header(
@@ -290,8 +293,8 @@ def test_a_match_with_no_body_carries_nothing_from_past_the_header(
 ) -> None:
     """The record stops after its header, so every field past it belongs to the next match."""
     without_body = match_rows[1]
-    assert without_body.played is False
-    assert without_body.body_valid is False
+    assert without_body.has_stats is False
+    assert without_body.stats_in_range is False
     for field_name in (
         "position",
         "minutes",
@@ -319,8 +322,8 @@ def test_a_match_with_no_body_does_not_swallow_the_match_stored_after_it(
     assert after_the_short_record.competition_id == UNLISTED_MATCH_COMPETITION_ID
     assert after_the_short_record.minutes == 45
     assert after_the_short_record.rating == 6.5
-    assert after_the_short_record.played is True
-    assert after_the_short_record.body_valid is True
+    assert after_the_short_record.has_stats is True
+    assert after_the_short_record.stats_in_range is True
 
 
 def test_a_competition_the_stage_table_does_not_name_is_kept_and_counted(
@@ -340,8 +343,8 @@ def test_a_body_outside_its_ranges_is_kept_whole_and_only_flagged(
     assert out_of_range.minutes == OUT_OF_RANGE_MATCH_MINUTES
     assert out_of_range.rating == 12.0
     assert out_of_range.goals == OUT_OF_RANGE_MATCH_GOALS
-    assert out_of_range.body_valid is False
-    assert out_of_range.played is True
+    assert out_of_range.stats_in_range is False
+    assert out_of_range.has_stats is True
 
 
 def test_an_opponent_no_club_lists_leaves_its_four_fields_empty_and_is_counted(
@@ -493,7 +496,7 @@ def test_a_record_belonging_to_no_player_builds_no_row_and_is_counted() -> None:
         opponent_team_id=NORTHBRIDGE_TEAM_A,
         competition_id=FIRST_COMPETITION_ID,
         tag=0,
-        played=False,
+        has_stats=False,
         position_mask=None,
         role_code=None,
         goals=None,
@@ -602,6 +605,60 @@ def test_the_flat_columns_are_the_fields_with_the_coded_value_and_the_unknowns_e
     assert columns["position_code"] == [FIRST_MATCH_POSITION_MASK, None, UNNAMED_POSITION_MASK, 0]
     assert columns["unknown_tag"] == [0, 0, 0, 0]
     assert columns["unknown_role_code"] == [FIRST_MATCH_ROLE_CODE, None, 0, 0]
+    # Every one of these four matches carries a rating, so none of them keeps a raw copy.
+    assert columns["unknown_rating_raw"] == [None, None, None, None]
+
+
+def test_a_match_the_game_rated_nobody_in_carries_no_rating_and_keeps_the_stored_zero() -> None:
+    """A stored zero is not a rating of 0.0, so it never sits in the column beside real ones.
+
+    An average over the rating column is then an average of the ratings the game gave, which a
+    zero standing in for "nobody was rated" would quietly drag down.
+    """
+    rows, _stats = located(match_bytes(rating_x10=0))
+    unrated = rows[0]
+    assert unrated.has_stats is True
+    assert unrated.rating is None
+    # Nothing is lost: the stored zero is kept where the record keeps its other raw numbers.
+    assert unrated.unknown["rating_raw"] == 0
+    columns = Table(rows, PlayerMatchStats).to_columns()
+    assert columns["rating"] == [None]
+    assert columns["unknown_rating_raw"] == [0]
+
+
+def test_a_rating_the_game_gave_is_shipped_and_keeps_no_raw_copy() -> None:
+    """Only the zero is kept raw, so the unknown column says exactly which matches had none."""
+    rows, _stats = located(match_bytes(rating_x10=65))
+    assert rows[0].rating == 6.5
+    assert dict(rows[0].unknown) == {"tag": 0, "role_code": 0}
+
+
+def test_a_player_on_the_pitch_at_the_end_left_at_no_minute_at_all() -> None:
+    """The stored zero means he never left, so a search for early departures cannot find him."""
+    records = (
+        match_bytes(day_of_year=51, left_at=0)
+        + match_bytes(day_of_year=44, left_at=7, minutes=7)
+        + match_bytes(day_of_year=37, left_at=90)
+    )
+    rows, stats = located(records)
+    assert stats.records == 3
+    assert [row.left_at_minute for row in rows] == [None, 7, 90]
+    assert all(row.has_stats for row in rows)
+    early = [row for row in rows if row.left_at_minute is not None and row.left_at_minute < 10]
+    assert [row.date for row in early] == [date(MATCH_YEAR, 2, 13)]
+    # The minutes he played are untouched, so nothing about the match is lost with the zero.
+    assert [row.minutes for row in rows] == [90, 7, 90]
+
+
+def test_a_match_with_no_statistics_leaves_both_empties_meaning_something_else() -> None:
+    """The two Nones are told apart by has_stats, which is false only here."""
+    rows, _stats = located(match_bytes(played=False))
+    without_stats = rows[0]
+    assert without_stats.has_stats is False
+    assert without_stats.rating is None
+    assert without_stats.left_at_minute is None
+    assert without_stats.stats_in_range is False
+    assert dict(without_stats.unknown) == {"tag": 0}
 
 
 def test_match_records_survive_pickle_and_deepcopy(
@@ -633,7 +690,7 @@ def test_field_statuses_follow_what_the_evidence_reaches() -> None:
         "player_uid",
         "player_name",
         "opponent_team_slot",
-        "played",
+        "has_stats",
         # Minutes look exactly like minutes and no displayed value pins them, which ships the
         # field but does not confirm it.
         "minutes",
@@ -642,7 +699,7 @@ def test_field_statuses_follow_what_the_evidence_reaches() -> None:
         "rating",
         "passes_attempted",
         "passes_completed",
-        "body_valid",
+        "stats_in_range",
         "unknown",
     ):
         assert field_status(PlayerMatchStats, unconfirmed_field) == "unconfirmed", unconfirmed_field

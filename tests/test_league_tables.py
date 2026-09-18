@@ -326,15 +326,15 @@ def test_every_slot_alternates_its_venue_from_the_even_slot_home(tmp_path: Path)
         first_row = career_save.league_tables()[0].rows[0]
 
     assert TABLE_LAYOUT.home_slot_parity == 0
-    assert [match_row.venue for match_row in first_row.matches] == [
+    assert [match_row.home_or_away for match_row in first_row.matches] == [
         Venue.HOME,
         Venue.AWAY,
         Venue.HOME,
         Venue.AWAY,
     ]
     assert first_row.matches[2].opponent_team_id is None
-    assert first_row.matches[2].venue is Venue.HOME
-    assert field_status(fmsave.LeagueTableMatch, "venue") == "verified"
+    assert first_row.matches[2].home_or_away is Venue.HOME
+    assert field_status(fmsave.LeagueTableMatch, "home_or_away") == "verified"
 
 
 def test_a_layout_with_no_parity_leaves_every_venue_empty_and_checks_nothing(
@@ -353,7 +353,7 @@ def test_a_layout_with_no_parity_leaves_every_venue_empty_and_checks_nothing(
         )
 
     assert all(
-        match_row.venue is None
+        match_row.home_or_away is None
         for table in tables
         for row in table.rows
         for match_row in row.matches
@@ -391,7 +391,7 @@ def test_the_calendar_decides_the_venue_of_every_slot_of_an_in_step_table(
     assert stats.venue_slots_agreeing == VENUE_SLOT_COUNT
     venue_table = tables[2]
     assert [row.team_id for row in venue_table.rows] == [VENUE_TABLE_TEAM_A, VENUE_TABLE_TEAM_B]
-    assert [match_row.venue for match_row in venue_table.rows[0].matches] == [
+    assert [match_row.home_or_away for match_row in venue_table.rows[0].matches] == [
         Venue.HOME,
         Venue.AWAY,
     ]

@@ -36,7 +36,14 @@ from fmsave._status import register_field_statuses
 
 
 class Venue(StrEnum):
-    """Which ground a match row was played at. Derived by fmsave, never read as a code."""
+    """Which side of a match a club was, the home one or the away one.
+
+    This is the club's side, not the ground the match was played at: a match at a neutral
+    ground still has a home club and an away club, and this says which of the two the row's
+    club was. `Fixture.is_neutral_venue` is the field about the ground.
+
+    Derived by fmsave, never read as a code.
+    """
 
     HOME = "home"
     AWAY = "away"
@@ -87,15 +94,18 @@ class LeagueTableMatch:
 
     Attributes:
         slot: The slot's index in the row, counting from zero.
-        venue: Whether the match was played at home or away, which the save stores as the
-            slot's parity: the even slots are the home ones. That is checked against the
-            fixture calendar's own stored home team on every table whose rows account for
-            exactly one season of it, and it holds on 99.76% to 99.87% of the slots the
-            calendar can settle by itself, against a fifth of a percent were the parity the
-            other way round; the handful that disagree are consistent with rescheduled or
-            neutral-ground meetings. A slot never played carries a venue too, since the parity
-            belongs to the slot rather than to what happened in it. It is None only where the
-            build fmsave read the save with has not settled the parity.
+        home_or_away: Which side of the match the row's club was, the home one or the away
+            one, which the save stores as the slot's parity: the even slots are the home ones.
+            That is checked against the fixture calendar's own stored home team on every table
+            whose rows account for exactly one season of it, and it holds on 99.76% to 99.87%
+            of the slots the calendar can settle by itself, against a fifth of a percent were
+            the parity the other way round; the handful that disagree are consistent with
+            rescheduled or neutral-ground meetings. A slot never played carries a side too,
+            since the parity belongs to the slot rather than to what happened in it. It is None
+            only where the build fmsave read the save with has not settled the parity. This is
+            the club's side and not the ground: `Fixture.is_neutral_venue` is the field that
+            says whether a match was played away from the home club's usual ground, and a
+            match at a neutral ground still has a home club and an away club.
         opponent_team_id: The opponent's team id exactly as stored, or None for an unplayed
             slot.
         opponent_club_uid: Uid of the club fielding the opponent, or None when the slot is
@@ -112,7 +122,7 @@ class LeagueTableMatch:
     """
 
     slot: int
-    venue: Venue | None
+    home_or_away: Venue | None
     opponent_team_id: int | None
     opponent_club_uid: int | None
     opponent_club_name: str | None
@@ -230,7 +240,7 @@ register_field_statuses(
     LeagueTableMatch,
     verified=(
         "slot",
-        "venue",
+        "home_or_away",
         "opponent_team_id",
         "opponent_club_uid",
         "opponent_club_name",

@@ -1198,9 +1198,9 @@ class Save:
 
         Each row carries the competition id the record itself stores, which is in the stage id
         space, and joins to a club through the opponent's team id; a team id no club lists
-        leaves the opponent fields empty rather than guessing them. A match the save keeps no
-        performance body for carries its date, competition and opponent, and every field that
-        would come from the body is empty.
+        leaves the opponent fields empty rather than guessing them. A match the save no longer
+        holds the statistics of carries its date, competition and opponent, `has_stats` is
+        false, and every field the statistics would fill is empty.
 
         This reader decodes the players to fill `player_name`, so a cold call pays for the
         player pass; a caller who has already called `players()` pays nothing extra for it. The

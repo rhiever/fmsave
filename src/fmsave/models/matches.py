@@ -87,36 +87,46 @@ class PlayerMatchStats:
             the team does not resolve.
         opponent_team_slot: The opposing team's slot in its club's team list, 0 for the first
             entry, or None when the team does not resolve (unconfirmed).
-        played: Whether the save holds a performance body for this match. Every field below
-            that can be None is None when it is false, because the record then stops before
-            them and the bytes where they would sit belong to the next match (unconfirmed).
+        has_stats: Whether the save still holds this match's statistics. A save that has
+            dropped them keeps the date, the competition and the opponent and nothing else, so
+            every field below that can be None is None when this is false (unconfirmed).
         position: The position played, as a coded value over the mask the record stores. Only
             the goalkeeper bit is named; every other mask keeps its raw value and reads as
-            UNKNOWN. None when the save holds no body.
-        minutes: Minutes played, or None when the save holds no body. No value the game
-            displays has been matched to this number; what says it is minutes played is its
-            shape. On the saves measured about half of bodies hold exactly 90, over 0.993
-            hold 90 or less, none holds more than 130, and the rest are spread over the
-            values below 90 rather than clustered (unconfirmed).
-        left_at_minute: The minute the player left the pitch, which is 0 for a player who was
-            still on at the end; None when the save holds no body (unconfirmed).
-        goals: Goals scored, or None when the save holds no body.
-        assists: Assists, or None when the save holds no body. This is a **hypothesis**: no
-            displayed label has been matched to this byte, and the count shown on a player's
-            season statistics screen is what would confirm it (unconfirmed).
-        rating: The match rating, which is the stored number divided by ten and so exact to one
-            decimal; None when the save holds no body. A match the game gave no rating for
-            stores zero (unconfirmed).
-        passes_attempted: Passes attempted, or None when the save holds no body (unconfirmed).
-        passes_completed: Passes completed, or None when the save holds no body (unconfirmed).
-        body_valid: fmsave's own sanity flag, not a value the save stores: true when the save
-            holds a body for this match and its minutes, rating and goals are all inside the
-            bounds a match can reach. A false flag never blanks a value; every number is kept
-            exactly as stored so a caller can see what the save holds (unconfirmed).
-        unknown: Numeric fields with no known meaning. "role_code" moves with the position
-            played but its meaning is not established, and it is None without a body, so it is
-            absent from the mapping then; "tag" is inside the header and is always read
+            UNKNOWN. None when the save holds no statistics for the match.
+        minutes: Minutes played, or None when the save holds no statistics for the match. No
+            value the game displays has been matched to this number; what says it is minutes
+            played is its shape. On the saves measured about half the matches with statistics
+            hold exactly 90, over 0.993 hold 90 or less, none holds more than 130, and the rest
+            are spread over the values below 90 rather than clustered (unconfirmed).
+        left_at_minute: The minute the player left the pitch, whether he was substituted or
+            sent off. None when he was on it at the final whistle, which the save stores as a
+            zero, and None as well when the save holds no statistics for the match; `has_stats`
+            tells those two apart. It is never 0, so a filter such as `left_at_minute < 10`
+            selects the early departures and nobody else (unconfirmed).
+        goals: Goals scored, or None when the save holds no statistics for the match.
+        assists: Assists, or None when the save holds no statistics for the match. This is a
+            **hypothesis**: no displayed label has been matched to this byte, and the count
+            shown on a player's season statistics screen is what would confirm it
             (unconfirmed).
+        rating: The match rating, which is the stored number divided by ten and so exact to one
+            decimal. None when the save holds no statistics for the match, and None as well
+            when the game rated nobody in it, which the save stores as a zero; `has_stats`
+            tells those two apart, and the stored zero is kept as `unknown["rating_raw"]` so
+            nothing is dropped. A rating is never 0.0, so an average over this column is an
+            average of the ratings the game actually gave (unconfirmed).
+        passes_attempted: Passes attempted, or None when the save holds no statistics for the
+            match (unconfirmed).
+        passes_completed: Passes completed, or None when the save holds no statistics for the
+            match (unconfirmed).
+        stats_in_range: fmsave's own sanity flag, not a value the save stores: true when the
+            save holds this match's statistics and its minutes, rating and goals are all inside
+            the bounds a match can reach. A false flag never blanks a value; every number is
+            kept exactly as stored so a caller can see what the save holds (unconfirmed).
+        unknown: Numeric fields with no known meaning. "role_code" moves with the position
+            played but its meaning is not established, and it is absent from the mapping for a
+            match the save holds no statistics for; "tag" is stored beside the date and is
+            always read; "rating_raw" is the stored rating, kept only where it is zero, which
+            is the one value `rating` itself cannot carry (unconfirmed).
     """
 
     player_uid: int
@@ -128,7 +138,7 @@ class PlayerMatchStats:
     opponent_club_name: str | None
     opponent_club_short_name: str | None
     opponent_team_slot: int | None
-    played: bool
+    has_stats: bool
     position: CodedValue[MatchPosition] | None
     minutes: int | None
     left_at_minute: int | None
@@ -137,10 +147,10 @@ class PlayerMatchStats:
     rating: float | None
     passes_attempted: int | None
     passes_completed: int | None
-    body_valid: bool
+    stats_in_range: bool
     unknown: Mapping[str, int]
 
-    UNKNOWN_KEYS: ClassVar[tuple[str, ...]] = ("tag", "role_code")
+    UNKNOWN_KEYS: ClassVar[tuple[str, ...]] = ("tag", "role_code", "rating_raw")
 
 
 register_field_statuses(
@@ -159,14 +169,14 @@ register_field_statuses(
         "player_uid",
         "player_name",
         "opponent_team_slot",
-        "played",
+        "has_stats",
         "minutes",
         "assists",
         "left_at_minute",
         "rating",
         "passes_attempted",
         "passes_completed",
-        "body_valid",
+        "stats_in_range",
         "unknown",
     ),
 )

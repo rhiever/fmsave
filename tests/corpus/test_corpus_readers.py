@@ -70,11 +70,19 @@ EXPECTED_READERS = (
 # Empty: the ranges cover every reader, so every reader added since must be added here until the
 # ranges are written again, and emptied out of it once they are.
 READERS_WITHOUT_RECORDED_RANGES: frozenset[str] = frozenset()
-# Columns the recorded ranges still name that the output schema has since replaced. A rename or
-# a removal bumps the schema version and is recorded column by column in the output schema
-# snapshot, which is what guards the change itself, so a column named here is a stale range
-# rather than a column a reader lost. Empty while the ranges match the schema.
-RETIRED_BASELINE_COLUMNS: dict[str, frozenset[str]] = {}
+# Columns whose recorded ranges the output schema has since left behind, either because the
+# column was renamed or removed or because an empty cell in it now means something the recorded
+# rate was not measured against. A rename or a removal bumps the schema version and is recorded
+# column by column in the output schema snapshot, which is what guards the change itself, so a
+# column named here is a stale range rather than a column a reader lost. Empty while the ranges
+# match the schema.
+RETIRED_BASELINE_COLUMNS: dict[str, frozenset[str]] = {
+    # `played` and `body_valid` are now `has_stats` and `stats_in_range`, and `rating` and
+    # `left_at_minute` now leave a cell empty where they used to carry a zero that stood for
+    # "the game rated nobody" and "he was on the pitch at the end", so the rates recorded before
+    # that are not rates these two columns can still reach.
+    "player_match_stats": frozenset({"played", "body_valid", "rating", "left_at_minute"}),
+}
 
 
 def save_label(relative_name: str) -> str:

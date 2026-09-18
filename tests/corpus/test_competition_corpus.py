@@ -506,20 +506,22 @@ def test_per_match_records_belong_to_their_player_and_stay_in_range(
             "per-match competitions are in the competition table",
             meets(in_competition_table, MATCH_COMPETITION_IN_TABLE_MINIMUM),
         )
+        # A row in range carries its minutes, and carries its rating unless the game rated
+        # nobody in the match, which leaves the rating empty and keeps the stored zero.
         bodies_out_of_range = sum(
             1
             for record in match_stats
-            if record.body_valid
+            if record.stats_in_range
             and (
                 record.minutes is None
                 or record.minutes > MATCH_MINUTES_LIMIT
-                or record.rating is None
-                or record.rating > MATCH_RATING_LIMIT
+                or (record.rating is None and record.unknown.get("rating_raw") != 0)
+                or (record.rating is not None and record.rating > MATCH_RATING_LIMIT)
             )
         )
         mismatches.check(label, "valid bodies stay in range", bodies_out_of_range == 0)
         unplayed_with_minutes = sum(
-            1 for record in match_stats if record.played is False and record.minutes is not None
+            1 for record in match_stats if record.has_stats is False and record.minutes is not None
         )
         mismatches.check(
             label, "records without a body carry no minutes", unplayed_with_minutes == 0

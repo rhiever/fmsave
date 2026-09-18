@@ -64,7 +64,7 @@ Records and tables are immutable and keep working after the save is closed.
 - `league_tables()` — every live table, one row per club, with its total record, its home, away and half-season splits, and one slot per match. Rows come back in the save's own standings order, so do not re-sort them: the game separates clubs level on points by their head-to-head record, which no field here carries.
 - `competition_rules()` — every rules block: promotion, play-off and relegation places, tie-break codes, prize money by finishing position and the round calendar.
 - `transfer_windows()` — every window the save's rules database holds, with the day and month each opens and closes. Windows are database content rather than career state, and repeat, so deduplicate if you want one row each.
-- `player_match_stats()` — every match a player played that the save still holds a record of: date, competition, opponent, and for a match it kept a performance body, the position, minutes, goals, assists, rating, the minute he left and both pass counts. The save keeps about twenty matches per player per spell across all competitions at once, so this is never a whole season.
+- `player_match_stats()` — every match a player played that the save still holds a record of: date, competition, opponent, and for a match it still holds the statistics of, the position, minutes, goals, assists, rating, the minute he left and both pass counts. The save keeps about twenty matches per player per spell across all competitions at once, so this is never a whole season.
 
 **Injuries**
 

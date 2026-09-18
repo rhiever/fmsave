@@ -278,7 +278,7 @@ def _match_rows(
             matches.append(
                 LeagueTableMatch(
                     slot=slot,
-                    venue=venue,
+                    home_or_away=venue,
                     opponent_team_id=None,
                     opponent_club_uid=None,
                     opponent_club_name=None,
@@ -294,7 +294,7 @@ def _match_rows(
         matches.append(
             LeagueTableMatch(
                 slot=slot,
-                venue=venue,
+                home_or_away=venue,
                 opponent_team_id=row.key,
                 opponent_club_uid=club_uid,
                 opponent_club_name=club_name,
@@ -463,7 +463,7 @@ def _venue_agreement(
                 if decided is None:
                     continue
                 slots_decided += 1
-                if decided is slot.venue:
+                if decided is slot.home_or_away:
                     slots_agreeing += 1
     return _VenueAgreement(in_sync_tables, slots_decided, slots_agreeing)
 

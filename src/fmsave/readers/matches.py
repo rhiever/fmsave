@@ -62,6 +62,10 @@ _YEAR_HIGH_BYTE_SHIFT = 8
 _POSITION_MASK_BITS = 16
 _NO_BODY_FLAG = 0
 _BODY_FLAG = 1
+# What a body stores for a player who was on the pitch at the final whistle, and for a match the
+# game rated nobody in. Neither is a minute or a rating, so neither is shipped as one.
+_NEVER_LEFT_THE_PITCH = 0
+_NOBODY_WAS_RATED = 0
 
 _NO_OPPONENT_CLUB: tuple[int | None, str | None, str | None, int | None] = (None, None, None, None)
 
@@ -70,22 +74,24 @@ _NO_OPPONENT_CLUB: tuple[int | None, str | None, str | None, int | None] = (None
 class RawMatchRecord:
     """One accepted per-match record, before any join.
 
-    Every field from `position_mask` on is None when `played` is false, because the record then
-    stops before them and those bytes belong to the next match.
+    Every field from `position_mask` on is None when `has_stats` is false, because the record
+    then stops before them and those bytes belong to the next match.
 
     Attributes:
         date: The date the match was played.
         opponent_team_id: The opposing side's first-team id, exactly as stored.
         competition_id: The competition id, in the stage id space.
         tag: The unidentified byte exported as `unknown["tag"]`.
-        played: Whether a performance body follows the header.
+        has_stats: Whether a performance body follows the header.
         position_mask: The stored position mask.
         role_code: The unidentified byte exported as `unknown["role_code"]`.
         goals: Goals scored.
         assists: Assists, which is a hypothesis with no labelled source.
-        left_at_minute: The minute the player left the pitch.
+        left_at_minute: The minute the player left the pitch, stored as 0 for a player who was
+            on it at the final whistle.
         minutes: Minutes played.
-        rating_raw: The match rating before it is divided by the layout's scale.
+        rating_raw: The match rating before it is divided by the layout's scale, stored as 0
+            for a match the game rated nobody in.
         passes_attempted: Passes attempted.
         passes_completed: Passes completed.
     """
@@ -94,7 +100,7 @@ class RawMatchRecord:
     opponent_team_id: int
     competition_id: int
     tag: int
-    played: bool
+    has_stats: bool
     position_mask: int | None
     role_code: int | None
     goals: int | None
@@ -357,17 +363,17 @@ def locate_match_records(
         body_flag: int = header_values[body_flag_index]
         if body_flag not in (_NO_BODY_FLAG, _BODY_FLAG):
             continue
-        played = body_flag == _BODY_FLAG
-        if played and record_start + record_bytes > game_db_length:
+        has_stats = body_flag == _BODY_FLAG
+        if has_stats and record_start + record_bytes > game_db_length:
             continue
-        if played:
+        if has_stats:
             body_values = unpack_body(game_db, record_start)
             record = RawMatchRecord(
                 date=played_on,
                 opponent_team_id=opponent_team_id,
                 competition_id=competition_id,
                 tag=header_values[tag_index],
-                played=True,
+                has_stats=True,
                 position_mask=body_values[position_mask_index],
                 role_code=body_values[role_code_index],
                 goals=body_values[goals_index],
@@ -385,7 +391,7 @@ def locate_match_records(
                 opponent_team_id=opponent_team_id,
                 competition_id=competition_id,
                 tag=header_values[tag_index],
-                played=False,
+                has_stats=False,
                 position_mask=None,
                 role_code=None,
                 goals=None,
@@ -474,8 +480,14 @@ def build_player_match_stats(
     the stage-space check judges. No value of its own reaches a row: a record carries its
     competition id itself, and nothing here looks one up.
 
-    A body outside the layout's bounds is flagged and kept, never blanked: `body_valid` says
+    A body outside the layout's bounds is flagged and kept, never blanked: `stats_in_range` says
     what fmsave makes of the numbers and the numbers stay exactly as the save holds them.
+
+    Two stored zeros are not numbers of their own kind and are not shipped as one. A stored
+    `left_at_minute` of zero means the player was on the pitch at the final whistle rather than
+    that he left in the opening seconds, and a stored rating of zero means the game rated nobody
+    in that match rather than that it rated him 0.0; both become None, and the rating's zero is
+    kept in `unknown` so the record still says what the save holds.
     """
     labels_by_mask = _position_labels(layout.position_bits)
     uids = player_records.uids
@@ -521,19 +533,22 @@ def build_player_match_stats(
             rating_raw = record.rating_raw
             minutes = record.minutes
             goals = record.goals
-            body_valid = False
-            if record.played:
+            left_at_minute = record.left_at_minute
+            stats_in_range = False
+            if record.has_stats:
                 with_body += 1
                 minutes_ok = minutes is not None and minutes <= maximum_minutes
                 rating_ok = rating_raw is not None and rating_raw <= maximum_rating
                 goals_ok = goals is not None and goals <= maximum_goals
                 minutes_in_range += minutes_ok
                 rating_in_range += rating_ok
-                body_valid = minutes_ok and rating_ok and goals_ok
-                body_valid_count += body_valid
+                stats_in_range = minutes_ok and rating_ok and goals_ok
+                body_valid_count += stats_in_range
             unknown_values = {"tag": record.tag}
             if record.role_code is not None:
                 unknown_values["role_code"] = record.role_code
+            if rating_raw is not None and rating_raw == _NOBODY_WAS_RATED:
+                unknown_values["rating_raw"] = rating_raw
             rows.append(
                 PlayerMatchStats(
                     player_uid=player_uid,
@@ -545,7 +560,7 @@ def build_player_match_stats(
                     opponent_club_name=club_name,
                     opponent_club_short_name=club_short_name,
                     opponent_team_slot=team_slot,
-                    played=record.played,
+                    has_stats=record.has_stats,
                     position=(
                         None
                         if position_mask is None
@@ -555,13 +570,19 @@ def build_player_match_stats(
                         )
                     ),
                     minutes=minutes,
-                    left_at_minute=record.left_at_minute,
+                    left_at_minute=(
+                        None if left_at_minute == _NEVER_LEFT_THE_PITCH else left_at_minute
+                    ),
                     goals=goals,
                     assists=record.assists,
-                    rating=None if rating_raw is None else rating_raw / rating_scale,
+                    rating=(
+                        None
+                        if rating_raw is None or rating_raw == _NOBODY_WAS_RATED
+                        else rating_raw / rating_scale
+                    ),
                     passes_attempted=record.passes_attempted,
                     passes_completed=record.passes_completed,
-                    body_valid=body_valid,
+                    stats_in_range=stats_in_range,
                     unknown=FrozenMapping(unknown_values),
                 )
             )

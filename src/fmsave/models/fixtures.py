@@ -83,7 +83,11 @@ class Fixture:
         is_neutral_venue: Whether the match was played away from the home club's usual
             ground: True when its ground differs from the one that club used most in this
             season, False when it matches, and None when the ground is unknown or the club
-            played too few home matches this season to say which ground is usual. The season
+            played too few home matches this season to say which ground is usual. This is
+            about the ground and not about which club counts as the home one: the home club is
+            `home_team_id` whether the ground is neutral or not, and
+            `LeagueTableMatch.home_or_away` is the field that says which side of a match a club
+            was. The season
             is the stored season_start_year, which some friendlies leave empty, and every
             such match a club played shares one vote; a club that moved ground mid-career
             therefore has its earlier seasonless matches judged against the later ground.
