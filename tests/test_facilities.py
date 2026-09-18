@@ -227,9 +227,25 @@ def test_the_table_is_decoded_once_and_a_closed_save_raises(
         career_save.facilities()
 
 
+# A club population invented here, so that no count in this file comes from a real save. It is
+# round, which makes every share below an exact count of clubs.
+CLUBS_WITH_A_SERIES = 1_000
+IN_RANGE_FLOOR = 0.99
+
+
+def facility_stats_at_share(in_range_share: float) -> FacilityStats:
+    """An invented save where `in_range_share` of the clubs with a series read a rating in range."""
+    return FacilityStats(
+        clubs_with_series=CLUBS_WITH_A_SERIES,
+        rows=CLUBS_WITH_A_SERIES,
+        in_range=round(in_range_share * CLUBS_WITH_A_SERIES),
+        managed_club_exists=True,
+    )
+
+
 def passing_facility_stats() -> FacilityStats:
-    """Counts inside every bound, taken from the shape the corpus saves hold."""
-    return FacilityStats(clubs_with_series=335, rows=335, in_range=335, managed_club_exists=True)
+    """Every club reads a rating in range, which is inside every bound."""
+    return facility_stats_at_share(1.0)
 
 
 def failed_gate_names(stats: FacilityStats) -> list[str]:
@@ -237,28 +253,39 @@ def failed_gate_names(stats: FacilityStats) -> list[str]:
     return [gate.name for gate in gates if gate.applied and not gate.passed]
 
 
-def test_the_corpus_shaped_counts_pass_every_facility_gate() -> None:
+def test_a_sound_facility_shape_passes_every_facility_gate() -> None:
     assert failed_gate_names(passing_facility_stats()) == []
 
 
-# What the share reads with the rating taken from the wrong byte, measured on the saves tested
-# against their own club counts: one byte early, one byte late, and four bytes late, which is
-# the worst of them. Each is a count out of the largest club population measured.
+# The worst share each misalignment scores in the layout's own record of them: the rating read
+# one byte early, one byte late, and four bytes late, which is the worst of the three. A share
+# is a property of the format, so these are what the floor has to fail whatever save it runs on.
 MISALIGNED_SHARES = (
-    ("one byte early", 6),
-    ("one byte late", 11),
-    ("four bytes late", 61),
+    ("one byte early", 0.02),
+    ("one byte late", 0.09),
+    ("four bytes late", 0.63),
 )
 
 
 @pytest.mark.parametrize(
-    ("shift", "in_range"),
+    ("shift", "in_range_share"),
     MISALIGNED_SHARES,
-    ids=[shift for shift, _in_range in MISALIGNED_SHARES],
+    ids=[shift for shift, _share in MISALIGNED_SHARES],
 )
-def test_a_rating_read_from_the_wrong_byte_fails_the_share(shift: str, in_range: int) -> None:
-    stats = dataclasses.replace(passing_facility_stats(), in_range=in_range)
+def test_a_rating_read_from_the_wrong_byte_fails_the_share(
+    shift: str, in_range_share: float
+) -> None:
+    stats = facility_stats_at_share(in_range_share)
     assert failed_gate_names(stats) == ["facility_byte_in_range"]
+
+
+def test_the_share_floor_passes_on_it_and_fails_one_club_below_it() -> None:
+    """The floor itself is pinned, so a bound that moved cannot go unnoticed here."""
+    on_the_floor = facility_stats_at_share(IN_RANGE_FLOOR)
+    below_the_floor = dataclasses.replace(on_the_floor, in_range=on_the_floor.in_range - 1)
+
+    assert failed_gate_names(on_the_floor) == []
+    assert failed_gate_names(below_the_floor) == ["facility_byte_in_range"]
 
 
 def test_no_club_with_a_series_fails_the_count_floor_on_a_managed_save() -> None:

@@ -64,30 +64,35 @@ GATE_NAMES_AN_EMPTY_DECODE_FAILS = GATE_NAMES[:2]
 EXAMPLE_BLOCK_COUNT = 2
 # The three rounds the example blocks carry, a week apart from 20 February 2031.
 EXAMPLE_ROUND_DATES = (date(2031, 2, 20), date(2031, 2, 27), date(2031, 3, 6))
-# Counts from the largest save measured: 672 blocks, of which 567 parse in the
-# strict sense the check counts and 633 carry a doubled promotion quad.
-CORPUS_MARKERS = 672
-CORPUS_FULLY_PARSED = 567
-CORPUS_QUAD_DOUBLED = 633
-# 0.80 of 672 is 537.6, so these two counts sit either side of the floor by one block.
-JUST_ABOVE_THE_PARSED_FLOOR = 538
-JUST_BELOW_THE_PARSED_FLOOR = 537
-THREE_QUARTERS_PARSED = 504
-# The same save's positional link: 471 blocks are followed by a run of table blocks, 419 of
-# those runs are exactly one table's set of clubs and 418 of those tables carry a voted
-# competition. Of the 4,910 dated rounds those blocks hold, 3,678 fall on a date the
-# competition plays a fixture on; taking the run before each block instead leaves 0.58.
-CORPUS_BLOCKS_WITH_RUN = 471
-CORPUS_BLOCKS_LINKED = 419
-CORPUS_BLOCKS_LINKED_WITH_COMPETITION = 418
-CORPUS_LINKED_ROUNDS = 4_910
-CORPUS_LINKED_ROUNDS_IN_CALENDAR = 3_678
-CORPUS_LINKED_ROUND_SHAPE = 312
-# 0.65 of 4,910 is 3,191.5, so these two counts sit either side of the floor by one round, and
-# the misaligned share of 0.58 is 2,848 rounds.
-JUST_ABOVE_THE_ROUND_DATE_FLOOR = 3_192
-JUST_BELOW_THE_ROUND_DATE_FLOOR = 3_191
-MISALIGNED_ROUNDS_IN_CALENDAR = 2_848
+# A round block and round population invented here, so that no count in this file comes from a
+# real save. The counts are chosen for the shares they make against the bounds, and the two
+# boundary tests below assert that each pair really does straddle its floor, so a bound that
+# moved cannot leave this shape silently on the wrong side of it.
+HEALTHY_BLOCKS = 1_000
+HEALTHY_LINKED_ROUNDS = 10_000
+# 0.90 parsed and 0.95 doubled, both well above the 0.80 parsed floor.
+HEALTHY_FULLY_PARSED = 900
+HEALTHY_QUAD_DOUBLED = 950
+# Seven blocks in ten carry a run, which clears the 200-run threshold the link gate applies
+# from, and nearly all of those runs link, which clears the count floor many times over.
+HEALTHY_BLOCKS_WITH_RUN = 700
+HEALTHY_BLOCKS_LINKED = 610
+HEALTHY_BLOCKS_LINKED_WITH_COMPETITION = 600
+# 0.75 of the rounds fall in the calendar, above the 0.65 floor; the shape count is reported
+# rather than gated, so any value inside the population will do.
+HEALTHY_LINKED_ROUNDS_IN_CALENDAR = 7_500
+HEALTHY_LINKED_ROUND_SHAPE = 700
+# 0.80 of 1,000 blocks, so these two counts sit either side of the parsed floor by one block.
+JUST_ABOVE_THE_PARSED_FLOOR = 800
+JUST_BELOW_THE_PARSED_FLOOR = 799
+THREE_QUARTERS_PARSED = 750
+# 0.65 of 10,000 rounds, so these two sit either side of the round-date floor by one round. The
+# misaligned share is the one the layout records for taking the run before each block instead of
+# the run after it, which is a property of the format rather than of any career.
+JUST_ABOVE_THE_ROUND_DATE_FLOOR = 6_500
+JUST_BELOW_THE_ROUND_DATE_FLOOR = 6_499
+MISALIGNED_ROUND_DATE_SHARE = 0.58
+MISALIGNED_ROUNDS_IN_CALENDAR = round(MISALIGNED_ROUND_DATE_SHARE * HEALTHY_LINKED_ROUNDS)
 # The linked-block floor is 90 and applies from 200 blocks with a run.
 JUST_ABOVE_THE_LINKED_BLOCK_FLOOR = 90
 JUST_BELOW_THE_LINKED_BLOCK_FLOOR = 89
@@ -101,19 +106,19 @@ EXAMPLE_SCORES = (
 
 
 def healthy_stats() -> RulesStats:
-    """Counts as the larger corpus save reports them, comfortably inside every bound."""
+    """An invented span the shape a sound decode gives, comfortably inside every bound."""
     return RulesStats(
-        markers=CORPUS_MARKERS,
-        blocks=CORPUS_MARKERS,
-        fully_parsed=CORPUS_FULLY_PARSED,
-        quad_doubled=CORPUS_QUAD_DOUBLED,
-        rows=CORPUS_MARKERS,
-        blocks_with_run=CORPUS_BLOCKS_WITH_RUN,
-        blocks_linked=CORPUS_BLOCKS_LINKED,
-        blocks_linked_with_competition=CORPUS_BLOCKS_LINKED_WITH_COMPETITION,
-        linked_rounds=CORPUS_LINKED_ROUNDS,
-        linked_rounds_in_calendar=CORPUS_LINKED_ROUNDS_IN_CALENDAR,
-        linked_round_shape=CORPUS_LINKED_ROUND_SHAPE,
+        markers=HEALTHY_BLOCKS,
+        blocks=HEALTHY_BLOCKS,
+        fully_parsed=HEALTHY_FULLY_PARSED,
+        quad_doubled=HEALTHY_QUAD_DOUBLED,
+        rows=HEALTHY_BLOCKS,
+        blocks_with_run=HEALTHY_BLOCKS_WITH_RUN,
+        blocks_linked=HEALTHY_BLOCKS_LINKED,
+        blocks_linked_with_competition=HEALTHY_BLOCKS_LINKED_WITH_COMPETITION,
+        linked_rounds=HEALTHY_LINKED_ROUNDS,
+        linked_rounds_in_calendar=HEALTHY_LINKED_ROUNDS_IN_CALENDAR,
+        linked_round_shape=HEALTHY_LINKED_ROUND_SHAPE,
     )
 
 
@@ -473,7 +478,7 @@ def test_the_build_counts_exactly_what_the_checks_read(career_save_path: Path) -
 
 
 def test_healthy_counts_pass_every_gate_and_a_small_span_applies_none() -> None:
-    """The corpus counts must pass, so no gate here is rigged to fail whatever it is given."""
+    """A sound span's shape must pass, so no gate here is rigged to fail whatever it is given."""
     results = evaluate_competition_rules(healthy_stats(), BOUNDS, FULL_SIZE_SPAN_BYTES)
 
     assert tuple(result.name for result in results) == GATE_NAMES

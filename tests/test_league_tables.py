@@ -451,9 +451,9 @@ def test_a_table_matching_two_seasons_is_turned_away_like_one_matching_none(
     """Exactly one season may match, because two leave no season the row counts describe.
 
     These clubs played each other twice in each of two seasons, so the table's row counts hold
-    in both and a slot cannot be matched to the meeting it records. On the corpus 9, 14 and 0
-    tables are in this position, and taking either season would compare half the slots against
-    the wrong pair of matches.
+    in both and a slot cannot be matched to the meeting it records. On the corpus a handful of
+    tables per save are in this position, and taking either season would compare half the slots
+    against the wrong pair of matches.
     """
     career_path = write_venue_career(tmp_path, extra_fixtures=VENUE_EARLIER_SEASON_FIXTURES)
 
@@ -849,8 +849,8 @@ def test_league_table_gates_fail_one_at_a_time(
     """A span pass that finds nothing fails every gate it has a population for, and each
     filter that stopped filtering fails its own gate alone.
 
-    The parity case carries the corpus's own flipped figure, 18 slots of 7,548, which is what
-    reading the slots the other way round scores on every save measured.
+    The parity case carries the share reading the slots the other way round scores on every
+    save measured, which is a fifth of a percent of them.
     """
     results = evaluate_league_tables(stats, BOUNDS, FULL_SIZE_SPAN_BYTES)
 

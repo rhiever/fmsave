@@ -45,7 +45,7 @@ def failed_gate_names(results: tuple[GateResult, ...]) -> list[str]:
 
 
 def healthy_window_stats() -> TransferWindowStats:
-    """Counts as both corpus saves report them."""
+    """Counts as every save measured reports them; the windows are database content."""
     return TransferWindowStats(markers=1_766, windows=54, incomplete=0)
 
 
