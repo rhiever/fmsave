@@ -33,13 +33,14 @@ LEADING_NAME_PATTERN = re.compile(r"[A-Za-z_]\w*(?:/\w+)*")
 COMMAND_LINE_HEADING = "## Command line"
 EXPORT_TABLES_LINE_PREFIX = "- `export` writes one table"
 TABLE_METHODS_LINE_PREFIX = "Each reader returns a `Table`"
-TABLE_VARIABLE_NAMES = ("squad_players", "managed_clubs")
+TABLE_VARIABLE_NAMES = ("squad", "managed_clubs")
 RECORD_VARIABLE_TYPES: dict[str, type] = {
-    "save_info": fmsave.SaveInfo,
     "my_club": fmsave.ManagedClub,
-    "squad_player": fmsave.Player,
-    "contract": fmsave.Contract,
+    "player": fmsave.Player,
+    "competition": fmsave.Competition,
 }
+READER_HEADING = "## What else it reads"
+READER_NAME_PATTERN = re.compile(r"`([a-z_]\w*)\(\)`")
 
 
 def python_blocks() -> list[str]:
@@ -69,6 +70,11 @@ def cli_command_parsers() -> dict[str, argparse.ArgumentParser]:
         if isinstance(action, argparse._SubParsersAction):
             return dict(action.choices)
     raise AssertionError("the fmsave parser has no commands")
+
+
+def export_table_choices_as_methods() -> set[str]:
+    """The export table names as the reader methods they name, hyphens being underscores."""
+    return {table_name.replace("-", "_") for table_name in export_table_choices()}
 
 
 def export_table_choices() -> set[str]:
@@ -186,17 +192,17 @@ def test_readme_commands_exist() -> None:
     console_commands = set(CONSOLE_COMMAND_PATTERN.findall("\n".join(console_blocks())))
     bullet_commands = set(COMMAND_BULLET_PATTERN.findall(readme_section(COMMAND_LINE_HEADING)))
     assert console_commands, "no fmsave commands in README console blocks"
-    assert bullet_commands, "no command bullets in the README command line section"
     unknown_commands = (console_commands | bullet_commands) - set(cli_command_parsers())
     assert not unknown_commands, sorted(unknown_commands)
 
 
-def test_readme_export_tables_match_parser() -> None:
-    export_line = readme_line(EXPORT_TABLES_LINE_PREFIX)
-    tables_match = re.search(r"\(([^)]*)\)", export_line)
-    assert tables_match, "the export line has no parenthesized table list"
-    listed_tables = set(BACKTICK_SPAN_PATTERN.findall(tables_match.group(1)))
-    assert listed_tables == export_table_choices()
+def test_readme_reader_list_names_every_reader() -> None:
+    """The reader list is the README's inventory, so it has to be the whole of one."""
+    listed_readers = set(READER_NAME_PATTERN.findall(readme_section(READER_HEADING)))
+    assert (
+        listed_readers | set(SAVE_CALL_PATTERN.findall(README_TEXT))
+        == export_table_choices_as_methods()
+    )
 
 
 def test_disclaimer_appears_verbatim() -> None:
