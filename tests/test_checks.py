@@ -1299,12 +1299,13 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_caches_nothin
                 assert cache_key not in career_save._context._cache
         assert len(evaluations) == 3
         report = validate_save(career_save)
-    # Once for the player pass itself, which the two readers sharing it then skip, and once
-    # each for the five readers that decode the players to name their rows and so pay for that
-    # pass again before raising the same error: the per-match stats, the staff, the injury
-    # history, the training and the tactics. Each of those three that shares a pass carries its
-    # partner (staff lists, mentoring, set pieces), so the partner pays nothing.
-    assert len(evaluations) == 9
+    # A `validate` run costs six decodes of a failed player pass: one for the pass itself, which
+    # the two readers sharing it then skip, and one each for the five readers that decode the
+    # players to name their rows and so pay for that pass again before raising the same error -
+    # the per-match stats, the staff, the injury history, the training and the tactics. Each of
+    # the last three carries its own pass partner (staff lists, mentoring, set pieces), so the
+    # partner pays nothing. The three counted before `validate_save` are this test's own calls.
+    assert len(evaluations) == 3 + 6
     readers = reader_by_name(report)
     assert {name: reader.status for name, reader in readers.items()} == {
         "clubs": "ok",

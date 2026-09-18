@@ -15,7 +15,7 @@ from fmsave._reader_stats import JobVacancyStats
 from fmsave.checks import JOB_VACANCIES_READER, GateResult, evaluate_job_vacancies
 from fmsave.export import column_names
 from fmsave.models.jobs import JobVacancy
-from fmsave.readers._common import GAME_DB_SECTION
+from fmsave.readers._common import GAME_DB_SECTION, MISSING_REFERENCE
 from fmsave.readers.jobs import find_job_centre_layout, read_job_vacancies
 from tests.fixtures.career import (
     FIRST_COMPETITION_DATABASE_ID,
@@ -202,6 +202,31 @@ def test_a_vacancy_at_a_team_no_club_lists_keeps_its_team_id_alone(career_path: 
     assert row.competition_id == SECOND_COMPETITION_ID
     assert row.league_position == 12
     assert row.advertised_date == date(2031, 2, 14)
+
+
+@pytest.mark.parametrize("stored_team_id", [0, MISSING_REFERENCE])
+def test_a_record_naming_no_team_leaves_its_team_and_club_fields_empty(
+    career_path: Path, stored_team_id: int
+) -> None:
+    """A stored 0 or the missing-reference word is no team, and never a team id of its own.
+
+    No save measured stores either here, but every other reader that hands out a stored id
+    reads them this way, and a feed that starts storing one must not have it handed out as a
+    team the caller could look up. The rest of the record still decodes.
+    """
+    records = altered_records(0, team_id=stored_team_id)
+    vacancies, stats = decode(career_path, job_centre_body(records))
+
+    assert vacancies[0].team_id is None
+    assert vacancies[0].club_uid is None
+    assert vacancies[0].club_name is None
+    assert vacancies[0].team_slot is None
+    # The record is still a record: only its team went empty.
+    assert vacancies[0].advertised_date == date(2031, 1, 20)
+    assert vacancies[0].competition_id == FIRST_COMPETITION_ID
+    assert len(vacancies) == len(records)
+    # A sentinel resolved through no club before this mapping either, so the count is unmoved.
+    assert stats.teams_resolved == 1
 
 
 def test_a_competition_name_arrives_only_through_a_supplied_map(tmp_path: Path) -> None:
