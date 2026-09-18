@@ -511,17 +511,24 @@ class SuspensionLayout:
     with the greatest record start `record_offset` for which `record_offset -
     owner_back_offset` is at or before the entry's start; an entry before the first player's
     window belongs to no player. An entry is kept only when the date at `issued_date_offset`
-    is a valid game date and the u16 at `competition_id_offset` lies strictly between the
-    (lower, upper) values of `competition_id_exclusive_range`.
+    is a valid game date and the u16 at `scope_id_offset` lies strictly between the
+    (lower, upper) values of `scope_id_exclusive_range`.
+
+    The u16 at `scope_id_offset` is **not always a competition id**. The byte at
+    `scope_code_offset` says which id space it belongs to: `competition_scope_code` means a
+    competition id in the stage id space, and each code in `nation_scope_codes` means a nation
+    id. A code in neither list leaves the id unread, because nothing then says what it is.
     """
 
     signature: tuple[tuple[int, int], ...]
     unknown_e7_offset: int
     issued_date_offset: int
-    unknown_e14_offset: int
-    competition_id_offset: int
+    scope_code_offset: int
+    scope_id_offset: int
     owner_back_offset: int
-    competition_id_exclusive_range: tuple[int, int]
+    scope_id_exclusive_range: tuple[int, int]
+    competition_scope_code: int
+    nation_scope_codes: tuple[int, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1504,10 +1511,13 @@ class GateBounds:
     byte out, most clubs hold no readable reputation at all and the median of the rest climbs
     far above its band, so either bound catches the shift on its own.
 
-    Suspensions: `suspension_share_of_players` (players with an entry, of players) and
-    `issued_after_clock` (entries issued after the in-game date, of entries). Both apply
-    whenever the section is large enough, so a search that finds no entry fails the first on
-    its lower bound and the second for want of a rate.
+    Suspensions: `suspension_share_of_players` (players with an entry, of players),
+    `issued_after_clock` (entries issued after the in-game date, of entries) and
+    `suspension_scopes_known` (entries whose scope code the layout lists, of entries). The
+    first two apply whenever the section is large enough, so a search that finds no entry
+    fails the first on its lower bound and the second for want of a rate;
+    `suspension_scopes_known` judges the entries that were found, so it is not applied when
+    there are none.
 
     Stages: `stage_rows_minimum` (rows walked), `stage_walk_gaps` (places the walk had to
     resynchronise), `stage_ids_ascending` (steps that reached a higher stage id, of steps),
@@ -1845,6 +1855,7 @@ class GateBounds:
     reputation_found: BoundPair
     reputation_median: BoundPair
     suspension_share_of_players: BoundPair
+    suspension_scopes_known: BoundPair
     issued_after_clock: BoundPair
     stage_rows_minimum: BoundPair
     stage_walk_gaps: BoundPair

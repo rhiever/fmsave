@@ -138,7 +138,14 @@ def fixture_records(career_save_path: Path) -> dict[type, tuple[object, ...]]:
         Contract: (*contracts, sparse_contract),
         Suspension: (
             *suspensions,
-            replace(suspensions[0], club_uid=None, club_name=None, unknown={"e14": 1}),
+            replace(
+                suspensions[0],
+                club_uid=None,
+                club_name=None,
+                competition_id=None,
+                competition_name=None,
+                unknown={},
+            ),
         ),
         Club: (*clubs, replace(clubs[0], teams=(), reputation=None, city_id=None)),
         ManagedClub: (

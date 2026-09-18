@@ -51,7 +51,7 @@ from fmsave.models.rules import (
 )
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffAttributes, StaffList, StaffPreferences
-from fmsave.models.suspensions import PlayerSuspension, Suspension
+from fmsave.models.suspensions import PlayerSuspension, Suspension, SuspensionScope
 from fmsave.models.tactics import (
     Mentality,
     SetPieceRoutine,
@@ -122,6 +122,7 @@ __all__ = [
     "StaffPreferences",
     "Stage",
     "Suspension",
+    "SuspensionScope",
     "Tactic",
     "TacticPosition",
     "TacticSettingUnit",

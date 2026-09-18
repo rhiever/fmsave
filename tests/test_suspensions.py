@@ -20,11 +20,17 @@ from fmsave._save import (
 )
 from fmsave._status import field_status
 from fmsave.models.players import Player
-from fmsave.models.suspensions import PlayerSuspension, Suspension
+from fmsave.models.suspensions import PlayerSuspension, Suspension, SuspensionScope
 from fmsave.readers.names import locate_name_pools
 from fmsave.readers.player_scan import PlayerRecords, locate_player_records
 from fmsave.readers.players import PlayerDecoder
-from fmsave.readers.suspensions import SuspensionEntry, locate_suspensions
+from fmsave.readers.suspensions import (
+    SuspensionEntry,
+    locate_suspensions,
+    named_entries,
+    player_suspensions,
+    suspension_stats,
+)
 from tests.fixtures.container import (
     SectionFrame,
     build_container_fragment,
@@ -87,8 +93,8 @@ PLAYER_B_UID = 900002
 
 # Contiguous, right after player A's 300-byte record body.
 PLAYER_A_ENTRIES = (
-    suspension_entry_bytes(competition_id=1234, issued=packed_date(51, 2031), e7=3, e14=1),
-    suspension_entry_bytes(competition_id=4321, issued=packed_date(306, 2030), e7=64, e14=5),
+    suspension_entry_bytes(scope_id=1234, issued=packed_date(51, 2031), e7=3, scope_code=1),
+    suspension_entry_bytes(scope_id=4321, issued=packed_date(306, 2030), e7=64, scope_code=5),
 )
 PLAYER_A_BLOCK = person_block_bytes(
     first_name_id=0,
@@ -103,17 +109,20 @@ PLAYER_A_BLOCK = person_block_bytes(
 )
 # Signatures inside player B's window that must not be kept.
 PLAYER_B_DECOYS = (
-    suspension_entry_bytes(competition_id=2222, issued=packed_date(0, 2031), e7=3, e14=1),
-    suspension_entry_bytes(competition_id=0, issued=packed_date(51, 2031), e7=3, e14=1),
-    suspension_entry_bytes(competition_id=60000, issued=packed_date(51, 2031), e7=3, e14=1),
+    suspension_entry_bytes(scope_id=2222, issued=packed_date(0, 2031), e7=3, scope_code=1),
+    suspension_entry_bytes(scope_id=0, issued=packed_date(51, 2031), e7=3, scope_code=1),
+    suspension_entry_bytes(scope_id=60000, issued=packed_date(51, 2031), e7=3, scope_code=1),
 )
 BEFORE_FIRST_PLAYER_DECOY = suspension_entry_bytes(
-    competition_id=777, issued=packed_date(51, 2031), e7=3, e14=1
+    scope_id=777, issued=packed_date(51, 2031), e7=3, scope_code=1
 )
 
+COMPETITION = SuspensionScope.COMPETITION
+NATION = SuspensionScope.NATION
+
 EXPECTED_PLAYER_A_ENTRIES = (
-    SuspensionEntry(1234, date(2031, 2, 20), 3, 1),
-    SuspensionEntry(4321, date(2030, 11, 2), 64, 5),
+    SuspensionEntry(COMPETITION, 1, 1234, date(2031, 2, 20), 3),
+    SuspensionEntry(NATION, 5, 4321, date(2030, 11, 2), 64),
 )
 
 
@@ -198,8 +207,10 @@ def buffer_with_entry(entry_offset: int, entry: bytes, *, buffer_length: int = 1
     return bytes(buffer)
 
 
-VALID_ENTRY = suspension_entry_bytes(competition_id=1234, issued=packed_date(51, 2031), e7=3, e14=1)
-VALID_ENTRY_LOCATED = SuspensionEntry(1234, date(2031, 2, 20), 3, 1)
+VALID_ENTRY = suspension_entry_bytes(
+    scope_id=1234, issued=packed_date(51, 2031), e7=3, scope_code=1
+)
+VALID_ENTRY_LOCATED = SuspensionEntry(COMPETITION, 1, 1234, date(2031, 2, 20), 3)
 
 
 @pytest.fixture
@@ -235,8 +246,8 @@ def test_players_carry_their_unserved_suspensions(suspensions_fragment_path: Pat
     with fmsave.open(suspensions_fragment_path) as career_save:
         players_table = career_save.players()
     assert players_table.by_uid(PLAYER_A_UID).suspensions == (
-        PlayerSuspension(1234, date(2031, 2, 20)),
-        PlayerSuspension(4321, date(2030, 11, 2)),
+        PlayerSuspension(COMPETITION, 1, 1234, None, None, date(2031, 2, 20)),
+        PlayerSuspension(NATION, 5, None, None, 4321, date(2030, 11, 2)),
     )
     assert players_table.by_uid(PLAYER_B_UID).suspensions == ()
 
@@ -254,9 +265,11 @@ def test_suspensions_table_lists_each_entry_with_its_player_and_club(
         player_a = career_save.players().by_uid(PLAYER_A_UID)
 
     assert len(suspensions_table) == 2
-    assert [(row.player_uid, row.suspension_competition_id) for row in suspensions_table] == [
-        (PLAYER_A_UID, 1234),
-        (PLAYER_A_UID, 4321),
+    assert [
+        (row.player_uid, row.scope, row.competition_id, row.nation_id) for row in suspensions_table
+    ] == [
+        (PLAYER_A_UID, COMPETITION, 1234, None),
+        (PLAYER_A_UID, NATION, None, 4321),
     ]
     assert player_a.name == "Alex Example"
     for row in suspensions_table:
@@ -266,12 +279,15 @@ def test_suspensions_table_lists_each_entry_with_its_player_and_club(
     first_row = suspensions_table[0]
     second_row = suspensions_table[1]
     assert first_row.issued_date == date(2031, 2, 20)
-    assert first_row.unknown == {"e7": 3, "e14": 1}
+    assert first_row.scope_code == 1
+    assert first_row.unknown == {"e7": 3}
     assert second_row.issued_date == date(2030, 11, 2)
-    assert second_row.unknown == {"e7": 64, "e14": 5}
-    filtered = suspensions_table.where(suspension_competition_id=4321)
+    assert second_row.scope_code == 5
+    assert second_row.unknown == {"e7": 64}
+    filtered = suspensions_table.where(nation_id=4321)
     assert len(filtered) == 1
     assert filtered[0] == second_row
+    assert len(suspensions_table.where(competition_id=4321)) == 0
 
 
 @pytest.mark.parametrize(
@@ -311,7 +327,7 @@ def test_a_signature_whose_entry_would_start_before_offset_zero_is_ignored() -> 
 
 
 @pytest.mark.parametrize(
-    ("competition_id", "issued", "kept_issued_date"),
+    ("scope_id", "issued", "kept_issued_date"),
     [
         pytest.param(1, packed_date(51, 2031), date(2031, 2, 20), id="id-1-kept"),
         pytest.param(59999, packed_date(51, 2031), date(2031, 2, 20), id="id-59999-kept"),
@@ -330,9 +346,9 @@ def test_a_signature_whose_entry_would_start_before_offset_zero_is_ignored() -> 
     ],
 )
 def test_an_entry_is_kept_only_with_a_valid_date_and_an_id_inside_the_bounds(
-    competition_id: int, issued: bytes, kept_issued_date: date | None
+    scope_id: int, issued: bytes, kept_issued_date: date | None
 ) -> None:
-    entry = suspension_entry_bytes(competition_id=competition_id, issued=issued, e7=9, e14=6)
+    entry = suspension_entry_bytes(scope_id=scope_id, issued=issued, e7=9, scope_code=6)
     located = locate_suspensions(
         buffer_with_entry(400, entry),
         synthetic_player_records((200,)),
@@ -341,7 +357,7 @@ def test_an_entry_is_kept_only_with_a_valid_date_and_an_id_inside_the_bounds(
     expected = (
         {}
         if kept_issued_date is None
-        else {0: (SuspensionEntry(competition_id, kept_issued_date, 9, 6),)}
+        else {0: (SuspensionEntry(NATION, 6, scope_id, kept_issued_date, 9),)}
     )
     assert dict(located) == expected
 
@@ -350,17 +366,17 @@ def test_contiguous_entries_keep_their_offset_order_within_each_player() -> None
     player_records = synthetic_player_records((200, 600))
     buffer = bytearray(1000)
     entries_by_offset = {
-        450: suspension_entry_bytes(competition_id=30, issued=packed_date(10, 2031), e7=1, e14=1),
-        470: suspension_entry_bytes(competition_id=20, issued=packed_date(20, 2031), e7=2, e14=2),
-        490: suspension_entry_bytes(competition_id=10, issued=packed_date(30, 2031), e7=3, e14=3),
-        800: suspension_entry_bytes(competition_id=40, issued=packed_date(40, 2031), e7=4, e14=4),
+        450: suspension_entry_bytes(scope_id=30, issued=packed_date(10, 2031), e7=1, scope_code=1),
+        470: suspension_entry_bytes(scope_id=20, issued=packed_date(20, 2031), e7=2, scope_code=2),
+        490: suspension_entry_bytes(scope_id=10, issued=packed_date(30, 2031), e7=3, scope_code=3),
+        800: suspension_entry_bytes(scope_id=40, issued=packed_date(40, 2031), e7=4, scope_code=4),
     }
     for entry_offset, entry in entries_by_offset.items():
         buffer[entry_offset : entry_offset + SUSPENSION_ENTRY_BYTES] = entry
     located = locate_suspensions(bytes(buffer), player_records, registered_suspension_layout())
     assert list(located) == [0, 1]
-    assert [entry.competition_id for entry in located[0]] == [30, 20, 10]
-    assert [entry.competition_id for entry in located[1]] == [40]
+    assert [entry.scope_id for entry in located[0]] == [30, 20, 10]
+    assert [entry.scope_id for entry in located[1]] == [40]
 
 
 def has_signature_at(buffer: bytes, signature_start: int) -> bool:
@@ -381,21 +397,21 @@ def has_signature_at(buffer: bytes, signature_start: int) -> bool:
             # Year 2047 is stored as 0x07FF and e7 0xFF03 puts FF at +8; the false signature's
             # 05 lands on the entry's zero byte at +6.
             suspension_entry_bytes(
-                competition_id=1234, issued=packed_date(51, 2047), e7=0xFF03, e14=1
+                scope_id=1234, issued=packed_date(51, 2047), e7=0xFF03, scope_code=1
             ),
             {-3: 0xFF, -2: 0xFF, 6: 0x05},
             7,
-            SuspensionEntry(1234, date(2047, 2, 20), 0xFF03, 1),
+            SuspensionEntry(COMPETITION, 1, 1234, date(2047, 2, 20), 0xFF03),
             id="false-signature-3-bytes-before-the-entry",
         ),
         pytest.param(
-            # Day 5 puts 05 at +9, year 2047 puts FF at +11 and e14 255 puts FF at +14.
+            # Day 5 puts 05 at +9, year 2047 puts FF at +11 and scope code 255 puts FF at +14.
             suspension_entry_bytes(
-                competition_id=1234, issued=packed_date(5, 2047), e7=3, e14=0xFF
+                scope_id=1234, issued=packed_date(5, 2047), e7=3, scope_code=0xFF
             ),
             {0: 0xFF, 1: 0xFF},
             4,
-            SuspensionEntry(1234, date(2047, 1, 5), 3, 0xFF),
+            SuspensionEntry(SuspensionScope.UNKNOWN, 0xFF, 1234, date(2047, 1, 5), 3),
             id="false-signature-at-the-entry-start",
         ),
     ],
@@ -463,19 +479,24 @@ def test_readers_raise_save_closed_error_after_close_and_earlier_tables_keep_wor
             id="negative-signature-offset",
         ),
         pytest.param(
-            {"competition_id_offset": 18},
-            "field 'competition_id' at offset 18 ends past the last signature byte",
+            {"scope_id_offset": 18},
+            "field 'scope_id' at offset 18 ends past the last signature byte",
             id="field-past-the-signature",
         ),
         pytest.param(
-            {"unknown_e14_offset": 16},
+            {"scope_code_offset": 16},
             "overlaps an earlier field",
             id="overlapping-fields",
         ),
         pytest.param(
-            {"competition_id_exclusive_range": (60000, 0)},
-            "competition_id_exclusive_range .* leaves no competition id strictly between",
+            {"scope_id_exclusive_range": (60000, 0)},
+            "scope_id_exclusive_range .* leaves no scope id strictly between",
             id="inverted-id-range",
+        ),
+        pytest.param(
+            {"nation_scope_codes": (1, 5, 6, 10)},
+            "scope code 1 is listed as both the competition code and a nation code",
+            id="scope-code-in-both-lists",
         ),
     ],
 )
@@ -532,10 +553,13 @@ def test_any_first_reader_decodes_every_player_once_and_fills_all_three_tables(
 
 def test_field_statuses_follow_the_suspension_coverage() -> None:
     assert field_status(Player, "suspensions") == "verified"
-    assert field_status(PlayerSuspension, "suspension_competition_id") == "verified"
-    assert field_status(PlayerSuspension, "issued_date") == "verified"
-    for verified_field in ("suspension_competition_id", "issued_date"):
+    verified_fields = ("scope", "scope_code", "competition_id", "nation_id", "issued_date")
+    for verified_field in verified_fields:
+        assert field_status(PlayerSuspension, verified_field) == "verified", verified_field
         assert field_status(Suspension, verified_field) == "verified", verified_field
+    # A name arrives from a user-supplied map and is checked against nothing in the save.
+    assert field_status(PlayerSuspension, "competition_name") == "unconfirmed"
+    assert field_status(Suspension, "competition_name") == "unconfirmed"
     # Each of these is copied off the decoded player, so it carries that field's status.
     for copied_field, player_field in (
         ("player_uid", "uid"),
@@ -546,7 +570,7 @@ def test_field_statuses_follow_the_suspension_coverage() -> None:
         assert field_status(Suspension, copied_field) == "unconfirmed", copied_field
     assert field_status(Suspension, "player_name") == "unconfirmed"
     assert field_status(Suspension, "unknown") == "unconfirmed"
-    assert Suspension.UNKNOWN_KEYS == ("e7", "e14")
+    assert Suspension.UNKNOWN_KEYS == ("e7",)
 
 
 def test_suspension_records_survive_pickle_and_deepcopy(suspensions_fragment_path: Path) -> None:
@@ -577,11 +601,105 @@ def test_export_flattens_player_suspensions_and_suspension_rows(
 
     player_rows = players_table.to_dicts(json_ready=True)
     assert player_rows[0]["suspensions"] == [
-        {"suspension_competition_id": 1234, "issued_date": "2031-02-20"},
-        {"suspension_competition_id": 4321, "issued_date": "2030-11-02"},
+        {
+            "scope": "competition",
+            "scope_code": 1,
+            "competition_id": 1234,
+            "competition_name": None,
+            "nation_id": None,
+            "issued_date": "2031-02-20",
+        },
+        {
+            "scope": "nation",
+            "scope_code": 5,
+            "competition_id": None,
+            "competition_name": None,
+            "nation_id": 4321,
+            "issued_date": "2030-11-02",
+        },
     ]
     assert player_rows[1]["suspensions"] == []
     suspension_columns = suspensions_table.to_columns()
     assert suspension_columns["unknown_e7"] == [3, 64]
-    assert suspension_columns["unknown_e14"] == [1, 5]
+    assert "unknown_e14" not in suspension_columns
+    assert suspension_columns["scope"] == [COMPETITION, NATION]
+    assert suspension_columns["competition_id"] == [1234, None]
+    assert suspension_columns["nation_id"] == [None, 4321]
     assert suspension_columns["issued_date"] == [date(2031, 2, 20), date(2030, 11, 2)]
+
+
+def test_a_scope_code_the_layout_does_not_list_leaves_the_id_unread() -> None:
+    """The ban is still reported: only what its id means is withheld."""
+    entry = suspension_entry_bytes(
+        scope_id=1234, issued=packed_date(51, 2031), e7=3, scope_code=200
+    )
+    located = locate_suspensions(
+        buffer_with_entry(400, entry),
+        synthetic_player_records((200,)),
+        registered_suspension_layout(),
+    )
+    (unknown_entry,) = located[0]
+    assert unknown_entry == SuspensionEntry(
+        SuspensionScope.UNKNOWN, 200, 1234, date(2031, 2, 20), 3
+    )
+    assert unknown_entry.competition_id is None
+    assert unknown_entry.nation_id is None
+    (row,) = player_suspensions([unknown_entry])
+    assert (row.scope, row.scope_code, row.competition_id, row.nation_id) == (
+        SuspensionScope.UNKNOWN,
+        200,
+        None,
+        None,
+    )
+
+
+@pytest.mark.parametrize("scope_code", [5, 6, 10])
+def test_every_nation_scope_code_reads_its_id_as_a_nation(scope_code: int) -> None:
+    entry = suspension_entry_bytes(
+        scope_id=77, issued=packed_date(51, 2031), e7=5, scope_code=scope_code
+    )
+    located = locate_suspensions(
+        buffer_with_entry(400, entry),
+        synthetic_player_records((200,)),
+        registered_suspension_layout(),
+    )
+    (nation_entry,) = located[0]
+    assert nation_entry.scope is NATION
+    assert nation_entry.scope_code == scope_code
+    assert nation_entry.nation_id == 77
+    assert nation_entry.competition_id is None
+
+
+def test_named_entries_names_a_competition_ban_and_never_a_nation_wide_one() -> None:
+    """Both bans store the same number, and only the competition-scope one is looked up."""
+    asked: list[int | None] = []
+
+    def name_for(competition_id: int | None) -> str | None:
+        asked.append(competition_id)
+        return "Example League"
+
+    entries = {
+        0: (
+            SuspensionEntry(COMPETITION, 1, 55, date(2031, 2, 20), 3),
+            SuspensionEntry(NATION, 6, 55, date(2031, 3, 20), 5),
+            SuspensionEntry(SuspensionScope.UNKNOWN, 200, 55, date(2031, 4, 20), 5),
+        )
+    }
+
+    named = named_entries(entries, name_for)
+
+    assert asked == [55]
+    assert [entry.competition_name for entry in named[0]] == ["Example League", None, None]
+
+
+def test_the_scope_gate_counts_only_entries_whose_code_the_layout_lists() -> None:
+    entries = {
+        0: (
+            SuspensionEntry(COMPETITION, 1, 55, date(2031, 2, 20), 3),
+            SuspensionEntry(SuspensionScope.UNKNOWN, 200, 55, date(2031, 3, 20), 3),
+        )
+    }
+
+    stats = suspension_stats(entries, player_count=4, clock=date(2031, 6, 1))
+
+    assert (stats.entries, stats.entries_with_known_scope) == (2, 1)

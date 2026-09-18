@@ -160,6 +160,7 @@ _LIKELY_CAUSES: FrozenMapping[str, str] = FrozenMapping(
     {
         "tails_without_clause_table": "an unrecognised bonus list shape in the contract tail",
         "suspension_share_of_players": "a suspension entry layout that has moved",
+        "suspension_scopes_known": "suspension scope codes this build no longer uses",
     }
 )
 
@@ -470,10 +471,12 @@ def evaluate_suspensions(
 ) -> tuple[GateResult, ...]:
     """The suspension reader's checks, in a fixed order.
 
-    Both apply whenever the section is large enough, including when the search found no entry
-    at all: an empty result scores below the share's lower bound and leaves the clock check
-    with no rate, so an entry layout that has moved fails here rather than reporting a save
-    whose players are never banned.
+    The first two apply whenever the section is large enough, including when the search found
+    no entry at all: an empty result scores below the share's lower bound and leaves the clock
+    check with no rate, so an entry layout that has moved fails here rather than reporting a
+    save whose players are never banned. The scope check judges what the entries that were
+    found say rather than how many there are, so it is not applied when there are none and
+    the first check is what fails then.
     """
     applied = _applies(bounds, game_db_bytes)
     return (
@@ -487,6 +490,13 @@ def evaluate_suspensions(
             "issued_after_clock",
             _rate(stats.issued_after_clock, stats.entries),
             bounds.issued_after_clock,
+            applied,
+        ),
+        _share_gate(
+            "suspension_scopes_known",
+            stats.entries_with_known_scope,
+            stats.entries,
+            bounds.suspension_scopes_known,
             applied,
         ),
     )

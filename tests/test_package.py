@@ -18,7 +18,7 @@ def test_version_is_a_string() -> None:
 
 def test_output_schema_version_is_int() -> None:
     assert type(fmsave.OUTPUT_SCHEMA_VERSION) is int
-    assert fmsave.OUTPUT_SCHEMA_VERSION == 1
+    assert fmsave.OUTPUT_SCHEMA_VERSION == 2
 
 
 @pytest.mark.parametrize(

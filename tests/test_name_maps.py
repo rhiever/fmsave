@@ -17,17 +17,22 @@ import fmsave._context as context_module
 from fmsave import checks
 from fmsave._container import ContainerIndex
 from fmsave._frozen import FrozenMapping
+from fmsave.models.suspensions import SuspensionScope
 from fmsave.name_maps import normalize_competition_names, read_competition_names
 from fmsave.readers._common import GAME_DB_SECTION
 from tests.fixtures.career import (
     FIRST_COMPETITION_DATABASE_ID,
     FIRST_COMPETITION_ID,
+    PLAYER_A_UID,
     SECOND_COMPETITION_DATABASE_ID,
     SECOND_COMPETITION_ID,
+    THIRD_COMPETITION_DATABASE_ID,
+    THIRD_COMPETITION_ID,
 )
 
 FIRST_COMPETITION_NAME = "Example League"
 SECOND_COMPETITION_NAME = "Example Cup"
+THIRD_COMPETITION_NAME = "Example Shield"
 NAME_FILE_NAME = "names.csv"
 PRIVATE_FOLDER_NAME = "Private Folder"
 # Stage 1 belongs to the first competition and stage 3 to the second, which the map never names.
@@ -241,9 +246,51 @@ def test_a_save_opened_without_a_map_names_nothing(career_save_path: Path) -> No
     with fmsave.open(career_save_path) as career_save:
         competitions_table = career_save.competitions()
         stages_table = career_save.stages()
+        suspensions_table = career_save.suspensions()
 
     assert all(competition.name is None for competition in competitions_table)
     assert all(stage.competition_name is None for stage in stages_table)
+    assert all(suspension.competition_name is None for suspension in suspensions_table)
+
+
+def test_a_ban_is_named_only_when_it_covers_one_competition(career_save_path: Path) -> None:
+    """The nation-wide ban stores the third competition's id as its nation id. Naming it would
+    put that competition's name on a ban that has nothing to do with it, so the scope decides
+    whether a lookup happens at all.
+    """
+    names = {
+        FIRST_COMPETITION_DATABASE_ID: FIRST_COMPETITION_NAME,
+        THIRD_COMPETITION_DATABASE_ID: THIRD_COMPETITION_NAME,
+    }
+    with fmsave.open(career_save_path, competition_names=names) as career_save:
+        suspensions_table = career_save.suspensions()
+        player = career_save.players().by_uid(PLAYER_A_UID)
+
+    competition_ban, nation_ban = suspensions_table
+    assert competition_ban.scope is SuspensionScope.COMPETITION
+    assert competition_ban.competition_id == FIRST_COMPETITION_ID
+    assert competition_ban.competition_name == FIRST_COMPETITION_NAME
+    assert nation_ban.scope is SuspensionScope.NATION
+    assert nation_ban.nation_id == THIRD_COMPETITION_ID
+    assert nation_ban.competition_id is None
+    assert nation_ban.competition_name is None
+    # The player's own copy of each ban is named by the same lookup.
+    assert [ban.competition_name for ban in player.suspensions] == [FIRST_COMPETITION_NAME, None]
+
+
+def test_a_ban_on_a_competition_the_map_does_not_list_stays_unnamed(
+    career_save_path: Path,
+) -> None:
+    """A competition the game itself created carries a database id no outside name source
+    holds, and this is what a reader sees for one: an id, and no name.
+    """
+    with fmsave.open(
+        career_save_path, competition_names={THIRD_COMPETITION_DATABASE_ID: THIRD_COMPETITION_NAME}
+    ) as career_save:
+        competition_ban = career_save.suspensions()[0]
+
+    assert competition_ban.competition_id == FIRST_COMPETITION_ID
+    assert competition_ban.competition_name is None
 
 
 def test_a_csv_path_and_a_mapping_name_the_same_competitions(

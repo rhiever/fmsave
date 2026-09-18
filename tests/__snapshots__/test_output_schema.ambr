@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: test_the_output_schema_matches_its_recorded_columns
   dict({
-    'output_schema_version': 1,
+    'output_schema_version': 2,
     'tables': dict({
       'AffiliateGroup': list([
         'group_index',
@@ -603,10 +603,13 @@
         'player_name',
         'club_uid',
         'club_name',
-        'suspension_competition_id',
+        'scope',
+        'scope_code',
+        'competition_id',
+        'competition_name',
+        'nation_id',
         'issued_date',
         'unknown_e7',
-        'unknown_e14',
       ]),
       'Tactic': list([
         'club_uid',

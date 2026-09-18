@@ -772,11 +772,11 @@ def fallback_contract_bytes(*, end: bytes, start: bytes) -> bytes:
 SUSPENSION_ENTRY_BYTES = 20
 
 
-def suspension_entry_bytes(*, competition_id: int, issued: bytes, e7: int, e14: int) -> bytes:
+def suspension_entry_bytes(*, scope_id: int, issued: bytes, e7: int, scope_code: int) -> bytes:
     """One 20-byte suspension entry, written forward in the order the format lays it out.
 
-    u16 1, u16 1, `FF FF`, a zero byte, u16 `e7`, the 4-byte `issued` date, `05`, u8 `e14`,
-    `FF`, u16 `competition_id`, `FF`, then a zero byte.
+    u16 1, u16 1, `FF FF`, a zero byte, u16 `e7`, the 4-byte `issued` date, `05`, u8
+    `scope_code`, `FF`, u16 `scope_id`, `FF`, then a zero byte.
     """
     output = bytearray(struct.pack("<HH", 1, 1))
     output.extend(b"\xff\xff")
@@ -784,9 +784,9 @@ def suspension_entry_bytes(*, competition_id: int, issued: bytes, e7: int, e14: 
     output.extend(struct.pack("<H", e7))
     output.extend(issued)
     output.append(0x05)
-    output.append(e14)
+    output.append(scope_code)
     output.append(0xFF)
-    output.extend(struct.pack("<H", competition_id))
+    output.extend(struct.pack("<H", scope_id))
     output.append(0xFF)
     output.append(0)
     return bytes(output)

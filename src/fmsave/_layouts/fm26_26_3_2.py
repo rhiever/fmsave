@@ -564,15 +564,21 @@ FACILITY_BYTE = FacilityByteLayout(
     value_range=(1, 20),
 )
 
-# A suspension entry is 20 bytes long; its signature bytes pin 5 of them.
+# A suspension entry is 20 bytes long; its signature bytes pin 5 of them. The byte at +14 is
+# the ban's scope and decides what the u16 at +16 is: 1 names one competition in the stage id
+# space, and 5, 6 and 10 each name a nation whose competitions the ban covers. Those are the
+# only four codes seen on any save measured; a fifth would leave the id unread rather than
+# guessed.
 SUSPENSIONS = SuspensionLayout(
     signature=((4, 0xFF), (5, 0xFF), (13, 0x05), (15, 0xFF), (18, 0xFF)),
     unknown_e7_offset=7,
     issued_date_offset=9,
-    unknown_e14_offset=14,
-    competition_id_offset=16,
+    scope_code_offset=14,
+    scope_id_offset=16,
     owner_back_offset=30,
-    competition_id_exclusive_range=(0, 60_000),
+    scope_id_exclusive_range=(0, 60_000),
+    competition_scope_code=1,
+    nation_scope_codes=(5, 6, 10),
 )
 
 # A per-match player record is 15 bytes when the save keeps no performance body for the match
@@ -1051,6 +1057,14 @@ GATE_BOUNDS = GateBounds(
     # reporting a save whose players are never banned.
     suspension_share_of_players=(0.001, 0.10),
     issued_after_clock=(None, 0.01),
+    # Every ban on every save measured carries one of the four scope codes this layout lists,
+    # so the observed share is a flat 1. The code decides whether the id beside it is read as
+    # a competition or as a nation, and a build that changed the codes would move no offset
+    # and break no signature: the entries would still be found and counted, and every ban
+    # would quietly lose its competition. Nothing else here catches that, and the share does
+    # not move with how big a save is, so the floor sits far below 1 and still fails long
+    # before half the bans have gone unreadable.
+    suspension_scopes_known=(0.50, None),
     # Around 8,000 rows and no gaps at all on every save measured; both bounds leave room for a
     # much shorter table and for a save whose table needs resynchronising a few times.
     stage_rows_minimum=(1_000, None),

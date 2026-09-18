@@ -103,12 +103,17 @@ class ClubStats:
 
 @dataclass(frozen=True, slots=True)
 class SuspensionStats:
-    """What the suspension search counted over the player region."""
+    """What the suspension search counted over the player region.
+
+    `entries_with_known_scope` counts the entries whose scope code the layout lists, which on
+    every save measured is all of them.
+    """
 
     players: int
     entries: int
     players_with_entries: int
     issued_after_clock: int
+    entries_with_known_scope: int
 
 
 @dataclass(frozen=True, slots=True)

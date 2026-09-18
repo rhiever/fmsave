@@ -111,6 +111,7 @@ from fmsave.readers.stages import StageIndex, named_stages
 from fmsave.readers.suspensions import (
     SuspensionEntry,
     locate_suspensions,
+    named_entries,
     suspension_rows,
     suspension_stats,
 )
@@ -310,7 +311,9 @@ class Save:
                 in two records, a team id is listed twice (by one club or by two), no player
                 records were found, two player records share a uid, the save's in-game
                 date is unreadable, or, on a full-size save, the players, contracts or
-                suspensions decoded fall outside the checks' bounds.
+                suspensions decoded fall outside the checks' bounds. With a name map, also
+                anything the competition reader raises, since the pass names each ban's
+                competition from that table.
         """
         context = self._context
         return context.cached(PLAYERS_TABLE_CACHE_KEY, self._players_table_entry_point)
@@ -333,7 +336,9 @@ class Save:
                 in two records, a team id is listed twice (by one club or by two), no player
                 records were found, two player records share a uid, the save's in-game
                 date is unreadable, or, on a full-size save, the players, contracts or
-                suspensions decoded fall outside the checks' bounds.
+                suspensions decoded fall outside the checks' bounds. With a name map, also
+                anything the competition reader raises, since the pass names each ban's
+                competition from that table.
         """
         context = self._context
         return context.cached(CONTRACTS_TABLE_CACHE_KEY, self._contracts_table_entry_point)
@@ -350,6 +355,13 @@ class Save:
         any of them return the same tables. When a check of that pass fails, none of the
         three tables is kept, so each of them raises.
 
+        A ban covering one competition carries `competition_id` in the stage id space, which
+        joins `stages()`, `competitions()`, `fixtures()`, `league_tables()` and
+        `player_match_stats()`; a nation-wide ban carries `nation_id` instead, and `scope`
+        says which. `competition_name` is None unless the save was opened with a name map,
+        and stays None for a competition the game itself created during the career, whose
+        database id no name source outside the save carries.
+
         Raises:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
@@ -360,7 +372,9 @@ class Save:
                 in two records, a team id is listed twice (by one club or by two), no player
                 records were found, two player records share a uid, the save's in-game
                 date is unreadable, or, on a full-size save, the players, contracts or
-                suspensions decoded fall outside the checks' bounds.
+                suspensions decoded fall outside the checks' bounds. With a name map, also
+                anything the competition reader raises, since every competition name a ban
+                carries comes from that table.
         """
         context = self._context
         return context.cached(SUSPENSIONS_TABLE_CACHE_KEY, self._suspensions_table_entry_point)
@@ -1988,6 +2002,19 @@ class Save:
             suspension_entries_by_position = locate_suspensions(
                 game_db, player_records, suspension_layout
             )
+            # With a name map the competitions are read first, checks and all. Every
+            # competition name a ban carries comes out of the competition index, so that index
+            # must have passed its own checks before a name of its leaves this reader: a build
+            # that mis-paired entity ids with database ids would otherwise name every ban
+            # after another competition and raise nothing at all. Reading the competition
+            # table runs those checks inside this same borrow, so game_db is still
+            # decompressed once. Without a map every competition_name is None anyway, so
+            # nothing is read on its account.
+            if context.competition_names:
+                self.competitions()
+                suspension_entries_by_position = named_entries(
+                    suspension_entries_by_position, context.competition_index().name_for
+                )
             no_suspension_entries: tuple[SuspensionEntry, ...] = ()
             suspension_entries_for = suspension_entries_by_position.get
             decoded_players: list[Player] = []

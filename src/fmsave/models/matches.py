@@ -10,8 +10,7 @@ rather than a confirmation. Friendlies, internationals and youth matches are kep
 these records and none of them appears here at all.
 
 A record's `competition_id` belongs to the **stage** id space, the same space `stages()`,
-`fixtures()` and the league tables use. It does **not** join to
-`Suspension.suspension_competition_id`, which belongs to a separate suspension id space.
+`fixtures()`, the league tables and `Suspension.competition_id` use, so all of them join.
 
 The position a record stores is a bit mask of this structure's own, and a bit of it means
 nothing anywhere else in the save.
@@ -67,9 +66,8 @@ class PlayerMatchStats:
     therefore short without saying so, and nothing in a row marks it as truncated. Friendlies,
     internationals and youth matches are kept apart from these records and are not here at all.
 
-    `competition_id` belongs to the **stage** id space, the same space `stages()`, `fixtures()`
-    and the league tables use. It does **not** join to
-    `Suspension.suspension_competition_id`, which belongs to a separate suspension id space.
+    `competition_id` belongs to the **stage** id space, the same space `stages()`, `fixtures()`,
+    the league tables and `Suspension.competition_id` use, so all of them join.
 
     Attributes:
         player_uid: Uid of the player the record belongs to, which is the player whose object

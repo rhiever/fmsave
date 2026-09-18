@@ -41,7 +41,7 @@ Records and tables are immutable and keep working after the save is closed.
 
 - `players()` — names, birth date and age, nationality, club, positions, attributes, personality, traits, reputation, transfer value, contract and unserved suspensions.
 - `contracts()` — the contract in effect at the save's in-game date: wage, start and end, squad status, contract type, clauses and loan details. Never an agreed future move such as a pre-contract.
-- `suspensions()` — every unserved ban with its player, club, competition id and date issued, including bans the game no longer displays.
+- `suspensions()` — every unserved ban with its player, club and date issued, including bans the game no longer displays. A ban covering one competition carries that competition's id, which joins the stage, fixture and league-table readers; a nation-wide ban carries a nation id instead, and each row says which it is.
 - `staff()` — everyone a club employs who is not a player, with the department lists he is in, his contract, his ability and the preferences a staff profile shows. The human manager is a row of his own.
 - `staff_lists()` — the three staff lists each club record holds. Only about a thousand clubs of a save list anybody.
 
@@ -107,7 +107,7 @@ with fmsave.open("career.fm", competition_names=competition_names) as career_sav
         print(competition.database_id, competition.name)  # 12345 "Example League"
 ```
 
-`competition_names` also takes the path itself, or any mapping of database id to name. Tables are read once and then kept, so open the save again to read it under a different map. Without a map, `name` and every denormalised `competition_name` is `None`, and about one competition in ten has no database id and so can never be named.
+`competition_names` also takes the path itself, or any mapping of database id to name. Tables are read once and then kept, so open the save again to read it under a different map. Without a map, `name` and every denormalised `competition_name` is `None`, and about one competition in ten has no database id and so can never be named. A competition the game created during a career does carry one, but no name source outside the save holds it, so a map built from such a source names fewer competitions than it has ids for.
 
 The file is UTF-8 with two columns, `database_id` then `name`. A first row whose first cell is not a number is treated as a header and skipped, blank lines are skipped, and surrounding spaces are trimmed:
 

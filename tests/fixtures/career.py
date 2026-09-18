@@ -756,9 +756,15 @@ def player_a_bytes() -> bytes:
     four matches `player_a_match_records` writes at the end of his window.
     """
     pindex = PLAYER_A_PINDEX
+    # The first ban covers one competition, and names one this career really holds, so a name
+    # map reaches it. The second is nation-wide, and its id is a nation id that happens to
+    # equal the third competition's id: a lookup that ignored the scope would name it after
+    # that competition, which is the mistake the scope exists to stop.
     suspensions = suspension_entry_bytes(
-        competition_id=1234, issued=packed_date(51, 2031), e7=3, e14=1
-    ) + suspension_entry_bytes(competition_id=4321, issued=packed_date(306, 2030), e7=64, e14=5)
+        scope_id=FIRST_COMPETITION_ID, issued=packed_date(51, 2031), e7=3, scope_code=1
+    ) + suspension_entry_bytes(
+        scope_id=THIRD_COMPETITION_ID, issued=packed_date(306, 2030), e7=64, scope_code=5
+    )
     person_block = person_block_bytes(
         first_name_id=0,
         surname_id=0,

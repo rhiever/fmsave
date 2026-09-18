@@ -68,7 +68,7 @@ from fmsave.models.rules import (
 )
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffAttributes, StaffList, StaffPreferences
-from fmsave.models.suspensions import PlayerSuspension, Suspension
+from fmsave.models.suspensions import PlayerSuspension, Suspension, SuspensionScope
 from fmsave.models.tactics import (
     Mentality,
     SetPieceRoutine,
@@ -86,7 +86,7 @@ from fmsave.models.training import (
 from fmsave.name_maps import read_competition_names
 from fmsave.table import Table
 
-OUTPUT_SCHEMA_VERSION = 1
+OUTPUT_SCHEMA_VERSION = 2
 
 __all__ = [
     "OUTPUT_SCHEMA_VERSION",
@@ -155,6 +155,7 @@ __all__ = [
     "StaffPreferences",
     "Stage",
     "Suspension",
+    "SuspensionScope",
     "Table",
     "Tactic",
     "TacticPosition",

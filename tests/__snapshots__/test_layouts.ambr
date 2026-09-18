@@ -443,13 +443,20 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
-        'competition_id_exclusive_range': tuple(
+        'competition_scope_code': 1,
+        'issued_date_offset': 9,
+        'nation_scope_codes': tuple(
+          5,
+          6,
+          10,
+        ),
+        'owner_back_offset': 30,
+        'scope_code_offset': 14,
+        'scope_id_exclusive_range': tuple(
           0,
           60000,
         ),
-        'competition_id_offset': 16,
-        'issued_date_offset': 9,
-        'owner_back_offset': 30,
+        'scope_id_offset': 16,
         'signature': tuple(
           tuple(
             4,
@@ -472,7 +479,6 @@
             255,
           ),
         ),
-        'unknown_e14_offset': 14,
         'unknown_e7_offset': 7,
       }),
       'region': 'game_db',
@@ -1655,6 +1661,10 @@
         ),
         'status_normal': tuple(
           0.98,
+          None,
+        ),
+        'suspension_scopes_known': tuple(
+          0.5,
           None,
         ),
         'suspension_share_of_players': tuple(

@@ -21,6 +21,7 @@ import pytest
 import fmsave
 import tests.conftest as corpus_conftest
 from fmsave.models.contracts import ClauseKind
+from fmsave.models.suspensions import SuspensionScope
 from tests.corpus.reporting import CorpusMismatches
 
 pytestmark = [pytest.mark.corpus]
@@ -69,6 +70,14 @@ EXPECTED_READERS = (
 # Empty: the ranges cover every reader, so every reader added since must be added here until the
 # ranges are written again, and emptied out of it once they are.
 READERS_WITHOUT_RECORDED_RANGES: frozenset[str] = frozenset()
+# Columns the recorded ranges still name that the output schema has since replaced. The
+# baselines were written against output schema 1; a rename or a removal bumps that version and
+# is recorded column by column in the output schema snapshot, which is what guards the change
+# itself, so a column named here is a stale range rather than a column a reader lost. Emptied
+# once the ranges are written again.
+RETIRED_BASELINE_COLUMNS: dict[str, frozenset[str]] = {
+    "suspensions": frozenset({"suspension_competition_id", "unknown_e14"}),
+}
 
 
 def save_label(relative_name: str) -> str:
@@ -157,8 +166,11 @@ def test_reader_counts_and_checks_stay_in_their_recorded_ranges(
                     mismatches.check(label, f"{reader.reader} check {gate.name}", value_matches)
             recorded_coverage: Any = recorded_reader.get("coverage")
             if isinstance(recorded_coverage, dict):
+                retired = RETIRED_BASELINE_COLUMNS.get(reader.reader, frozenset())
                 for column_name, recorded_rate in recorded_coverage.items():
                     if not isinstance(recorded_rate, (int, float)):
+                        continue
+                    if str(column_name) in retired:
                         continue
                     observed_rate = reader.coverage.get(str(column_name))
                     if observed_rate is None:
@@ -531,14 +543,14 @@ def test_suspension_rows_match_the_players_they_belong_to(
         label = save_label(relative_name)
         players = career_save.players()
         suspensions = career_save.suspensions()
-        bans_by_player: dict[int, list[tuple[int, date]]] = {}
+        bans_by_player: dict[int, list[tuple[int | None, int | None, date]]] = {}
         listed_bans = 0
         for player in players:
             if not player.suspensions:
                 continue
             listed_bans += len(player.suspensions)
             bans_by_player[player.uid] = [
-                (ban.suspension_competition_id, ban.issued_date) for ban in player.suspensions
+                (ban.competition_id, ban.nation_id, ban.issued_date) for ban in player.suspensions
             ]
         club_by_player = {player.uid: player.club_uid for player in players}
         mismatches.check(label, "suspension row count", len(suspensions) == listed_bans)
@@ -546,12 +558,46 @@ def test_suspension_rows_match_the_players_they_belong_to(
         rows_at_another_club = 0
         for suspension in suspensions:
             player_bans = bans_by_player.get(suspension.player_uid, [])
-            if (suspension.suspension_competition_id, suspension.issued_date) not in player_bans:
+            ban_key = (suspension.competition_id, suspension.nation_id, suspension.issued_date)
+            if ban_key not in player_bans:
                 rows_not_listed += 1
             if club_by_player.get(suspension.player_uid) != suspension.club_uid:
                 rows_at_another_club += 1
         mismatches.check(label, "suspension rows listed on their player", rows_not_listed == 0)
         mismatches.check(
             label, "suspension rows carry the player's club", rows_at_another_club == 0
+        )
+    mismatches.fail_if_any()
+
+
+def test_a_ban_on_one_competition_names_a_competition_the_save_holds(
+    corpus_saves: dict[str, fmsave.Save],
+) -> None:
+    """A competition-scope ban joins the stage id space, and a nation-wide one does not carry a
+    competition id at all. Both halves are asserted, because the whole point of the scope is
+    that the same number means two different things.
+    """
+    mismatches = CorpusMismatches()
+    for relative_name, career_save in corpus_saves.items():
+        label = save_label(relative_name)
+        competition_ids = {competition.id for competition in career_save.competitions()}
+        unjoined = 0
+        nation_bans_with_a_competition = 0
+        unknown_scopes = 0
+        for suspension in career_save.suspensions():
+            if suspension.scope is SuspensionScope.COMPETITION:
+                if suspension.competition_id not in competition_ids:
+                    unjoined += 1
+            elif suspension.scope is SuspensionScope.NATION:
+                if suspension.competition_id is not None:
+                    nation_bans_with_a_competition += 1
+            else:
+                unknown_scopes += 1
+        mismatches.check(label, "competition bans join the competition table", unjoined == 0)
+        mismatches.check(
+            label, "nation-wide bans carry no competition", nation_bans_with_a_competition == 0
+        )
+        mismatches.check(
+            label, "every ban's scope code is one the layout lists", unknown_scopes == 0
         )
     mismatches.fail_if_any()

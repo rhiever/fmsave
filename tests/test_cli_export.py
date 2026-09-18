@@ -357,7 +357,9 @@ def test_suspensions_all_as_json_lines(save_path: Path, capsys: pytest.CaptureFi
     assert len(lines) == 2
     rows = [json.loads(line) for line in lines]
     assert [row["issued_date"] for row in rows] == ["2031-02-20", "2030-11-02"]
-    assert rows[0]["unknown"] == {"e7": 3, "e14": 1}
+    assert rows[0]["unknown"] == {"e7": 3}
+    assert rows[0]["scope"] == "competition"
+    assert rows[1]["scope"] == "nation"
 
 
 @pytest.mark.parametrize(
@@ -435,7 +437,7 @@ def test_csv_with_columns_matches_the_selected_flat_rows_byte_for_byte(
     )
     export.write_csv(selected_rows, CHOSEN_PLAYER_COLUMNS, expected_output)
     assert output_text == expected_output.getvalue()
-    assert '"[{""suspension_competition_id"":1234' in output_text
+    assert '"[{""scope"":""competition""' in output_text
 
 
 def test_an_empty_selection_writes_an_empty_json_array(

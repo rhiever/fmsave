@@ -133,7 +133,11 @@ CLUB_GATE_NAMES = (
     "reputation_found",
     "reputation_median",
 )
-SUSPENSION_GATE_NAMES = ("suspension_share_of_players", "issued_after_clock")
+SUSPENSION_GATE_NAMES = (
+    "suspension_share_of_players",
+    "issued_after_clock",
+    "suspension_scopes_known",
+)
 
 REPORT_KEYS = {
     "fmsave_version",
@@ -251,7 +255,11 @@ def healthy_club_stats() -> ClubStats:
 
 def healthy_suspension_stats() -> SuspensionStats:
     return SuspensionStats(
-        players=20_000, entries=110, players_with_entries=100, issued_after_clock=0
+        players=20_000,
+        entries=110,
+        players_with_entries=100,
+        issued_after_clock=0,
+        entries_with_known_scope=110,
     )
 
 
@@ -534,6 +542,7 @@ def test_suspensions_issued_after_the_clock_are_a_share_of_the_entries(
         entries=entries,
         players_with_entries=100,
         issued_after_clock=issued_after_clock,
+        entries_with_known_scope=entries,
     )
     results = evaluate_suspensions(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert failed_gate_names(results) == expected_failures
@@ -557,6 +566,7 @@ def test_the_suspension_share_of_players_is_bounded_at_both_ends(
         entries=players_with_entries,
         players_with_entries=players_with_entries,
         issued_after_clock=0,
+        entries_with_known_scope=players_with_entries,
     )
     results = evaluate_suspensions(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert results[0].minimum == 0.001
@@ -564,19 +574,55 @@ def test_the_suspension_share_of_players_is_bounded_at_both_ends(
     assert failed_gate_names(results) == expected_failures
 
 
-def test_a_suspension_search_that_finds_nothing_fails_both_checks() -> None:
-    """An entry layout that has moved must fail, not report a save with no suspensions."""
+def test_a_suspension_search_that_finds_nothing_fails_the_share_and_the_clock_check() -> None:
+    """An entry layout that has moved must fail, not report a save with no suspensions. The
+    scope check has no entries to judge and goes not applied, which is why it never stands
+    alone: the share below it is what fails.
+    """
     nothing_found = SuspensionStats(
-        players=20_000, entries=0, players_with_entries=0, issued_after_clock=0
+        players=20_000,
+        entries=0,
+        players_with_entries=0,
+        issued_after_clock=0,
+        entries_with_known_scope=0,
     )
     results = evaluate_suspensions(nothing_found, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
-    assert failed_gate_names(results) == list(SUSPENSION_GATE_NAMES)
+    assert failed_gate_names(results) == ["suspension_share_of_players", "issued_after_clock"]
     assert results[0].observed == 0.0
     assert results[1].observed is None
+    assert not results[2].applied
     with pytest.raises(fmsave.ReaderCheckError, match=r"suspension_share_of_players=0 "):
         enforce("suspensions", results)
     small_results = evaluate_suspensions(nothing_found, BOUNDS, SMALL_GAME_DB_BYTES)
     assert all(not result.applied and result.passed for result in small_results)
+
+
+@pytest.mark.parametrize(
+    ("entries_with_known_scope", "expected_failures"),
+    [
+        pytest.param(100, [], id="every-code-listed"),
+        pytest.param(50, [], id="lower-edge"),
+        pytest.param(49, ["suspension_scopes_known"], id="below"),
+        pytest.param(0, ["suspension_scopes_known"], id="no-code-listed"),
+    ],
+)
+def test_the_share_of_entries_with_a_listed_scope_code_is_bounded_below(
+    entries_with_known_scope: int, expected_failures: list[str]
+) -> None:
+    """A build that changed the scope codes moves no offset and breaks no signature, so the
+    entries are still found and counted; this is the check that notices.
+    """
+    stats = SuspensionStats(
+        players=20_000,
+        entries=100,
+        players_with_entries=100,
+        issued_after_clock=0,
+        entries_with_known_scope=entries_with_known_scope,
+    )
+    results = evaluate_suspensions(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert results[2].minimum == 0.50
+    assert results[2].maximum is None
+    assert failed_gate_names(results) == expected_failures
 
 
 def test_the_managed_club_reader_has_no_checks_and_reports_what_its_routes_found() -> None:
@@ -831,8 +877,8 @@ def player_a_bytes() -> bytes:
     ratings = [10] * 15
     ratings[0] = 18
     suspensions = suspension_entry_bytes(
-        competition_id=1234, issued=packed_date(51, 2031), e7=3, e14=1
-    ) + suspension_entry_bytes(competition_id=4321, issued=packed_date(100, 2031), e7=64, e14=5)
+        scope_id=1234, issued=packed_date(51, 2031), e7=3, scope_code=1
+    ) + suspension_entry_bytes(scope_id=4321, issued=packed_date(100, 2031), e7=64, scope_code=5)
     person_block = person_block_bytes(
         first_name_id=0,
         surname_id=0,
@@ -1058,6 +1104,9 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
     assert observed_by_gate(readers["suspensions"]) == {
         "suspension_share_of_players": 0.5,
         "issued_after_clock": 0.5,
+        # Both entries carry a scope code the layout lists, one competition-wide and one
+        # nation-wide.
+        "suspension_scopes_known": 1.0,
     }
     assert readers["managed_clubs"].gates == ()
     assert {name: dict(reader.anomalies) for name, reader in readers.items()} == {
@@ -1480,7 +1529,9 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
                 "no_contract_in_effect",
             }
         ],
-        "suspensions": list(SUSPENSION_GATE_NAMES),
+        # The fragment's two entries both carry a listed scope code, so the scope check
+        # passes on counts that fail the other two.
+        "suspensions": ["suspension_share_of_players", "issued_after_clock"],
         "managed_clubs": [],
         # The example table is a fraction of a career's, and names three competitions.
         "stages": ["stage_rows_minimum"],

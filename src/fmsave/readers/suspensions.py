@@ -7,6 +7,12 @@ match start, so signatures that overlap one another are all considered. It gives
 its owning player by bisecting the sorted record offsets. The pattern, the field Struct, the
 offsets and the bounds are derived from the layout once per layout, and checked for
 consistency at that point, so the search loop never reads the layout.
+
+An entry stores one id and one scope code that says what the id is. The layout lists which
+codes name a competition and which name a nation, and every row built here reads the id
+through the scope that gives it, so a nation id never reaches a competition field and a
+competition id never reaches a nation one. The two really do share numbers inside one save,
+so this is what keeps a ban from being named after an unrelated competition.
 """
 
 from __future__ import annotations
@@ -15,8 +21,8 @@ import functools
 import re
 import struct
 from bisect import bisect_right
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import date
 
 from fmsave._frozen import FrozenMapping
@@ -24,7 +30,7 @@ from fmsave._layouts import SuspensionLayout
 from fmsave._reader_stats import SuspensionStats
 from fmsave._scan import decode_date
 from fmsave.models.players import Player
-from fmsave.models.suspensions import PlayerSuspension, Suspension
+from fmsave.models.suspensions import PlayerSuspension, Suspension, SuspensionScope
 from fmsave.readers._common import build_gap_padded_struct
 from fmsave.readers.player_scan import PlayerRecords
 
@@ -34,16 +40,34 @@ class SuspensionEntry:
     """One kept suspension entry, before it is joined to its player.
 
     Attributes:
-        competition_id: The competition id, in the suspension id space.
+        scope: What the ban covers, as `scope_code` says.
+        scope_code: The scope code exactly as the entry stores it.
+        scope_id: The u16 the entry stores beside the code: a competition id in the stage id
+            space when the scope is COMPETITION, a nation id when it is NATION, and a number
+            of no known meaning when the scope is UNKNOWN.
         issued: The date the ban was issued.
         e7: The unidentified u16 exported as `unknown["e7"]`.
-        e14: The unidentified u8 exported as `unknown["e14"]`.
+        competition_name: The name of `scope_id` when the scope is COMPETITION and a name map
+            named it; None otherwise. `named_entries` fills it in, so an entry is unnamed
+            until the competition index has been read.
     """
 
-    competition_id: int
+    scope: SuspensionScope
+    scope_code: int
+    scope_id: int
     issued: date
     e7: int
-    e14: int
+    competition_name: str | None = None
+
+    @property
+    def competition_id(self) -> int | None:
+        """`scope_id` when the ban covers one competition, and None otherwise."""
+        return self.scope_id if self.scope is SuspensionScope.COMPETITION else None
+
+    @property
+    def nation_id(self) -> int | None:
+        """`scope_id` when the ban covers a whole nation, and None otherwise."""
+        return self.scope_id if self.scope is SuspensionScope.NATION else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,12 +83,13 @@ class _SuspensionSearch:
     pattern_offset: int
     fields_struct: struct.Struct
     e7_index: int
-    e14_index: int
-    competition_id_index: int
+    scope_code_index: int
+    scope_id_index: int
     issued_date_offset: int
     owner_back_offset: int
-    competition_id_lower_bound: int
-    competition_id_upper_bound: int
+    scope_id_lower_bound: int
+    scope_id_upper_bound: int
+    scope_by_code: Mapping[int, SuspensionScope]
 
 
 def _build_signature_pattern(
@@ -107,8 +132,8 @@ def _suspension_search(layout: SuspensionLayout) -> _SuspensionSearch:
         ValueError: The signature is empty, has an offset before the entry start or an offset
             listed twice; two fields overlap or a field starts before the entry start; a field
             ends past the last signature byte, so a signature match would not guarantee it is
-            readable; or `competition_id_exclusive_range` leaves no id strictly between its
-            bounds.
+            readable; `scope_id_exclusive_range` leaves no id strictly between its bounds; or
+            one scope code is listed as both the competition code and a nation code.
     """
     pattern, pattern_offset, signature_end = _build_signature_pattern(layout.signature)
     # The issued date stays in the Struct only so the build-time overlap and signature-span
@@ -117,8 +142,8 @@ def _suspension_search(layout: SuspensionLayout) -> _SuspensionSearch:
     field_specs = [
         (layout.unknown_e7_offset, "H", "e7"),
         (layout.issued_date_offset, "I", "issued_date"),
-        (layout.unknown_e14_offset, "B", "e14"),
-        (layout.competition_id_offset, "H", "competition_id"),
+        (layout.scope_code_offset, "B", "scope_code"),
+        (layout.scope_id_offset, "H", "scope_id"),
     ]
     fields_struct, _start_offset, index_by_name = build_gap_padded_struct(
         field_specs, start_offset=0
@@ -130,23 +155,32 @@ def _suspension_search(layout: SuspensionLayout) -> _SuspensionSearch:
                 f"(offset {signature_end - 1}), so a signature match does not guarantee it is "
                 "readable"
             )
-    lower_bound, upper_bound = layout.competition_id_exclusive_range
+    lower_bound, upper_bound = layout.scope_id_exclusive_range
     if upper_bound - lower_bound < 2:
         raise ValueError(
-            f"competition_id_exclusive_range {layout.competition_id_exclusive_range} leaves no "
-            "competition id strictly between its bounds"
+            f"scope_id_exclusive_range {layout.scope_id_exclusive_range} leaves no scope id "
+            "strictly between its bounds"
         )
+    if layout.competition_scope_code in layout.nation_scope_codes:
+        raise ValueError(
+            f"scope code {layout.competition_scope_code} is listed as both the competition "
+            "code and a nation code, so it would name two id spaces at once"
+        )
+    scope_by_code = {layout.competition_scope_code: SuspensionScope.COMPETITION}
+    for code in layout.nation_scope_codes:
+        scope_by_code[code] = SuspensionScope.NATION
     return _SuspensionSearch(
         pattern=pattern,
         pattern_offset=pattern_offset,
         fields_struct=fields_struct,
         e7_index=index_by_name["e7"],
-        e14_index=index_by_name["e14"],
-        competition_id_index=index_by_name["competition_id"],
+        scope_code_index=index_by_name["scope_code"],
+        scope_id_index=index_by_name["scope_id"],
         issued_date_offset=layout.issued_date_offset,
         owner_back_offset=layout.owner_back_offset,
-        competition_id_lower_bound=lower_bound,
-        competition_id_upper_bound=upper_bound,
+        scope_id_lower_bound=lower_bound,
+        scope_id_upper_bound=upper_bound,
+        scope_by_code=scope_by_code,
     )
 
 
@@ -160,8 +194,9 @@ def locate_suspensions(
     The scan starts `owner_back_offset` bytes before the first record (or at 0) and resumes
     one byte after every match start, kept or not, so a false signature cannot hide a real
     entry that overlaps it. An entry is kept when it has an owner, a valid issued date (a
-    readable game date, so day 366 of a non-leap year is rejected) and a competition id
-    strictly inside the layout's range.
+    readable game date, so day 366 of a non-leap year is rejected) and a scope id strictly
+    inside the layout's range. A scope code the layout does not list keeps its entry, with the
+    scope UNKNOWN, so the ban is still reported: only the meaning of its id is withheld.
 
     Raises:
         ValueError: The layout is inconsistent (see `_suspension_search`).
@@ -175,11 +210,13 @@ def locate_suspensions(
     owner_back_offset = search.owner_back_offset
     unpack_from = search.fields_struct.unpack_from
     e7_index = search.e7_index
-    e14_index = search.e14_index
-    competition_id_index = search.competition_id_index
+    scope_code_index = search.scope_code_index
+    scope_id_index = search.scope_id_index
     issued_date_offset = search.issued_date_offset
-    lower_bound = search.competition_id_lower_bound
-    upper_bound = search.competition_id_upper_bound
+    lower_bound = search.scope_id_lower_bound
+    upper_bound = search.scope_id_upper_bound
+    scope_for_code = search.scope_by_code.get
+    unknown_scope = SuspensionScope.UNKNOWN
     game_db_length = len(game_db)
 
     region_start = max(0, record_offsets[0] - owner_back_offset)
@@ -195,14 +232,19 @@ def locate_suspensions(
         if position < 0:
             continue
         field_values = unpack_from(game_db, entry_offset)
-        competition_id: int = field_values[competition_id_index]
-        if not lower_bound < competition_id < upper_bound:
+        scope_id: int = field_values[scope_id_index]
+        if not lower_bound < scope_id < upper_bound:
             continue
         issued = decode_date(game_db, entry_offset + issued_date_offset)
         if issued is None:
             continue
+        scope_code: int = field_values[scope_code_index]
         entry = SuspensionEntry(
-            competition_id, issued, field_values[e7_index], field_values[e14_index]
+            scope_for_code(scope_code, unknown_scope),
+            scope_code,
+            scope_id,
+            issued,
+            field_values[e7_index],
         )
         position_entries = entries_by_position.get(position)
         if position_entries is None:
@@ -216,26 +258,66 @@ def suspension_stats(
     entries_by_position: Mapping[int, tuple[SuspensionEntry, ...]], player_count: int, clock: date
 ) -> SuspensionStats:
     """Count the located entries for the suspension checks: entries, players with an entry,
-    and entries issued after the save's in-game date.
+    entries issued after the save's in-game date, and entries whose scope code is one the
+    layout lists.
     """
     entry_count = 0
     issued_after_clock = 0
+    with_known_scope = 0
+    unknown_scope = SuspensionScope.UNKNOWN
     for entries in entries_by_position.values():
         entry_count += len(entries)
         for entry in entries:
             if entry.issued > clock:
                 issued_after_clock += 1
+            if entry.scope is not unknown_scope:
+                with_known_scope += 1
     return SuspensionStats(
         players=player_count,
         entries=entry_count,
         players_with_entries=len(entries_by_position),
         issued_after_clock=issued_after_clock,
+        entries_with_known_scope=with_known_scope,
     )
+
+
+def named_entries(
+    entries_by_position: Mapping[int, tuple[SuspensionEntry, ...]],
+    name_for: Callable[[int | None], str | None],
+) -> dict[int, tuple[SuspensionEntry, ...]]:
+    """The same entries with `competition_name` filled in, keyed as they were.
+
+    `name_for` is `CompetitionIndex.name_for`, the one lookup that names a competition, so a
+    ban is named by exactly the rule that names its competition and this module repeats none
+    of it. It is asked only for a ban whose scope is COMPETITION: a nation-wide ban's id is a
+    nation id, and looking it up would name the ban after whatever competition happens to
+    share its number. Naming here, on the located entries, gives `Player.suspensions` and the
+    `suspensions()` rows the same name from the same lookup.
+    """
+    return {
+        position: tuple(
+            entry
+            if entry.competition_id is None
+            else replace(entry, competition_name=name_for(entry.competition_id))
+            for entry in entries
+        )
+        for position, entries in entries_by_position.items()
+    }
 
 
 def player_suspensions(entries: Sequence[SuspensionEntry]) -> tuple[PlayerSuspension, ...]:
     """The `Player.suspensions` value for one player's located entries."""
-    return tuple(PlayerSuspension(entry.competition_id, entry.issued) for entry in entries)
+    return tuple(
+        PlayerSuspension(
+            entry.scope,
+            entry.scope_code,
+            entry.competition_id,
+            entry.competition_name,
+            entry.nation_id,
+            entry.issued,
+        )
+        for entry in entries
+    )
 
 
 def suspension_rows(player: Player, entries: Sequence[SuspensionEntry]) -> list[Suspension]:
@@ -246,9 +328,13 @@ def suspension_rows(player: Player, entries: Sequence[SuspensionEntry]) -> list[
             player.name,
             player.club_uid,
             player.club_name,
+            entry.scope,
+            entry.scope_code,
             entry.competition_id,
+            entry.competition_name,
+            entry.nation_id,
             entry.issued,
-            FrozenMapping({"e7": entry.e7, "e14": entry.e14}),
+            FrozenMapping({"e7": entry.e7}),
         )
         for entry in entries
     ]

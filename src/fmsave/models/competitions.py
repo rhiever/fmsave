@@ -6,8 +6,8 @@ stage with a leg number. The stage table is the only route from a fixture, a lea
 group or a per-match record to a competition, so a stage id is the key every competition join
 goes through.
 
-Competition ids here belong to the stage id space. They do **not** join to
-`Suspension.suspension_competition_id`, which belongs to a separate suspension id space.
+Competition ids here belong to the stage id space, which `Suspension.competition_id` joins
+too: a ban covering one competition names it by exactly this id.
 
 The save stores no competition name table: the game renders competition names from its own
 installed database, so `Competition.name` and every denormalised `competition_name` stay None
@@ -54,10 +54,9 @@ class Stage:
     Attributes:
         id: The stage id, which every fixture, league-table group and per-match record joins
             through.
-        competition_id: Id of the competition this stage belongs to, in the stage id space
-            (not the id space a suspension's competition id belongs to); None when the row
-            stores no competition, and None for the one out-of-band id every save carries,
-            which is a marker rather than a competition.
+        competition_id: Id of the competition this stage belongs to, in the stage id space;
+            None when the row stores no competition, and None for the one out-of-band id every
+            save carries, which is a marker rather than a competition.
         competition_name: Denormalised name of competition_id, which is None unless a name
             map is supplied, because the save stores no competition names (unconfirmed).
         group_id: Id of the group or section within the competition, or None when the stage
