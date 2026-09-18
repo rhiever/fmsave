@@ -341,19 +341,48 @@ def test_one_decode_builds_both_tables_and_a_closed_save_raises(
             read_table()
 
 
+# A club, row and step population invented here, so that no count in this file comes from a
+# real save. The three numbers are each other's arithmetic -- a thousand clubs of ten months
+# give ten thousand rows, and one step fewer per club gives nine thousand steps -- and each is
+# round, so every share below is an exact count.
+CLUBS_WITH_A_SERIES = 1_000
+FINANCE_ROWS = 10_000
+FINANCE_BALANCE_STEPS = FINANCE_ROWS - CLUBS_WITH_A_SERIES
+# The floors these counts are judged against, named here so each case straddles one of them by
+# a single row, step or club rather than by a figure written out by hand.
+ROW_SHARE_FLOOR = 0.99
+BALANCE_CONTINUITY_FLOOR = 0.80
+SPONSOR_SHARE_FLOOR = 0.95
+# What a sound decode scores: every row holds together, and the balance steps that do not are
+# the transfer-window months, which is well clear of their floor.
+HEALTHY_BALANCE_CONTINUOUS_SHARE = 0.94
+
+
+def rows_at_share(share: float) -> int:
+    return round(share * FINANCE_ROWS)
+
+
+def steps_at_share(share: float) -> int:
+    return round(share * FINANCE_BALANCE_STEPS)
+
+
+def clubs_at_share(share: float) -> int:
+    return round(share * CLUBS_WITH_A_SERIES)
+
+
 def passing_finance_stats() -> FinanceStats:
-    """Counts inside every bound, taken from the shape the corpus saves hold."""
+    """An invented save the shape a sound decode gives, inside every bound."""
     return FinanceStats(
-        records_searched=10_000,
-        clubs_with_series=335,
+        records_searched=FINANCE_ROWS,
+        clubs_with_series=CLUBS_WITH_A_SERIES,
         clubs_with_two_chains=0,
-        rows=11_399,
-        net_identity_rows=11_399,
-        balance_steps=11_064,
-        balance_continuous_steps=10_113,
-        expenditure_split_rows=11_399,
-        clubs_with_sponsors=335,
-        sponsor_rows=1_781,
+        rows=FINANCE_ROWS,
+        net_identity_rows=FINANCE_ROWS,
+        balance_steps=FINANCE_BALANCE_STEPS,
+        balance_continuous_steps=steps_at_share(HEALTHY_BALANCE_CONTINUOUS_SHARE),
+        expenditure_split_rows=FINANCE_ROWS,
+        clubs_with_sponsors=CLUBS_WITH_A_SERIES,
+        sponsor_rows=2 * CLUBS_WITH_A_SERIES,
         managed_club_exists=True,
     )
 
@@ -365,62 +394,90 @@ def failed_gate_names(stats: FinanceStats) -> list[str]:
     return [gate.name for gate in gates if gate.applied and not gate.passed]
 
 
-def test_the_corpus_shaped_counts_pass_every_finance_gate() -> None:
+def test_a_sound_finance_shape_passes_every_finance_gate() -> None:
     assert failed_gate_names(passing_finance_stats()) == []
+
+
+# Each share floor, with the population that meets it exactly and the one a single row, step or
+# club short of it. A bound that moved would leave one of these two cases on the wrong side.
+SHARE_FLOORS = (
+    ("finance_net_identity", "net_identity_rows", rows_at_share(ROW_SHARE_FLOOR)),
+    ("finance_expenditure_split", "expenditure_split_rows", rows_at_share(ROW_SHARE_FLOOR)),
+    (
+        "finance_balance_continuity",
+        "balance_continuous_steps",
+        steps_at_share(BALANCE_CONTINUITY_FLOOR),
+    ),
+    ("finance_clubs_with_sponsors", "clubs_with_sponsors", clubs_at_share(SPONSOR_SHARE_FLOOR)),
+)
+
+
+@pytest.mark.parametrize(
+    ("gate_name", "field_name", "on_the_floor"),
+    SHARE_FLOORS,
+    ids=[gate_name for gate_name, _field, _count in SHARE_FLOORS],
+)
+def test_each_finance_share_passes_on_its_floor_and_fails_one_unit_below_it(
+    gate_name: str, field_name: str, on_the_floor: int
+) -> None:
+    passes = dataclasses.replace(passing_finance_stats(), **{field_name: on_the_floor})
+    fails = dataclasses.replace(passing_finance_stats(), **{field_name: on_the_floor - 1})
+
+    assert gate_name not in failed_gate_names(passes)
+    assert failed_gate_names(fails) == [gate_name]
 
 
 @pytest.mark.parametrize(
     ("replacements", "expected_failure"),
     [
-        ({"net_identity_rows": 29}, "finance_net_identity"),
-        ({"balance_continuous_steps": 33}, "finance_balance_continuity"),
-        ({"expenditure_split_rows": 5_129}, "finance_expenditure_split"),
         ({"clubs_with_two_chains": 1}, "finance_clubs_with_two_chains"),
         ({"clubs_with_series": 0, "clubs_with_sponsors": 0}, "finance_series_minimum"),
-        ({"clubs_with_sponsors": 0}, "finance_clubs_with_sponsors"),
     ],
 )
-def test_each_finance_gate_fails_on_its_own_misalignment(
+def test_each_finance_count_fails_on_its_own_misalignment(
     replacements: dict[str, int], expected_failure: str
 ) -> None:
     stats = dataclasses.replace(passing_finance_stats(), **replacements)
     assert expected_failure in failed_gate_names(stats)
 
 
-# The three shares as measured with the money fields read one byte late, four bytes late and
-# one byte early, against the corpus row counts. The counts are what the reader would produce
-# from a layout that had moved, and the names are the gates that have to fail on them.
-SHIFTED_SHARE_COUNTS = (
+# The three shares each shift of the money fields scores in the layout's own record of them:
+# read one byte late, four bytes late and one byte early. A share is a property of the format
+# rather than a count from any one save, so these are what the floors have to fail whatever
+# save they run on. Reading one byte early is the case the balance-continuity floor does
+# **not** catch, because a shift of one field leaves the balance steps almost intact; the net
+# identity is what catches it, which is why that case expects two failures rather than three.
+SHIFTED_SHARES = (
+    ("one byte late", 0.003, 0.009, 0.003),
+    ("four bytes late", 0.0, 0.55, 0.0),
+    ("one byte early", 0.89, 0.51, 0.83),
+)
+SHIFTED_SHARE_CASES = tuple(
     (
-        "one byte late",
-        {"net_identity_rows": 13, "expenditure_split_rows": 101, "balance_continuous_steps": 23},
-        ["finance_net_identity", "finance_balance_continuity", "finance_expenditure_split"],
-    ),
-    (
-        "four bytes late",
+        shift,
         {
-            "net_identity_rows": 0,
-            "expenditure_split_rows": 6_263,
-            "balance_continuous_steps": 0,
+            "net_identity_rows": rows_at_share(net_identity_share),
+            "expenditure_split_rows": rows_at_share(split_share),
+            "balance_continuous_steps": steps_at_share(continuity_share),
         },
-        ["finance_net_identity", "finance_balance_continuity", "finance_expenditure_split"],
-    ),
-    (
-        "one byte early",
-        {
-            "net_identity_rows": 10_187,
-            "expenditure_split_rows": 5_793,
-            "balance_continuous_steps": 9_128,
-        },
-        ["finance_net_identity", "finance_expenditure_split"],
-    ),
+        [
+            "finance_net_identity",
+            *(
+                ["finance_balance_continuity"]
+                if continuity_share < BALANCE_CONTINUITY_FLOOR
+                else []
+            ),
+            "finance_expenditure_split",
+        ],
+    )
+    for shift, net_identity_share, split_share, continuity_share in SHIFTED_SHARES
 )
 
 
 @pytest.mark.parametrize(
     ("shift", "replacements", "expected_failures"),
-    SHIFTED_SHARE_COUNTS,
-    ids=[shift for shift, _replacements, _failures in SHIFTED_SHARE_COUNTS],
+    SHIFTED_SHARE_CASES,
+    ids=[shift for shift, _replacements, _failures in SHIFTED_SHARE_CASES],
 )
 def test_a_shifted_field_read_fails_the_shares_it_is_measured_to_break(
     shift: str, replacements: dict[str, int], expected_failures: list[str]
@@ -432,7 +489,7 @@ def test_a_shifted_field_read_fails_the_shares_it_is_measured_to_break(
 def no_series_stats(*, managed_club_exists: bool) -> FinanceStats:
     """What a save whose clubs keep no finance series at all counts."""
     return FinanceStats(
-        records_searched=601,
+        records_searched=FINANCE_ROWS,
         clubs_with_series=0,
         clubs_with_two_chains=0,
         rows=0,

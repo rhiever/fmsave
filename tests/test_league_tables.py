@@ -164,27 +164,43 @@ def raw_block(
     )
 
 
-def healthy_stats() -> LeagueTableStats:
-    """Counts from a full save, with every rate comfortably inside its bound.
+# A block, group and slot population invented here, so that no count in this file comes from a
+# real save. Each is round, so every share below is an exact count, and the shape is the one a
+# sound decode gives: ten thousand blocks kept and nearly as many again dropped as repeats,
+# grouped into a thousand tables of which almost all are voted a competition.
+HEALTHY_BLOCKS = 10_000
+HEALTHY_DUPLICATE_BLOCKS = 8_000
+HEALTHY_GROUPS = 1_000
+HEALTHY_VENUE_SLOTS = 10_000
+# The floors these counts are judged against, named here so each case below straddles one of
+# them by a single block, group, division or slot rather than by a figure written out by hand.
+BLOCK_FLOOR = 200
+DUPLICATE_FLOOR = 100
+TEAM_IN_RANGE_FLOOR = 0.99
+GROUPS_RESOLVED_FLOOR = 0.70
+DIVISION_FLOOR = 5
+VENUE_AGREEMENT_FLOOR = 0.95
+# What the parity scores read the other way round, in the layout's own record of it: a fifth of
+# a percent of the slots the calendar decides. A share is a property of the format rather than a
+# count from any one save.
+FLIPPED_PARITY_AGREEMENT_SHARE = 0.0024
 
-    These are the shape the stored-index boundary gives: about 830 tables out of the 4,800
-    blocks that survive deduplication, almost every one of them voted a competition, and 60
-    shaped like a division. 151 of those tables account for exactly one season of the
-    calendar, and the 7,548 slots they let the calendar decide agree with the parity on 7,530.
-    """
+
+def healthy_stats() -> LeagueTableStats:
+    """An invented span the shape a sound decode gives, inside every bound."""
     return LeagueTableStats(
-        blocks=4_817,
-        duplicate_blocks=4_385,
-        block_candidates=560_000,
-        groups=833,
-        groups_resolved=832,
-        blocks_in_resolved_groups=4_816,
-        team_id_in_range=4_815,
-        team_resolved=3_941,
-        double_round_robin_divisions=60,
-        in_sync_tables=151,
-        venue_slots_decided=7_548,
-        venue_slots_agreeing=7_530,
+        blocks=HEALTHY_BLOCKS,
+        duplicate_blocks=HEALTHY_DUPLICATE_BLOCKS,
+        block_candidates=100 * HEALTHY_BLOCKS,
+        groups=HEALTHY_GROUPS,
+        groups_resolved=HEALTHY_GROUPS,
+        blocks_in_resolved_groups=HEALTHY_BLOCKS,
+        team_id_in_range=HEALTHY_BLOCKS,
+        team_resolved=4 * HEALTHY_BLOCKS // 5,
+        double_round_robin_divisions=HEALTHY_GROUPS // 10,
+        in_sync_tables=HEALTHY_GROUPS // 5,
+        venue_slots_decided=HEALTHY_VENUE_SLOTS,
+        venue_slots_agreeing=HEALTHY_VENUE_SLOTS,
     )
 
 
@@ -396,8 +412,8 @@ def test_the_flipped_parity_agrees_with_the_calendar_on_no_slot_at_all(tmp_path:
 
     assert stats.venue_slots_decided == VENUE_SLOT_COUNT
     assert stats.venue_slots_agreeing == 0
-    # The fragment's own block counts are far below the corpus floors, so the gate is judged
-    # here on the corpus counts with this fragment's agreement put in place of the corpus one.
+    # The fragment's own block counts are far below the floors, so the gate is judged here on a
+    # full span's shape with this fragment's agreement put in place of that shape's own.
     flipped_on_a_full_save = dataclasses.replace(
         healthy_stats(),
         venue_slots_decided=stats.venue_slots_decided,
@@ -793,6 +809,40 @@ def test_the_build_counts_exactly_what_the_checks_read(tmp_path: Path) -> None:
     }
 
 
+# Each bound with the counts that meet it exactly. The failing side of every one of these is a
+# case of `test_league_table_gates_fail_one_at_a_time`, one unit below the same bound, so the
+# two together pin each floor from both sides.
+GATE_FLOORS = (
+    ("table_blocks_minimum", {"blocks": BLOCK_FLOOR, "team_id_in_range": BLOCK_FLOOR}),
+    ("table_block_duplicates_minimum", {"duplicate_blocks": DUPLICATE_FLOOR}),
+    (
+        "table_block_team_in_range",
+        {"team_id_in_range": round(TEAM_IN_RANGE_FLOOR * HEALTHY_BLOCKS)},
+    ),
+    ("table_groups_resolved", {"groups_resolved": round(GROUPS_RESOLVED_FLOOR * HEALTHY_GROUPS)}),
+    ("double_round_robin_divisions", {"double_round_robin_divisions": DIVISION_FLOOR}),
+    (
+        "table_venue_calendar_agreement",
+        {"venue_slots_agreeing": round(VENUE_AGREEMENT_FLOOR * HEALTHY_VENUE_SLOTS)},
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("gate_name", "replacements"),
+    GATE_FLOORS,
+    ids=[gate_name for gate_name, _replacements in GATE_FLOORS],
+)
+def test_each_league_table_gate_passes_exactly_on_its_floor(
+    gate_name: str, replacements: dict[str, int]
+) -> None:
+    stats = dataclasses.replace(healthy_stats(), **replacements)
+
+    results = evaluate_league_tables(stats, BOUNDS, FULL_SIZE_SPAN_BYTES)
+    assert gate_named(results, gate_name).applied
+    assert failed_gate_names(results) == []
+
+
 def test_healthy_stats_pass_every_gate_and_a_small_span_applies_none() -> None:
     results = evaluate_league_tables(healthy_stats(), BOUNDS, FULL_SIZE_SPAN_BYTES)
     assert tuple(result.name for result in results) == GATE_NAMES
@@ -807,32 +857,49 @@ def test_healthy_stats_pass_every_gate_and_a_small_span_applies_none() -> None:
     ("stats", "expected_failures"),
     [
         pytest.param(
-            dataclasses.replace(healthy_stats(), blocks=199, team_id_in_range=199),
+            dataclasses.replace(
+                healthy_stats(), blocks=BLOCK_FLOOR - 1, team_id_in_range=BLOCK_FLOOR - 1
+            ),
             ["table_blocks_minimum"],
-            id="below-the-block-floor",
+            id="one-block-below-the-block-floor",
         ),
         pytest.param(
-            dataclasses.replace(healthy_stats(), duplicate_blocks=0),
+            dataclasses.replace(healthy_stats(), duplicate_blocks=DUPLICATE_FLOOR - 1),
             ["table_block_duplicates_minimum"],
-            id="the-deduplication-stopped-deduplicating",
+            id="one-block-below-the-duplicate-floor",
         ),
         pytest.param(
-            dataclasses.replace(healthy_stats(), team_id_in_range=4_721),
+            dataclasses.replace(
+                healthy_stats(), team_id_in_range=round(TEAM_IN_RANGE_FLOOR * HEALTHY_BLOCKS) - 1
+            ),
             ["table_block_team_in_range"],
-            id="too-few-team-ids-in-range",
+            id="one-block-below-the-team-in-range-floor",
         ),
         pytest.param(
-            dataclasses.replace(healthy_stats(), groups_resolved=196),
+            dataclasses.replace(
+                healthy_stats(), groups_resolved=round(GROUPS_RESOLVED_FLOOR * HEALTHY_GROUPS) - 1
+            ),
             ["table_groups_resolved"],
-            id="too-few-groups-resolve",
+            id="one-group-below-the-resolved-floor",
         ),
         pytest.param(
-            dataclasses.replace(healthy_stats(), double_round_robin_divisions=4),
+            dataclasses.replace(healthy_stats(), double_round_robin_divisions=DIVISION_FLOOR - 1),
             ["double_round_robin_divisions"],
-            id="the-grouping-stopped-separating-tables",
+            id="one-division-below-the-division-floor",
         ),
         pytest.param(
-            dataclasses.replace(healthy_stats(), venue_slots_agreeing=18),
+            dataclasses.replace(
+                healthy_stats(),
+                venue_slots_agreeing=round(VENUE_AGREEMENT_FLOOR * HEALTHY_VENUE_SLOTS) - 1,
+            ),
+            ["table_venue_calendar_agreement"],
+            id="one-slot-below-the-venue-agreement-floor",
+        ),
+        pytest.param(
+            dataclasses.replace(
+                healthy_stats(),
+                venue_slots_agreeing=round(FLIPPED_PARITY_AGREEMENT_SHARE * HEALTHY_VENUE_SLOTS),
+            ),
             ["table_venue_calendar_agreement"],
             id="the-slot-parity-is-the-wrong-way-round",
         ),
@@ -849,8 +916,9 @@ def test_league_table_gates_fail_one_at_a_time(
     """A span pass that finds nothing fails every gate it has a population for, and each
     filter that stopped filtering fails its own gate alone.
 
-    The parity case carries the share reading the slots the other way round scores on every
-    save measured, which is a fifth of a percent of them.
+    Every floor case sits one block, group, division or slot below its bound, so a bound that
+    moved would leave the case on the wrong side of it and show up here. The last parity case
+    carries the share reading the slots the other way round scores on every save measured.
     """
     results = evaluate_league_tables(stats, BOUNDS, FULL_SIZE_SPAN_BYTES)
 

@@ -45,7 +45,14 @@ def failed_gate_names(results: tuple[GateResult, ...]) -> list[str]:
 
 
 def healthy_window_stats() -> TransferWindowStats:
-    """Counts as every save measured reports them; the windows are database content."""
+    """Counts as every save measured reports them.
+
+    These two are kept exact, unlike the invented populations the other reader tests are judged
+    on, because the windows are installed-database content rather than career state: every save
+    written from one database holds the same records, whoever played it and however long for.
+    So they carry nothing about any particular save, and the gates are worth judging on the
+    figures a real database gives.
+    """
     return TransferWindowStats(markers=1_766, windows=54, incomplete=0)
 
 
