@@ -780,7 +780,8 @@ def test_the_reader_raises_when_its_counts_are_past_its_bounds_and_returns_its_t
     with fmsave.open(career_save_path) as career_save:
         with pytest.raises(fmsave.ReaderCheckError) as error_info:
             career_save.player_match_stats()
-        assert PLAYER_MATCH_STATS_TABLE_CACHE_KEY not in career_save._context._cache
+        # Remembered as failed, and so never handed out as a table.
+        assert career_save._context.cached_value(PLAYER_MATCH_STATS_TABLE_CACHE_KEY) is None
     message = str(error_info.value)
     assert message.startswith("player_match_stats failed checks: ")
     for gate_name in MATCH_GATE_NAMES:

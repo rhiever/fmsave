@@ -555,7 +555,8 @@ def test_a_failed_finance_check_stops_both_tables(
             with pytest.raises(fmsave.ReaderCheckError, match="^finances failed checks: "):
                 read_table()
             for cache_key in (FINANCES_TABLE_CACHE_KEY, SPONSORSHIPS_TABLE_CACHE_KEY):
-                assert cache_key not in career_save._context._cache
+                # Remembered as failed, and so never handed out as a table.
+                assert career_save._context.cached_value(cache_key) is None
 
 
 def test_the_sponsorship_check_names_its_own_reader(career_save_path: Path) -> None:

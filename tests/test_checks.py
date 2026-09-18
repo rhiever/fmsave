@@ -1239,7 +1239,8 @@ def test_a_failing_reader_is_reported_failed_and_the_others_still_run(
     with fmsave.open(counted_fragment_path) as career_save:
         with pytest.raises(fmsave.ReaderCheckError, match="^clubs failed checks: "):
             career_save.clubs()
-        assert CLUBS_TABLE_CACHE_KEY not in career_save._context._cache
+        # The failure is remembered, but no table was left behind for anyone to be handed.
+        assert career_save._context.cached_value(CLUBS_TABLE_CACHE_KEY) is None
         report = validate_save(career_save)
     readers = reader_by_name(report)
     assert readers["clubs"].status == "failed"
@@ -1276,7 +1277,7 @@ def test_a_failing_reader_is_reported_failed_and_the_others_still_run(
     assert player_match_stats.gates == ()
 
 
-def test_a_failing_contract_check_fails_the_shared_player_pass_and_caches_nothing(
+def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered(
     counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     evaluations: list[int] = []
@@ -1301,16 +1302,17 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_caches_nothin
                 CONTRACTS_TABLE_CACHE_KEY,
                 SUSPENSIONS_TABLE_CACHE_KEY,
             ):
-                assert cache_key not in career_save._context._cache
+                # The failure is remembered under the key, but it is not a value: nothing here
+                # can be handed a table built from a pass that failed its checks.
+                assert career_save._context.cached_value(cache_key) is None
         assert len(evaluations) == 3
         report = validate_save(career_save)
-    # A `validate` run costs six decodes of a failed player pass: one for the pass itself, which
-    # the two readers sharing it then skip, and one each for the five readers that decode the
-    # players to name their rows and so pay for that pass again before raising the same error -
-    # the per-match stats, the staff, the injury history, the training and the tactics. Each of
-    # the last three carries its own pass partner (staff lists, mentoring, set pieces), so the
-    # partner pays nothing. The three counted before `validate_save` are this test's own calls.
-    assert len(evaluations) == 3 + 6
+    # A `validate` run adds nothing. Each of the three tables settled its key on this test's own
+    # call above, and the nine readers below that decode the players to name their rows meet a
+    # remembered failure rather than decoding the pass again. This count was 3 + 6 while a failed
+    # build stored nothing, which made the slowest run of all the one over a save fmsave cannot
+    # read.
+    assert len(evaluations) == 3
     readers = reader_by_name(report)
     assert {name: reader.status for name, reader in readers.items()} == {
         "clubs": "ok",

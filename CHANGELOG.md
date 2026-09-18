@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
+- A shared pass that fails is decoded once, not once per reader that wanted it. On a save whose player pass cannot be read, a single `fmsave validate` run used to decode that pass six times and fail six times, so the slowest run of all was the one over a save fmsave cannot read. The error each reader raises is unchanged.
+
 - `Clause.value` reports `verified` rather than `unconfirmed`. Its meaning is now confirmed for every named clause kind: the two release clauses whose fee had never been read off a contract screen were read, and each carries a fee like the other release kinds. `Clause.parameter` stays `unconfirmed`, because a minority of plain minimum-fee clauses carry a parameter whose meaning nothing pins.
 
 ## [0.3.0] - 2026-09-17

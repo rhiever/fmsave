@@ -24,6 +24,7 @@ import pytest
 import fmsave
 from fmsave import _context as context_module
 from fmsave._container import ContainerIndex, DirectoryEntry
+from fmsave._context import SaveContext
 from tests.fixtures.career import career_fragment
 
 GAME_DB = "game_db"
@@ -136,6 +137,31 @@ def test_every_reader_validate_runs_has_a_pinned_read_count(career_path: Path) -
         report = fmsave.validate_save(career_save)
 
     assert sorted(reader.reader for reader in report.readers) == sorted(READER_SECTION_READS)
+
+
+def test_a_failing_pass_is_decoded_once_however_many_readers_want_it(
+    career_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pass that fails costs what it costs once, not once per reader that asked for it.
+
+    Six of the readers `validate` runs share the player pass. While a failed build stored
+    nothing, each of them paid to decode it again and fail again, so the slowest run of all
+    was the one over a save fmsave cannot read.
+    """
+    builder_calls: list[int] = []
+
+    def failing_build(self: object) -> object:
+        builder_calls.append(1)
+        raise fmsave.CorruptSaveError("fictional failure")
+
+    monkeypatch.setattr(SaveContext, "_build_player_records", failing_build)
+
+    with fmsave.open(career_path) as career_save:
+        report = fmsave.validate_save(career_save)
+
+    assert builder_calls == [1]
+    failed_readers = [reader.reader for reader in report.readers if reader.status != "ok"]
+    assert len(failed_readers) > 1, failed_readers
 
 
 def test_a_warm_second_call_decompresses_nothing(

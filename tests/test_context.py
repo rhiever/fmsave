@@ -132,7 +132,11 @@ def test_cached_builds_once_and_returns_the_same_object(fragment_path: Path) -> 
     assert builder_calls == [1]
 
 
-def test_cached_does_not_store_a_failed_build(fragment_path: Path) -> None:
+def test_cached_does_not_store_a_failure_that_is_not_the_librarys_own(
+    fragment_path: Path,
+) -> None:
+    """An error from outside the library says nothing about the save, so the build retries."""
+
     def failing_build() -> str:
         raise LookupError("fictional failure")
 
@@ -141,6 +145,27 @@ def test_cached_does_not_store_a_failed_build(fragment_path: Path) -> None:
         with pytest.raises(LookupError):
             context.cached("key", failing_build)
         assert context.cached("key", lambda: "Northbridge FC") == "Northbridge FC"
+
+
+def test_cached_remembers_a_failed_pass_and_never_rebuilds_it(fragment_path: Path) -> None:
+    builder_calls: list[int] = []
+
+    def failing_build() -> str:
+        builder_calls.append(1)
+        raise fmsave.CorruptSaveError("fictional failure")
+
+    with fmsave.open(fragment_path) as career_save:
+        context = career_save._context
+        for _ in range(3):
+            with pytest.raises(fmsave.CorruptSaveError, match="fictional failure"):
+                context.cached("key", failing_build)
+        assert builder_calls == [1]
+        # A build that would succeed is never reached: the key is settled, not merely empty.
+        with pytest.raises(fmsave.CorruptSaveError):
+            context.cached("key", lambda: "Northbridge FC")
+        # And a remembered failure is not a value anyone can be handed.
+        assert context.cached_value("key") is None
+        assert "0 cached, 1 failed" in repr(context)
 
 
 def test_build_that_closes_the_save_is_returned_but_not_kept(fragment_path: Path) -> None:

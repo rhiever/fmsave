@@ -3,8 +3,9 @@
 A reader borrows a section's bytes with `section(name)`. Nested borrows of the same
 section share one decompressed bytes object, which is dropped when the outermost borrow
 ends, so a whole section is never kept alive between reader calls. Results that are
-cheap to keep (tables and small indexes) go in the cache through `cached(key, build)`.
-Closing the context drops both; values already handed out keep working.
+cheap to keep (tables and small indexes) go in the cache through `cached(key, build)`,
+which also remembers a pass that failed so nothing pays to decode it twice. Closing the
+context drops both; values already handed out keep working.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from fmsave._container import (
     read_region_frames,
     read_section,
 )
-from fmsave._errors import SaveClosedError
+from fmsave._errors import FmsaveError, SaveClosedError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import NamePoolLayout, PlayerRecordLayout, find_layout
 from fmsave.models.meta import SaveInfo
@@ -58,6 +59,15 @@ STADIUM_INDEX_CACHE_KEY = "stadium_index"
 
 def closed_save_error() -> SaveClosedError:
     return SaveClosedError("this save is closed; open it again with fmsave.open()")
+
+
+class _FailedBuild:
+    """A remembered failure: the error a cached build raised, kept under that build's key."""
+
+    __slots__ = ("error",)
+
+    def __init__(self, error: FmsaveError) -> None:
+        self.error = error
 
 
 class SaveContext:
@@ -118,15 +128,29 @@ class SaveContext:
     def cached[ValueT](self, key: str, build: Callable[[], ValueT]) -> ValueT:
         """Return the value stored under `key`, building and storing it on first use.
 
-        A build that raises stores nothing. Never store section bytes here.
+        A build that raises the library's own error is remembered as having failed, and
+        every later call for that key raises it again without rebuilding. A pass reads the
+        same immutable bytes every time, so a second attempt would fail the same way after
+        paying the same cost: on a save whose player pass fails, one `validate_save` run
+        used to decode that pass six times. Any other exception stores nothing, because it
+        says something about the machine rather than about the save. Never store section
+        bytes here.
 
         Raises:
             SaveClosedError: The context is closed.
         """
         self._require_open()
         if key in self._cache:
-            return cast("ValueT", self._cache[key])
-        value = build()
+            stored = self._cache[key]
+            if isinstance(stored, _FailedBuild):
+                raise stored.error
+            return cast("ValueT", stored)
+        try:
+            value = build()
+        except FmsaveError as error:
+            if not self._closed:
+                self._cache[key] = _FailedBuild(error)
+            raise
         if not self._closed:
             self._cache[key] = value
         return value
@@ -134,11 +158,15 @@ class SaveContext:
     def cached_value(self, key: str) -> object | None:
         """Return the value stored under `key`, or None when nothing is stored.
 
+        A key whose build failed counts as nothing stored: callers ask this to find out
+        whether a value is ready to hand, and a remembered failure is not one.
+
         Raises:
             SaveClosedError: The context is closed.
         """
         self._require_open()
-        return self._cache.get(key)
+        stored = self._cache.get(key)
+        return None if isinstance(stored, _FailedBuild) else stored
 
     def club_index(self) -> ClubIndex:
         """Every club with the team to club map, read from `game_db` once and then cached.
@@ -321,7 +349,10 @@ class SaveContext:
 
     def __repr__(self) -> str:
         state = "closed" if self._closed else "open"
-        return f"<fmsave SaveContext {state}, {len(self._cache)} cached>"
+        values = sum(not isinstance(stored, _FailedBuild) for stored in self._cache.values())
+        failures = len(self._cache) - values
+        failed = f", {failures} failed" if failures else ""
+        return f"<fmsave SaveContext {state}, {values} cached{failed}>"
 
     def _require_open(self) -> None:
         if self._closed:
