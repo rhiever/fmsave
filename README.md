@@ -80,7 +80,7 @@ Records and tables are immutable and keep working after the save is closed.
 
 A club's `teams` are its own team slots followed by the teams it controls at other clubs, such as a B team the save stores as a club of its own. A player registered with one of those counts as a player of the controlling club, keeps the club storing his team in `team_club_uid`, and is not on loan; `on_loan` marks a real loan. How the save stores those links is read from the file and not checked against the game, so ask `field_status` before relying on them.
 
-Each reader returns a `Table`, an immutable sequence of records with `where(...)`, `filter(...)`, `find(name=...)`, `by_uid(...)`, `get_by_uid(...)` and `coverage`, plus `to_dicts()`, `to_columns()`, `to_pandas()`, `to_polars()`, `write_csv(...)`, `write_json(...)` and `write_jsonl(...)`.
+Each reader returns a `Table`, an immutable sequence of records with `where(...)`, `filter(...)`, `sorted_by(...)`, `find(name=...)`, `by_uid(...)`, `get_by_uid(...)`, `by_id(...)`, `get_by_id(...)` and `coverage`, plus `to_dicts()`, `to_columns()`, `to_pandas()`, `to_polars()`, `write_csv(...)`, `write_json(...)` and `write_jsonl(...)`.
 
 Every field is either verified (checked against the game) or unconfirmed; ask with `fmsave.field_status(fmsave.Player, "contract.wage")`. Every value comes from the save as stored, a value fmsave cannot read is `None` rather than a guess, and money is kept exactly as the game stores it, in a unit that is not the currency the game displays.
 

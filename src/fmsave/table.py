@@ -3,20 +3,60 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 import os
 import unicodedata
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from enum import IntEnum
 from typing import Any, ClassVar, NoReturn, cast, overload
 
 from fmsave import export
 from fmsave._frozen import FrozenMapping
+from fmsave.models.common import CodedValue
 
 _NAME_FIELD = "name"
 _UID_FIELD = "uid"
+_ID_FIELD = "id"
+
+# Each key field, with the wording its message needs, the other key field a record may carry
+# instead, and the pair of methods that reads that other field.
+_KEY_FIELDS = {
+    _UID_FIELD: ("a 'uid' field", _ID_FIELD, "by_id or get_by_id"),
+    _ID_FIELD: ("an 'id' field", _UID_FIELD, "by_uid or get_by_uid"),
+}
 
 
 def _normalized_name(text: str) -> str:
     return unicodedata.normalize("NFKC", text).casefold().strip()
+
+
+def _matches_wanted_value(record_value: object, wanted_value: object) -> bool:
+    """Say whether a field's value answers to a value where passed.
+
+    A coded-value field answers to a bare enum member when its label is that member, so a
+    query names the label the save's code stands for. Everything else is plain equality.
+    """
+    if isinstance(wanted_value, IntEnum) and isinstance(record_value, CodedValue):
+        coded_value = cast("CodedValue[IntEnum]", record_value)
+        return coded_value.label is wanted_value
+    return bool(record_value == wanted_value)
+
+
+@functools.cache
+def _coded_tuple_field_names(record_type: type) -> frozenset[str]:
+    """Return the fields of a record type whose type hints say they hold coded values in a tuple.
+
+    The names come from the hints alone, so a query is judged without reading a record. A
+    record type whose fields export cannot plan has none of them, and its queries are matched
+    by equality as they always were.
+    """
+    try:
+        class_plan = export._class_plan(record_type)  # pyright: ignore[reportPrivateUsage]
+    except (TypeError, ValueError):
+        return frozenset()
+    return frozenset(
+        field_plan.name for field_plan in class_plan.fields if field_plan.kind == "coded_values"
+    )
 
 
 def _dataclass_field_names(candidate: object) -> tuple[str, ...] | None:
@@ -35,12 +75,13 @@ class Table[RecordT](Sequence[RecordT]):
     deep-copied.
     """
 
-    __slots__ = ("_coverage", "_record_type", "_records", "_uid_index")
+    __slots__ = ("_coverage", "_id_index", "_record_type", "_records", "_uid_index")
     __hash__: ClassVar[None] = None  # pyright: ignore[reportIncompatibleMethodOverride]
 
     _records: tuple[RecordT, ...]
     _record_type: type[RecordT]
     _uid_index: dict[object, RecordT] | None
+    _id_index: dict[object, RecordT] | None
     _coverage: FrozenMapping[str, float] | None
 
     def __init__(self, records: Iterable[RecordT], record_type: type[RecordT]) -> None:
@@ -68,6 +109,7 @@ class Table[RecordT](Sequence[RecordT]):
         object.__setattr__(self, "_records", records)
         object.__setattr__(self, "_record_type", record_type)
         object.__setattr__(self, "_uid_index", None)
+        object.__setattr__(self, "_id_index", None)
         object.__setattr__(self, "_coverage", None)
 
     def _from_checked_records(self, records: tuple[RecordT, ...]) -> Table[RecordT]:
@@ -83,7 +125,7 @@ class Table[RecordT](Sequence[RecordT]):
         raise AttributeError(f"Table is immutable: cannot delete {name!r}")
 
     def __reduce__(self) -> tuple[type[Table[RecordT]], tuple[tuple[RecordT, ...], type[RecordT]]]:
-        # The uid index and coverage are rebuilt on demand, so only the records are kept.
+        # The key indexes and coverage are rebuilt on demand, so only the records are kept.
         return (Table, (self._records, self._record_type))
 
     @property
@@ -153,11 +195,19 @@ class Table[RecordT](Sequence[RecordT]):
         """Return the records whose named top-level fields all equal the given values.
 
         Nested group columns such as "contract_wage" are not field names; use filter for them.
-        A coded-value field equals only a whole CodedValue with the same label and raw number,
-        so passing just the label matches nothing. To match on the label alone, use filter,
-        for example filter(lambda record: record.status.label is Status.FIRST_CHOICE).
+
+        A coded-value field holds a CodedValue, which carries the number the save stores and
+        the label fmsave reads it as. Passing a whole CodedValue matches the records whose
+        label and raw number both equal it. Passing the label alone, as in
+        where(cause=InjuryCause.IN_MATCH), matches every record carrying that label whatever
+        its raw number, so where(cause=InjuryCause.UNKNOWN) is how you ask for the records
+        whose code fmsave does not recognise. A label of another enum never matches. A field
+        holding a tuple of coded values, such as a player's traits, matches only an equal whole
+        tuple, and a label passed to one raises rather than coming back empty, because no tuple
+        can equal a label; the message names the filter that looks inside the tuple.
 
         Raises:
+            TypeError: A field holding a tuple of coded values was given a bare label.
             ValueError: A name is not a field of the record type. The message lists every such
                 name and the valid field names.
         """
@@ -168,19 +218,59 @@ class Table[RecordT](Sequence[RecordT]):
                 f"unknown {self._record_type.__name__} fields: {', '.join(unknown_names)}; "
                 f"valid fields: {', '.join(field_names)}"
             )
+        self._check_coded_tuple_labels(equals)
         wanted_values = tuple(equals.items())
         return self.filter(
             lambda record: all(
-                getattr(record, field_name) == wanted_value
+                _matches_wanted_value(getattr(record, field_name), wanted_value)
                 for field_name, wanted_value in wanted_values
             )
         )
+
+    def _check_coded_tuple_labels(self, equals: Mapping[str, object]) -> None:
+        """Refuse a bare label passed to a field that holds a tuple of coded values.
+
+        The field's type hints say a tuple can never equal a label, so the query could not
+        have matched whatever the records hold, and no record is read to know it.
+
+        Raises:
+            TypeError: Such a field was given a bare label.
+        """
+        labelled_names = [
+            field_name for field_name, wanted in equals.items() if isinstance(wanted, IntEnum)
+        ]
+        if not labelled_names:
+            return
+        tuple_field_names = _coded_tuple_field_names(self._record_type)
+        for field_name in labelled_names:
+            if field_name in tuple_field_names:
+                wanted_label = cast("IntEnum", equals[field_name])
+                label_type_name = type(wanted_label).__name__
+                raise TypeError(
+                    f"{self._record_type.__name__}.{field_name} holds a tuple of coded values, "
+                    f"which no {label_type_name} member can equal; use filter, as in "
+                    f"filter(lambda record: any(coded.label is "
+                    f"{label_type_name}.{wanted_label.name} for coded in record.{field_name}))"
+                )
 
     def filter(self, predicate: Callable[[RecordT], bool]) -> Table[RecordT]:
         """Return the records for which predicate returns true, in order."""
         return self._from_checked_records(
             tuple(record for record in self._records if predicate(record))
         )
+
+    def sorted_by(self, key: Callable[[RecordT], Any], *, reverse: bool = False) -> Table[RecordT]:
+        """Return the records ordered by key, smallest first, or largest first when reverse.
+
+        key is called once per record and its values are compared to each other, so they must
+        be comparable: sorted_by(lambda player: player.ability.current) orders by current
+        ability, and a key returning None for some records raises TypeError. Records with
+        equal keys keep the order they have here.
+
+        Raises:
+            TypeError: Two key values cannot be compared to each other.
+        """
+        return self._from_checked_records(tuple(sorted(self._records, key=key, reverse=reverse)))
 
     def find(self, *, name: str) -> Table[RecordT]:
         """Return the records whose name equals name, ignoring case and surrounding whitespace.
@@ -201,21 +291,52 @@ class Table[RecordT](Sequence[RecordT]):
 
         return self.filter(has_wanted_name)
 
+    def _require_key_field(self, field_name: str) -> None:
+        """Check that the record type has this key field, and name the other pair when it does not.
+
+        Raises:
+            ValueError: The record type has no such field. The message points at the other
+                pair of lookups when the record type carries the key they read.
+        """
+        wanted_text, other_field, other_methods = _KEY_FIELDS[field_name]
+        field_names = self._field_names()
+        if field_name in field_names:
+            return
+        message = (
+            f"{field_name} lookup needs {wanted_text}, and {self._record_type.__name__} has none"
+        )
+        if other_field in field_names:
+            message += f"; it keys on {other_field!r}, so use {other_methods}"
+        raise ValueError(message)
+
+    def _build_key_index(self, field_name: str) -> dict[object, RecordT]:
+        self._require_key_field(field_name)
+        # Walk backwards so the first record with a repeated key is the one kept.
+        return {getattr(record, field_name): record for record in reversed(self._records)}
+
     def _uid_lookup(self) -> dict[object, RecordT]:
         uid_index = self._uid_index
         if uid_index is None:
-            self._require_field(_UID_FIELD, "uid lookup")
-            # Walk backwards so the first record with a repeated uid is the one kept.
-            uid_index = {getattr(record, _UID_FIELD): record for record in reversed(self._records)}
+            uid_index = self._build_key_index(_UID_FIELD)
             object.__setattr__(self, "_uid_index", uid_index)
         return uid_index
+
+    def _id_lookup(self) -> dict[object, RecordT]:
+        id_index = self._id_index
+        if id_index is None:
+            id_index = self._build_key_index(_ID_FIELD)
+            object.__setattr__(self, "_id_index", id_index)
+        return id_index
 
     def by_uid(self, uid: int) -> RecordT:
         """Return the first record with this uid.
 
+        Tables of people, clubs and grounds key on uid; the rest key on id, and say so.
+
         Raises:
             KeyError: No record has this uid.
-            ValueError: The record type has no uid field.
+            ValueError: The record type has no uid field. The message names by_id and
+                get_by_id when the record type keys on id.
         """
         uid_index = self._uid_lookup()
         if uid not in uid_index:
@@ -226,9 +347,35 @@ class Table[RecordT](Sequence[RecordT]):
         """Return the first record with this uid, or None when no record has it.
 
         Raises:
-            ValueError: The record type has no uid field.
+            ValueError: The record type has no uid field. The message names by_id and
+                get_by_id when the record type keys on id.
         """
         return self._uid_lookup().get(uid)
+
+    def by_id(self, id: int) -> RecordT:
+        """Return the first record with this id.
+
+        Competitions, stages and injury types key on id; tables of people, clubs and grounds
+        key on uid instead, and say so.
+
+        Raises:
+            KeyError: No record has this id.
+            ValueError: The record type has no id field. The message names by_uid and
+                get_by_uid when the record type keys on uid.
+        """
+        id_index = self._id_lookup()
+        if id not in id_index:
+            raise KeyError(f"no record with id {id}")
+        return id_index[id]
+
+    def get_by_id(self, id: int) -> RecordT | None:
+        """Return the first record with this id, or None when no record has it.
+
+        Raises:
+            ValueError: The record type has no id field. The message names by_uid and
+                get_by_uid when the record type keys on uid.
+        """
+        return self._id_lookup().get(id)
 
     @property
     def coverage(self) -> Mapping[str, float]:

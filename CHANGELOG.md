@@ -4,17 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
-### Removed
+### Added
 
-- The injury history reader's `injury_log_minimum` check. The walk that reads those rows raises on every input that would have tripped the floor, so the check could not fail and never had; what judges that walk is the walk itself, and the shares of row shape and joins beside it.
+- `Table.sorted_by(key, *, reverse=False)`, which returns the records ordered by key as a table. `sorted(table, key=...)` hands back a plain list, so the sorted records lose `to_pandas()`, `coverage`, and the rule that slicing a table gives a table; the top few by any measure now stay a table, as in `players.sorted_by(lambda player: player.ability.current, reverse=True)[:10]`. Records whose keys are equal keep the order they had, and the table sorted from is unchanged.
 
-### Fixed
-
-- `suspensions()` refused a save whose bans were sound. Its check on dates ahead of the in-game date counted every ban, and a ban covering a whole nation is routinely dated one to ten days ahead as ordinary career state, so a career carrying a few of those failed it. The check now judges the bans covering a single competition, where no save state measured holds one dated ahead at all, which is a tighter bound than the one it replaces. Nation-wide bans dated ahead are reported as `nation_bans_dated_ahead`.
-
-### Changed
-
-`, and this file deleted.
+- `Table.by_id(id)` and `Table.get_by_id(id)`, which read a record by a literal `id` field exactly as `by_uid` and `get_by_uid` read one by `uid`, index and all. Only the tables of clubs, players, grounds and staff carry a `uid`; competitions, stages and injury types key on `id`, and a uid lookup on one of those raised with nothing to reach for instead. Each pair now names the other when the record type carries the other key, so a uid lookup on a competition says to use `by_id` or `get_by_id`, and an id lookup on a club says to use `by_uid` or `get_by_uid`.
 
 ### Changed
 
@@ -32,6 +26,15 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - `Clause.value` reports `verified` rather than `unconfirmed`. Its meaning is now confirmed for every named clause kind: the two release clauses whose fee had never been read off a contract screen were read, and each carries a fee like the other release kinds. `Clause.parameter` stays `unconfirmed`, because a minority of plain minimum-fee clauses carry a parameter whose meaning nothing pins.
 
+### Removed
+
+- The injury history reader's `injury_log_minimum` check. The walk that reads those rows raises on every input that would have tripped the floor, so the check could not fail and never had; what judges that walk is the walk itself, and the shares of row shape and joins beside it.
+
+### Fixed
+
+- `suspensions()` refused a save whose bans were sound. Its check on dates ahead of the in-game date counted every ban, and a ban covering a whole nation is routinely dated one to ten days ahead as ordinary career state, so a career carrying a few of those failed it. The check now judges the bans covering a single competition, where no save state measured holds one dated ahead at all, which is a tighter bound than the one it replaces. Nation-wide bans dated ahead are reported as `nation_bans_dated_ahead`.
+
+- `where()` on a coded field matched nothing when passed the label it is named for. A coded field holds a `CodedValue`, which carries both the number the save stores and the label fmsave reads it as, and that whole value does not equal a bare enum member, so `injuries.where(cause=InjuryCause.IN_MATCH)` came back empty and said nothing about why. Passing a label now matches every record whose coded value carries it, whatever its raw number, which makes `where(cause=InjuryCause.UNKNOWN)` the query for the records whose code fmsave does not recognise. Passing a whole `CodedValue` matches on the label and the raw number together as it always did, and a label of another enum never matches. A field holding a tuple of coded values, such as a player's traits, still matches only an equal whole tuple, and a label passed to one now raises `TypeError` naming the `filter` that looks inside the tuple, because the field's type says no tuple can equal a label and the query could never have matched. `CodedValue` equality is untouched: this is how a query reads a label, not a claim that a record's coded value equals its label.
 ## [0.3.0] - 2026-09-17
 
 ### Added
