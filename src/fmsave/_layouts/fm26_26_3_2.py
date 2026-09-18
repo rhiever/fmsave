@@ -1272,6 +1272,16 @@ GATE_BOUNDS = GateBounds(
     # career where a few clubs hold none while still failing a sponsor search that has moved,
     # which finds nothing at all.
     finance_clubs_with_sponsors=(0.95, None),
+    # That share divides by the clubs the finance locator found, so every break of that locator
+    # leaves it with no denominator and reported as not applied, which used to let this reader
+    # call an empty table sound. This floor is the same count judged without a denominator: at
+    # least one club with a sponsor run, and only where a managed club exists, whose own club
+    # held one on every save measured. It stays at one deliberately. Breaking the sponsor run's
+    # own stride, its count byte or its annual field still leaves 13 to 178 clubs with a run,
+    # and three times the worst of those sits above the smallest healthy count measured, so no
+    # floor can be both far enough above those misreads and far enough below a real career; the
+    # share beside it is what fails on all three.
+    sponsor_clubs_minimum=(1, None),
     # Every club with a finance series carries a facilities rating in 1 to 20 fifty bytes past
     # the chain's end. Read one byte early the share is at most 0.02, one byte late at most
     # 0.09 and four bytes late at most 0.63, so the

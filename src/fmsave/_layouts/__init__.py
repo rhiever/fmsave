@@ -1712,7 +1712,8 @@ class GateBounds:
     `finance_expenditure_split` (rows whose expenditure excluding transfers lies between zero
     and the total, of rows), `finance_clubs_with_two_chains` (clubs holding a second snapshot
     chain), `finance_series_minimum` (clubs with a series) and, in `sponsorships()`,
-    `finance_clubs_with_sponsors` (clubs with a sponsor run, of clubs with a series).
+    `finance_clubs_with_sponsors` (clubs with a sponsor run, of clubs with a series) and
+    `sponsor_clubs_minimum` (clubs with a sponsor run).
 
     Only some of a save's clubs keep a finance series at all -- those of the one or two league
     nations the save tracks, which changes during a career -- so `finance_series_minimum` bounds
@@ -1721,6 +1722,13 @@ class GateBounds:
     denominator, because a save whose clubs keep no series is a save with nothing to judge
     rather than a broken decode; the series floor is what catches a locator that has stopped
     finding chains, and on a save with no human manager nothing does.
+
+    `sponsor_clubs_minimum` is the sponsor share's own numerator judged without a denominator,
+    and it is what keeps `sponsorships()` from reporting an empty table as sound: the share
+    counts against the clubs the finance locator found, so a break of that locator leaves it
+    with nothing to divide by and reported as not applied. The floor applies where a managed
+    club exists, as the series floor does, and it never fires alone on a sound decode, since a
+    save with a series but no sponsor run fails the share first.
 
     Club facilities: `facility_byte_in_range` (clubs whose rating lies inside the layout's
     range, of clubs with a finance series) and `facility_clubs_minimum` (clubs with a rating).
@@ -1904,6 +1912,7 @@ class GateBounds:
     finance_clubs_with_two_chains: BoundPair
     finance_series_minimum: BoundPair
     finance_clubs_with_sponsors: BoundPair
+    sponsor_clubs_minimum: BoundPair
     facility_byte_in_range: BoundPair
     facility_clubs_minimum: BoundPair
     affiliate_members_resolved: BoundPair

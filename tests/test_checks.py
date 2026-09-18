@@ -1543,7 +1543,9 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "player_match_stats": "failed",
         "stadiums": "ok",
         "finances": "failed",
-        "sponsorships": "ok",
+        # No club record here holds a finance chain, so none was searched for a sponsor run
+        # either: the share stands aside for want of a denominator and the floor is what fails.
+        "sponsorships": "failed",
         "affiliates": "failed",
         "job_vacancies": "ok",
         "staff": "failed",
@@ -1643,7 +1645,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # and the three shares beside them judge only the rows it does hold.
         "stadiums": [],
         "finances": ["finance_series_minimum"],
-        "sponsorships": [],
+        "sponsorships": ["sponsor_clubs_minimum"],
         "affiliates": ["affiliate_members_resolved"],
         "job_vacancies": [],
         "staff": ["staff_minimum"],

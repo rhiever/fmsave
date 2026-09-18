@@ -503,17 +503,61 @@ def no_series_stats(*, managed_club_exists: bool) -> FinanceStats:
     )
 
 
-def test_no_series_on_a_managed_save_fails_the_series_floor_alone() -> None:
+def test_no_series_on_a_managed_save_fails_a_count_floor_in_each_reader() -> None:
     stats = no_series_stats(managed_club_exists=True)
-    assert failed_gate_names(stats) == ["finance_series_minimum"]
+    # One failure in each of the two readers the pass feeds. Without the sponsor floor the
+    # sponsorship reader reported ok while handing back nothing, which is what it looks like
+    # when the finance locator finds no chain to search behind.
+    assert failed_gate_names(stats) == ["finance_series_minimum", "sponsor_clubs_minimum"]
     applied_gates = [
         gate.name
         for gate in evaluate_finances(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
         + evaluate_sponsorships(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
         if gate.applied
     ]
-    # The three shares and the sponsor share have no denominator, so only the two counts apply.
-    assert applied_gates == ["finance_clubs_with_two_chains", "finance_series_minimum"]
+    # The three shares and the sponsor share have no denominator, so only the counts apply.
+    assert applied_gates == [
+        "finance_clubs_with_two_chains",
+        "finance_series_minimum",
+        "sponsor_clubs_minimum",
+    ]
+
+
+# The smallest career the sponsor floor has to pass: one club keeping a series, with the one
+# sponsor run that makes the share read 1.0. One club fewer is a decode that found nothing.
+SPONSOR_FLOOR = 1
+
+
+def one_club_stats(clubs_with_sponsors: int) -> FinanceStats:
+    """An invented save whose single club with a series holds `clubs_with_sponsors` runs."""
+    return dataclasses.replace(
+        passing_finance_stats(),
+        clubs_with_series=1,
+        clubs_with_sponsors=clubs_with_sponsors,
+        sponsor_rows=3 * clubs_with_sponsors,
+    )
+
+
+def test_the_sponsor_floor_passes_on_its_smallest_career_and_fails_one_club_below_it() -> None:
+    assert failed_gate_names(one_club_stats(SPONSOR_FLOOR)) == []
+    # A club short of the floor is a save with a series and no run at all, which the share
+    # reads as zero, so the floor never takes a save down on its own: where it is the only
+    # voice left is the no-series case above, where the share has nothing to divide by.
+    assert failed_gate_names(one_club_stats(SPONSOR_FLOOR - 1)) == [
+        "finance_clubs_with_sponsors",
+        "sponsor_clubs_minimum",
+    ]
+
+
+def test_the_sponsor_floor_stays_clear_of_a_run_misread_the_share_catches() -> None:
+    # A sponsor run read from the wrong stride, count byte or field leaves a minority of the
+    # clubs with a run rather than none. Three times a reading of that size is above the count
+    # a small career legitimately holds, so the floor deliberately does not reach it and the
+    # share is what fails.
+    partial = dataclasses.replace(
+        passing_finance_stats(), clubs_with_sponsors=clubs_at_share(0.2), sponsor_rows=400
+    )
+    assert failed_gate_names(partial) == ["finance_clubs_with_sponsors"]
 
 
 def test_no_series_and_no_managed_club_fails_nothing() -> None:

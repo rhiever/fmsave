@@ -167,6 +167,10 @@ _LIKELY_CAUSES: FrozenMapping[str, str] = FrozenMapping(
         "tails_without_clause_table": "an unrecognised bonus list shape in the contract tail",
         "suspension_share_of_players": "a suspension entry layout that has moved",
         "suspension_scopes_known": "suspension scope codes this build no longer uses",
+        "sponsor_clubs_minimum": (
+            "a finance chain locator that found nothing, since a sponsor run is only looked "
+            "for behind a club's own chain"
+        ),
     }
 )
 
@@ -1532,12 +1536,20 @@ def evaluate_finances(
 def evaluate_sponsorships(
     stats: FinanceStats, bounds: GateBounds, game_db_bytes: int
 ) -> tuple[GateResult, ...]:
-    """The sponsorship reader's one check.
+    """The sponsorship reader's checks, in a fixed order.
 
-    It judges the clubs that have a series, so it applies only where there is one of those to
-    judge: a save whose clubs keep no series has no sponsor run to miss. Where clubs do have a
-    series, every one of them had a sponsor run on each save measured, so a sponsor search that
-    has moved fails here.
+    The share judges the clubs that have a series, so it applies only where there is one of
+    those to judge: a save whose clubs keep no series has no sponsor run to miss. Where clubs do
+    have a series, every one of them had a sponsor run on each save measured, so a sponsor
+    search that has moved fails here.
+
+    The floor is that same numerator judged without a denominator, and it is why this reader can
+    no longer report an empty table as sound. The sponsor run is looked for behind a club's
+    finance chain, so a finance locator that has stopped finding chains leaves no club to search
+    at all: the share goes not applied, every row is gone, and nothing here failed. The floor
+    fails on exactly that, and it applies where the save lists a managed club, whose own club
+    held a sponsor run on every save measured. It can never fire alone on a sound decode, since
+    a save with a series and no sponsor run misses the share first.
     """
     applied = _applies(bounds, game_db_bytes)
     return (
@@ -1546,6 +1558,12 @@ def evaluate_sponsorships(
             _rate(stats.clubs_with_sponsors, stats.clubs_with_series),
             bounds.finance_clubs_with_sponsors,
             applied and stats.clubs_with_series > 0,
+        ),
+        _gate(
+            "sponsor_clubs_minimum",
+            stats.clubs_with_sponsors,
+            bounds.sponsor_clubs_minimum,
+            applied and stats.managed_club_exists,
         ),
     )
 

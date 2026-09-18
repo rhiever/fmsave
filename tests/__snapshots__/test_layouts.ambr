@@ -1567,6 +1567,10 @@
           None,
         ),
         'span_minimum_applies_from_bytes': 16777216,
+        'sponsor_clubs_minimum': tuple(
+          1,
+          None,
+        ),
         'stadium_capacity_within_all_seater': tuple(
           0.99,
           None,
