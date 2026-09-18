@@ -65,24 +65,9 @@ EXPECTED_READERS = (
 # Readers whose ranges the recorded baselines do not hold yet. The baselines are written by a
 # separate tool against the whole corpus, so a reader added since they were last written has no
 # range to be compared with, and its own checks are what bound it until they are written again.
-READERS_WITHOUT_RECORDED_RANGES = frozenset(
-    {
-        "player_match_stats",
-        "stadiums",
-        "finances",
-        "sponsorships",
-        "affiliates",
-        "job_vacancies",
-        "staff",
-        "staff_lists",
-        "injury_types",
-        "injury_history",
-        "training",
-        "mentoring",
-        "tactics",
-        "set_pieces",
-    }
-)
+# Every reader that ships has a recorded range now, so this set is empty and a reader that turns
+# up without one is reported rather than passed over.
+READERS_WITHOUT_RECORDED_RANGES: frozenset[str] = frozenset()
 
 
 def save_label(relative_name: str) -> str:
