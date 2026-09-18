@@ -9,7 +9,7 @@ class CorpusMismatches:
     """Collects corpus mismatches as short messages, then fails once with all of them.
 
     Callers compare values themselves and pass only the result, a file-name label and a
-    field name, so a failure never shows what a save or its golden values contain.
+    field name, so a failure never shows what a save or its recorded values contain.
     """
 
     def __init__(self) -> None:

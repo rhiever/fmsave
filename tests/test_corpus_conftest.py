@@ -106,23 +106,29 @@ def test_invalid_manifest_fails_with_file_name_only(tmp_path: Path, manifest_tex
     assert_quiet_failure(failure, "corpus file is not a valid JSON object: manifest.json")
 
 
-def test_missing_golden_values_file_fails(tmp_path: Path) -> None:
+def test_missing_recorded_values_file_fails(tmp_path: Path) -> None:
     write_manifest(tmp_path, {FICTIONAL_SAVE_NAME: PLACEHOLDER_DIGEST})
 
     with pytest.raises(pytest.fail.Exception) as failure:
-        corpus_conftest.load_golden_values(tmp_path)
+        corpus_conftest.load_recorded_values(tmp_path)
 
-    assert_quiet_failure(failure, "golden values file is missing")
+    assert_quiet_failure(failure, "recorded values file is missing")
 
 
-def test_invalid_golden_values_file_fails_with_file_name_only(tmp_path: Path) -> None:
-    (tmp_path / "golden").mkdir()
-    (tmp_path / "golden" / "values.json").write_text("{not json", encoding="utf-8")
+def test_invalid_recorded_values_file_fails_with_file_name_only(tmp_path: Path) -> None:
+    (tmp_path / "recorded").mkdir()
+    (tmp_path / "recorded" / "values.json").write_text("{not json", encoding="utf-8")
 
     with pytest.raises(pytest.fail.Exception) as failure:
-        corpus_conftest.load_golden_values(tmp_path)
+        corpus_conftest.load_recorded_values(tmp_path)
 
     assert_quiet_failure(failure, "corpus file is not a valid JSON object: values.json")
+
+
+def test_recorded_values_file_is_found_at_the_corpus_root(tmp_path: Path) -> None:
+    (tmp_path / "values.json").write_text("{}", encoding="utf-8")
+
+    assert corpus_conftest.load_recorded_values(tmp_path) == {}
 
 
 def test_save_that_cannot_open_fails_with_file_name_only(tmp_path: Path) -> None:

@@ -20,7 +20,7 @@ pytest_plugins = ["pytester"]
 PRIVATE_FOLDER = "privatefolder"
 HIDDEN_DETAILS_NOTE = "details hidden to keep save content out of test output"
 FICTIONAL_CORPUS_FOLDER = "fictional-corpus"
-REAL_CORPUS_FIXTURES = ("corpus_save_paths", "corpus_saves", "golden_values")
+REAL_CORPUS_FIXTURES = ("corpus_save_paths", "corpus_saves", "recorded_values")
 MARKERS_INI = """
 [pytest]
 markers =
@@ -334,8 +334,8 @@ def test_each_real_corpus_fixture_records_its_use(
     (corpus_folder / "career" / "example-career.fm").write_bytes(save_bytes)
     manifest = {"career/example-career.fm": hashlib.sha256(save_bytes).hexdigest()}
     (corpus_folder / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    (corpus_folder / "golden").mkdir()
-    (corpus_folder / "golden" / "values.json").write_text("{}", encoding="utf-8")
+    (corpus_folder / "recorded").mkdir()
+    (corpus_folder / "recorded" / "values.json").write_text("{}", encoding="utf-8")
     corpus_project.makeconftest(real_conftest_source() + FLAG_PROBE_FIXTURE_SOURCE)
     # corpus_saves alone must record its use, so its path fixture becomes a silent stand-in.
     stand_in_source = STAND_IN_SAVE_PATHS_SOURCE if fixture_name == "corpus_saves" else ""

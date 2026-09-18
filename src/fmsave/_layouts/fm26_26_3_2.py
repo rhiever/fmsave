@@ -527,9 +527,9 @@ FINANCE_CHAINS = FinanceChainLayout(
     total_income_offset=41,
     total_expenditure_offset=45,
     minimum_record_bytes=1_500,
-    # The last row is the month before the save's clock month. Across two saves of one career
-    # ten months apart the series agree row for row at that lag on all 1,740 overlapping rows of
-    # 145 clubs, and at no other lag on a single row; the lag itself is supported indirectly,
+    # The last row is the month before the save's clock month. Across a pair of saves of the
+    # same career taken months apart the series agree row for row at that lag on every
+    # overlapping row, and at no other lag on a single row; the lag itself is supported indirectly,
     # because the months whose balance step differs from the month's net fall in the transfer
     # windows under this lag and in February and September under a lag of zero.
     month_lag=1,
@@ -557,8 +557,8 @@ SPONSOR_CHAINS = SponsorChainLayout(
 )
 
 # The corporate facilities rating, 50 bytes past the end of a club's snapshot chain. Every club
-# with a chain reads 1 to 20 there on all three saves measured (335, 57 and 172 clubs, 20, 14 and
-# 17 distinct values), and it is the only byte within 4 KB of the chain end that does.
+# with a chain reads 1 to 20 there on every save measured, and most of the range is in use on
+# each; it is the only byte within 4 KB of the chain end that does.
 FACILITY_BYTE = FacilityByteLayout(
     offset_after_chain=50,
     value_range=(1, 20),
@@ -607,15 +607,14 @@ MATCH_RECORDS = MatchRecordLayout(
     maximum_rating=100,
     maximum_goals=20,
     rating_scale=10,
-    # The mask carries exactly one bit on all but a handful of the 47,000 records measured
-    # across three saves: none at all carries two, and at most four per save carry none.
+    # The mask carries exactly one bit on all but a handful of the records measured: none at
+    # all carries two, and at most four per save carry none.
     # Fourteen of its sixteen bits are in use, so it covers a full set of positions, and one of
     # them is named.
     #
     # Bit 0 is the goalkeeper. Every record of a player the game's own screen labels "GK"
     # carries it, and all but one of the records carrying it belongs to a player the save rates
-    # a natural goalkeeper: 958 of 958, 1,177 of 1,178 and 912 of 912 records on the three
-    # saves, so one record out of 3,048 does not.
+    # a natural goalkeeper -- one record per corpus, not one per save.
     #
     # No other bit is named, for want of a label that separates one bit from its neighbours.
     # The players whose displayed label the corpus can reach play several positions each, so
@@ -669,7 +668,7 @@ FIXTURE_CALENDAR = FixtureCalendarLayout(
 # two-byte sentinel rather than the lead byte, which gives the search a far more selective
 # literal; the lead byte and the zero byte are checked after it.
 #
-# The zero byte at +15 holds on 100% of the records accepted on all three saves measured, so
+# The zero byte at +15 holds on 100% of the records accepted on every save measured, so
 # requiring it costs nothing and turns away look-alikes. That is the whole of its justification:
 # it is a locator constraint, not a finding about what the byte holds.
 #
@@ -731,16 +730,16 @@ LEAGUE_TABLES = LeagueTableLayout(
     team_id_range=(1, 2_999_999),
     # The first head byte counts the block's place in its own table, 0 to n-1, and starts
     # again at the next table. Splitting there rather than on the distance between blocks
-    # leaves 0.12% / 0.26% / 0.18% of groups holding one club twice, against 15.2% / 16.8% /
-    # 16.8% under a distance rule, and recovers the 20-club division the save's own manager
-    # plays in, which the distance rule ran together with its neighbour into 38 rows.
+    # leaves at most 0.3% of groups holding one club twice, against 15% or more under a
+    # distance rule, and recovers the 20-club division the save's own manager plays in, which
+    # the distance rule ran together with its neighbour into 38 rows.
     stored_index_head_byte=0,
     division_club_range=(18, 26),
     # Even slots are the home ones. The evidence is the fixture calendar's own home team, a
     # stored field, on the tables whose rows account for exactly one season of it: of the
-    # 7,548 / 8,454 / 9,086 slots that calendar can decide by itself, 99.762% / 99.870% /
-    # 99.780% are home where this parity says so, and 0.24% / 0.13% / 0.22% where the other
-    # parity would. The remaining fifth of a percent is consistent with rescheduled or
+    # slots that calendar can decide by itself, at least 99.76% are home where this parity
+    # says so, and at most 0.24% where the other parity would. The remaining fifth of a
+    # percent is consistent with rescheduled or
     # neutral-ground meetings. `table_venue_calendar_agreement` re-runs that comparison on
     # every save read, so this constant cannot be wrong without a check failing.
     home_slot_parity=0,
@@ -814,7 +813,7 @@ STADIUM_TABLE = StadiumTableLayout(
     # every one of them is longer than it is wide.
     pitch_length_range=(900, 1300),
     home_ground_minimum_fixtures=4,
-    # The template row every table ends with holds this all-seater capacity on all three saves
+    # The template row every table ends with holds this all-seater capacity on every save
     # measured, and no real ground holds more than 293,376, so nothing else is mistaken for it.
     template_all_seater_capacity=16_777_216,
     table_terminator=3,
@@ -850,7 +849,7 @@ STAGE_TABLE = StageTableLayout(
 # those marker hits and leave the same 7,400 records.
 #
 # `constant_bytes` holds every offset whose byte takes one value on at least 99% of records on
-# all three saves measured, save two that are deliberately left out because they reject records
+# every save measured, save two that are deliberately left out because they reject records
 # the save really does pair: -3 costs 16 competitions and one of the pairs an independent
 # source confirms, and +29 rejects two entities that deviate at that one offset alone. Of the
 # 17 kept, six cost a single record per save, and it is the same record that fails all six:
@@ -888,9 +887,9 @@ COMPETITION_ID_PAIRS = CompetitionIdPairLayout(
 )
 
 # The tag is stored byte-reversed, so the bytes `csed` are the tag `desc`. Confirmed by walking
-# every marker of both saves under each direction: read reversed the stream yields the tags the
-# format names (`stdt`, `endt`, `dyom`, `mont`, `year`, `wnCT`) and read as stored it yields
-# none of them.
+# every marker of every save measured under each direction: read reversed the stream yields
+# the tags the format names (`stdt`, `endt`, `dyom`, `mont`, `year`, `wnCT`) and read as stored
+# it yields none of them.
 TAGGED_STREAM = TaggedStreamLayout(
     tag_bytes=4,
     separator_value=0x01,
@@ -904,11 +903,12 @@ TAGGED_STREAM = TaggedStreamLayout(
 )
 
 # A window record opens with its `stdt` sub-list, so the marker is that list's stored bytes.
-# Both saves measured agree exactly: 1,766 start-date sub-lists, of which 54 also carry a
-# closing time and decode into a window, and none of those 54 is incomplete. The 54 windows are
-# identical between the two, which is what makes them database content rather than career
-# state; both saves come from one installed database, so these counts rest on a single database
-# rather than on two independent ones, and the bounds below are loose for that reason.
+# The saves measured agree exactly on how many start-date sub-lists the stream holds, on which
+# of them also carry a closing time and decode into a window, and that none of those is
+# incomplete. The decoded windows are identical between them, which is what makes them database
+# content rather than career state; those saves share one installed database, so these counts
+# rest on a single database rather than on independent ones, and the bounds below are loose for
+# that reason.
 #
 # The longest record measured is 146 bytes and 16 tagged values, so the scan window is a little
 # over 1.7 times the longest seen. The decoded count is identical at 160, 256, 512 and 1,024
@@ -1097,83 +1097,83 @@ GATE_BOUNDS = GateBounds(
     # right. It is kept for the one thing it does catch: a calendar read one field out points
     # at stage ids that are noise, which drops the share to near zero.
     fixture_stage_resolved=(0.95, None),
-    # 92.43%, 93.87% and 92.68% of the two team ids per record are listed by a club across the
-    # three saves measured: a calendar also holds matches between sides no club record covers,
-    # such as teams of nations the career never loaded. The bound is the lowest of the three
-    # less 0.05, floored to two decimals, so a career carrying more of those stays well clear
+    # At least 92.4% of the two team ids per record are listed by a club on every save
+    # measured: a calendar also holds matches between sides no club record covers, such as
+    # teams of nations the career never loaded. The bound is the lowest share observed less
+    # 0.05, floored to two decimals, so a career carrying more of those stays well clear
     # while a team id read from the wrong offset, which resolves almost nothing, still fails.
     fixture_teams_resolved=(0.87, None),
-    # 0.99937 / 0.99953 / 0.99954 of the kept records that store a ground name one the stadium
-    # table holds; the rest store the value 1, and no ground has ordinal 0. The floor sits
-    # deliberately above 0.99429 / 0.99502 / 0.99445, which is what the same join scores
-    # against a table that lost its 220 named rows: at 0.99 that control would pass and this
-    # check could not fail. It applies only when some record stores a ground at all.
+    # At least 0.9993 of the kept records that store a ground name one the stadium table holds;
+    # the rest store the value 1, and no ground has ordinal 0. The floor sits deliberately
+    # above 0.9951 or so, which is what the same join scores against a table that lost its 220
+    # named rows: at 0.99 that control would pass and this check could not fail. It applies
+    # only when some record stores a ground at all.
     fixture_stadiums_resolved=(0.998, None),
-    # 44,351 / 55,414 / 42,608 records accepted on the three saves measured, counted under the
-    # rule this reader applies: inside the calendar's own dates. A wider window accepts several
-    # times that, so a count quoted here has to say which window produced it. The floor sits
-    # more than four hundred times below the smallest of these, which leaves a young career
-    # holding a fraction of them well clear while still failing a locator that has stopped
-    # finding records at all.
+    # A save measured accepts tens of thousands of records, counted under the rule this reader
+    # applies: inside the calendar's own dates. A wider window accepts several times that, so a
+    # count quoted here has to say which window produced it. The floor sits more than four
+    # hundred times below the smallest count measured, which leaves a young career holding a
+    # fraction of them well clear while still failing a locator that has stopped finding
+    # records at all.
     result_records_minimum=(100, None),
-    # 0.9707 / 0.9717 / 0.9689 of accepted records join a fixture. This is the gate that says
+    # At least 0.968 of accepted records join a fixture. This is the gate that says
     # the record is still being read correctly, because the calendar it joins is found by
     # another locator in another region: the same records joined with the sides swapped, or
     # with the date moved one day, joined 0 times on every save. The remaining 3% are in range
     # and still do not join, so the floor leaves room for a career carrying more of them.
     results_joined=(0.90, None),
-    # 0.000023 / 0.000056 / 0.000121 of joined records name a fixture the calendar does not mark
-    # played, which is 1, 3 and 5 records. A ceiling nearly two orders of magnitude above the
+    # At most 0.00013 of joined records name a fixture the calendar does not mark played, which
+    # is a handful of records per save. A ceiling nearly two orders of magnitude above the
     # worst of those still fails a join that has started attaching scores to matches not yet
     # played.
     results_for_unplayed=(None, 0.01),
-    # 54 windows on both saves measured. The floor sits over five times below that, which
-    # leaves a database carrying far fewer windows well clear while still failing a decode that
-    # finds none. Both saves come from one installed database, so this is a looser bound than
-    # its margin suggests.
+    # Every save measured decodes the same 54 windows. The floor sits over five times below
+    # that, which leaves a database carrying far fewer windows well clear while still failing a
+    # decode that finds none. Those saves share one installed database, so this is a looser
+    # bound than its margin suggests.
     transfer_windows_minimum=(10, None),
-    # Every record that carried a closing time decoded both date groups cleanly on both saves,
-    # so the share is 1.0 there. A date decode that moved would push records out of the count
-    # and into `incomplete`; one that found nothing at all leaves no rate at all, which fails
-    # the check rather than skipping it.
+    # Every record that carried a closing time decoded both date groups cleanly on every save
+    # measured, so the share is 1.0 there. A date decode that moved would push records out of
+    # the count and into `incomplete`; one that found nothing at all leaves no rate at all,
+    # which fails the check rather than skipping it.
     transfer_window_dates=(0.90, None),
-    # 4,817 / 3,846 / 5,073 blocks survive deduplication on the three saves measured, and
-    # 4,385 / 3,385 / 4,108 are dropped as repeats of one already kept. Both floors sit an
-    # order of magnitude below the smallest of those, so a young career holding a handful of
-    # tables still clears them. The duplicate floor is the one that fails when the
+    # Thousands of blocks survive deduplication on a save measured, and thousands more are
+    # dropped as repeats of one already kept. Both floors sit an
+    # order of magnitude below the smallest count measured, so a young career holding a handful
+    # of tables still clears them. The duplicate floor is the one that fails when the
     # deduplication stops running: the copies are sound blocks that every other check accepts,
     # and keeping them puts one club in a table several times over.
     table_blocks_minimum=(200, None),
     table_block_duplicates_minimum=(100, None),
-    # 0.99959 / 0.99974 / 0.99961 of the blocks kept carry a team id inside the layout's range.
+    # At least 0.9995 of the blocks kept carry a team id inside the layout's range.
     table_block_team_in_range=(0.99, None),
-    # 0.9988 / 1.0000 / 1.0000 of tables are voted a competition on the three saves measured,
-    # which overshoots spec 6.2's "about 85%". Read that headline beside the shape of the
-    # tables: 30.3% / 41.9% / 43.4% of them hold a single block, and a one-block table meets the
-    # vote's "at least half the members" rule on a majority of one, so it resolves trivially.
-    # Over the tables of two blocks or more the share is 0.9983 / 1.0000 / 1.0000, which is the
+    # Almost every table is voted a competition on the saves measured, which overshoots spec
+    # 6.2's "about 85%". Read that headline beside the shape of the tables: a third to nearly a
+    # half of them hold a single block, and a one-block table meets the vote's "at least half
+    # the members" rule on a majority of one, so it resolves trivially. Over the tables of two
+    # blocks or more the share is 0.998 or better, which is the
     # figure that says the vote is sound rather than merely permissive. The floor stays well
     # below both, because the share rests on how much of the calendar a career has played
     # rather than on the layout.
     table_groups_resolved=(0.70, None),
-    # 60 / 50 / 58 groups are shaped like a division whose clubs all play each other twice.
+    # Dozens of groups per save are shaped like a division whose clubs all play each other twice.
     # This is what fails when the grouping stops telling one table from the next: the blocks
     # then arrive in runs of dozens, and no run has a division's shape.
     double_round_robin_divisions=(5, None),
-    # 672 and 521 rules preamble blocks on the two saves measured. The floor sits more than an
-    # order of magnitude below the smaller of those, which leaves a career carrying far fewer
+    # Hundreds of rules preamble blocks on a save measured. The floor sits more than an order
+    # of magnitude below the smallest count measured, which leaves a career carrying far fewer
     # divisions well clear while still failing a marker that finds nothing at all.
     rules_markers_minimum=(20, None),
-    # 0.8438 and 0.8580 of blocks parse in the strict sense this share counts: the promotion
-    # quad written twice identically AND the tie-break list, the prize list and every round
-    # record decoded. Counting only the lists and the rounds, as the format research did, gives
-    # 0.9345 and 0.9309 instead, so this floor must not be read against that figure. The lower
-    # of the two observed values clears the floor by 22% of the bound's width, which is thin:
-    # a third save measured under the strict definition may warrant lowering it.
+    # At least 0.843 of blocks parse in the strict sense this share counts: the promotion quad
+    # written twice identically AND the tie-break list, the prize list and every round record
+    # decoded. Counting only the lists and the rounds, as the format research did, gives about
+    # 0.93 instead, so this floor must not be read against that figure. The lowest observed
+    # value clears the floor by 22% of the bound's width, which is thin: a further save
+    # measured under the strict definition may warrant lowering it.
     rules_fully_parsed=(0.80, None),
     # Every per-match record the search accepts carries a competition id the stage table names
-    # on two of the three saves measured and 0.9988 of them on the third, and every record with
-    # a body has minutes and a rating inside the layout's bounds on all three. The floors sit
+    # on most saves measured and at least 0.9988 of them on the rest, and every record with
+    # a body has minutes and a rating inside the layout's bounds on all of them. The floors sit
     # far below those, because the shares rest on how much of a career the save still holds
     # records for rather than on the layout; what they catch is a record read from the wrong
     # offset, whose competition id then falls outside the stage table and whose minutes and
@@ -1191,32 +1191,32 @@ GATE_BOUNDS = GateBounds(
     # 4.65 times the floor, and the floor is five times the worst control reading of 4.
     injury_type_entries_minimum=(20, None),
     injury_manager_minimum_applies_from_bytes=FULL_SAVE_MINIMUM_INJURY_MANAGER_BYTES,
-    # The three saves measured hold 128,866 / 91,474 / 138,330 log rows in a section of 1.4 to
-    # 2.3 MB, so the floor is an order of magnitude below the smallest and cannot trouble a
-    # career of any length that fills a section this size.
+    # A save measured holds six figures of log rows in a section of 1.4 to 2.3 MB, so the floor
+    # is an order of magnitude below the smallest count measured and cannot trouble a career of
+    # any length that fills a section this size.
     injury_log_minimum=(10_000, None),
     # Every log row on every save carries the lead byte and a date that decodes and is on or
-    # before the in-game date. Read one byte late the first falls to 0.0047 / 0.0060 / 0.0060
-    # and the second to zero on all three, and four bytes late both are zero.
+    # before the in-game date. Read one byte late the first falls to at most 0.006 and the
+    # second to zero on every save measured, and four bytes late both are zero.
     injury_log_lead_byte=(0.999, None),
     injury_log_dates=(0.999, None),
-    # The log is stored oldest first: every one of the 128,865 / 91,473 / 138,329 steps between
-    # adjacent dated rows reaches a date no earlier than the one before it. Read one byte late
-    # only a few hundred rows still carry a date and 0.81 / 0.75 / 0.82 of the steps between
-    # them ascend, which is what this floor separates.
+    # The log is stored oldest first: every step between adjacent dated rows reaches a date no
+    # earlier than the one before it. Read one byte late only a few hundred rows still carry a
+    # date and at most 0.82 of the steps between them ascend, which is what this floor
+    # separates.
     injury_log_ascending=(0.99, None),
-    # 0.9983 / 0.9976 / 0.9984 of log rows name a team some club lists; the rest name teams the
-    # save no longer keeps. Read one byte late the share falls to 0.196 / 0.180 / 0.207 and
-    # four bytes late to 0.0027 / 0.0024 / 0.0023.
+    # At least 0.997 of log rows name a team some club lists; the rest name teams the save no
+    # longer keeps. Read one byte late the share falls to at most 0.21 and four bytes late to
+    # at most 0.003.
     injury_log_teams_resolved=(0.95, None),
-    # Of the log rows from the last month whose player resolves and has a team, 0.9868 / 0.9952
-    # / 0.9923 store exactly that team. This is the one check that joins the section to the
-    # player records, and putting a random player in place of the stored one scores 0.0 /
-    # 0.00027 / 0.00016. The floor leaves room for the transfers a month of a career brings.
+    # Of the log rows from the last month whose player resolves and has a team, at least 0.986
+    # store exactly that team. This is the one check that joins the section to the player
+    # records, and putting a random player in place of the stored one scores next to nothing.
+    # The floor leaves room for the transfers a month of a career brings.
     injury_log_recent_team_matches=(0.90, None),
-    # Every typed row carries the lead byte, and 0.9883 / 0.9884 / 0.9929 / 0.9931 carry a date
-    # that lands within the band around the in-game date; the rest store the null date word.
-    # Read one byte late the lead byte falls to 0.0117 / 0.0116 / 0.0071 / 0.0037 and the
+    # Every typed row carries the lead byte, and at least 0.988 carry a date that lands within
+    # the band around the in-game date; the rest store the null date word.
+    # Read one byte late the lead byte falls to at most 0.012 and the
     # dated-and-near-the-clock share to zero on every state, because the few dates that still
     # decode land over a thousand days away; four bytes late no date decodes at all. The share
     # is taken over every typed row on purpose: over the dated rows alone it is 1.0 read one
@@ -1226,87 +1226,87 @@ GATE_BOUNDS = GateBounds(
     # failed a reader that was reading the section correctly.
     injury_typed_lead_byte=(0.999, None),
     injury_typed_dates_near_clock=(0.95, None),
-    # 0.9157 / 0.9445 / 0.9387 of typed rows carry an injury type the name table holds; the
-    # rest carry one of a dozen codes the table has no entry for at all, so the floor sits well
-    # below them. Read one or four bytes late the share is zero on all three saves.
+    # At least 0.915 of typed rows carry an injury type the name table holds; the rest carry
+    # one of a dozen codes the table has no entry for at all, so the floor sits well below
+    # them. Read one or four bytes late the share is zero on every save measured.
     injury_typed_types_resolved=(0.80, None),
-    # Every one of the 11,399 / 3,081 / 3,460 finance rows on the three saves measured has a net
-    # equal to its total income less its total expenditure, and an expenditure excluding
-    # transfers between zero and its total. Both are what fail when the row is read from the
-    # wrong offset: one field late leaves 0.11% / 0.26% / 0.12% of rows on the net identity and
-    # 0.9% on the split, and one field early leaves 0.0.
+    # Every finance row of every save measured has a net equal to its total income less its
+    # total expenditure, and an expenditure excluding transfers between zero and its total.
+    # Both are what fail when the row is read from the wrong offset: one field late leaves at
+    # most 0.3% of rows on the net identity and 0.9% on the split, and one field early leaves
+    # 0.0.
     finance_net_identity=(0.99, None),
     finance_expenditure_split=(0.99, None),
-    # 91.4% / 92.5% / 97.6% of consecutive row pairs have the later balance equal to the earlier
-    # one plus the later month's net; the rest cluster in the transfer-window months. The floor
-    # is below the lowest of those by 57% of the bound's width. Reading the rows one field out
-    # leaves at most 0.3% here, except one field early, which leaves 82.5% / 78.6% / 91.7% and
-    # is what the net identity catches instead.
+    # At least 91.4% of consecutive row pairs have the later balance equal to the earlier one
+    # plus the later month's net; the rest cluster in the transfer-window months. The floor is
+    # below the lowest observed value by 57% of the bound's width. Reading the rows one field
+    # out leaves at most 0.3% here, except one field early, which leaves 78% or more and is
+    # what the net identity catches instead.
     finance_balance_continuity=(0.80, None),
     # No club on any save measured holds a second snapshot chain, and a second one would mean
     # the locator is accepting bytes inside or behind the chain it already found.
     finance_clubs_with_two_chains=(None, 0),
-    # 335 / 57 / 172 clubs keep a series: those of the one or two league nations the save
+    # A minority of clubs keep a series: those of the one or two league nations the save
     # tracks, not every club, and which nations those are changes during a career. So there is
     # no count to bound from below beyond one, and only where a managed club exists, whose club
     # held a series on every save measured.
     finance_series_minimum=(1, None),
-    # Every club with a series has a sponsor run on all three saves. The floor leaves room for a
+    # Every club with a series has a sponsor run on every save measured. The floor leaves room for a
     # career where a few clubs hold none while still failing a sponsor search that has moved,
     # which finds nothing at all.
     finance_clubs_with_sponsors=(0.95, None),
-    # Every one of the 335 / 57 / 172 clubs with a finance series carries a facilities rating in
-    # 1 to 20 fifty bytes past the chain's end. Read one byte early the share is 0.018 / 0.018 /
-    # 0.0, one byte late 0.033 / 0.088 / 0.035 and four bytes late 0.18 / 0.63 / 0.12, so the
+    # Every club with a finance series carries a facilities rating in 1 to 20 fifty bytes past
+    # the chain's end. Read one byte early the share is at most 0.02, one byte late at most
+    # 0.09 and four bytes late at most 0.63, so the
     # floor sits above the worst of those with room to spare. The clubs with a rating are the
     # clubs with a series, so the count floor is the finance floor's: one, and only where a
     # managed club exists.
     facility_byte_in_range=(0.99, None),
     facility_clubs_minimum=(1, None),
-    # 419 of 426, 417 of 424 and 419 of 426 group members are club indexes a club record
-    # claims; the seven that are not fall in gaps of the index. Reading the index one higher
-    # drops the share to 0.859, 0.870 and 0.859, below the 0.91 a random index of this range
-    # would hit by chance, so the floor sits between the two.
+    # All but about seven group members per save are club indexes a club record claims; those
+    # that are not fall in gaps of the index. Reading the index one higher drops the share to
+    # at most 0.87, below the 0.91 a random index of this range would hit by chance, so the
+    # floor sits between the two.
     affiliate_members_resolved=(0.95, None),
-    # 134, 44 and 122 records on the saves measured. The threshold is not a bound on the feed's
-    # size: it is how small a feed the shares below stop being judged on, because a short feed
-    # is a fact about a quiet job market and the smallest feed measured holds 44.
+    # Tens to low hundreds of records on the saves measured. The threshold is not a bound on
+    # the feed's size: it is how small a feed the shares below stop being judged on, because a
+    # short feed is a fact about a quiet job market, not about the reader.
     job_vacancy_minimum_applies_from_records=20,
     # Every record of every save carries the tag. A record start shifted one byte either way,
-    # or four bytes back, carries it on none; shifted four bytes on, on 0.015, 0.070 and 0.008.
+    # or four bytes back, carries it on none; shifted four bytes on, on at most 0.07.
     job_vacancy_tag=(1.0, None),
-    # 1.0, 1.0 and 0.9918 of records have an advertised date on or before the in-game date and
+    # At least 0.991 of records have an advertised date on or before the in-game date and
     # a second date on or after it. Every shift measured drops it to zero, since neither date
     # decodes at all from the wrong offset.
     job_vacancy_dates_ordered=(0.95, None),
     # The feed is stored in ascending advertised date, so every step forward on every save
-    # measured reaches a date no earlier than the one before. Shifted four bytes on, 0.849,
-    # 0.976 and 0.850 of steps do; shifted the other three ways no date decodes, which leaves
+    # measured reaches a date no earlier than the one before. Shifted four bytes on, at most
+    # 0.976 of steps do; shifted the other three ways no date decodes, which leaves
     # the share without a denominator and fails on that.
     job_vacancy_advertised_ascending=(0.99, None),
     # Both reserved fields are zero on every record of every save measured, and on at most
     # 0.008 of records under any of the four shifts.
     job_vacancy_reserved_zero=(0.99, None),
-    # 47,748 / 47,248 / 47,748 rows walked on the three saves measured. The floor sits nearly
-    # five times below that, which leaves an installed database carrying far fewer grounds well
-    # clear; walking from one byte, four bytes or a byte short of the head reads no row at all,
-    # so a head that moved fails here.
+    # Tens of thousands of rows walked on a save measured. The floor sits nearly five times
+    # below the smallest count measured, which leaves an installed database carrying far fewer
+    # grounds well clear; walking from one byte, four bytes or a byte short of the head reads
+    # no row at all, so a head that moved fails here.
     stadium_rows_minimum=(10_000, None),
     # Every row but the template has a pitch inside the layout's length range and inside its
-    # own stored minimum and maximum, on all three saves. Reading the pitch fields one byte,
+    # own stored minimum and maximum, on every save measured. Reading the pitch fields one byte,
     # four bytes or a byte short of their offsets drops the share to 0.0, so this is the check
     # that says the row's middle is still being read where it sits.
     stadium_pitch_within_limits=(0.99, None),
-    # 0.98354 / 0.98244 / 0.98354 of the rows naming an owning club name one the save lists;
+    # At least 0.982 of the rows naming an owning club name one the save lists;
     # the rest name a club of a nation the career never loaded. Reading the owner one byte out
-    # scores 0.0007 / 0.0002, a byte short 0.0031 / 0.0030 and four bytes out 0.838, so the
+    # scores under 0.001, a byte short under 0.004 and four bytes out 0.838, so the
     # floor catches every one of those while leaving a career that loaded fewer nations clear.
     stadium_owners_resolved=(0.95, None),
-    # 0.99971 / 0.99972 / 0.99971 of rows hold a capacity no larger than their all-seater
-    # capacity, which is 0 on about four rows in five. The misaligned reads score 0.376, 0.827
-    # and 0.0.
+    # At least 0.9997 of rows hold a capacity no larger than their all-seater
+    # capacity, which is 0 on about four rows in five. The misaligned reads score at most
+    # 0.827.
     stadium_capacity_within_all_seater=(0.99, None),
-    # 0.708 / 0.716 / 0.700 of the clubs that own a ground and have a calendar home ground
+    # About 0.70 of the clubs that own a ground and have a calendar home ground
     # play at a ground they own themselves; the rest ground-share or play at a ground the save
     # gives no owner. Shifting the ordinal a fixture stores by one either way scores 0.0008 to
     # 0.0016, so the floor sits far below the observed share and far above the control.
@@ -1315,7 +1315,7 @@ GATE_BOUNDS = GateBounds(
     # staff lists inside the record. Reading the lists one byte late leaves 0.729 of records
     # fitting and four bytes late 0.271, so nothing but an exact bound would catch either.
     staff_lists_fit=(1.0, None),
-    # 14,989 of 14,990, 2,866 of 2,867 and 13,532 of 13,533 listed people have a staff object
+    # All but one listed person per save has a staff object
     # with a name block; the one that does not has two headers to choose between. Reading the
     # list start one byte early drops it to 0.934 and one byte late to 0.378.
     staff_list_ids_are_staff=(0.99, None),
@@ -1325,57 +1325,58 @@ GATE_BOUNDS = GateBounds(
     # late leaves at most 0.027 on either.
     staff_ability_signature=(0.99, None),
     staff_preference_slots=(0.99, None),
-    # Six staff objects of 18,238 and two of 4,108 carry a code outside the 14-value set, so the
+    # A handful of staff objects per save carry a code outside the 14-value set, so the
     # floor sits below 0.9995. One byte early leaves 0.019 and every other shift 0.
     staff_codes_in_set=(0.98, None),
-    # 1.0 on all three saves, and 0.075 with the ability block one byte late and 0 four bytes
+    # 1.0 on every save measured, and 0.075 with the ability block one byte late and 0 four bytes
     # late. One byte early leaves it at 1.0, which the three shares above catch instead.
     staff_block_40_in_range=(0.99, None),
     # Every person a row was built from has a name block the player decoder validates. A window
     # that starts past where the block sits leaves 0.121.
     staff_person_blocks=(0.99, None),
-    # 18,239 / 4,109 / 16,473 people on the saves measured. The floor is far below the smallest
-    # of those: what it catches is a list read or a discovery pass that finds next to nothing.
+    # Thousands to tens of thousands of people on a save measured. The floor is far below the
+    # smallest count measured: what it catches is a list read or a discovery pass that finds
+    # next to nothing.
     staff_minimum=(1_000, None),
-    # 0.916 / 0.689 / 0.911 of listed pairs have a contract at the listing club or at its
-    # parent. The floor clears the lowest of those by 22% of its width, which is thin, and it
+    # At least 0.688 of listed pairs have a contract at the listing club or at its
+    # parent. The floor clears the lowest observed value by 22% of its width, which is thin, and it
     # was kept because the list start read one byte late leaves 0.230, far below it.
     staff_listed_contracted_here=(0.60, None),
-    # Every contract record with a tail has its person's header in front of it on all three
-    # saves. With the kind byte read one byte out, no header is accepted and 13,504 records are
-    # left unowned.
+    # Every contract record with a tail has its person's header in front of it on every save
+    # measured. With the kind byte read one byte out, no header is accepted and every record
+    # with a tail is left unowned.
     staff_unowned_tailed_contracts=(None, 0),
-    # The section header names the same human manager as `humans` on all three saves; read one
+    # The section header names the same human manager as `humans` on every save measured; read one
     # byte or four bytes late it names nobody at all, so only equality passes.
     tactics_manager_selector_matches=(1, 1),
-    # Every team of the managed club has exactly one block on all three saves (5, 4 and 5 of
-    # them), and the header claims that same number. Reading the count four bytes late gives a
+    # Every team of the managed club has exactly one block on every save measured, and the
+    # header claims that same number. Reading the count four bytes late gives a
     # team id instead, and one byte late gives 1,610,612,736, so the header agreement fails on
-    # its own; a team-id locator read one byte late matches 7, 4 and 7 places over the same
-    # team ids, which leaves a team without its single block.
+    # its own; a team-id locator read one byte late matches more places than there are teams
+    # over the same team ids, which leaves a team without its single block.
     tactics_team_blocks_match_club=(1.0, None),
-    # All 4, 4 and 6 user tactic records walk their 22 slot blocks, and the eleven
+    # Every user tactic record walks its 22 slot blocks, and the eleven
     # out-of-possession index bytes of each are a permutation of 0 to 10. Walked from one byte,
     # four bytes or a byte short of the signature, not one record completes on any save, which
     # leaves both shares at zero.
     tactic_slot_walks_complete=(1.0, None),
     tactic_oop_index_permutations=(1.0, None),
-    # Every one of the 318, 265 and 1,069 selectors the blocks hold names a player record:
-    # 1.0 on all three saves. Reading each selector's value one byte late leaves 0.003, 0.004
-    # and 0.001 of them resolving, so the floor sits far above its control.
+    # Every selector the blocks hold names a player record: 1.0 on every save measured.
+    # Reading each selector's value one byte late leaves under 0.005 of them resolving, so the
+    # floor sits far above its control.
     tactic_selection_selectors_resolved=(0.95, None),
-    # 1.0, 0.9358 and 1.0 of the selectors that resolve name a player at the managed club; the
+    # At least 0.935 of the selectors that resolve name a player at the managed club; the
     # rest are players who have left. Taking a selector for a player index without subtracting
-    # one still resolves 0.937, 0.819 and 0.993 of them, but only 0.154, 0.0 and 0.206 of those
+    # one still resolves most of them, but at most 0.21 of those
     # are at the club, so that off-by-one fails here on every save.
     tactic_selection_selectors_at_club=(0.85, None),
-    # Twenty routine slots in every block of every save (100, 80 and 100 in all). Decoding the
+    # Twenty routine slots in every block of every save. Decoding the
     # name from one or two bytes either side of the terminator leaves no block with twenty:
-    # 0 routines decode from three of those four shifts and 66, 50 and 66 from the fourth,
-    # spread over the blocks.
+    # 0 routines decode from three of those four shifts and two thirds of them from the
+    # fourth, spread over the blocks.
     set_piece_blocks_with_twenty=(1.0, None),
-    # The blocks are the managed club's own teams: 5 of 5, 4 of 4 and 5 of 5 on the saves
-    # measured, and each block's team id appears once. Starting the walk one byte or four bytes
+    # The blocks are the managed club's own teams: every team has one and no other block is
+    # parsed, and each block's team id appears once. Starting the walk one byte or four bytes
     # late parses no block at all on any save, so the bound sits at the whole team list.
     training_blocks_match_club_teams=(1.0, None),
     # Consecutive weeks step exactly seven days on every pair of every block of every save.
@@ -1383,39 +1384,39 @@ GATE_BOUNDS = GateBounds(
     # beside this one is what fails then: a club whose every team held one week or fewer would
     # otherwise raise on a healthy save.
     training_week_steps=(1.0, None),
-    # Every mentoring member is a player of the managed club on all three saves. Reading each
+    # Every mentoring member is a player of the managed club on every save measured. Reading each
     # selector one higher still resolves nearly all of them, but to players of other clubs:
-    # 0.174, 0.0 and 0.048 are then at the managed club. The floor leaves room for a member
+    # at most 0.18 are then at the managed club. The floor leaves room for a member
     # sold or loaned out between the save and the read.
     mentoring_members_at_club=(0.90, None),
-    # 0.99762 / 0.99870 / 0.99780 of the 7,548 / 8,454 / 9,086 slots the calendar decides by
+    # At least 0.9976 of the slots the calendar decides by
     # itself are home where the slot parity says so. Reading the parity the other way round
-    # leaves 0.0024 / 0.0013 / 0.0022, so this is what would fail had the parity been chosen
+    # leaves at most 0.0024, so this is what would fail had the parity been chosen
     # wrongly, and it is measured against the calendar's own stored home team rather than
     # against another reading of the same block. The floor sits 95% of its own width below the
     # lowest observed value; it is loose because the population is career-dependent, not
     # because the agreement is.
     table_venue_calendar_agreement=(0.95, None),
-    # 418 / 288 / 445 blocks link to exactly one league table carrying a competition, out of
-    # the 471 / 339 / 497 blocks the span stores a run of table blocks after. The threshold the
-    # gate applies from sits 41% below the smallest run population measured, so a save holding a
-    # third of these divisions still both applies this gate and clears it: the worst run-to-link
-    # rate measured is 0.850, which on 200 runs is 170 blocks. This is a count and not a share
-    # because a share cannot fail here: the misalignment permutes the runs among the same
-    # blocks, so every share of them is invariant, and only a count falls when the link stops
-    # linking. That is also why the control for this floor is the link returning nothing, which
-    # scores 0: there is no shifted reading that moves a count here, so the forced-empty case is
-    # the control a count floor is measured against. The floor sits at 90, which the lowest
-    # observed 288 clears by 3.2 times.
+    # Hundreds of blocks link to exactly one league table carrying a competition, out of the
+    # somewhat larger number of blocks the span stores a run of table blocks after. The
+    # threshold the gate applies from sits 41% below the smallest run population measured, so a
+    # save holding a third of these divisions still both applies this gate and clears it: the
+    # worst run-to-link rate measured is 0.850, which on 200 runs is 170 blocks. This is a count
+    # and not a share because a share cannot fail here: the misalignment permutes the runs among
+    # the same blocks, so every share of them is invariant, and only a count falls when the link
+    # stops linking. That is also why the control for this floor is the link returning nothing,
+    # which scores 0: there is no shifted reading that moves a count here, so the forced-empty
+    # case is the control a count floor is measured against. The floor sits at 90, which the lowest
+    # observed value clears by more than three times.
     rules_linked_blocks_minimum=(90, None),
     rules_link_minimum_applies_from_runs=200,
-    # 0.7491 / 0.7801 / 0.7477 of the dated rounds of a linked block fall on a date its
+    # At least 0.747 of the dated rounds of a linked block fall on a date its
     # competition plays a fixture on. Linking each block to the table run stored *before* it
-    # instead of the run after it leaves 0.5828 / 0.5485 / 0.5724, so the floor sits between
+    # instead of the run after it leaves at most 0.583, so the floor sits between
     # the two: it clears the lowest observed value by 28% of the bound's width and fails the
     # misalignment by a wide margin; against a competition drawn at random for each block it
-    # leaves 0.1342 / 0.1315 / 0.1322. The round-count shape was measured beside it -- 0.77 /
-    # 0.71 / 0.75 linked against 0.62 / 0.56 / 0.62 misaligned -- and is reported as a count
+    # leaves about 0.13. The round-count shape was measured beside it -- at least 0.71 linked
+    # against at most 0.62 misaligned -- and is reported as a count
     # only: a bound would have to sit between 0.62 and 0.64 to both fail the misalignment and
     # keep the 20% margin, and a window two points wide is not one to rest a gate on.
     rules_link_round_dates=(0.65, None),

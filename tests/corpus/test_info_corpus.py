@@ -27,16 +27,18 @@ UNLISTED_REGION = "unlisted_after_non_pl_hist_ls"
 DIRECT_INFO_FIELDS = ("game", "build", "build_number", "known_build", "db_version", "time_slot")
 
 
-def test_info_matches_golden_values(
-    corpus_saves: dict[str, fmsave.Save], golden_values: dict[str, Any]
+def test_info_matches_recorded_values(
+    corpus_saves: dict[str, fmsave.Save], recorded_values: dict[str, Any]
 ) -> None:
     mismatches = CorpusMismatches()
     for relative_name, career_save in corpus_saves.items():
         label = Path(relative_name).name
-        golden_entry: Any = golden_values.get(relative_name)
-        expected_info: Any = golden_entry.get("info") if isinstance(golden_entry, dict) else None
+        recorded_entry: Any = recorded_values.get(relative_name)
+        expected_info: Any = (
+            recorded_entry.get("info") if isinstance(recorded_entry, dict) else None
+        )
         if not isinstance(expected_info, dict):
-            mismatches.note(f"{label}: no golden values")
+            mismatches.note(f"{label}: no recorded values")
             continue
         save_info = career_save.info
         for field_name in DIRECT_INFO_FIELDS:

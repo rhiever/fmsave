@@ -379,8 +379,8 @@ def test_transfer_windows_are_dated_and_are_database_content(
     """Every window opens and closes on a real day of a real month, and every save decodes
     the same windows.
 
-    The windows come from the installed database rather than from a career, so two saves of
-    one database must decode to the same list; a decode that had drifted onto career state
+    The windows come from the installed database rather than from a career, so saves of one
+    database must decode to the same list; a decode that had drifted onto career state
     would differ between them.
     """
     mismatches = CorpusMismatches()

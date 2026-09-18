@@ -680,9 +680,8 @@ class LeagueTableLayout:
     nothing. The save alternates venue with the slot's parity and never says which parity is
     home; the fixture calendar is what says it, because a calendar record stores its home team
     outright. On the tables whose rows account for exactly one season of that calendar, the
-    slots the calendar can decide by itself agree with the even slot being home on 99.762%,
-    99.870% and 99.780% of 7,548, 8,454 and 9,086 slots on the three saves measured, and with
-    the odd slot being home on 0.24%, 0.13% and 0.22% of them.
+    slots the calendar can decide by itself agree with the even slot being home on at least
+    99.76% of them on every save measured, and with the odd slot being home on at most 0.24%.
     """
 
     row_bytes: int
@@ -998,8 +997,9 @@ class TransferWindowLayout:
     closing time close it.
 
     **The closing time is what makes a window a window.** The date tags alone are shared by
-    many kinds of record in this stream: on the saves measured 1,766 start-date sub-lists
-    carry a complete date pair and only 54 of them also carry a closing time. Accepting on the
+    many kinds of record in this stream: on the saves measured over a thousand start-date
+    sub-lists carry a complete date pair and only 54 of them also carry a closing time.
+    Accepting on the
     dates alone would return every dated record in the rules database, so a record without a
     closing time is not a window.
 
@@ -1555,7 +1555,7 @@ class GateBounds:
     Transfer windows: `transfer_windows_minimum` (windows decoded) and `transfer_window_dates`
     (windows whose two date groups both decoded inside their ranges, of the records that
     carried a closing time). Windows are database content rather than career state, so both
-    bounds rest on two saves of **one** installed database and are kept loose: a database with
+    bounds rest on **one** installed database and are kept loose: a database with
     fewer nations loaded legitimately carries fewer windows. A decode that finds nothing fails
     the count on its lower bound, and one that has moved only inside the date groups leaves
     the count alone and drops the share instead.
@@ -1596,15 +1596,15 @@ class GateBounds:
     0.55 to 0.68 whichever run is taken. `rules_link_round_dates` escapes that because it is a
     share of *round dates* rather than of blocks, and it separates cleanly (0.74 to 0.78
     against 0.55 to 0.58) -- but it is a share with no population of its own to fall back on,
-    so R22 leaves it unjudged when nothing links at all. `rules_linked_blocks_minimum` is what
+    so the empty-population rule leaves it unjudged when nothing links at all. `rules_linked_blocks_minimum` is what
     closes that hole: a link that quietly stops linking scores zero on it, which no share here
     would notice. It applies only above `rules_link_minimum_applies_from_runs` blocks with a
     run, so a save holding few divisions is not held to a count measured on saves holding many.
 
     A third measure was dropped rather than shipped: the round-count shape separates only from
-    0.62 to 0.64, a window two points wide, which is too little to rest a bound on when the
-    corpus holds two careers and the round dates already judge the same alignment with room to
-    spare. It ships as an anomaly count.
+    0.62 to 0.64, a window two points wide, which is too little to rest a bound on given the
+    saves tested, and the round dates already judge the same alignment with room to spare. It
+    ships as an anomaly count.
 
     The duplicate floor is what fails when the deduplication stops deduplicating. Every save
     measured repeats about 45% of its table blocks, so the count is always in the thousands and
@@ -1717,9 +1717,9 @@ class GateBounds:
     The share applies only where a club has a series, as the finance shares do, and the count
     floor applies only where the save lists a managed club, whose own club held a series on
     every save measured. The share is what catches a rating read from the wrong offset: the
-    byte one before the rating reads inside the range on 0.018 / 0.018 / 0.0 of the clubs, the
-    byte one after on 0.033 / 0.088 / 0.035, and four bytes after -- the worst control
-    measured -- on 0.18 / 0.63 / 0.12, all far below the floor.
+    byte one before the rating reads inside the range on at most 0.02 of the clubs, the byte
+    one after on at most 0.09, and four bytes after -- the worst control measured -- on at
+    most 0.63, all far below the floor.
 
     Affiliate groups: `affiliate_members_resolved` (group members the public club index names,
     of group members). It applies on a full-size `game_db` **and** only when a group holds a
@@ -1740,7 +1740,7 @@ class GateBounds:
     passes. There is no gate on how many team ids resolve: ids are about 92% dense over the
     range the feed uses, so that share cannot fail. There is none on how many competition ids
     the stage table names either: it is 1.0 read correctly **and** 1.0 with the record start
-    shifted four bytes on all three saves measured, so it cannot fail.
+    shifted four bytes on every save measured, so it cannot fail.
 
     Staff: `staff_lists_fit` (club records whose affiliated-team list and three staff lists end
     inside the record with every value in range, of club records carrying a team list) and
@@ -1795,11 +1795,10 @@ class GateBounds:
     legitimately look like; every save measured has teams with no mentoring group.
 
     There is **no** check on how many members resolve to a player: the player index is dense
-    over the range a squad occupies, so a selector read one too high still resolves 0.958, 0.667
-    and 1.0 of members on the three saves measured, and no floor separates that from the 1.0 a
-    correct read scores. `mentoring_members_at_club` is what catches that read instead, because
-    the players it wrongly resolves to belong to other clubs: the share falls to 0.174, 0.0 and
-    0.048.
+    over the range a squad occupies, so a selector read one too high still resolves most or all
+    members on every save measured, and no floor separates that from the 1.0 a correct read
+    scores. `mentoring_members_at_club` is what catches that read instead, because the players
+    it wrongly resolves to belong to other clubs: the share falls to at most 0.18.
     """
 
     minimum_applies_from_bytes: int

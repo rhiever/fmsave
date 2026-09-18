@@ -4,8 +4,25 @@
 Blocks content that must never be committed or published: files under the private
 folder, save files and save bytes, binary files, oversized files, notebooks with
 outputs, symbolic links, submodules, long encoded data, text copied from the private
-folder, and locally denylisted names, uids and terms in file contents, file paths and
+folder, banned internal-process wording, runs of per-save figures in the published prose,
+and locally denylisted names, uids and terms in file contents, file paths and
 messages.
+
+Banned internal-process wording is the house vocabulary of how the work was organised, which
+means nothing to a reader of a public repository: the words in `BANNED_WORDS` and plan numbers
+of the form M1, M2 or M3, in file contents, in file paths and in a commit message about to be
+written. It is matched on the same normalized and accent-folded forms the denylist uses, and
+the word found is printed, because it is a house style rule rather than private content. Two
+paths are exempt, because they are where the rule itself is written down: `scripts/guard.py`
+and `tests/test_guard.py`. The check does **not** run in history mode, since history is never
+rewritten and a past message or path cannot be fixed.
+
+Runs of per-save figures are looked for in `PROSE_PATHS` alone -- the published README and
+changelog -- as two or three figures separated by slashes or commas, which is how one
+measurement per save is written. A bound is a single figure or a range with a word between its
+ends, so `0.99`, `0.9 to 1.0` and `30% to 43%` pass while `0.11 / 0.22 / 0.33` and
+`11,111, 22,222 and 33,333` do not. Version numbers, dates and dotted or hyphenated tokens are
+not figure runs and pass.
 
 Long encoded data is looked for in text files up to the size limit, and in commit and
 annotated tag messages. It is any of:
@@ -31,8 +48,8 @@ Usage:
 
 Checks that need local private files run only when those files exist, so CI runs
 the structural checks only. The private folder is looked up in the main worktree,
-so linked worktrees get the same checks. Findings never print the matched text; a
-file whose path matches is shown by its object id instead of its path.
+so linked worktrees get the same checks. Findings never print text matched against a private
+reference; a file whose path matches is shown by its object id instead of its path.
 """
 
 from __future__ import annotations
@@ -115,6 +132,46 @@ MATCH_REASONS = (
     "contains a denied internal term",
 )
 UID_REASON_INDEX, NAME_REASON_INDEX, TERM_REASON_INDEX = range(len(MATCH_REASONS))
+# The house vocabulary of how the work was organised, which a public reader cannot resolve.
+BANNED_WORDS = (
+    "task",
+    "tasks",
+    "review",
+    "reviews",
+    "reviewer",
+    "reviewers",
+    "subagent",
+    "subagents",
+    "ledger",
+    "ledgers",
+    "controller",
+    "controllers",
+    "milestone",
+    "milestones",
+    "golden",
+)
+# Matched against casefolded text, so the alternatives need no upper-case spellings.
+BANNED_WORD_PATTERN = re.compile(rf"(?<![0-9a-z])(?:{'|'.join(BANNED_WORDS)})(?![0-9a-z])")
+PLAN_NUMBER_PATTERN = re.compile(r"(?<![0-9a-z])m[123](?![0-9a-z])")
+# Where the rule is written down, so the words appear there on purpose.
+BANNED_WORDING_EXEMPT_PATHS = frozenset({"scripts/guard.py", "tests/test_guard.py"})
+# The published prose, where a run of per-save figures has no business being.
+PROSE_PATHS = frozenset({"README.md", "CHANGELOG.md"})
+FIGURE = r"[0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?%?"
+# Two or three figures separated by slashes, or by commas with an optional "and" before the
+# last: one measurement per save. A lone figure and a worded range are neither and pass.
+SLASH_FIGURE_RUN_PATTERN = re.compile(
+    rf"(?<![\w./-])({FIGURE})(?:[ \t]*/[ \t]*({FIGURE})){{1,2}}(?![\w./-])"
+)
+COMMA_FIGURE_RUN_PATTERN = re.compile(
+    rf"(?<![\w./-])({FIGURE})(?:,[ \t]+({FIGURE})){{1,2}}"
+    rf"(?:[ \t]+and[ \t]+({FIGURE}))?(?![\w./-])"
+)
+FIGURE_PATTERN = re.compile(FIGURE)
+# What tells a measurement from a list of small code values: a decimal point, a per cent sign
+# or a thousands separator in any of the figures, or two digits or more in every one of them.
+MEASUREMENT_MARKS = ".,%"
+MEASUREMENT_MINIMUM_DIGITS = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -389,6 +446,71 @@ def private_match_lines(
     return [
         (line_number, MATCH_REASONS[reason_index]) for line_number, reason_index in sorted(matches)
     ]
+
+
+def banned_wording(lines: Sequence[str]) -> list[tuple[int, str]]:
+    """(line number, wording) for each banned word or plan number, at the line it starts on.
+
+    The lines are compared in the normalized and accent-folded forms the denylist uses, so a
+    mixed-case, full-width or decomposed spelling cannot slip one through.
+    """
+    matches: set[tuple[int, str]] = set()
+    for form_lines in comparison_forms(lines):
+        for line_number, line in enumerate(form_lines, start=1):
+            for pattern in (BANNED_WORD_PATTERN, PLAN_NUMBER_PATTERN):
+                for match in pattern.finditer(line):
+                    matches.add((line_number, match.group(0)))
+    return sorted(matches)
+
+
+def banned_wording_findings(location: str, path: str, text: str) -> list[Finding]:
+    """Banned wording in a file's contents and in its path, unless the path is exempt."""
+    if path in BANNED_WORDING_EXEMPT_PATHS:
+        return []
+    findings = [
+        Finding(f"{location}:{line_number}", f"uses banned internal wording ({wording})")
+        for line_number, wording in banned_wording(text.splitlines())
+    ]
+    path_text = PATH_SEPARATOR_PATTERN.sub(" ", normalize_text(path))
+    findings.extend(
+        Finding(location, f"path uses banned internal wording ({wording})")
+        for _, wording in banned_wording([path_text])
+    )
+    return findings
+
+
+def is_measurement_run(figures: Sequence[str]) -> bool:
+    """Whether a run of figures reads as measurements rather than as a list of code values.
+
+    A measurement carries a decimal point, a per cent sign or a thousands separator, or else
+    the whole run is figures of two digits or more. So `0.11 / 0.22`, `11,111 / 22,222` and
+    `44, 55 and 66` are measurements while `3, 4 and 16` and `1, 2 and 3` are not.
+    """
+    if any(mark in figure for figure in figures for mark in MEASUREMENT_MARKS):
+        return True
+    return all(len(figure) >= MEASUREMENT_MINIMUM_DIGITS for figure in figures)
+
+
+def figure_run_findings(location: str, path: str, text: str) -> list[Finding]:
+    """Runs of two or three separated figures in the published prose, one per save.
+
+    Only `PROSE_PATHS` are read: a bound written as one figure or as a worded range is
+    legitimate everywhere and is not a run, so nothing else needs the check.
+    """
+    if path not in PROSE_PATHS:
+        return []
+    findings: list[Finding] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        runs = (
+            match.group(0)
+            for pattern in (SLASH_FIGURE_RUN_PATTERN, COMMA_FIGURE_RUN_PATTERN)
+            for match in pattern.finditer(line)
+        )
+        if any(is_measurement_run(FIGURE_PATTERN.findall(run)) for run in runs):
+            findings.append(
+                Finding(f"{location}:{line_number}", "contains a run of per-save figures")
+            )
+    return findings
 
 
 def text_findings(location: str, text: str, references: PrivateReferences) -> list[Finding]:
@@ -708,7 +830,14 @@ def encoded_run_findings(location: str, text: str) -> list[Finding]:
     ]
 
 
-def check_blob(blob: Blob, references: PrivateReferences | None) -> list[Finding]:
+def check_blob(
+    blob: Blob, references: PrivateReferences | None, check_wording: bool = True
+) -> list[Finding]:
+    """Findings for one file version; `check_wording` is false in history mode.
+
+    Banned wording and figure runs are about what this repository publishes now, and history
+    is never rewritten, so a past path or line cannot be brought into line with either rule.
+    """
     findings: list[Finding] = []
     location = blob.location
     if references is not None:
@@ -739,6 +868,9 @@ def check_blob(blob: Blob, references: PrivateReferences | None) -> list[Finding
         findings.append(Finding(location, "is a notebook with outputs"))
     if not is_oversized:
         findings.extend(encoded_run_findings(location, text))
+        if check_wording:
+            findings.extend(banned_wording_findings(location, blob.path, text))
+            findings.extend(figure_run_findings(location, blob.path, text))
     if references is not None:
         findings.extend(overlap_findings(location, text, references))
         findings.extend(text_findings(location, text, references))
@@ -959,6 +1091,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if message_path is not None:
         message_text = Path(message_path).read_text(encoding="utf-8", errors="replace")
         findings.extend(message_findings("message", message_text, references))
+        findings.extend(
+            Finding(f"message:{line_number}", f"uses banned internal wording ({wording})")
+            for line_number, wording in banned_wording(message_text.splitlines())
+        )
     else:
         if arguments.staged:
             blobs = staged_blobs(repository_root)
@@ -967,7 +1103,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             blobs = history_blobs(repository_root)
         for blob in blobs:
-            findings.extend(check_blob(blob, references))
+            findings.extend(check_blob(blob, references, check_wording=not arguments.history))
         if arguments.history:
             findings.extend(history_message_findings(repository_root, references))
     for finding in findings:

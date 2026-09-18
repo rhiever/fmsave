@@ -64,7 +64,7 @@ GATE_NAMES_AN_EMPTY_DECODE_FAILS = GATE_NAMES[:2]
 EXAMPLE_BLOCK_COUNT = 2
 # The three rounds the example blocks carry, a week apart from 20 February 2031.
 EXAMPLE_ROUND_DATES = (date(2031, 2, 20), date(2031, 2, 27), date(2031, 3, 6))
-# Counts from the larger of the two saves measured: 672 blocks, of which 567 parse in the
+# Counts from the largest save measured: 672 blocks, of which 567 parse in the
 # strict sense the check counts and 633 carry a doubled promotion quad.
 CORPUS_MARKERS = 672
 CORPUS_FULLY_PARSED = 567
@@ -629,8 +629,9 @@ def test_a_link_that_stops_linking_fails_the_count_no_share_could_catch() -> Non
     Every share of this link is invariant under its own misalignment, because taking the run
     before each block instead of the run after it permutes the same runs among the same blocks;
     the share of blocks that link is 0.55 to 0.68 whichever run is taken. So a link that
-    returns nothing leaves the round-date share without a denominator, which R22 reports rather
-    than fails, and the count is what says the link has gone.
+    returns nothing leaves the round-date share without a denominator, which an empty
+    population has reported as not applied rather than failed, and the count is what says the
+    link has gone.
     """
     stopped_linking = dataclasses.replace(
         healthy_stats(),

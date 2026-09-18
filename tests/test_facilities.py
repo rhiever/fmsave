@@ -241,9 +241,9 @@ def test_the_corpus_shaped_counts_pass_every_facility_gate() -> None:
     assert failed_gate_names(passing_facility_stats()) == []
 
 
-# What the share reads with the rating taken from the wrong byte, measured on the three saves
+# What the share reads with the rating taken from the wrong byte, measured on the saves tested
 # against their own club counts: one byte early, one byte late, and four bytes late, which is
-# the worst of the three. Each is a count out of 335 clubs, the largest save's population.
+# the worst of them. Each is a count out of the largest club population measured.
 MISALIGNED_SHARES = (
     ("one byte early", 6),
     ("one byte late", 11),

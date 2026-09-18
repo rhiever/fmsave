@@ -38,7 +38,7 @@ class MatchPosition(IntEnum):
 
     A bit earns a name only where a position label the game itself displayed was matched to that
     exact bit, and only the goalkeeper bit is. Every record of a player the game labels "GK"
-    carries this bit, and all but one of the records carrying it, over the three saves measured,
+    carries this bit, and all but one of the records carrying it, over every save measured,
     belongs to a player the save rates a goalkeeper. No other bit has such a label: the players
     whose displayed label would separate one bit from its neighbours play several positions, so
     their label fits more than one bit, and a bit named from a neighbouring bit's meaning would
@@ -97,9 +97,9 @@ class PlayerMatchStats:
             UNKNOWN. None when the save holds no body.
         minutes: Minutes played, or None when the save holds no body. No value the game
             displays has been matched to this number; what says it is minutes played is its
-            shape. On the three saves measured, 0.514, 0.495 and 0.508 of bodies hold exactly
-            90, 0.9938, 0.9963 and 0.9945 hold 90 or less, none holds more than 130, and the
-            rest are spread over the values below 90 rather than clustered (unconfirmed).
+            shape. On the saves measured about half of bodies hold exactly 90, over 0.993
+            hold 90 or less, none holds more than 130, and the rest are spread over the
+            values below 90 rather than clustered (unconfirmed).
         left_at_minute: The minute the player left the pitch, which is 0 for a player who was
             still on at the end; None when the save holds no body (unconfirmed).
         goals: Goals scored, or None when the save holds no body.

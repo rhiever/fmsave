@@ -76,11 +76,10 @@ class TeamTraining:
         schedule_library: The schedules the manager has saved, in stored order. It is one
             library per save rather than per team, so every row carries the same one, and it
             holds only saved schedules: the game's own built-in ones are not in it, although a
-            week may well name one. **The save may store a schedule more than once**: two of
-            the three saves measured hold eight entries for the four schedules the Schedules
-            screen lists, the same four twice over under two runs of ids, so count the distinct
-            `(folder, name)` pairs rather than the entries to compare with a screen
-            (unconfirmed).
+            week may well name one. **The save may store a schedule more than once**: most
+            saves measured hold twice as many entries as the Schedules screen lists, the same
+            schedules over under two runs of ids, so count the distinct `(folder, name)` pairs
+            rather than the entries to compare with a screen (unconfirmed).
     """
 
     team_id: int

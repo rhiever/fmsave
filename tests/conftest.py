@@ -33,9 +33,10 @@ READ_ONLY_FILE_MODE = 0o444
 READ_ONLY_FOLDER_MODE = 0o555
 CORPUS_ENVIRONMENT_VARIABLE = "FMSAVE_CORPUS"
 CORPUS_MARKER_NAMES = ("corpus", "corpus_fast", "corpus_full")
-CORPUS_FIXTURE_NAMES = ("corpus_save_paths", "corpus_saves", "golden_values")
+CORPUS_FIXTURE_NAMES = ("corpus_save_paths", "corpus_saves", "recorded_values")
 CORPUS_FIXTURES_USED = pytest.StashKey[bool]()
 HASH_CHUNK_BYTES = 8 * 1024 * 1024
+RECORDED_VALUES_FILE_NAME = "values.json"
 
 
 def corpus_root() -> Path:
@@ -180,11 +181,23 @@ def open_corpus_saves(save_paths: dict[str, Path]) -> dict[str, fmsave.Save]:
     return opened_saves
 
 
-def load_golden_values(root: Path) -> dict[str, Any]:
-    golden_path = root / "golden" / "values.json"
-    if not golden_path.is_file():
-        fail_quietly("golden values file is missing")
-    return load_json_object(golden_path)
+def recorded_values_path(root: Path) -> Path | None:
+    """The corpus file of recorded values, at the corpus root or one folder below it.
+
+    The corpus lays out its own folders, so the file is found by name rather than by a path
+    this repository pins.
+    """
+    direct_path = root / RECORDED_VALUES_FILE_NAME
+    if direct_path.is_file():
+        return direct_path
+    return next(iter(sorted(root.glob(f"*/{RECORDED_VALUES_FILE_NAME}"))), None)
+
+
+def load_recorded_values(root: Path) -> dict[str, Any]:
+    values_path = recorded_values_path(root)
+    if values_path is None:
+        fail_quietly("recorded values file is missing")
+    return load_json_object(values_path)
 
 
 def write_shared_fragment(fragment: ContainerFragment, file_path: Path) -> Path:
@@ -236,6 +249,6 @@ def corpus_saves(
 
 
 @pytest.fixture(scope="session")
-def golden_values(request: pytest.FixtureRequest) -> dict[str, Any]:
+def recorded_values(request: pytest.FixtureRequest) -> dict[str, Any]:
     record_corpus_fixture_use(request)
-    return load_golden_values(corpus_root())
+    return load_recorded_values(corpus_root())

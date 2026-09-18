@@ -206,12 +206,11 @@ class StaffList:
     members carry differ from list to list.
 
     **The three lists look like the three departments a club's staff screen shows.** On one
-    club of one save, the screen's medical, coaching and recruitment panels held 13, 19 and 10
-    people and the club's senior rows in lists 0, 1 and 2 held 13, 18 and 9 of them, the
-    missing two being the human manager and one contracted person no list holds; every person
-    matched by name, which makes list 0 medical, list 1 coaching and list 2 recruitment. That
-    is arithmetic on one club rather than a label on a list, so it is recorded here and
-    `list_index` stays a number.
+    club, the screen's medical, coaching and recruitment panels and the club's senior rows in
+    lists 0, 1 and 2 held the same people, person for person by name, save for the human
+    manager and one contracted person no list holds; that makes list 0 medical, list 1
+    coaching and list 2 recruitment. It is arithmetic on one club rather than a label on a
+    list, so it is recorded here and `list_index` stays a number.
 
     People a list holds who turn out to be players are dropped, and so are the few whose object
     cannot be told from another's, so a list's people are those `staff()` also has a row for.

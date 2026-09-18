@@ -9,7 +9,7 @@ most records is the calendar.
 
 File order is neither sorted nor a rotation of a sorted order, so the kept run is sorted here
 rather than trusted: the corpus shows dozens of places where a record's date is earlier than
-the one before it. The sort is total, so two saves of the same career always list their
+the one before it. The sort is total, so successive saves of one career always list their
 matches in the same order.
 
 Dropping a run is not free, so what it costs is counted rather than left silent: most stray

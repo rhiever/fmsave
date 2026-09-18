@@ -3,7 +3,7 @@
 **The span holds each block several times over.** The copies agree in every field this reader
 decodes -- the same team, the same five aggregates, the same match rows -- and differ only in
 the 19 undecoded bytes stored in front of the block. About 45% of the blocks on every save
-measured are such copies (47.7%, 46.8% and 44.7% on the three saves). Keeping them would put
+measured are such copies. Keeping them would put
 one club in a table two, three or four times and invent standings no save holds, so they are
 dropped on content before anything else happens, and how many were dropped is counted: a
 reader that quietly stopped dropping them would pass every other check here.
@@ -18,10 +18,10 @@ check noticing.
 
 Dropping the copies first is what keeps that index readable. A copy's stored index is not the
 one the block it repeats carries, so a copy left inside a table breaks the run and splits the
-table around it: on the corpus the kept blocks give 833 / 756 / 1,098 tables, the largest
-holding 36, while the same blocks undeduplicated shatter into 4,707 / 3,698 / 4,713. The tables
-that survive are the right shape -- 60 / 50 / 58 of them are divisions whose clubs all play each
-other twice -- and 0.12% / 0.26% / 0.18% still hold one club twice, where two adjacent tables
+table around it: on the corpus the kept blocks give hundreds to about a thousand tables, the
+largest holding 36, while the same blocks undeduplicated shatter into several thousand. The
+tables that survive are the right shape -- dozens of them are divisions whose clubs all play
+each other twice -- and at most 0.3% still hold one club twice, where two adjacent tables
 happen to chain their indexes.
 
 Nothing in a table names its competition. It is voted for from the fixture calendar: the
@@ -34,10 +34,10 @@ table the vote cannot settle keeps `competition_id` None and is still returned, 
 corpus is about one table in a thousand.
 
 **That headline overshoots the 85% the spec expects, and it must be read beside the shape of
-the tables.** The vote settles 0.9988 / 1.0000 / 1.0000 of tables on the three saves measured,
-but 30.3% / 41.9% / 43.4% of tables hold a single block, and a one-block table meets the
+the tables.** The vote settles almost every table on the saves measured, but a third to nearly
+a half of tables hold a single block, and a one-block table meets the
 half-the-members rule on a majority of one, so it resolves whatever the calendar says. Over the
-tables of two blocks or more the share is 0.9983 / 1.0000 / 1.0000. That is the figure that
+tables of two blocks or more the share is 0.998 or better. That is the figure that
 shows the vote is sound rather than merely permissive, and a minimum size for the vote is worth
 weighing against it.
 
@@ -47,8 +47,8 @@ on every save read. For each table whose every row's played count equals that cl
 calendar fixtures in the table's competition in exactly one season, each played slot is matched
 to the meetings the calendar holds between those two clubs in that season; where one of them
 has been played, or where the scores name one of them and only one, the calendar's own stored
-home team gives the venue. Those slots are then compared with the parity's: 7,530 of 7,548,
-8,443 of 8,454 and 9,066 of 9,086 agree on the three saves measured, against 18, 11 and 20 had
+home team gives the venue. Those slots are then compared with the parity's: all but about a
+fifth of a percent agree on every save measured, against that same fifth of a percent had
 the parity been the other way round. Out-of-step tables are left out, because a table that does
 not account for a season is compared against the wrong meetings; over every table the agreement
 falls to about 0.91.
@@ -91,7 +91,7 @@ def _content_key(block: RawTableBlock) -> tuple[object, ...]:
 
     The head bytes are left out on purpose: they are the only field in which the save's copies
     of one block differ, so a key that included them would call every copy distinct and drop
-    almost nothing (0.6%, 1.0% and 0.5% on the three saves measured, against 45% here).
+    almost nothing (about 1% on the saves measured, against 45% here).
     """
     return (block.team_id, block.rounds_per_venue, block.aggregates, block.matches)
 
@@ -253,8 +253,8 @@ def _venue(slot: int, layout: LeagueTableLayout) -> Venue | None:
     The save alternates venue with the slot's parity and never says which parity is home. The
     fixture calendar says it, because a calendar record stores its home team outright: on the
     tables whose rows account for exactly one season of that calendar, the slots the calendar
-    can settle by itself are home where the even slot is home on 99.762%, 99.870% and 99.780%
-    of them on the three saves measured, and where the odd slot is home on a fifth of a percent.
+    can settle by itself are home where the even slot is home on at least 99.76% of them on
+    every save measured, and where the odd slot is home on a fifth of a percent.
     `_venue_agreement` re-runs that comparison on every save read, so the parity this returns
     is checked rather than assumed.
 
@@ -362,7 +362,7 @@ def _season_in_step(
 
     A table matching two seasons is turned away as firmly as one matching none: the population
     is worth having only where there is no doubt which season the row counts describe. On the
-    corpus 9, 14 and 0 tables match two of the three saves measured.
+    corpus a handful of tables per save match two.
     """
     in_step: int | None = None
     seasons_matched = 0
@@ -385,8 +385,8 @@ def _decided_venue(
     stored home team. Where both meetings have been played the scores decide, and only when
     every played meeting carries one and exactly one of them is the slot's own score read from
     the row club's side: two meetings that ended alike say nothing and are left undecided. On
-    the corpus the first rule decides 6,400 / 7,912 / 7,120 slots and the second 1,148 / 542 /
-    1,966, with 22,628 / 4,290 / 30,254 left undecided.
+    the corpus the first rule decides thousands of slots and the second several hundred to a
+    couple of thousand, with most slots left undecided.
     """
     played = [fixture for fixture in meetings if fixture.played]
     if len(played) == 1:

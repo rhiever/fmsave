@@ -304,7 +304,7 @@ class RulesStats:
     a table of that many clubs playing each other once or twice would hold. That one is a
     count and **not** a gate: it scores 0.71 to 0.77 linked against 0.56 to 0.62 misaligned, so
     a floor that both fails the misalignment and keeps its margin has to sit in a window two
-    points wide, which is not one to rest a gate on with two careers in the corpus.
+    points wide, which is not one to rest a gate on given the saves tested.
     """
 
     markers: int

@@ -1422,11 +1422,11 @@ class Save:
         list anybody, so most clubs are absent, which is ordinary rather than a failure.
 
         The lists split a club's staff into groups whose codes differ from list to list.
-        **They look like the three departments a club's staff screen shows**: on one club of
-        one save the screen's medical, coaching and recruitment panels held 13, 19 and 10
-        people, and that club's senior rows in lists 0, 1 and 2 held 13, 18 and 9 of them
-        person for person, the two missing being the human manager and one contracted person no
-        list holds. That is arithmetic on one club rather than a label on a list, so
+        **They look like the three departments a club's staff screen shows**: on one club the
+        screen's medical, coaching and recruitment panels and that club's senior rows in lists
+        0, 1 and 2 held the same people, person for person by name, save for the human manager
+        and one contracted person no list holds. That is arithmetic on one club rather than a
+        label on a list, so
         `list_index` stays a number. People a list names who turn out to be players are
         dropped, and `fmsave validate` reports how many; so are the few whose object cannot be
         told from another's, so a list's people are those `staff()` also has a row for. A

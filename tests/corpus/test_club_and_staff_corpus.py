@@ -8,22 +8,22 @@ Every check here is structural. What each one asserts is a property the decode m
 whatever career a save holds, never a figure one career happens to produce, so a bound here
 is a floor a working reader clears on any save rather than a fingerprint of these ones.
 
-**What this module may not contain.** Three shapes of check look like evidence and are not,
-and each one has been removed from here at least once:
+**The rule every assertion here must meet: it has to fail on a wrong decode.** Three shapes
+of check look like evidence and cannot fail, so do not add one:
 
 - A check the reader cannot fail, because it only ever emits what the check asks for. A
   reference resolved through an index is absent when it does not resolve, so "every reference
   resolves" is a statement about the reader's own code and not about the save; a key the reader
   generates with `enumerate` is unique whatever the bytes said; a date counted back from the
   save's clock steps by a month because it was built to.
-- A check that restates a bound the reader already enforces. Those raise `ReaderCheckError`
-  before the assert can run, so the assert can only ever pass. The gate is the test.
-- A check on a quantity that scores the same whether the decode is right or wrong. Several were
-  measured during this milestone and rejected as gates for exactly that reason, and they are no
-  better here than they were there.
+- A check that restates a bound the reader already enforces. That bound raises
+  `ReaderCheckError` before the assert can run, so the assert can only ever pass. The gate is
+  the test, and an assert behind it is dead weight.
+- A check on a quantity that scores the same whether the decode is right or wrong, because
+  nothing about the quantity moves with the offsets the decode reads from.
 
-Every check below therefore says, in a comment, what a wrong decode would do to it, and every
-one of them measures something no shipped gate measures.
+So every check below says, in a comment, what a wrong decode would do to it, and measures
+something no shipped gate measures. A new check that cannot answer both belongs nowhere.
 
 The whole-report check that every reader is "ok" with every gate applied and passed, and the
 coverage regression against the recorded ranges, both live in `test_corpus_readers.py` and cover
@@ -327,10 +327,10 @@ def test_the_injury_type_table_is_the_same_database_table_on_every_save(
 ) -> None:
     """Every save written by the same build decodes the identical table.
 
-    The names come out of the installed database rather than out of a career, so two saves of
-    two different careers must produce the same ids and the same text. A decode that had picked
+    The names come out of the installed database rather than out of a career, so saves of
+    different careers must produce the same ids and the same text. A decode that had picked
     up anything career-dependent -- a different anchor, a length taken from the wrong place, a
-    window that moved with the save's size -- differs between the two, and nothing inside one
+    window that moved with the save's size -- differs between them, and nothing inside one
     save can notice that.
     """
     mismatches = CorpusMismatches()

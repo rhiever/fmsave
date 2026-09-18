@@ -129,7 +129,7 @@ def test_every_reader_validate_runs_has_a_pinned_read_count(career_path: Path) -
     """The pinned readers are exactly the ones `validate` runs, so a new one cannot skip this.
 
     A reader added to `validate_save` without a line above would otherwise never have its cold
-    call counted, which is how the two doubled decompressions reached review in the first
+    call counted, which is how the two doubled decompressions went unnoticed in the first
     place.
     """
     with fmsave.open(career_path) as career_save:

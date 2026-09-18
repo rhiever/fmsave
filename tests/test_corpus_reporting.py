@@ -11,12 +11,12 @@ def test_fail_if_any_joins_every_recorded_message() -> None:
     mismatches = CorpusMismatches()
     mismatches.check("a.fm", "build", False)
     mismatches.check("a.fm", "game", True)
-    mismatches.note("b.fm: no golden values")
+    mismatches.note("b.fm: no recorded values")
 
     with pytest.raises(pytest.fail.Exception) as failure:
         mismatches.fail_if_any()
 
-    assert failure.value.msg == "a.fm: build differs; b.fm: no golden values"
+    assert failure.value.msg == "a.fm: build differs; b.fm: no recorded values"
     assert failure.value.pytrace is False
 
 

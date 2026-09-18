@@ -103,7 +103,7 @@ def write_private(repository: Path, relative_path: str, content: str) -> None:
 
 
 PRIVATE_PARAGRAPH = "\n".join(
-    f"line {index}: the example ledger records a fictional transfer for Northbridge FC"
+    f"line {index}: the example notes record a fictional transfer for Northbridge FC"
     for index in range(1, 8)
 )
 TRIVIAL_LINES = ["pass", "else:", "pass", "return", "end", "done", "ok"]
@@ -1380,3 +1380,170 @@ def test_history_mode_checks_annotated_tag_messages(repository: Path) -> None:
     run_git(repository, "commit", "-q", "-m", "add file")
     run_git(repository, "tag", "-a", "v0.0.1", "-m", "thanks Alex Example")
     assert run_guard(repository, "--history") == 1
+
+
+# Banned internal wording
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "# the reviewer asked for this",
+        "# one task per save",
+        "# see the ledger",
+        "# the controller owns it",
+        "# measured during this milestone",
+        "GOLDEN_VALUES = {}",
+        "# a subagent wrote this",
+        "# rejected in M2",
+        "# rejected in m3",
+    ],
+)
+def test_banned_wording_in_a_file_is_blocked(repository: Path, line: str) -> None:
+    stage(repository, "src/example.py", f"{line}\n")
+    assert run_guard(repository, "--staged") == 1
+
+
+def test_banned_wording_names_the_word_it_found(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stage(repository, "src/example.py", "pass\n# ask the reviewer\n")
+    assert run_guard(repository, "--staged") == 1
+    assert capsys.readouterr().err.splitlines() == [
+        "guard: src/example.py:2: uses banned internal wording (reviewer)",
+        blocked_line(1),
+    ]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "# multitasking is not taskless",
+        "# reviewed, previewed, ledgerless, subagency",
+        "# m10, m0, 1m2 and the M22 record",
+        "# a golf tournament of goldenrod controllership",
+    ],
+)
+def test_wording_inside_a_longer_word_passes(repository: Path, line: str) -> None:
+    stage(repository, "src/example.py", f"{line}\n")
+    assert run_guard(repository, "--staged") == 0
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    ["Golden", "GOLDEN", "ｇｏｌｄｅｎ", "gólden"],
+    ids=["title-case", "upper-case", "full-width", "accented"],
+)
+def test_banned_wording_matches_other_spellings(repository: Path, spelling: str) -> None:
+    stage(repository, "src/example.py", f"# {spelling} values\n")
+    assert run_guard(repository, "--staged") == 1
+
+
+def test_banned_wording_in_a_path_is_blocked(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stage(repository, "tests/test_m2_corpus.py", "pass\n")
+    assert run_guard(repository, "--staged") == 1
+    assert capsys.readouterr().err.splitlines() == [
+        "guard: tests/test_m2_corpus.py: path uses banned internal wording (m2)",
+        blocked_line(1),
+    ]
+
+
+def test_the_guard_and_its_tests_may_spell_the_banned_words(repository: Path) -> None:
+    """The rule is written down in these two files, so the words belong in them."""
+    for exempt_path in sorted(guard.BANNED_WORDING_EXEMPT_PATHS):
+        stage(repository, exempt_path, "# reviewer, task, ledger, golden, M2\n")
+    assert run_guard(repository, "--staged") == 0
+
+
+def test_banned_wording_is_not_checked_in_history(repository: Path) -> None:
+    """History is never rewritten, so a past path or message cannot be brought into line."""
+    stage(repository, "tests/test_m2_corpus.py", "# the reviewer asked for this\n")
+    run_git(repository, "commit", "-q", "-m", "rejected in M2")
+    run_git(repository, "rm", "-q", "tests/test_m2_corpus.py")
+    run_git(repository, "commit", "-q", "-m", "rename it")
+    assert run_guard(repository, "--history") == 0
+
+
+def test_banned_wording_in_a_commit_message_is_blocked(
+    repository: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    message_path = tmp_path / "COMMIT_EDITMSG"
+    message_path.write_text("Rewrite the M2 corpus checks\n", encoding="utf-8")
+    assert run_guard(repository, "--commit-msg", str(message_path)) == 1
+    assert capsys.readouterr().err.splitlines() == [
+        "guard: message:1: uses banned internal wording (m2)",
+        blocked_line(1),
+    ]
+
+
+# Runs of per-save figures in the published prose
+
+
+@pytest.mark.parametrize("prose_path", sorted(guard.PROSE_PATHS))
+@pytest.mark.parametrize(
+    "line",
+    [
+        "The example saves hold 11,111 / 22,222 / 33,333 records.",
+        "0.11 / 0.22 of records join a fixture.",
+        "It resolves 44, 55 and 66 clubs.",
+        "Blocks parse on 0.11, 0.22 of them.",
+        "Groups run 44 / 55 / 66 wide.",
+        "It reads 11.1%, 22.2% and 33.3% of pairs.",
+        "One club's panels held 44, 55 and 66 people.",
+    ],
+)
+def test_a_run_of_per_save_figures_in_the_prose_is_blocked(
+    repository: Path, prose_path: str, line: str
+) -> None:
+    stage(repository, prose_path, f"{line}\n")
+    assert run_guard(repository, "--staged") == 1
+
+
+def test_a_figure_run_names_the_line_it_sits_on(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stage(repository, "README.md", "# fmsave\n\nIt accepts 11,111 / 22,222 / 33,333 records.\n")
+    assert run_guard(repository, "--staged") == 1
+    assert capsys.readouterr().err.splitlines() == [
+        "guard: README.md:3: contains a run of per-save figures",
+        blocked_line(1),
+    ]
+
+
+@pytest.mark.parametrize("prose_path", sorted(guard.PROSE_PATHS))
+@pytest.mark.parametrize(
+    "line",
+    [
+        "The floor sits at 0.998 and nothing observed falls below it.",
+        "It settles 30% to 43% of tables, and 0.998 to 1.000 of the rest.",
+        "Released as 0.3.0 on 2026-09-17, after 0.2.0.",
+        "fmsave needs Python 3.12 or newer.",
+        "A row is exactly two columns wide: `database_id` then `name`.",
+        "Codes 3, 4 and 16 are unknown, and the scale runs 1 to 20.",
+        "Lists 0, 1 and 2 are medical, coaching and recruitment.",
+        "See https://example.com/a/1/2/3 for the format notes.",
+    ],
+    ids=[
+        "single-bound",
+        "worded-ranges",
+        "versions-and-a-date",
+        "version-in-prose",
+        "no-figures",
+        "code-values",
+        "index-values",
+        "a-url",
+    ],
+)
+def test_bounds_versions_and_code_values_in_the_prose_pass(
+    repository: Path, prose_path: str, line: str
+) -> None:
+    stage(repository, prose_path, f"{line}\n")
+    assert run_guard(repository, "--staged") == 0
+
+
+def test_a_figure_run_outside_the_published_prose_passes(repository: Path) -> None:
+    """A layout comment may carry a measured run; only what a reader is handed may not."""
+    stage(repository, "src/example.py", "# 11,111 / 22,222 / 33,333 records accepted\n")
+    assert run_guard(repository, "--staged") == 0

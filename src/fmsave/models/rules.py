@@ -51,7 +51,7 @@ class TransferWindow:
     separates them, if anything does, sits outside the record and this reader does not read it.
     In particular nothing measured here makes them per-competition or per-nation copies; that
     remains a guess. The count is the anchored walk's own, not a decode that counts a record
-    twice, and both saves measured give the same 54 rows and the same 22 distinct windows.
+    twice, and every save measured gives the same 54 rows and the same 22 distinct windows.
 
     Attributes:
         opens_day: Day of the month the window opens, 1 to 31.
@@ -143,18 +143,18 @@ class CompetitionRules:
     **The block stores no competition. Its competition comes from where the save keeps it.**
     No field inside a block names one: every `u32` in the 256 bytes before the marker and the
     256 bytes after the block's end was tested against the competition ids the stage table
-    holds, over 200 blocks on each of two saves, and no offset named a known competition on
+    holds, over 200 blocks of every save measured, and no offset named a known competition on
     even 90% of blocks while varying from block to block. What does work is position. The span
     alternates rules blocks and league-table blocks, and the run of table blocks stored after
-    a block is the table that block's rules govern: on the saves measured 471, 339 and 497 of
-    672, 521 and 655 blocks have such a run, 419, 288 and 445 of those runs are exactly one
-    `league_tables()` table's set of clubs, and 418, 288 and 445 of those tables carry a voted
-    competition. A run matching two tables at once names neither.
+    a block is the table that block's rules govern: on the saves measured about seven blocks in
+    ten have such a run, nearly all of those runs are exactly one `league_tables()` table's set
+    of clubs, and nearly all of those tables carry a voted competition. A run matching two
+    tables at once names neither.
 
-    **That link is corroborated, and is no stronger than the vote behind it.** 0.75, 0.78 and
-    0.75 of a linked block's dated rounds fall on a date its competition plays a fixture on,
-    against 0.58, 0.55 and 0.57 when each block is linked to the run stored *before* it
-    instead, and 0.134, 0.132 and 0.132 against a competition drawn at random for each block.
+    **That link is corroborated, and is no stronger than the vote behind it.** 0.74 to 0.78 of
+    a linked block's dated rounds fall on a date its competition plays a fixture on, against
+    0.55 to 0.58 when each block is linked to the run stored *before* it instead, and about
+    0.13 against a competition drawn at random for each block.
     On the one division whose Rules screen was read in game, the linked block holds 20 clubs,
     38 rounds and 3 relegation places and its last round is the date that screen gives as the
     season's end. The competition it hands over is itself a vote on the fixture calendar rather

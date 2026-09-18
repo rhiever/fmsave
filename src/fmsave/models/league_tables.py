@@ -8,9 +8,9 @@ is None on the groups the vote cannot settle. Those groups are still returned.
 each table already in standings order, so this is the league position and the rows need no
 sorting. Do not re-sort them: the game separates clubs level on points by their results against
 each other first, and no field here carries that, so a sort by points and goal difference moves
-clubs the save had in the right order. That sort reproduces the stored order on 91.1%, 93.7%
-and 93.2% of tables across the three saves measured, and on 73%, 74% and 67% of the
-division-shaped ones; the disagreements are where the head-to-head rule decides.
+clubs the save had in the right order. That sort reproduces the stored order on about 9 tables
+in 10 across the saves measured, and on about 7 in 10 of the division-shaped ones; the
+disagreements are where the head-to-head rule decides.
 
 Derived views these records carry no field for:
 

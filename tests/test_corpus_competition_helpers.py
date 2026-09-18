@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import datetime
 
-from tests.corpus import test_m2_corpus as corpus_checks
+from tests.corpus import test_competition_corpus as corpus_checks
 
 
 def test_ascending_share_counts_only_the_steps_that_rise() -> None:

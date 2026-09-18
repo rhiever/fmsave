@@ -1606,7 +1606,7 @@ def evaluate_job_vacancies(stats: JobVacancyStats, bounds: GateBounds) -> tuple[
     Two counted shares carry no gate. Team ids resolve on 0.93 to 0.98 of records, but ids are
     about 92% dense over the range the feed uses, so no floor could separate a sound decode from
     a wrong one. Competition ids the stage table names are 1.0 of records read correctly and
-    also 1.0 with the record start shifted four bytes on all three saves measured, so that share
+    also 1.0 with the record start shifted four bytes on every save measured, so that share
     cannot fail either. Both are reported as counts instead.
     """
     records = stats.records
@@ -1689,12 +1689,12 @@ def evaluate_staff(
 
     The four object shares judge the staff objects the rows were built from, so each applies
     only where one was read; the block share and the count floor apply on a full-size save,
-    where the smallest population measured is 4,109 people. The listing share judges the pairs
-    the club lists give, so it applies only where a club lists somebody, which the smallest
-    save measured does 2,867 times.
+    where the smallest population measured runs to thousands of people. The listing share judges
+    the pairs the club lists give, so it applies only where a club lists somebody, which every
+    full-size save measured has thousands of clubs doing.
 
     The unowned count is what catches a header test that has stopped recognising a person's own
-    object: every contract record with a tail on all three saves has its person's header in
+    object: every contract record with a tail on every save measured has its person's header in
     front of it, and with the kind byte read one place out none of them does.
     """
     applied = _applies(bounds, game_db_bytes)
@@ -2022,11 +2022,11 @@ def evaluate_mentoring(
 
     What it judges is the index space the stored selectors live in. Each is a player's record
     index plus one, and reading one of them a place out still finds a player, because the
-    index is dense over the range a squad occupies: on the three saves measured that read
-    resolves 0.958, 0.667 and 1.0 of members, which no floor can tell from the 1.0 a correct
+    index is dense over the range a squad occupies: on the saves measured that read resolves
+    most or all members, which no floor can tell from the 1.0 a correct
     read scores. So **there is no check on how many members resolve**; what the wrong read
-    cannot do is land on players of the right club, and this share falls from 1.0 to 0.174, 0.0
-    and 0.048 when it happens. A shifted walk cannot reach here at all: the groups sit inside a
+    cannot do is land on players of the right club, and this share falls from 1.0 to at most
+    0.18 when it happens. A shifted walk cannot reach here at all: the groups sit inside a
     block, so the training checks fail first.
     """
     applied = _applies(bounds, game_db_bytes) and stats.managed_club_exists

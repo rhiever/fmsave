@@ -117,7 +117,7 @@ database_id,name
 12346,Example Cup
 ```
 
-A row is exactly two columns wide and an id is plain digits; a third column is refused rather than guessed at, so put quotes around a name holding a comma. Building the map is up to you, and one source is your own installation: the game's database folder holds tab-separated UTF-8 `.lnc` files whose `COMP_LONG_NAME_CHANGE`, `COMP_SHORT_NAME_CHANGE` and `COMP_3LETTER_NAME_CHANGE` lines are keyed on the same database id. fmsave neither locates nor reads those files.
+A row is exactly two columns wide and an id is plain digits; a third column is refused rather than guessed at, so put quotes around a name holding a comma. Building the map is up to you: competition name sources are keyed on the editor database id, so any mapping of that id to a name can be supplied here.
 
 ## Command line
 

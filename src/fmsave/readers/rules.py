@@ -8,18 +8,17 @@ holds, and joins each block to a league table by where the save keeps it.
 alternates rules blocks and table blocks, and the run of table blocks stored after a block is
 the table that block's rules govern. Where that run holds exactly one league table's set of
 clubs, and that table carries a competition the fixture calendar voted it, the row takes that
-competition; otherwise it keeps none. On the saves measured that is 418, 288 and 445 of 672,
-521 and 655 blocks, so 32% to 45% of rows carry no competition, and a run matching two tables
-at once carries none rather than being resolved to either. The calendar corroborates the
-alignment: 0.75, 0.78 and 0.75 of a linked block's dated rounds fall on a date its competition
-plays a fixture on, against 0.58, 0.55 and 0.57 when each block is linked to the run stored
-*before* it. It rests on the league-table vote, so a row's competition is exactly as strong as
+competition; otherwise it keeps none. On the saves measured that is about seven blocks in ten,
+so 32% to 45% of rows carry no competition, and a run matching two tables at once carries none
+rather than being resolved to either. The calendar corroborates the alignment: 0.74 to 0.78 of
+a linked block's dated rounds fall on a date its competition plays a fixture on, against 0.55
+to 0.58 when each block is linked to the run stored *before* it. It rests on the league-table vote, so a row's competition is exactly as strong as
 `LeagueTable.competition_id` and no stronger.
 
 **The tagged rules groups are not read.** The save's rules database does hold groups of squad
 and financial rules -- a home-grown minimum, a maximum squad size, a salary cap, a wage-bill
 percentage -- and a strict walk anchored on the wage-percentage tag does pin four of them per
-save, identical in shape and count on all three saves measured. They are still not shipped,
+save, identical in shape and count on every save measured. They are still not shipped,
 for reasons that are measured rather than cautious:
 
 - **nothing readable ties a group to a competition.** Seven routes were measured and recorded:
@@ -28,7 +27,7 @@ for reasons that are measured rather than cautious:
   range spans 5.2 MB); tagged competition references inside the owning range, which are small
   integers that hit some competition by chance about a third of the time; the four groups' own
   one-byte competition value, with the same objection; and the reverse lookup for the one
-  division whose Rules screen was read in game, which finds 34 and 67 tagged references and
+  division whose Rules screen was read in game, which finds dozens of tagged references and
   none of them under the division's own rule set. The positional link the preamble blocks use
   does not carry over, because a group is not stored beside a table;
 - **the content is database content**, byte for byte the same on every save of one installed
@@ -52,8 +51,9 @@ The rules database is written as a tagged stream: a run of
 opening with its start-date sub-list and ending at its closing-time value.
 
 **Why the closing time is what recognises a window.** The date tags a window uses are shared
-by many kinds of record in this stream. On the saves measured 1,766 start-date sub-lists carry
-a complete, in-range date pair and only 54 of them also carry a closing time, so accepting on
+by many kinds of record in this stream. On the saves measured over a thousand start-date
+sub-lists carry a complete, in-range date pair and only 54 of them also carry a closing time,
+so accepting on
 the dates alone would return every dated record the rules database holds. Acceptance is
 structural throughout: the record carries no description of its own, and the description
 strings elsewhere in the stream belong to other records, so nothing here reads text.
@@ -181,11 +181,11 @@ def _round_corroboration(
 
     The dates are what the link is checked by. The shape -- a round count of `2(n - 1)` or
     `n - 1` for a table of `n` clubs -- is counted beside them and **not** checked: it holds on
-    0.77, 0.71 and 0.75 of linked blocks and on 0.62, 0.56 and 0.62 when each block is linked
-    to the run stored before it instead, so a floor that both fails that misalignment and keeps
-    a fifth of its own width clear of the lowest linked value has to sit between 0.62 and 0.64.
-    A window two points wide is not one to rest a gate on with two careers in the corpus, and
-    the round dates judge the same alignment with room to spare.
+    0.71 to 0.77 of linked blocks and on 0.56 to 0.62 when each block is linked to the run
+    stored before it instead, so a floor that both fails that misalignment and keeps a fifth of
+    its own width clear of the lowest linked value has to sit between 0.62 and 0.64. A window
+    two points wide is not one to rest a gate on given the saves tested, and the round dates
+    judge the same alignment with room to spare.
     """
     dated_rounds = [raw_round.date for raw_round in block.rounds if raw_round.date is not None]
     in_calendar = sum(1 for round_date in dated_rounds if round_date in competition_dates)
@@ -205,15 +205,15 @@ def build_competition_rules(
     A row's competition comes from **where the save keeps the block**, not from anything the
     block stores. The span alternates rules blocks and table blocks, and the run of table
     blocks stored after a block is the table that block's rules govern: on the saves measured
-    471, 339 and 497 of 672, 521 and 655 blocks have such a run, 419, 288 and 445 of those runs
-    hold exactly one league table's set of clubs, and 418, 288 and 445 of those tables carry a
-    competition the fixture calendar voted them. The rest keep `competition_id` empty, which is
+    about seven blocks in ten have such a run, nearly all of those runs hold exactly one league
+    table's set of clubs, and nearly all of those tables carry a competition the fixture
+    calendar voted them. The rest keep `competition_id` empty, which is
     32% to 45% of rows, and a run matching two tables at once is turned away rather than
     resolved to either.
 
-    That is a position in a file rather than a stored key, so it is corroborated: 0.75, 0.78
-    and 0.75 of a linked block's dated rounds fall on a date its competition plays a fixture
-    on, against 0.58, 0.55 and 0.57 when each block is linked to the run stored *before* it
+    That is a position in a file rather than a stored key, so it is corroborated: 0.74 to 0.78
+    of a linked block's dated rounds fall on a date its competition plays a fixture
+    on, against 0.55 to 0.58 when each block is linked to the run stored *before* it
     instead. `rules_link_round_dates` is the check on that. The competition itself is a vote on
     the calendar rather than a stored value, so a row's competition is no stronger than
     `LeagueTable.competition_id`, and both are unconfirmed.
