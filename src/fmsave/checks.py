@@ -477,6 +477,13 @@ def evaluate_suspensions(
     save whose players are never banned. The scope check judges what the entries that were
     found say rather than how many there are, so it is not applied when there are none and
     the first check is what fails then.
+
+    `issued_after_clock` judges the bans covering ONE COMPETITION alone. A ban covering a
+    whole nation carries a date ahead of the in-game date as ordinary career state, so over
+    every entry this check rises and falls with a career's own fixture list and fired on a
+    save whose decode was sound. Over the competition-scope entries it reads zero on every
+    save state measured, which makes it a tighter check than the one it replaces: a date read
+    from neighbouring bytes moves far more than a percent of them past the clock.
     """
     applied = _applies(bounds, game_db_bytes)
     return (
@@ -488,7 +495,7 @@ def evaluate_suspensions(
         ),
         _gate(
             "issued_after_clock",
-            _rate(stats.issued_after_clock, stats.entries),
+            _rate(stats.competition_issued_after_clock, stats.competition_entries),
             bounds.issued_after_clock,
             applied,
         ),
@@ -884,7 +891,12 @@ def check_suspensions(
         SUSPENSIONS_READER,
         stats.entries,
         evaluate_suspensions(stats, bounds, game_db_bytes),
-        FrozenMapping({"suspensions_after_clock": stats.issued_after_clock}),
+        FrozenMapping(
+            {
+                "suspensions_after_clock": stats.competition_issued_after_clock,
+                "nation_bans_dated_ahead": stats.nation_issued_after_clock,
+            }
+        ),
     )
 
 

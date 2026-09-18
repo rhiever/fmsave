@@ -258,7 +258,11 @@ def healthy_suspension_stats() -> SuspensionStats:
         players=20_000,
         entries=110,
         players_with_entries=100,
-        issued_after_clock=0,
+        # Sixty of the hundred and ten bans cover one competition; the other fifty cover a
+        # nation, and two of those are dated ahead of the clock, which is ordinary.
+        competition_entries=60,
+        competition_issued_after_clock=0,
+        nation_issued_after_clock=2,
         entries_with_known_scope=110,
     )
 
@@ -534,14 +538,16 @@ def test_healthy_suspension_stats_pass() -> None:
         pytest.param(1_000, 20, ["issued_after_clock"], id="two-percent-late"),
     ],
 )
-def test_suspensions_issued_after_the_clock_are_a_share_of_the_entries(
+def test_suspensions_issued_after_the_clock_are_a_share_of_the_competition_bans(
     entries: int, issued_after_clock: int, expected_failures: list[str]
 ) -> None:
     stats = SuspensionStats(
         players=20_000,
         entries=entries,
         players_with_entries=100,
-        issued_after_clock=issued_after_clock,
+        competition_entries=entries,
+        competition_issued_after_clock=issued_after_clock,
+        nation_issued_after_clock=0,
         entries_with_known_scope=entries,
     )
     results = evaluate_suspensions(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
@@ -565,7 +571,9 @@ def test_the_suspension_share_of_players_is_bounded_at_both_ends(
         players=20_000,
         entries=players_with_entries,
         players_with_entries=players_with_entries,
-        issued_after_clock=0,
+        competition_entries=players_with_entries,
+        competition_issued_after_clock=0,
+        nation_issued_after_clock=0,
         entries_with_known_scope=players_with_entries,
     )
     results = evaluate_suspensions(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
@@ -583,7 +591,9 @@ def test_a_suspension_search_that_finds_nothing_fails_the_share_and_the_clock_ch
         players=20_000,
         entries=0,
         players_with_entries=0,
-        issued_after_clock=0,
+        competition_entries=0,
+        competition_issued_after_clock=0,
+        nation_issued_after_clock=0,
         entries_with_known_scope=0,
     )
     results = evaluate_suspensions(nothing_found, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
@@ -616,7 +626,9 @@ def test_the_share_of_entries_with_a_listed_scope_code_is_bounded_below(
         players=20_000,
         entries=100,
         players_with_entries=100,
-        issued_after_clock=0,
+        competition_entries=100,
+        competition_issued_after_clock=0,
+        nation_issued_after_clock=0,
         entries_with_known_scope=entries_with_known_scope,
     )
     results = evaluate_suspensions(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
@@ -1103,7 +1115,10 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
     }
     assert observed_by_gate(readers["suspensions"]) == {
         "suspension_share_of_players": 0.5,
-        "issued_after_clock": 0.5,
+        # Zero, although one of this career's two bans IS dated after the clock: that one
+        # covers a nation, and a nation-wide ban dated ahead is ordinary career state. The
+        # check judges the bans covering one competition, and neither of those is late.
+        "issued_after_clock": 0.0,
         # Both entries carry a scope code the layout lists, one competition-wide and one
         # nation-wide.
         "suspension_scopes_known": 1.0,
@@ -1119,7 +1134,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "date_marked_chain_records": 0,
             "players_without_contract_in_effect": 0,
         },
-        "suspensions": {"suspensions_after_clock": 1},
+        "suspensions": {"suspensions_after_clock": 0, "nation_bans_dated_ahead": 1},
         "managed_clubs": {
             "humans_without_club": 0,
             "club_route_one_unresolved": 0,
@@ -1531,7 +1546,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         ],
         # The fragment's two entries both carry a listed scope code, so the scope check
         # passes on counts that fail the other two.
-        "suspensions": ["suspension_share_of_players", "issued_after_clock"],
+        "suspensions": ["suspension_share_of_players"],
         "managed_clubs": [],
         # The example table is a fraction of a career's, and names three competitions.
         "stages": ["stage_rows_minimum"],

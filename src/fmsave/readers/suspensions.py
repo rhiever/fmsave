@@ -258,25 +258,38 @@ def suspension_stats(
     entries_by_position: Mapping[int, tuple[SuspensionEntry, ...]], player_count: int, clock: date
 ) -> SuspensionStats:
     """Count the located entries for the suspension checks: entries, players with an entry,
-    entries issued after the save's in-game date, and entries whose scope code is one the
-    layout lists.
+    entries whose scope code is one the layout lists, and the dates against the save's
+    in-game date.
+
+    The date is counted over the bans covering ONE COMPETITION alone. A ban covering a whole
+    nation is routinely dated ahead of the clock -- by one to ten days on the save states
+    measured -- so counting those makes a career's own fixture list look like a misread date.
+    Every save state measured holds zero competition-scope entries dated ahead, which is what
+    the bound judges; the nation-scope ones are reported as an anomaly instead.
     """
     entry_count = 0
-    issued_after_clock = 0
+    competition_entries = 0
+    competition_issued_after_clock = 0
+    nation_issued_after_clock = 0
     with_known_scope = 0
-    unknown_scope = SuspensionScope.UNKNOWN
     for entries in entries_by_position.values():
         entry_count += len(entries)
         for entry in entries:
-            if entry.issued > clock:
-                issued_after_clock += 1
-            if entry.scope is not unknown_scope:
+            dated_ahead = entry.issued > clock
+            if entry.scope is SuspensionScope.COMPETITION:
+                competition_entries += 1
+                competition_issued_after_clock += dated_ahead
+            elif entry.scope is SuspensionScope.NATION:
+                nation_issued_after_clock += dated_ahead
+            if entry.scope is not SuspensionScope.UNKNOWN:
                 with_known_scope += 1
     return SuspensionStats(
         players=player_count,
         entries=entry_count,
         players_with_entries=len(entries_by_position),
-        issued_after_clock=issued_after_clock,
+        competition_entries=competition_entries,
+        competition_issued_after_clock=competition_issued_after_clock,
+        nation_issued_after_clock=nation_issued_after_clock,
         entries_with_known_scope=with_known_scope,
     )
 

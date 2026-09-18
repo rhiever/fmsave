@@ -1056,6 +1056,11 @@ GATE_BOUNDS = GateBounds(
     # sits five times below that, so a search that finds no entry at all fails here instead of
     # reporting a save whose players are never banned.
     suspension_share_of_players=(0.001, 0.10),
+    # Not one ban covering a single competition is dated after the in-game date on any save
+    # state measured, so the ceiling is pure headroom over a quantity that reads zero. It
+    # judges those bans alone: a ban covering a whole nation is routinely dated one to ten
+    # days ahead, which is career state, and counting those fired this check on a save whose
+    # decode was sound. They are reported as an anomaly instead.
     issued_after_clock=(None, 0.01),
     # Every ban on every save measured carries one of the four scope codes this layout lists,
     # so the observed share is a flat 1. The code decides whether the id beside it is read as

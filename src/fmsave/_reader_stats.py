@@ -106,13 +106,17 @@ class SuspensionStats:
     """What the suspension search counted over the player region.
 
     `entries_with_known_scope` counts the entries whose scope code the layout lists, which on
-    every save measured is all of them.
+    every save measured is all of them. The two date counts are kept apart because a ban
+    covering a whole nation is routinely dated ahead of the in-game date and a ban covering
+    one competition never is.
     """
 
     players: int
     entries: int
     players_with_entries: int
-    issued_after_clock: int
+    competition_entries: int
+    competition_issued_after_clock: int
+    nation_issued_after_clock: int
     entries_with_known_scope: int
 
 
