@@ -15,7 +15,8 @@ written. It is matched on the same normalized and accent-folded forms the denyli
 the word found is printed, because it is a house style rule rather than private content. Two
 paths are exempt, because they are where the rule itself is written down: `scripts/guard.py`
 and `tests/test_guard.py`. The check does **not** run in history mode, since history is never
-rewritten and a past message or path cannot be fixed.
+rewritten and a past message or path cannot be fixed. So a clean history run says nothing about
+either rule in history: it does not look.
 
 Runs of per-save figures are looked for in `PROSE_PATHS` alone -- the published README and
 changelog -- as two or three figures separated by slashes or commas, which is how one
@@ -837,6 +838,7 @@ def check_blob(
 
     Banned wording and figure runs are about what this repository publishes now, and history
     is never rewritten, so a past path or line cannot be brought into line with either rule.
+    A caller auditing history for them has to look itself.
     """
     findings: list[Finding] = []
     location = blob.location
