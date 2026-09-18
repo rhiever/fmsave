@@ -182,6 +182,7 @@ def test_the_human_manager_is_a_row_with_a_contract_and_no_ability(
     assert manager.in_club_lists is False
     assert manager.list_indexes == ()
     assert manager.listed_club_uid is None
+    assert manager.listed_club_name is None
     assert manager.has_contract is True
     assert manager.wage == 4_000
     assert manager.contract_start == date(2029, 7, 2)
@@ -327,10 +328,10 @@ def test_a_club_that_lists_somebody_gets_all_three_lists(
         (NORTHBRIDGE_UID, 1),
         (NORTHBRIDGE_UID, 2),
     ]
-    assert list_rows[0].person_uids == (STAFF_CONTRACTED_UID,)
-    assert list_rows[0].person_names == ("Sam Example",)
-    assert list_rows[1].person_uids == (STAFF_LISTED_ONLY_UID,)
-    assert list_rows[2].person_uids == ()
+    assert list_rows[0].staff_uids == (STAFF_CONTRACTED_UID,)
+    assert list_rows[0].staff_names == ("Sam Example",)
+    assert list_rows[1].staff_uids == (STAFF_LISTED_ONLY_UID,)
+    assert list_rows[2].staff_uids == ()
 
 
 def test_the_pass_counts_what_it_turned_away(career_save_path: Path) -> None:
@@ -360,6 +361,7 @@ def test_a_person_an_affiliate_side_lists_belongs_to_its_parent(tmp_path: Path) 
     affiliate_person = person_by_uid(rows, STAFF_AFFILIATE_UID)
     assert affiliate_person.club_uid == NORTHBRIDGE_UID
     assert affiliate_person.listed_club_uid == COLTS_UID
+    assert affiliate_person.listed_club_name == "Northbridge Colts"
     assert affiliate_person.list_indexes == (2,)
     assert affiliate_person.in_club_lists is True
     assert affiliate_person.has_contract is True
@@ -369,7 +371,7 @@ def test_a_person_an_affiliate_side_lists_belongs_to_its_parent(tmp_path: Path) 
     assert staff_check.anomalies["merged_affiliate_pairs"] == 1
     assert len(list_rows) == 6
     colts_lists = [row for row in list_rows if row.club_uid == COLTS_UID]
-    assert [row.person_uids for row in colts_lists] == [(), (), (STAFF_AFFILIATE_UID,)]
+    assert [row.staff_uids for row in colts_lists] == [(), (), (STAFF_AFFILIATE_UID,)]
 
 
 def test_a_person_with_two_headers_in_his_window_gets_no_row(tmp_path: Path) -> None:
@@ -657,8 +659,8 @@ def test_export_flattens_every_group_and_unknown_key() -> None:
         "club_uid",
         "club_name",
         "list_index",
-        "person_uids",
-        "person_names",
+        "staff_uids",
+        "staff_names",
     )
 
 

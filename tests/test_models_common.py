@@ -93,5 +93,9 @@ def test_transfer_value_state_members() -> None:
 
 
 def test_contract_end_source_members() -> None:
-    assert str(ContractEndSource.TAIL) == "tail"
-    assert [source.value for source in ContractEndSource] == ["tail", "fallback", "none"]
+    assert str(ContractEndSource.CONTRACT) == "contract"
+    assert [source.value for source in ContractEndSource] == [
+        "contract",
+        "player_record",
+        "none",
+    ]

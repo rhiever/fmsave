@@ -166,7 +166,7 @@ def test_a_short_name_shared_by_two_clubs_is_ambiguous(
 
 
 def example_club(uid: int, short_name: str) -> Club:
-    return Club(uid, "Example Rovers", short_name, 3, 3, None, (), None, None, None)
+    return Club(uid, "Example Rovers", short_name, 3, 3, None, (), None, None, None, None)
 
 
 def test_a_path_like_value_is_reduced_in_the_ambiguity_header() -> None:
@@ -393,8 +393,8 @@ def test_clubs_nation_as_a_json_array(save_path: Path, capsys: pytest.CaptureFix
     assert isinstance(clubs, list)
     assert [club["uid"] for club in clubs] == [5001, 5002]
     assert clubs[0]["teams"] == [
-        {"team_id": 70001, "slot": 0, "club_uid": 5001, "affiliate": False},
-        {"team_id": 70002, "slot": 1, "club_uid": 5001, "affiliate": False},
+        {"team_id": 70001, "slot": 0, "club_uid": 5001, "is_affiliate": False},
+        {"team_id": 70002, "slot": 1, "club_uid": 5001, "is_affiliate": False},
     ]
 
 
@@ -502,7 +502,7 @@ def test_all_managed_clubs_without_a_managed_club_writes_no_rows(
     exit_code, output_text, _ = run_export(capsys, str(between_jobs_path), "managed-clubs", "--all")
     assert exit_code == cli.EXIT_OK
     assert csv_rows(output_text) == [
-        ["club_uid", "club_name", "club_short_name", "manager_name", "manager_person_uid"]
+        ["club_uid", "club_name", "club_short_name", "manager_name", "manager_staff_uid"]
     ]
 
 
@@ -1357,7 +1357,7 @@ NEW_TABLE_ROW_COUNTS = (
     ("staff", STAFF_COUNT),
     ("staff-lists", STAFF_LIST_COUNT),
     ("injury-types", INJURY_TYPE_COUNT),
-    ("injury-history", INJURY_RECORD_COUNT),
+    ("injuries", INJURY_RECORD_COUNT),
     ("training", TEAM_TRAINING_COUNT),
     ("mentoring", MENTORING_GROUP_COUNT),
     ("tactics", TACTIC_COUNT),
@@ -1382,6 +1382,27 @@ def test_every_club_and_staff_table_writes_its_rows_as_json(
     )
     assert exit_code == cli.EXIT_OK, error_text
     assert len(json.loads(output_text)) == expected_count
+
+
+@pytest.mark.parametrize("table_name", [name for name in cli._EXPORT_TABLES if "-" in name])
+def test_a_table_is_named_with_hyphens_or_with_the_readers_underscores(
+    save_path: Path, capsys: pytest.CaptureFixture[str], table_name: str
+) -> None:
+    """The reader's own spelling reaches the same table the help's hyphenated one does."""
+    hyphenated = run_export(capsys, str(save_path), table_name, "--all", "--format", "json")
+    underscored = run_export(
+        capsys, str(save_path), table_name.replace("-", "_"), "--all", "--format", "json"
+    )
+    assert hyphenated[0] == cli.EXIT_OK, hyphenated[2]
+    assert underscored == hyphenated
+
+
+def test_a_table_name_that_is_neither_spelling_is_quoted_as_it_was_typed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit):
+        cli.main(["export", "a.fm", "no_such_table", "--all"])
+    assert "invalid choice: 'no_such_table'" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(("table_name", "expected_count"), MANAGED_CLUB_ONLY_TABLES)
@@ -1464,12 +1485,12 @@ def test_the_competition_rules_help_carries_the_note_about_linked_blocks() -> No
     assert "returns only the blocks that link to one" in help_text
 
 
-def test_injury_history_follows_the_players_current_club(
+def test_injuries_follow_the_players_current_club(
     save_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A row is kept for where its person plays now, not for the club he was hurt at."""
     exit_code, output_text, error_text = run_export(
-        capsys, str(save_path), "injury-history", "--club", str(SOUTHPORT_UID)
+        capsys, str(save_path), "injuries", "--club", str(SOUTHPORT_UID)
     )
     assert exit_code == cli.EXIT_OK, error_text
     records = csv_records(output_text)

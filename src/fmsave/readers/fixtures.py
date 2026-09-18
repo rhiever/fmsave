@@ -221,6 +221,9 @@ def build_fixtures(
     club_by_uid = club_index.club_by_uid
     name_for = competition_index.name_for
     uid_by_ordinal = stadium_index.uid_by_ordinal
+    # Only a couple of hundred grounds store a name, so this map is small and most
+    # matches take no name from it.
+    name_by_ordinal = {row.ordinal: row.name for row in stadium_index.rows if row.name is not None}
     round_index_none_value = layout.round_index_none_value
 
     decoded_records: list[_DecodedFixture] = []
@@ -318,6 +321,9 @@ def build_fixtures(
                 is_neutral_venue=is_neutral_venue,
                 stadium_uid=(
                     None if stadium_ordinal is None else uid_by_ordinal.get(stadium_ordinal)
+                ),
+                stadium_name=(
+                    None if stadium_ordinal is None else name_by_ordinal.get(stadium_ordinal)
                 ),
                 match_record_id=raw_fixture.match_record_id if raw_fixture.played else None,
                 match_rules_template=raw_fixture.match_rules_template,

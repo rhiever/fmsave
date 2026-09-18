@@ -132,7 +132,7 @@ FULL_RECORD = ExampleRecord(
     birth_date=date(2004, 2, 29),
     ability=ExampleGroup(140, 165),
     squad_status=CodedValue.from_raw(ExampleStatus, 3),
-    end_source=ContractEndSource.TAIL,
+    end_source=ContractEndSource.CONTRACT,
     nation_ids=(12, 40),
     clauses=(ExampleClause(CodedValue.from_raw(ExampleKind, 0x11), 250000),),
     on_loan=None,
@@ -160,7 +160,7 @@ EXPECTED_FULL_FLAT_ROW: dict[str, object] = {
     "ability_potential": 165,
     "squad_status": "first_choice",
     "squad_status_code": 3,
-    "end_source": "tail",
+    "end_source": "contract",
     "nation_ids": (12, 40),
     "clauses": ({"kind": "min_fee_release", "kind_code": 17, "value": 250000},),
     "on_loan": None,
@@ -264,7 +264,7 @@ def test_csv_writes_header_and_cells(tmp_path: Path) -> None:
     csv_lines = csv_text.split("\r\n")
     assert csv_lines[0] == ",".join(column_names(ExampleRecord))
     assert csv_lines[1] == (
-        "1001,Alex Example,2004-02-29,140,165,first_choice,3,tail,12;40,"
+        "1001,Alex Example,2004-02-29,140,165,first_choice,3,contract,12;40,"
         '"[{""kind"":""min_fee_release"",""kind_code"":17,""value"":250000}]",,7,'
     )
     with csv_path.open(encoding="utf-8", newline="") as csv_file:
@@ -343,7 +343,7 @@ def test_unknown_key_outside_the_declared_keys_raises_value_error() -> None:
         birth_date=None,
         ability=ExampleGroup(None, None),
         squad_status=None,
-        end_source=ContractEndSource.FALLBACK,
+        end_source=ContractEndSource.PLAYER_RECORD,
         nation_ids=(),
         clauses=(),
         on_loan=False,

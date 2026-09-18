@@ -62,7 +62,7 @@ READER_SECTION_READS: dict[str, tuple[dict[str, int], int]] = {
     # The injury type names live in the per-match entries and nowhere else, so this is the one
     # reader that decompresses no section at all.
     "injury_types": ({}, 2),
-    "injury_history": ({GAME_DB: 1, INJURY_MANAGER: 1}, 2),
+    "injuries": ({GAME_DB: 1, INJURY_MANAGER: 1}, 2),
     "training": ({GAME_DB: 1, HUMANS: 1, SAVE_SUMMARY: 1, TRAINING: 1}, 0),
     "mentoring": ({GAME_DB: 1, HUMANS: 1, SAVE_SUMMARY: 1, TRAINING: 1}, 0),
     "tactics": ({GAME_DB: 1, HUMANS: 1, SAVE_SUMMARY: 1, TACTICS: 1}, 0),

@@ -153,8 +153,9 @@ class RawRulesBlock:
     """One competition-rules preamble block, as stored, with its region-relative offset.
 
     The four promotion-quad values are None together when the save's two copies of the quad
-    differ. `club_count` and `administration_points_deduction` are always None: no fixed
-    offset from the marker carries them on the corpus, so the span pass does not guess them.
+    differ. A block's club count and its points deduction for administration are not here at
+    all: no fixed offset from the marker carries either on the corpus, so the span pass does
+    not guess them.
     `fully_parsed` is true when the quad was doubled and the tie-break list, the prize list
     and every round record decoded. It therefore holds on a smaller share of blocks than the
     figure the format research recorded, which counts the lists and the rounds and ignores
@@ -169,8 +170,6 @@ class RawRulesBlock:
     tie_breaks: tuple[int, ...]
     prize_money: tuple[int, ...]
     rounds: tuple[RawRulesRound, ...]
-    club_count: int | None
-    administration_points_deduction: int | None
     fully_parsed: bool
 
 
@@ -797,8 +796,6 @@ def _rules_block(
         tie_breaks=tie_breaks,
         prize_money=prize_money,
         rounds=rounds,
-        club_count=None,
-        administration_points_deduction=None,
         fully_parsed=fully_parsed,
     )
 

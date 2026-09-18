@@ -55,7 +55,7 @@ from fmsave.models.league_tables import (
     LeagueTableRow,
     LeagueTableSplit,
     MatchOutcome,
-    Venue,
+    MatchSide,
 )
 from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import MatchPosition, PlayerMatchStats
@@ -137,6 +137,7 @@ __all__ = [
     "ManagedClub",
     "MatchOutcome",
     "MatchPosition",
+    "MatchSide",
     "Mentality",
     "MentoringGroup",
     "NotAFmSaveError",
@@ -185,7 +186,6 @@ __all__ = [
     "UnknownBuildWarning",
     "UnsupportedGameError",
     "ValidationReport",
-    "Venue",
     "__version__",
     "field_status",
     "open",

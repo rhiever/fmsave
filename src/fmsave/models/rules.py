@@ -54,15 +54,15 @@ class TransferWindow:
     twice, and every save measured gives the same 54 rows and the same 22 distinct windows.
 
     Attributes:
-        opens_day: Day of the month the window opens, 1 to 31.
-        opens_month: Month the window opens, 1 to 12.
-        opens_season_year_offset: Which season year the window opens in: 0 is the season's own
+        start_day: Day of the month the window opens, 1 to 31.
+        start_month: Month the window opens, 1 to 12.
+        start_season_year_offset: Which season year the window opens in: 0 is the season's own
             start year and 1 the calendar year after it. There is no calendar date without a
             season, so this is an offset and never a date.
-        closes_day: Day of the month the window closes, 1 to 31.
-        closes_month: Month the window closes, 1 to 12.
-        closes_season_year_offset: Which season year the window closes in, as
-            opens_season_year_offset.
+        end_day: Day of the month the window closes, 1 to 31.
+        end_month: Month the window closes, 1 to 12.
+        end_season_year_offset: Which season year the window closes in, as
+            start_season_year_offset.
         unknown: Numeric fields with no known meaning. "close_time" is the value stored
             against the window's closing-time tag, which looks like an hour and minute on a
             24-hour clock but is not named, because the game's own Rules screen shows no time
@@ -70,12 +70,12 @@ class TransferWindow:
             windows in five and no displayed label explains (unconfirmed).
     """
 
-    opens_day: int
-    opens_month: int
-    opens_season_year_offset: int
-    closes_day: int
-    closes_month: int
-    closes_season_year_offset: int
+    start_day: int
+    start_month: int
+    start_season_year_offset: int
+    end_day: int
+    end_month: int
+    end_season_year_offset: int
     unknown: Mapping[str, int]
 
     UNKNOWN_KEYS: ClassVar[tuple[str, ...]] = ("close_time", "window_type")
@@ -84,12 +84,12 @@ class TransferWindow:
 register_field_statuses(
     TransferWindow,
     verified=(
-        "opens_day",
-        "opens_month",
-        "opens_season_year_offset",
-        "closes_day",
-        "closes_month",
-        "closes_season_year_offset",
+        "start_day",
+        "start_month",
+        "start_season_year_offset",
+        "end_day",
+        "end_month",
+        "end_season_year_offset",
     ),
     unconfirmed=("unknown",),
 )
@@ -100,18 +100,17 @@ class RulesBlockKind(StrEnum):
 
     Derived by fmsave from where the row came from, never read as a code.
 
-    `GROUP` is declared and **no row carries it**. The save's rules database does hold tagged
-    groups of squad and financial rules, but nothing readable ties a group to a competition:
-    seven routes were measured, including the positional one a preamble row's competition comes
-    from, which does not carry over because a group is not stored beside a league table. The
-    groups found carry no name either, their content is database content identical on every
-    save of one installed database, and no displayed label pins the meaning of the values they
-    hold. So fmsave ships none of them rather than shipping guesses. The member is declared so
-    that reading them later adds rows to this table instead of changing what `kind` can be.
+    Every row is `PREAMBLE`. The save's rules database does hold tagged groups of squad and
+    financial rules, but nothing readable ties a group to a competition: seven routes were
+    measured, including the positional one a preamble row's competition comes from, which does
+    not carry over because a group is not stored beside a league table. The groups found carry
+    no name either, their content is database content identical on every save of one installed
+    database, and no displayed label pins the meaning of the values they hold. So fmsave ships
+    none of them rather than shipping guesses, and this enum names no member for them: reading
+    them later adds a member and a kind of row, which takes nothing away from a caller.
     """
 
     PREAMBLE = "preamble"
-    GROUP = "group"
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,8 +166,10 @@ class CompetitionRules:
     shape that matches a screen is corroboration rather than a field read back, so every field
     here is unconfirmed.
 
-    `club_count` is empty on every row: no fixed position in the block carries it, so it is not
-    guessed. The linked table's own club count is where a club count comes from.
+    A block's club count and its points deduction for administration are **not** read: no
+    fixed position in the block carries either, so no field ships for them rather than a field
+    that is empty on every row. The linked table's own `club_count` is where a club count comes
+    from.
 
     The squad and financial rules the save's rules database holds (a home-grown minimum, a
     maximum squad size, a salary cap and a wage-bill percentage) are **not** read. They live in
@@ -189,9 +190,6 @@ class CompetitionRules:
             in the span, resolved through a vote on the fixture calendar (unconfirmed).
         competition_name: Denormalised name of competition_id, which is None unless a name map
             is supplied, because the save stores no competition names (unconfirmed).
-        club_count: How many clubs the competition holds. **Always None**: no fixed offset from
-            the block's marker carries it on the corpus, so it is not guessed. Read the linked
-            table's `club_count` instead (unconfirmed).
         fixtures_per_club: How many matches each club plays, which is the number of rounds the
             block holds; None when no round decoded (unconfirmed).
         promotion_places: How many clubs are promoted, or None when the block's two copies of
@@ -200,8 +198,6 @@ class CompetitionRules:
             (unconfirmed).
         relegation_places: How many clubs are relegated, or None as promotion_places
             (unconfirmed).
-        administration_points_deduction: Points deducted from a club in administration.
-            **Always None**, for the reason club_count is (unconfirmed).
         prize_money: Prize money by finishing position, in the save's base currency, in
             finishing order. Empty on most blocks: only about one block in eight carries a
             prize list at all (unconfirmed).
@@ -215,12 +211,10 @@ class CompetitionRules:
     kind: RulesBlockKind
     competition_id: int | None
     competition_name: str | None
-    club_count: int | None
     fixtures_per_club: int | None
     promotion_places: int | None
     playoff_places: int | None
     relegation_places: int | None
-    administration_points_deduction: int | None
     prize_money: tuple[int, ...]
     rounds: tuple[RulesRound, ...]
     unknown: Mapping[str, int]
@@ -246,12 +240,10 @@ register_field_statuses(
         "kind",
         "competition_id",
         "competition_name",
-        "club_count",
         "fixtures_per_club",
         "promotion_places",
         "playoff_places",
         "relegation_places",
-        "administration_points_deduction",
         "prize_money",
         "rounds",
         "unknown",

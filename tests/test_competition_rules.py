@@ -339,28 +339,21 @@ def test_a_run_matching_two_tables_links_to_neither(tmp_path: Path) -> None:
     assert all(row.competition_id is None for row in rules)
 
 
-def test_the_club_count_and_the_administration_deduction_are_empty(
-    career_save_path: Path,
-) -> None:
-    """No fixed position in the block carries either on the corpus, so neither is guessed."""
+def test_the_club_count_and_the_administration_deduction_are_not_fields() -> None:
+    """No fixed position in the block carries either, so no column ships that is always empty."""
+    columns = column_names(CompetitionRules)
+
+    assert "club_count" not in columns
+    assert "administration_points_deduction" not in columns
+
+
+def test_preamble_is_the_only_kind_a_row_can_carry(career_save_path: Path) -> None:
+    """The tagged rules groups are not read, so no member names them until they are."""
     with fmsave.open(career_save_path) as career_save:
         rules = rules_of(career_save)
 
-    assert all(row.club_count is None for row in rules)
-    assert all(row.administration_points_deduction is None for row in rules)
-
-
-def test_the_group_kind_is_declared_and_unused(career_save_path: Path) -> None:
-    """The tagged rules groups are not read yet, so no row carries the GROUP kind.
-
-    It is declared now so that reading them later adds rows rather than changing what `kind`
-    can be.
-    """
-    with fmsave.open(career_save_path) as career_save:
-        rules = rules_of(career_save)
-
-    assert RulesBlockKind.GROUP.value == "group"
-    assert not [row for row in rules if row.kind is RulesBlockKind.GROUP]
+    assert [kind.value for kind in RulesBlockKind] == ["preamble"]
+    assert all(row.kind is RulesBlockKind.PREAMBLE for row in rules)
 
 
 def test_no_docstring_still_says_a_row_never_names_a_competition() -> None:
@@ -395,12 +388,10 @@ def test_the_columns_are_the_field_names_with_the_unknown_map_expanded() -> None
         "kind",
         "competition_id",
         "competition_name",
-        "club_count",
         "fixtures_per_club",
         "promotion_places",
         "playoff_places",
         "relegation_places",
-        "administration_points_deduction",
         "prize_money",
         "rounds",
         "unknown_promotion_byte2",

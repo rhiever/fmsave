@@ -480,8 +480,8 @@ def build_player_match_stats(
     the stage-space check judges. No value of its own reaches a row: a record carries its
     competition id itself, and nothing here looks one up.
 
-    A body outside the layout's bounds is flagged and kept, never blanked: `stats_in_range` says
-    what fmsave makes of the numbers and the numbers stay exactly as the save holds them.
+    A statistic outside the layout's bounds is flagged and kept, never blanked: `stats_in_range`
+    says what fmsave makes of the numbers, and the numbers stay exactly as the save holds them.
 
     Two stored zeros are not numbers of their own kind and are not shipped as one. A stored
     `left_at_minute` of zero means the player was on the pitch at the final whistle rather than
@@ -501,12 +501,12 @@ def build_player_match_stats(
 
     rows: list[PlayerMatchStats] = []
     record_count = 0
-    with_body = 0
+    with_stats = 0
     players_with_records = 0
     competition_in_stage_space = 0
     minutes_in_range = 0
     rating_in_range = 0
-    body_valid_count = 0
+    stats_in_range_count = 0
     opponent_resolved = 0
     unowned = 0
 
@@ -536,14 +536,14 @@ def build_player_match_stats(
             left_at_minute = record.left_at_minute
             stats_in_range = False
             if record.has_stats:
-                with_body += 1
+                with_stats += 1
                 minutes_ok = minutes is not None and minutes <= maximum_minutes
                 rating_ok = rating_raw is not None and rating_raw <= maximum_rating
                 goals_ok = goals is not None and goals <= maximum_goals
                 minutes_in_range += minutes_ok
                 rating_in_range += rating_ok
                 stats_in_range = minutes_ok and rating_ok and goals_ok
-                body_valid_count += stats_in_range
+                stats_in_range_count += stats_in_range
             unknown_values = {"tag": record.tag}
             if record.role_code is not None:
                 unknown_values["role_code"] = record.role_code
@@ -589,12 +589,12 @@ def build_player_match_stats(
 
     stats = MatchStats(
         records=record_count,
-        with_body=with_body,
+        with_stats=with_stats,
         players_with_records=players_with_records,
         competition_in_stage_space=competition_in_stage_space,
         minutes_in_range=minutes_in_range,
         rating_in_range=rating_in_range,
-        body_valid=body_valid_count,
+        stats_in_range=stats_in_range_count,
         opponent_resolved=opponent_resolved,
         unowned=unowned,
     )

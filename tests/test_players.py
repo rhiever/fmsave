@@ -642,6 +642,7 @@ def test_a_player_at_an_affiliate_team_takes_the_parent_clubs_fields() -> None:
     assert player.team_id == ACADEMY_TEAM_ID
     assert player.team_slot == 2
     assert player.team_club_uid == ACADEMY_CLUB_UID
+    assert player.team_club_name == "Example Academy"
 
 
 def test_a_player_at_his_clubs_own_team_has_no_registration_club() -> None:
@@ -649,6 +650,7 @@ def test_a_player_at_his_clubs_own_team_has_no_registration_club() -> None:
     assert player.club_uid == SOUTHPORT_CLUB_UID
     assert player.team_slot == 0
     assert player.team_club_uid is None
+    assert player.team_club_name is None
 
 
 def test_player_b_negative_potential_and_free_agent() -> None:

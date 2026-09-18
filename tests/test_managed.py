@@ -229,7 +229,7 @@ EXPECTED_ROW = ManagedClub(
     club_name="Northbridge FC",
     club_short_name="Northbridge",
     manager_name=MANAGER_NAME,
-    manager_person_uid=MANAGER_PERSON_UID,
+    manager_staff_uid=MANAGER_PERSON_UID,
 )
 
 
@@ -415,7 +415,7 @@ def test_two_person_header_candidates_leave_the_person_uid_unset(tmp_path: Path)
     )
     managed_clubs = read_managed_clubs(write_fragment(tmp_path, game_db=game_db))
     assert len(managed_clubs) == 1
-    assert managed_clubs[0].manager_person_uid is None
+    assert managed_clubs[0].manager_staff_uid is None
     assert managed_clubs[0].club_uid == NORTHBRIDGE_UID
 
 
@@ -434,7 +434,7 @@ def test_a_person_header_counts_only_with_a_doubled_real_uid(
         person_headers=(rejected_header, person_header_bytes(499, MANAGER_PERSON_UID))
     )
     managed_clubs = read_managed_clubs(write_fragment(tmp_path, game_db=game_db))
-    assert managed_clubs[0].manager_person_uid == MANAGER_PERSON_UID
+    assert managed_clubs[0].manager_staff_uid == MANAGER_PERSON_UID
 
 
 def test_route_one_prefers_a_tailed_record_then_the_latest_end(tmp_path: Path) -> None:
@@ -520,7 +520,7 @@ def test_managed_club_fields_are_all_unconfirmed() -> None:
         "club_name",
         "club_short_name",
         "manager_name",
-        "manager_person_uid",
+        "manager_staff_uid",
     ):
         assert field_status(ManagedClub, field_name) == "unconfirmed"
     assert field_status(fmsave.SaveInfo, "summary_strings") == "unconfirmed"

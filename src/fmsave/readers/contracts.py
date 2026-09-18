@@ -50,9 +50,9 @@ _UNSIGNED_FORMAT_BY_WIDTH = {1: "B", 2: "H", 4: "I"}
 
 # One decoded chain record, before assembly, in this fixed field order: the first 7 fields
 # match ContractChainEntry's own field order exactly (club_uid, club_name, team_id, wage,
-# start, end, has_tail), so a ContractChainEntry can be built positionally straight from a
-# record's first 7 items. When has_tail is False, squad_status_raw, event_count,
-# contract_type_raw and unknown are None and clauses is (). When has_tail is True,
+# start, end, has_terms), so a ContractChainEntry can be built positionally straight from a
+# record's first 7 items. When has_terms is False, squad_status_raw, event_count,
+# contract_type_raw and unknown are None and clauses is (). When has_terms is True,
 # squad_status_raw and event_count are ints and unknown is a dict of the tail's unknown
 # fields; clauses is () unless a clause table was found, and contract_type_raw is None and
 # unknown has no money_* keys unless the record's head was found.
@@ -84,7 +84,7 @@ CHAIN_RECORD_TEAM_ID = 2
 CHAIN_RECORD_WAGE = 3
 CHAIN_RECORD_START = 4
 CHAIN_RECORD_END = 5
-CHAIN_RECORD_HAS_TAIL = 6
+CHAIN_RECORD_HAS_TERMS = 6
 CHAIN_RECORD_SQUAD_STATUS = 7
 CHAIN_RECORD_EVENT_COUNT = 8
 CHAIN_RECORD_CLAUSES = 9
@@ -1284,9 +1284,10 @@ class ContractDecoder:
             chain: tuple[ContractChainEntry, ...] = ()
             chain_club_uids: tuple[int | None, ...] = ()
             chain_club_names: tuple[str | None, ...] = ()
-            tailed_chain_club_uids: tuple[int, ...] = ()
+            chain_club_uids_with_terms: tuple[int, ...] = ()
+            chain_club_names_with_terms: tuple[str | None, ...] = ()
             if fallback_end is not None and fallback_end >= clock:
-                end, end_source = fallback_end, ContractEndSource.FALLBACK
+                end, end_source = fallback_end, ContractEndSource.PLAYER_RECORD
             else:
                 end, end_source = None, ContractEndSource.NONE
         else:
@@ -1314,15 +1315,15 @@ class ContractDecoder:
                     wage,
                     start,
                     in_effect_end,
-                    in_effect_has_tail,
+                    in_effect_has_terms,
                     in_effect_squad_status_raw,
                     in_effect_event_count,
                     in_effect_clauses,
                     in_effect_contract_type_raw,
                     in_effect_unknown,
                 ) = in_effect_record
-                if in_effect_has_tail:
-                    # A tail-bearing record's tail fields are never None; see
+                if in_effect_has_terms:
+                    # A record that carries its terms never leaves one of them None; see
                     # decode_chain_record.
                     squad_status = self._cached_squad_status(cast(int, in_effect_squad_status_raw))
                     event_count = in_effect_event_count
@@ -1345,9 +1346,9 @@ class ContractDecoder:
                     unknown = self.empty_unknown
 
             if in_effect_end is not None:
-                end, end_source = in_effect_end, ContractEndSource.TAIL
+                end, end_source = in_effect_end, ContractEndSource.CONTRACT
             elif not any_tail_parsed and fallback_end is not None and fallback_end >= clock:
-                end, end_source = fallback_end, ContractEndSource.FALLBACK
+                end, end_source = fallback_end, ContractEndSource.PLAYER_RECORD
             else:
                 end, end_source = None, ContractEndSource.NONE
 
@@ -1373,24 +1374,30 @@ class ContractDecoder:
                 chain = (ContractChainEntry(*only_record[:7]),)
                 chain_club_uids = (only_record[0],)
                 chain_club_names = (only_record[1],)
-                tailed_chain_club_uids = (
-                    (only_record[0],) if only_record[6] and only_record[0] is not None else ()
-                )
+                if only_record[6] and only_record[0] is not None:
+                    chain_club_uids_with_terms = (only_record[0],)
+                    chain_club_names_with_terms = (only_record[1],)
+                else:
+                    chain_club_uids_with_terms = ()
+                    chain_club_names_with_terms = ()
             else:
                 entries: list[ContractChainEntry] = []
                 club_uids: list[int | None] = []
                 club_names: list[str | None] = []
-                tailed_uids: list[int] = []
+                uids_with_terms: list[int] = []
+                names_with_terms: list[str | None] = []
                 for record in chain_records:
                     club_uids.append(record[0])
                     club_names.append(record[1])
                     if record[6] and record[0] is not None:
-                        tailed_uids.append(record[0])
+                        uids_with_terms.append(record[0])
+                        names_with_terms.append(record[1])
                     entries.append(ContractChainEntry(*record[:7]))
                 chain = tuple(entries)
                 chain_club_uids = tuple(club_uids)
                 chain_club_names = tuple(club_names)
-                tailed_chain_club_uids = tuple(tailed_uids)
+                chain_club_uids_with_terms = tuple(uids_with_terms)
+                chain_club_names_with_terms = tuple(names_with_terms)
 
         contract = Contract(
             player_uid,
@@ -1414,7 +1421,8 @@ class ContractDecoder:
             chain,
             chain_club_uids,
             chain_club_names,
-            tailed_chain_club_uids,
+            chain_club_uids_with_terms,
+            chain_club_names_with_terms,
             unknown,
         )
         return (

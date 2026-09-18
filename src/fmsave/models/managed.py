@@ -21,15 +21,16 @@ class ManagedClub:
         club_short_name: Denormalised short name of club_uid (unconfirmed).
         manager_name: The human manager's name as the save summary stores it, or None when
             the summary does not name the manager next to the club (unconfirmed).
-        manager_person_uid: Uid of the human manager's person record, or None when it cannot
-            be identified exactly (unconfirmed).
+        manager_staff_uid: Uid of the human manager's own record, which is a `Staff.uid`
+            and joins to the staff table; None when it cannot be identified exactly.
+            manager_name is this person's name (unconfirmed).
     """
 
     club_uid: int
     club_name: str
     club_short_name: str
     manager_name: str | None
-    manager_person_uid: int | None
+    manager_staff_uid: int | None
 
 
 register_field_statuses(
@@ -39,6 +40,6 @@ register_field_statuses(
         "club_name",
         "club_short_name",
         "manager_name",
-        "manager_person_uid",
+        "manager_staff_uid",
     ),
 )

@@ -36,7 +36,7 @@ from fmsave.models.players import Player
 from fmsave.readers.clubs import ClubIndex, find_club_layouts, read_club_index
 from fmsave.readers.contracts import (
     CHAIN_RECORD_END,
-    CHAIN_RECORD_HAS_TAIL,
+    CHAIN_RECORD_HAS_TERMS,
     ContractDecoder,
     build_contract_decoder,
 )
@@ -375,11 +375,11 @@ def test_player_a_chain_record_assembly() -> None:
     assert contract.wage == 3000
     assert contract.start == date(2029, 8, 1)
     assert contract.end == date(2032, 6, 30)
-    assert contract.end_source == ContractEndSource.TAIL
+    assert contract.end_source == ContractEndSource.CONTRACT
     assert contract.squad_status is not None
     assert contract.squad_status.label is SquadStatus.REGULAR_STARTER
-    assert contract.type is not None
-    assert contract.type.label is ContractType.FULL_TIME
+    assert contract.kind is not None
+    assert contract.kind.label is ContractType.FULL_TIME
     assert len(contract.clauses) == 2
     assert contract.clauses[0].kind.label is ClauseKind.MINIMUM_FEE_RELEASE_DOMESTIC
     assert contract.clauses[0].parameter == 365
@@ -396,7 +396,8 @@ def test_player_a_chain_record_assembly() -> None:
     assert contract.loan_parent_club_name is None
     # The ended spell at Northbridge stays in the chain.
     assert contract.chain_club_uids == (NORTHBRIDGE_CLUB_UID, SOUTHPORT_CLUB_UID)
-    assert contract.tailed_chain_club_uids == (NORTHBRIDGE_CLUB_UID, SOUTHPORT_CLUB_UID)
+    assert contract.chain_club_uids_with_terms == (NORTHBRIDGE_CLUB_UID, SOUTHPORT_CLUB_UID)
+    assert contract.chain_club_names_with_terms == ("Northbridge FC", "Example Southport")
     assert len(contract.chain) == 2
     assert contract.chain[0].wage == 12000
     assert contract.chain[1].wage == 3000
@@ -412,7 +413,7 @@ def test_player_b_fallback_only() -> None:
     assert contract is not None
     assert contract.start == date(2027, 1, 1)
     assert contract.end == date(2032, 6, 30)
-    assert contract.end_source == ContractEndSource.FALLBACK
+    assert contract.end_source == ContractEndSource.PLAYER_RECORD
     assert contract.wage is None
     assert contract.on_loan is None
     assert contract.chain == ()
@@ -424,9 +425,9 @@ def test_player_c_null_tail_end_skips_fallback() -> None:
     assert contract is not None
     assert contract.end is None
     assert contract.end_source == ContractEndSource.NONE
-    assert contract.type is not None
-    assert contract.type.label is ContractType.UNKNOWN
-    assert contract.type.raw == 2
+    assert contract.kind is not None
+    assert contract.kind.label is ContractType.UNKNOWN
+    assert contract.kind.raw == 2
 
 
 def test_player_d_broken_tail_and_stale_fallback() -> None:
@@ -435,7 +436,7 @@ def test_player_d_broken_tail_and_stale_fallback() -> None:
     assert contract is not None
     assert contract.end is None
     assert contract.end_source == ContractEndSource.NONE
-    assert contract.chain[0].has_tail is False
+    assert contract.chain[0].has_terms is False
     assert contract.squad_status is None
     assert contract.clauses == ()
 
@@ -568,7 +569,7 @@ def test_no_head_leaves_type_and_money_absent_but_clauses_parse() -> None:
     decoded = decode_all(game_db)
     _player, contract = by_uid(decoded, 900012)
     assert contract is not None
-    assert contract.type is None
+    assert contract.kind is None
     assert contract.unknown.get("money_a") is None
     assert contract.unknown.get("money_b") is None
     assert contract.unknown.get("money_c") is None
@@ -819,7 +820,7 @@ def test_an_agreed_future_move_is_not_the_contract_in_effect() -> None:
     assert contract.wage == 12000
     assert contract.start == date(2028, 7, 1)
     assert contract.end == date(2032, 6, 30)
-    assert contract.end_source == ContractEndSource.TAIL
+    assert contract.end_source == ContractEndSource.CONTRACT
     # The future move is still one of the chain records.
     assert contract.chain_club_uids == (NORTHBRIDGE_CLUB_UID, SOUTHPORT_CLUB_UID)
 
@@ -1429,8 +1430,8 @@ def test_only_parsed_tails_with_an_end_date_count_toward_the_past_dated_share() 
     open_ended = decoder.decode_chain_record(game_db, open_ended_tag_offset)
     past = decoder.decode_chain_record(game_db, len(open_ended_record) + past_tag_offset)
 
-    assert open_ended[CHAIN_RECORD_HAS_TAIL] and open_ended[CHAIN_RECORD_END] is None
-    assert past[CHAIN_RECORD_HAS_TAIL] and past[CHAIN_RECORD_END] == date(2030, 6, 30)
+    assert open_ended[CHAIN_RECORD_HAS_TERMS] and open_ended[CHAIN_RECORD_END] is None
+    assert past[CHAIN_RECORD_HAS_TERMS] and past[CHAIN_RECORD_END] == date(2030, 6, 30)
     stats = decoder.stats(player_count=1, contract_count=1)
     assert stats.tails_parsed == 2
     assert stats.tail_ends == 1
@@ -1785,8 +1786,8 @@ def test_a_clause_table_followed_by_bonus_lists_decodes_its_clauses_type_and_hea
     record, _tag_offset = _bonus_record(clause_suffix=clause_suffix, events=events)
     contract, decoder = _decode_bonus_record(record)
     assert _clause_rows(contract) == EXPECTED_FICTIONAL_CLAUSES
-    assert contract.type is not None
-    assert contract.type.label is ContractType.FULL_TIME
+    assert contract.kind is not None
+    assert contract.kind.label is ContractType.FULL_TIME
     assert contract.unknown["money_a"] == 81000
     assert contract.unknown["money_c"] == 7
     assert contract.event_count == events
@@ -1802,7 +1803,7 @@ def test_an_empty_clause_table_followed_by_bonus_lists_is_found() -> None:
     record, _tag_offset = _bonus_record(clause_suffix=ONE_AWARD_BONUS, clauses=())
     contract, decoder = _decode_bonus_record(record)
     assert contract.clauses == ()
-    assert contract.type is not None
+    assert contract.kind is not None
     assert contract.unknown["money_a"] == 81000
     assert decoder.stats(player_count=1, contract_count=1).clause_tables == 1
 
@@ -1827,7 +1828,7 @@ def test_a_clause_table_marked_with_a_team_id_is_found(
     record, _tag_offset = _bonus_record(clause_marker=clause_marker, clause_suffix=clause_suffix)
     contract, decoder = _decode_bonus_record(record)
     assert _clause_rows(contract) == EXPECTED_FICTIONAL_CLAUSES
-    assert contract.type is not None
+    assert contract.kind is not None
     assert contract.unknown["money_b"] == 3
     stats = decoder.stats(player_count=1, contract_count=1)
     assert stats.clause_tables == 1
@@ -1883,7 +1884,7 @@ def test_near_miss_clause_tables_are_rejected(clause_marker: bytes, clause_suffi
     contract, decoder = _decode_bonus_record(record)
     assert contract.squad_status is not None  # the tail itself still parses
     assert contract.clauses == ()
-    assert contract.type is None
+    assert contract.kind is None
     assert "money_a" not in contract.unknown
     stats = decoder.stats(player_count=1, contract_count=1)
     assert stats.tails_parsed == 1

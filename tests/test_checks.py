@@ -175,7 +175,7 @@ READER_ORDER = (
     "staff",
     "staff_lists",
     "injury_types",
-    "injury_history",
+    "injuries",
     "training",
     "mentoring",
     "tactics",
@@ -1054,7 +1054,7 @@ def test_validate_save_reports_every_reader_ok_with_gates_not_applied(
         "staff_lists": 0,
         # The one attachment this fragment lists is not a per-match file, so there is no table.
         "injury_types": 0,
-        "injury_history": 6,
+        "injuries": 6,
         "training": 2,
         "mentoring": 2,
         "tactics": 2,
@@ -1183,10 +1183,10 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "linked_round_shape": 0,
         },
         "player_match_stats": {
-            "records_without_a_body": 0,
+            "records_without_statistics": 0,
             "unresolved_opponents": 0,
             "competitions_outside_the_stage_table": 0,
-            "bodies_outside_their_ranges": 0,
+            "statistics_outside_their_ranges": 0,
             "records_without_an_owner": 0,
         },
         "stadiums": {
@@ -1218,7 +1218,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         },
         "staff_lists": {"player_values_in_lists": 0},
         "injury_types": {"match_entries": 1, "entries_without_magic": 1, "entries_tried": 0},
-        "injury_history": {
+        "injuries": {
             "window_a_rows": 1,
             "window_b_rows": 1,
             "list_0_entries": 1,
@@ -1406,7 +1406,7 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered
         # of them, and each one's pass partner is carried with it.
         "staff": "failed",
         "staff_lists": "failed",
-        "injury_history": "failed",
+        "injuries": "failed",
         "training": "failed",
         "mentoring": "failed",
         "tactics": "failed",
@@ -1508,7 +1508,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
             "staff_listed_contracted_here",
         ],
         "staff_lists": ["staff_list_ids_are_staff"],
-        "injury_history": [
+        "injuries": [
             "injury_log_lead_byte",
             "injury_log_dates",
             "injury_log_ascending",
@@ -1549,7 +1549,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "staff": "failed",
         "staff_lists": "failed",
         "injury_types": "failed",
-        "injury_history": "ok",
+        "injuries": "ok",
         "training": "failed",
         "mentoring": "ok",
         "tactics": "failed",
@@ -1651,7 +1651,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # The type table is read out of a per-match entry, and this fragment's one attachment
         # is not a per-match file, which leaves the table empty and the floor unmet.
         "injury_types": ["injury_type_entries_minimum"],
-        "injury_history": [],
+        "injuries": [],
         "training": ["training_blocks_match_club_teams"],
         "mentoring": [],
         "tactics": ["tactics_team_blocks_match_club", "tactic_selection_selectors_resolved"],

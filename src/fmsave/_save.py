@@ -146,7 +146,7 @@ LEAGUE_TABLES_TABLE_CACHE_KEY = "table:league_tables"
 COMPETITION_RULES_TABLE_CACHE_KEY = "table:competition_rules"
 PLAYER_MATCH_STATS_TABLE_CACHE_KEY = "table:player_match_stats"
 INJURY_TYPES_TABLE_CACHE_KEY = "table:injury_types"
-INJURY_HISTORY_TABLE_CACHE_KEY = "table:injury_history"
+INJURIES_TABLE_CACHE_KEY = "table:injuries"
 FINANCES_TABLE_CACHE_KEY = "table:finances"
 SPONSORSHIPS_TABLE_CACHE_KEY = "table:sponsorships"
 FACILITIES_TABLE_CACHE_KEY = "table:facilities"
@@ -779,7 +779,7 @@ class Save:
         self._store_reader_checks((injury_type_check,))
         return Table(injury_types, InjuryType)
 
-    def injury_history(self) -> Table[InjuryRecord]:
+    def injuries(self) -> Table[InjuryRecord]:
         """Every injury the save still remembers, in stored order, of both kinds.
 
         A `HISTORY` row is an injury the save remembers happening: when it happened, the team
@@ -811,7 +811,7 @@ class Save:
         fields empty rather than guessing; that is about one row in five hundred. Two views
         this table has no field for::
 
-            history = career_save.injury_history()
+            history = career_save.injuries()
             own = history.where(player_uid=player_uid)
             typed_date = next(row.date for row in own if row.kind == "typed")
             # The latest history row on or before a typed row's date, for the same player.
@@ -847,9 +847,9 @@ class Save:
                 well. A save opened with strict=True raises ReaderCheckError instead.
         """
         context = self._context
-        return context.cached(INJURY_HISTORY_TABLE_CACHE_KEY, self._read_injury_history)
+        return context.cached(INJURIES_TABLE_CACHE_KEY, self._read_injuries)
 
-    def _read_injury_history(self) -> Table[InjuryRecord]:
+    def _read_injuries(self) -> Table[InjuryRecord]:
         context = self._context
         save_info = context.info
         clock = save_info.game_date
@@ -886,7 +886,7 @@ class Save:
                 clock,
                 layout,
             )
-        injury_check = _checks.check_injury_history(injury_stats, gate_bounds)
+        injury_check = _checks.check_injuries(injury_stats, gate_bounds)
         self._enforce_checks((injury_check,))
         self._store_reader_checks((injury_check,))
         return Table(injuries, InjuryRecord)
@@ -1131,8 +1131,9 @@ class Save:
         own, which on the saves measured is 32% to 45% of rows. It is a position in the file
         rather than a stored link, and the competition it hands over is itself a vote on the
         fixture calendar, so both fields are as strong as `LeagueTable.competition_id` and no
-        stronger. `club_count` stays empty, because no fixed position in the block carries it;
-        the linked table's own club count is where a club count comes from.
+        stronger. A block's club count and its points deduction for administration are not read
+        at all, because no fixed position in the block carries either; the linked table's own
+        `club_count` is where a club count comes from.
 
         The squad and financial rules the save's rules database holds are not read: nothing
         readable ties one of those groups to a competition, and their content is database
@@ -1537,7 +1538,7 @@ class Save:
         `list_index` stays a number. People a list names who turn out to be players are
         dropped, and `fmsave validate` reports how many; so are the few whose object cannot be
         told from another's, so a list's people are those `staff()` also has a row for. A
-        list's size is `len(person_uids)`.
+        list's size is `len(staff_uids)`.
 
         The table is read on the first call to `staff()` or `staff_lists()`, from one decode
         pass; later calls to either return the same tables. When a check of that pass fails,

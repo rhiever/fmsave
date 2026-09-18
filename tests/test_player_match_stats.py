@@ -133,15 +133,15 @@ NO_PLAYERS: Table[Player] = Table((), Player)
 
 def healthy_stats(records: int = 20_000) -> MatchStats:
     """Counts with every rate comfortably inside its bound."""
-    with_body = records * 3 // 5
+    with_stats = records * 3 // 5
     return MatchStats(
         records=records,
-        with_body=with_body,
+        with_stats=with_stats,
         players_with_records=records // 20,
         competition_in_stage_space=records,
-        minutes_in_range=with_body,
-        rating_in_range=with_body,
-        body_valid=with_body,
+        minutes_in_range=with_stats,
+        rating_in_range=with_stats,
+        stats_in_range=with_stats,
         opponent_resolved=records - 10,
         unowned=0,
     )
@@ -360,10 +360,10 @@ def test_an_opponent_no_club_lists_leaves_its_four_fields_empty_and_is_counted(
     ):
         assert getattr(unresolved, field_name) is None, field_name
     assert dict(reader_validation(career_save_path).anomalies) == {
-        "records_without_a_body": 1,
+        "records_without_statistics": 1,
         "unresolved_opponents": 1,
         "competitions_outside_the_stage_table": 1,
-        "bodies_outside_their_ranges": 1,
+        "statistics_outside_their_ranges": 1,
         "records_without_an_owner": 0,
     }
 
@@ -562,12 +562,12 @@ def test_the_counts_the_checks_judge_come_from_the_records_themselves() -> None:
     _rows, stats = located(records)
     assert stats == MatchStats(
         records=3,
-        with_body=2,
+        with_stats=2,
         players_with_records=1,
         competition_in_stage_space=2,
         minutes_in_range=1,
         rating_in_range=1,
-        body_valid=1,
+        stats_in_range=1,
         opponent_resolved=3,
         unowned=0,
     )
@@ -777,23 +777,23 @@ def test_each_bound_passes_at_its_floor_and_fails_just_below_it(
 ) -> None:
     """The bounds are where the layout says they are, from both sides."""
     records = 10_000
-    with_body = 10_000
+    with_stats = 10_000
     counts = {
         "per_match_competition_in_stage_space": {
             "competition_in_stage_space": round(observed * records)
         },
-        "per_match_minutes_in_range": {"minutes_in_range": round(observed * with_body)},
-        "per_match_rating_in_range": {"rating_in_range": round(observed * with_body)},
+        "per_match_minutes_in_range": {"minutes_in_range": round(observed * with_stats)},
+        "per_match_rating_in_range": {"rating_in_range": round(observed * with_stats)},
     }[bound_name]
     stats = dataclasses.replace(
         MatchStats(
             records=records,
-            with_body=with_body,
+            with_stats=with_stats,
             players_with_records=500,
             competition_in_stage_space=records,
-            minutes_in_range=with_body,
-            rating_in_range=with_body,
-            body_valid=with_body,
+            minutes_in_range=with_stats,
+            rating_in_range=with_stats,
+            stats_in_range=with_stats,
             opponent_resolved=records,
             unowned=0,
         ),
@@ -859,10 +859,10 @@ def test_the_record_count_and_anomalies_reach_the_reader_check() -> None:
     assert reader_check.reader == "player_match_stats"
     assert reader_check.record_count == 20_000
     assert dict(reader_check.anomalies) == {
-        "records_without_a_body": 8_000,
+        "records_without_statistics": 8_000,
         "unresolved_opponents": 10,
         "competitions_outside_the_stage_table": 0,
-        "bodies_outside_their_ranges": 0,
+        "statistics_outside_their_ranges": 0,
         "records_without_an_owner": 0,
     }
 

@@ -363,7 +363,7 @@ def test_injury_history_reaches_back_no_further_than_the_window_the_save_keeps(
             continue
         history_dates = [
             row.date
-            for row in career_save.injury_history()
+            for row in career_save.injuries()
             if row.kind is fmsave.InjuryRecordKind.HISTORY and row.date is not None
         ]
         if not history_dates:

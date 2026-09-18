@@ -100,7 +100,7 @@ LEAGUE_TABLES_READER = "league_tables"
 COMPETITION_RULES_READER = "competition_rules"
 PLAYER_MATCH_STATS_READER = "player_match_stats"
 INJURY_TYPES_READER = "injury_types"
-INJURY_HISTORY_READER = "injury_history"
+INJURIES_READER = "injuries"
 FINANCES_READER = "finances"
 SPONSORSHIPS_READER = "sponsorships"
 FACILITIES_READER = "facilities"
@@ -1149,7 +1149,7 @@ def evaluate_player_match_stats(
     players have played no matches.
     """
     applied = _applies(bounds, game_db_bytes)
-    with_body = stats.with_body
+    with_stats = stats.with_stats
     return (
         _gate(
             "per_match_competition_in_stage_space",
@@ -1159,13 +1159,13 @@ def evaluate_player_match_stats(
         ),
         _gate(
             "per_match_minutes_in_range",
-            _rate(stats.minutes_in_range, with_body),
+            _rate(stats.minutes_in_range, with_stats),
             bounds.per_match_minutes_in_range,
             applied,
         ),
         _gate(
             "per_match_rating_in_range",
-            _rate(stats.rating_in_range, with_body),
+            _rate(stats.rating_in_range, with_stats),
             bounds.per_match_rating_in_range,
             applied,
         ),
@@ -1177,11 +1177,11 @@ def check_player_match_stats(
 ) -> ReaderCheck:
     """The per-match player stats reader's checks, record count and anomaly counts.
 
-    `records_without_a_body` counts the matches the save keeps no performance body for, which is
-    about two records in five on every save and is ordinary rather than a fault. The rest count
-    what a join or a bound left unsatisfied: opponents no club lists, competition ids the stage
-    table does not name, bodies holding a number no match can reach, and records lying before
-    the first player's window, which belong to no player and build no row.
+    `records_without_statistics` counts the matches the save no longer holds the statistics of,
+    which is about two records in five on every save and is ordinary rather than a fault. The
+    rest count what a join or a bound left unsatisfied: opponents no club lists, competition ids
+    the stage table does not name, statistics holding a number no match can reach, and records
+    lying before the first player's window, which belong to no player and build no row.
     """
     records = stats.records
     return ReaderCheck(
@@ -1190,12 +1190,12 @@ def check_player_match_stats(
         evaluate_player_match_stats(stats, bounds, game_db_bytes),
         FrozenMapping(
             {
-                "records_without_a_body": records - stats.with_body,
+                "records_without_statistics": records - stats.with_stats,
                 "unresolved_opponents": records - stats.opponent_resolved,
                 "competitions_outside_the_stage_table": (
                     records - stats.competition_in_stage_space
                 ),
-                "bodies_outside_their_ranges": stats.with_body - stats.body_valid,
+                "statistics_outside_their_ranges": stats.with_stats - stats.stats_in_range,
                 "records_without_an_owner": stats.unowned,
             }
         ),
@@ -1344,8 +1344,8 @@ def check_injury_types(
     )
 
 
-def evaluate_injury_history(stats: InjuryStats, bounds: GateBounds) -> tuple[GateResult, ...]:
-    """The injury-history reader's checks, in a fixed order.
+def evaluate_injuries(stats: InjuryStats, bounds: GateBounds) -> tuple[GateResult, ...]:
+    """The injuries reader's checks, in a fixed order.
 
     They judge a section of a few megabytes rather than `game_db`, so they apply from that
     section's own size: a smaller one comes from a fragment that cannot meet full-save counts.
@@ -1438,8 +1438,8 @@ def evaluate_injury_history(stats: InjuryStats, bounds: GateBounds) -> tuple[Gat
     )
 
 
-def check_injury_history(stats: InjuryStats, bounds: GateBounds) -> ReaderCheck:
-    """The injury-history reader's checks, record count and anomaly counts.
+def check_injuries(stats: InjuryStats, bounds: GateBounds) -> ReaderCheck:
+    """The injuries reader's checks, record count and anomaly counts.
 
     The window row counts and the three list entry counts are the five parts of the section no
     row comes from: they are reported so that a walk which consumed the section exactly still
@@ -1454,9 +1454,9 @@ def check_injury_history(stats: InjuryStats, bounds: GateBounds) -> ReaderCheck:
     """
     first_list, second_list, third_list = (stats.list_entries + (0, 0, 0))[:3]
     return ReaderCheck(
-        INJURY_HISTORY_READER,
+        INJURIES_READER,
         stats.log_rows + stats.typed_rows,
-        evaluate_injury_history(stats, bounds),
+        evaluate_injuries(stats, bounds),
         FrozenMapping(
             {
                 "window_a_rows": stats.window_a_rows,
@@ -2263,8 +2263,7 @@ class ReaderValidation:
             "stages", "competitions", "fixtures", "league_tables", "transfer_windows",
             "competition_rules", "player_match_stats", "stadiums", "finances", "sponsorships",
             "affiliates", "job_vacancies", "staff", "staff_lists", "injury_types",
-            "injury_history", "training", "mentoring", "tactics", "set_pieces" or
-            "facilities".
+            "injuries", "training", "mentoring", "tactics", "set_pieces" or "facilities".
         status: "ok" when the reader returned its table and every applied check of its own
             passed, "failed" when a check did not, and "error" when it raised another fmsave
             error.
@@ -2437,7 +2436,7 @@ def validate_save(career_save: Save) -> ValidationReport:
         (STAFF_READER, career_save.staff),
         (STAFF_LISTS_READER, career_save.staff_lists),
         (INJURY_TYPES_READER, career_save.injury_types),
-        (INJURY_HISTORY_READER, career_save.injury_history),
+        (INJURIES_READER, career_save.injuries),
         (TRAINING_READER, career_save.training),
         (MENTORING_READER, career_save.mentoring),
         (TACTICS_READER, career_save.tactics),

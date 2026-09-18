@@ -95,6 +95,9 @@ class Fixture:
             when the record stores no ground or one the table does not hold. The join itself
             is exact, but a stadium uid is not confirmed by any displayed label, so this field
             can be no stronger than the uid it carries (unconfirmed).
+        stadium_name: Denormalised name of stadium_uid. Only a couple of hundred grounds
+            store a name, so this is None on nearly every match even where stadium_uid is
+            filled in; `Stadium.name` says why (unconfirmed).
         match_record_id: Id of the match record the save keeps for a played match, or None
             when the match is unplayed (unconfirmed).
         match_rules_template: The three bytes naming the shared match-rules template this
@@ -128,6 +131,7 @@ class Fixture:
     played: bool
     is_neutral_venue: bool | None
     stadium_uid: int | None
+    stadium_name: str | None
     match_record_id: int | None
     match_rules_template: tuple[int, ...]
     unknown: Mapping[str, int]
@@ -172,6 +176,7 @@ register_field_statuses(
     unconfirmed=(
         "competition_name",
         "stadium_uid",
+        "stadium_name",
         "match_record_id",
         "match_rules_template",
         "unknown",

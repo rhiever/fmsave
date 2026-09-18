@@ -124,6 +124,7 @@ EXPECTED_COLUMNS = (
     "played",
     "is_neutral_venue",
     "stadium_uid",
+    "stadium_name",
     "match_record_id",
     "match_rules_template",
     "unknown_date2",

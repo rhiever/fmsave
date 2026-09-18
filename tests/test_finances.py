@@ -139,8 +139,8 @@ def test_a_sponsor_row_carries_its_dates_values_and_unknown_bytes(
     with fmsave.open(career_save_path) as career_save:
         sponsors = tuple(career_save.sponsorships())
     first, second, third = sponsors
-    assert first.type.label is SponsorType.UNKNOWN
-    assert first.type.raw == SPONSOR_A["sponsor_type"]
+    assert first.kind.label is SponsorType.UNKNOWN
+    assert first.kind.raw == SPONSOR_A["sponsor_type"]
     assert first.start == date(2030, 7, 1)
     assert first.end == date(2033, 6, 30)
     assert first.total_value == 3_000_000
@@ -148,7 +148,7 @@ def test_a_sponsor_row_carries_its_dates_values_and_unknown_bytes(
     assert dict(first.unknown) == {"flag10": 1, "u15": 77, "b17": 0, "enum18": 2, "b19": 5}
     assert second.end == date(2028, 12, 31)
     assert second.annual_value == 0
-    assert third.type.raw == SPONSOR_C["sponsor_type"]
+    assert third.kind.raw == SPONSOR_C["sponsor_type"]
     assert third.club_name == "Example Athletic"
 
 
@@ -292,8 +292,8 @@ def test_both_records_export_their_columns() -> None:
     assert export.column_names(Sponsorship) == (
         "club_uid",
         "club_name",
-        "type",
-        "type_code",
+        "kind",
+        "kind_code",
         "start",
         "end",
         "total_value",

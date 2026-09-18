@@ -119,6 +119,8 @@ class Staff:
             (unconfirmed).
         listed_club_uid: The club whose own staff list holds him, which is club_uid unless an
             affiliate side lists him; None when no list holds him (unconfirmed).
+        listed_club_name: Denormalised full name of listed_club_uid; None wherever
+            listed_club_uid is (unconfirmed).
         in_club_lists: Whether a club's staff list holds him at all (unconfirmed).
         list_indexes: Which of the three lists hold him, 0 to 2, empty when none does
             (unconfirmed).
@@ -154,6 +156,7 @@ class Staff:
     team_id: int | None
     team_slot: int | None
     listed_club_uid: int | None
+    listed_club_name: str | None
     in_club_lists: bool
     list_indexes: tuple[int, ...]
     has_contract: bool
@@ -219,15 +222,17 @@ class StaffList:
         club_uid: Uid of the club whose record holds the list (unconfirmed).
         club_name: Denormalised full name of club_uid (unconfirmed).
         list_index: Which of the club's three lists this is, 0 to 2 (unconfirmed).
-        person_uids: The uid of each person the list holds, in stored order (unconfirmed).
-        person_names: Each of those people's name, aligned with person_uids (unconfirmed).
+        staff_uids: The uid of each person the list holds, in stored order. They are
+            `Staff.uid` values and join to the staff table (unconfirmed).
+        staff_names: Each of those people's name, aligned with staff_uids
+            (unconfirmed).
     """
 
     club_uid: int
     club_name: str
     list_index: int
-    person_uids: tuple[int, ...]
-    person_names: tuple[str | None, ...]
+    staff_uids: tuple[int, ...]
+    staff_names: tuple[str | None, ...]
 
 
 register_field_statuses(
@@ -267,6 +272,7 @@ register_field_statuses(
         "nation_id",
         "team_slot",
         "listed_club_uid",
+        "listed_club_name",
         "in_club_lists",
         "list_indexes",
         "has_contract",
@@ -276,5 +282,5 @@ register_field_statuses(
 )
 register_field_statuses(
     StaffList,
-    unconfirmed=("club_uid", "club_name", "list_index", "person_uids", "person_names"),
+    unconfirmed=("club_uid", "club_name", "list_index", "staff_uids", "staff_names"),
 )

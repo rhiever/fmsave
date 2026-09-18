@@ -119,7 +119,7 @@ def fixture_records(career_save_path: Path) -> dict[type, tuple[object, ...]]:
     suspended_player = next(player for player in players if player.suspensions)
     assert suspended_player.contract is not None
     sparse_contract = replace(
-        suspended_player.contract, squad_status=None, type=None, clauses=(), unknown={}
+        suspended_player.contract, squad_status=None, kind=None, clauses=(), unknown={}
     )
     return {
         Player: (
@@ -150,7 +150,7 @@ def fixture_records(career_save_path: Path) -> dict[type, tuple[object, ...]]:
         Club: (*clubs, replace(clubs[0], teams=(), reputation=None, city_id=None)),
         ManagedClub: (
             *managed_clubs,
-            replace(managed_clubs[0], manager_name=None, manager_person_uid=None),
+            replace(managed_clubs[0], manager_name=None, manager_staff_uid=None),
         ),
     }
 

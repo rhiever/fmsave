@@ -59,8 +59,14 @@ class TransferValueState(StrEnum):
 
 
 class ContractEndSource(StrEnum):
-    """Where a contract's end date was read from."""
+    """Where a contract's end date was read from.
 
-    TAIL = "tail"
-    FALLBACK = "fallback"
+    CONTRACT is the contract record itself, which is where an end date belongs and where
+    almost every one comes from. PLAYER_RECORD is the player's own record, which fmsave falls
+    back to when no contract record of the player's gives up an end date. NONE is a contract
+    whose end date neither source holds.
+    """
+
+    CONTRACT = "contract"
+    PLAYER_RECORD = "player_record"
     NONE = "none"

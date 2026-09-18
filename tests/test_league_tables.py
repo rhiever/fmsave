@@ -24,7 +24,7 @@ from fmsave.models.league_tables import (
     LeagueTableRow,
     LeagueTableSplit,
     MatchOutcome,
-    Venue,
+    MatchSide,
 )
 from fmsave.readers._common import GAME_DB_SECTION, SPAN_REGION
 from fmsave.readers.league_tables import (
@@ -327,13 +327,13 @@ def test_every_slot_alternates_its_venue_from_the_even_slot_home(tmp_path: Path)
 
     assert TABLE_LAYOUT.home_slot_parity == 0
     assert [match_row.home_or_away for match_row in first_row.matches] == [
-        Venue.HOME,
-        Venue.AWAY,
-        Venue.HOME,
-        Venue.AWAY,
+        MatchSide.HOME,
+        MatchSide.AWAY,
+        MatchSide.HOME,
+        MatchSide.AWAY,
     ]
     assert first_row.matches[2].opponent_team_id is None
-    assert first_row.matches[2].home_or_away is Venue.HOME
+    assert first_row.matches[2].home_or_away is MatchSide.HOME
     assert field_status(fmsave.LeagueTableMatch, "home_or_away") == "verified"
 
 
@@ -392,8 +392,8 @@ def test_the_calendar_decides_the_venue_of_every_slot_of_an_in_step_table(
     venue_table = tables[2]
     assert [row.team_id for row in venue_table.rows] == [VENUE_TABLE_TEAM_A, VENUE_TABLE_TEAM_B]
     assert [match_row.home_or_away for match_row in venue_table.rows[0].matches] == [
-        Venue.HOME,
-        Venue.AWAY,
+        MatchSide.HOME,
+        MatchSide.AWAY,
     ]
 
 

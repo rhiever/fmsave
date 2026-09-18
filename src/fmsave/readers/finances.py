@@ -441,7 +441,7 @@ def _club_sponsorships(
             Sponsorship(
                 club_uid=club_uid,
                 club_name=club_name,
-                type=CodedValue.from_raw(SponsorType, row[index_by_name["type"]]),
+                kind=CodedValue.from_raw(SponsorType, row[index_by_name["type"]]),
                 start=decode_date(game_db, row_offset + layout.start_offset),
                 end=decode_date(game_db, row_offset + layout.end_offset),
                 total_value=row[index_by_name["total"]],

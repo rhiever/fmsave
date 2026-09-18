@@ -1,11 +1,10 @@
-"""Contract records: the chain of registrations, its tail fields and clauses.
+"""Contract records: the chain of registrations, the terms agreed in them and their clauses.
 
 A player's contract is assembled from a chain of registration records (one per club a
 player has been registered to, oldest first), each carrying a wage and a start date, and
-some of them a parsed "tail" of further fields (an end date, squad status, contract type
-and clauses). When no chain record's tail parses, a separate fallback reader inside the
-player's record can still supply a start or an end date. See `readers/contracts.py` for the
-assembly rules.
+some of them the terms agreed as well: an end date, a squad status, a contract type and the
+clauses. When no chain record gives its terms up, the player's own record can still supply a
+start or an end date. See `readers/contracts.py` for the assembly rules.
 """
 
 from __future__ import annotations
@@ -148,9 +147,11 @@ class ContractChainEntry:
         team_id: Id of the contracting team, exactly as stored (unconfirmed).
         wage: Weekly wage, in the save's base currency (unconfirmed).
         start: Start date of this spell (unconfirmed).
-        end: End date from this record's tail, or None when its tail did not parse or
+        end: End date from this record's own terms, or None when it gives no terms up or
             stores no end.
-        has_tail: Whether this record's tail parsed (unconfirmed).
+        has_terms: Whether this record carries the terms agreed in it: an end date, a squad
+            status, a contract type and the clauses. A record that does not is still a spell
+            at a club, with its wage and its start date (unconfirmed).
     """
 
     club_uid: int | None
@@ -159,7 +160,7 @@ class ContractChainEntry:
     wage: int
     start: date | None
     end: date | None
-    has_tail: bool
+    has_terms: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,13 +187,13 @@ class Contract:
         start: Contract start date, from the record in effect (unconfirmed).
         end: Contract end date.
         end_source: Where end was read from.
-        squad_status: Squad status from the tail of the record in effect, the role agreed in
-            the contract rather than how much the player plays, or None when the record has
-            no parsed tail.
-        type: Contract type from the tail of the record in effect, or None when it has no
-            parsed tail.
-        clauses: Clauses from the tail of the record in effect, or () when it has no
-            parsed tail.
+        squad_status: Squad status from the terms of the record in effect, the role agreed in
+            the contract rather than how much the player plays, or None when that record
+            gives no terms up.
+        kind: The contract's type from the terms of the record in effect, or None when it
+            gives no terms up.
+        clauses: Clauses from the terms of the record in effect, or () when it gives no terms
+            up.
         on_loan: Whether the player is on loan from the club of the contract in effect:
             True when he is registered with another club's team and the save holds a loan
             for him there that has not ended, False when it does not, and None when his
@@ -207,16 +208,18 @@ class Contract:
             unreadable start from costing the player his loan; no save read so far holds
             such a loan.
         loan_end: Date the loan ends when on_loan is True, else None.
-        event_count: Contract event count from the tail of the record in effect, or None
+        event_count: Contract event count from the terms of the record in effect, or None
             (unconfirmed).
         chain: Every chain record, oldest first (unconfirmed).
         chain_club_uids: Uid of the contracting club for each chain record, in the same
             order as chain; None where the team does not resolve (unconfirmed).
         chain_club_names: Denormalised names for chain_club_uids, in the same order
             (unconfirmed).
-        tailed_chain_club_uids: Uids of the clubs of chain records whose tail parsed and
-            whose team resolves, in chain order (unconfirmed).
-        unknown: Numeric fields with no known meaning, from the tail of the record in
+        chain_club_uids_with_terms: Uids of the clubs of the chain records that carry their
+            agreed terms and whose team resolves, in chain order (unconfirmed).
+        chain_club_names_with_terms: Denormalised names for chain_club_uids_with_terms, in
+            the same order (unconfirmed).
+        unknown: Numeric fields with no known meaning, from the terms of the record in
             effect; a key is present only when its value was read (unconfirmed).
     """
 
@@ -230,7 +233,7 @@ class Contract:
     end: date | None
     end_source: ContractEndSource
     squad_status: CodedValue[SquadStatus] | None
-    type: CodedValue[ContractType] | None
+    kind: CodedValue[ContractType] | None
     clauses: tuple[Clause, ...]
     on_loan: bool | None
     loan_parent_club_uid: int | None
@@ -241,7 +244,8 @@ class Contract:
     chain: tuple[ContractChainEntry, ...]
     chain_club_uids: tuple[int | None, ...]
     chain_club_names: tuple[str | None, ...]
-    tailed_chain_club_uids: tuple[int, ...]
+    chain_club_uids_with_terms: tuple[int, ...]
+    chain_club_names_with_terms: tuple[str | None, ...]
     unknown: Mapping[str, int]
 
     UNKNOWN_KEYS: ClassVar[tuple[str, ...]] = (
@@ -265,12 +269,12 @@ register_field_statuses(
     verified=("kind", "value"),
     unconfirmed=("parameter",),
 )
-# `end` is the same tail field Contract.end is taken from, and the contract end the game
-# displays confirmed it; `start` has no displayed label behind it on either class.
+# `end` is the same agreed-terms field Contract.end is taken from, and the contract end the
+# game displays confirmed it; `start` has no displayed label behind it on either class.
 register_field_statuses(
     ContractChainEntry,
     verified=("end",),
-    unconfirmed=("club_uid", "club_name", "team_id", "wage", "start", "has_tail"),
+    unconfirmed=("club_uid", "club_name", "team_id", "wage", "start", "has_terms"),
 )
 register_field_statuses(
     Contract,
@@ -278,7 +282,7 @@ register_field_statuses(
         "end",
         "end_source",
         "squad_status",
-        "type",
+        "kind",
         "clauses",
         "on_loan",
         "loan_start",
@@ -298,7 +302,8 @@ register_field_statuses(
         "chain",
         "chain_club_uids",
         "chain_club_names",
-        "tailed_chain_club_uids",
+        "chain_club_uids_with_terms",
+        "chain_club_names_with_terms",
         "unknown",
     ),
 )

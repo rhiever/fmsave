@@ -341,6 +341,30 @@ def test_each_fixture_carries_the_ground_its_record_stores(career_path: Path) ->
     assert fixtures[FIRST_LEAGUE_MATCH].stadium_uid == FIRST_GROUND_UID
     assert fixtures[AWAY_LEAGUE_MATCH].stadium_uid == SECOND_GROUND_UID
     assert fixtures[CUP_TIE].stadium_uid == CUP_GROUND_UID
+    # Only a couple of hundred grounds of a save store a name, and none of these three does.
+    assert [fixture.stadium_name for fixture in fixtures if fixture.stadium_name is not None] == []
+
+
+def test_a_match_at_a_named_ground_carries_that_name(tmp_path: Path) -> None:
+    """The few grounds that store a name fill the match's stadium_name; the rest leave it empty."""
+    at_the_named_ground = ExampleFixture(
+        FIXTURE_STAGE_ID,
+        NORTHBRIDGE_TEAM_B,
+        SOUTHPORT_TEAM,
+        137,
+        LEAGUE_KICK_OFF_SLOT,
+        14,
+        True,
+        CAREER_NAMED_STADIUM_ORDINAL,
+    )
+    career_path = write_career(tmp_path, (at_the_named_ground,))
+    with fmsave.open(career_path) as save:
+        fixtures = save.fixtures()
+
+    named = [fixture for fixture in fixtures if fixture.date == date(2031, 5, 17)]
+    assert len(named) == 1
+    assert named[0].stadium_uid == CAREER_STADIUM_UID_BASE + CAREER_NAMED_STADIUM_ORDINAL
+    assert named[0].stadium_name == CAREER_NAMED_STADIUM
 
 
 def test_a_ground_the_table_does_not_hold_leaves_the_fixture_empty(tmp_path: Path) -> None:

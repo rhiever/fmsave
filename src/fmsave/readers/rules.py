@@ -218,9 +218,6 @@ def build_competition_rules(
     the calendar rather than a stored value, so a row's competition is no stronger than
     `LeagueTable.competition_id`, and both are unconfirmed.
 
-    `club_count` stays None on every row, because no fixed position in the block carries it;
-    the linked table's own club count is where a club count comes from.
-
     A block whose promotion quad was not written twice keeps its lists and its calendar and
     leaves the four quad fields empty, rather than being dropped.
     """
@@ -259,12 +256,10 @@ def build_competition_rules(
                 kind=RulesBlockKind.PREAMBLE,
                 competition_id=competition_id,
                 competition_name=name_for(competition_id),
-                club_count=block.club_count,
                 fixtures_per_club=len(block.rounds) or None,
                 promotion_places=block.promotion_places,
                 playoff_places=block.playoff_places,
                 relegation_places=block.relegation_places,
-                administration_points_deduction=block.administration_points_deduction,
                 prize_money=block.prize_money,
                 rounds=_rounds_of(block),
                 unknown=_preamble_unknown(block),
@@ -366,12 +361,12 @@ def _decode_window(
         unknown[WINDOW_TYPE_KEY] = window_type
     return (
         TransferWindow(
-            opens_day=opens[0],
-            opens_month=opens[1],
-            opens_season_year_offset=opens[2],
-            closes_day=closes[0],
-            closes_month=closes[1],
-            closes_season_year_offset=closes[2],
+            start_day=opens[0],
+            start_month=opens[1],
+            start_season_year_offset=opens[2],
+            end_day=closes[0],
+            end_month=closes[1],
+            end_season_year_offset=closes[2],
             unknown=FrozenMapping(unknown),
         ),
         True,

@@ -333,27 +333,28 @@ class RulesStats:
 class MatchStats:
     """What the per-match player record search counted over the player region.
 
-    `records` counts every accepted record and `with_body` those the save kept a performance
-    body for, which is the denominator of everything a body carries. `players_with_records`
+    `records` counts every accepted record and `with_stats` those the save still holds the
+    match's statistics for, which is the denominator of everything those carry.
+    `players_with_records`
     counts the players at least one record belongs to, and `unowned` the records that lie before
     the first player's window and so belong to none, which the search region puts out of reach:
     it is zero on every save measured and guards against a record ever being credited to the
     wrong player.
 
     `competition_in_stage_space` counts records whose competition id the stage table names,
-    `minutes_in_range` and `rating_in_range` the records with a body whose minutes and stored
-    rating are at most the layout's maximum, and `body_valid` those whose whole body is inside
-    every one of those bounds. `opponent_resolved` counts records whose opponent team id a club
+    `minutes_in_range` and `rating_in_range` the records with statistics whose minutes and
+    stored rating are at most the layout's maximum, and `stats_in_range` those whose statistics
+    are inside every one of those bounds. `opponent_resolved` counts records whose opponent a club
     lists.
     """
 
     records: int
-    with_body: int
+    with_stats: int
     players_with_records: int
     competition_in_stage_space: int
     minutes_in_range: int
     rating_in_range: int
-    body_valid: int
+    stats_in_range: int
     opponent_resolved: int
     unowned: int
 

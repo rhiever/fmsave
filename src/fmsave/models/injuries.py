@@ -100,7 +100,7 @@ class InjuryRecord:
 
     Attributes:
         kind: Which store the row came from: HISTORY for an injury that happened, TYPED for a
-            row carrying an injury type (verified).
+            row carrying an injury type.
         player_uid: Uid of the person the row is stored against, or None when the save no
             longer keeps that person as a player, which is about one HISTORY row in twenty
             (unconfirmed).
@@ -108,18 +108,17 @@ class InjuryRecord:
             (unconfirmed).
         date: When the injury happened, on a HISTORY row. On a TYPED row it is the day the
             player is expected back rather than the day he was hurt, which is why it is often
-            ahead of the in-game date; it is None when the save stores no date at all
-            (verified).
+            ahead of the in-game date; it is None when the save stores no date at all.
         team_id: Id of the team the person was registered with at the time, on a HISTORY row;
-            None on every TYPED row, which carries no team (verified).
+            None on every TYPED row, which carries no team.
         club_uid: Uid of the club that fields team_id, which for a team another club controls
-            is the controlling club; None when no club lists that team and on every TYPED row
-            (verified).
-        club_name: Denormalised full name of club_uid; None wherever club_uid is (verified).
+            is the controlling club; None when no club lists that team and on every TYPED
+            row.
+        club_name: Denormalised full name of club_uid; None wherever club_uid is.
         team_slot: The team's slot in club_uid's team list, counting that club's own teams
             first and then the teams it controls; None wherever club_uid is (unconfirmed).
         type_id: The injury's type code, on a TYPED row; None on every HISTORY row, which
-            carries no type (verified).
+            carries no type.
         type_name: Denormalised name of type_id from `Save.injury_types`, None for the codes
             that table has no entry for and on every row of a save with no per-match file
             (unconfirmed).

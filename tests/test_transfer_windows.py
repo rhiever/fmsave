@@ -60,7 +60,7 @@ def test_the_windows_are_read_in_stored_order() -> None:
     """The third record of the fixture carries no closing time, so it is not a window."""
     windows, stats = decode(career_tagged_stream())
 
-    assert [(window.opens_month, window.closes_month) for window in windows] == [(7, 8), (1, 1)]
+    assert [(window.start_month, window.end_month) for window in windows] == [(7, 8), (1, 1)]
     assert stats == TransferWindowStats(markers=3, windows=2, incomplete=0)
 
 
@@ -73,16 +73,16 @@ def test_the_windows_carry_their_dates_season_offsets_and_unnamed_values() -> No
     """
     summer_window, winter_window = decode(career_tagged_stream())[0]
 
-    assert (summer_window.opens_day, summer_window.opens_month) == (1, 7)
-    assert (summer_window.closes_day, summer_window.closes_month) == (31, 8)
-    assert summer_window.opens_season_year_offset == 0
-    assert summer_window.closes_season_year_offset == 0
+    assert (summer_window.start_day, summer_window.start_month) == (1, 7)
+    assert (summer_window.end_day, summer_window.end_month) == (31, 8)
+    assert summer_window.start_season_year_offset == 0
+    assert summer_window.end_season_year_offset == 0
     assert dict(summer_window.unknown) == {
         "close_time": SUMMER_WINDOW_CLOSE_TIME,
         "window_type": SUMMER_WINDOW_TYPE,
     }
-    assert winter_window.opens_season_year_offset == 1
-    assert winter_window.closes_season_year_offset == 1
+    assert winter_window.start_season_year_offset == 1
+    assert winter_window.end_season_year_offset == 1
     assert dict(winter_window.unknown) == {"close_time": WINTER_WINDOW_CLOSE_TIME}
 
 
@@ -144,12 +144,12 @@ def test_a_closing_time_beyond_the_scan_window_is_not_returned() -> None:
 
 def test_the_columns_are_the_field_names_in_order() -> None:
     assert column_names(TransferWindow) == (
-        "opens_day",
-        "opens_month",
-        "opens_season_year_offset",
-        "closes_day",
-        "closes_month",
-        "closes_season_year_offset",
+        "start_day",
+        "start_month",
+        "start_season_year_offset",
+        "end_day",
+        "end_month",
+        "end_season_year_offset",
         "unknown_close_time",
         "unknown_window_type",
     )

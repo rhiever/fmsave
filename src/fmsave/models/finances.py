@@ -87,7 +87,7 @@ class Sponsorship:
     Attributes:
         club_uid: Uid of the club (unconfirmed).
         club_name: Denormalised full name of club_uid (unconfirmed).
-        type: What kind of sponsorship it is; every code is UNKNOWN (unconfirmed).
+        kind: What kind of sponsorship it is; every code is UNKNOWN (unconfirmed).
         start: The day the contract starts.
         end: The day it ends.
         total_value: The contract's whole value, which is the annual value times its whole
@@ -98,7 +98,7 @@ class Sponsorship:
 
     club_uid: int
     club_name: str
-    type: CodedValue[SponsorType]
+    kind: CodedValue[SponsorType]
     start: date | None
     end: date | None
     total_value: int
@@ -139,5 +139,5 @@ register_field_statuses(
 register_field_statuses(
     Sponsorship,
     verified=("start", "end", "total_value", "annual_value"),
-    unconfirmed=("club_uid", "club_name", "type", "unknown"),
+    unconfirmed=("club_uid", "club_name", "kind", "unknown"),
 )

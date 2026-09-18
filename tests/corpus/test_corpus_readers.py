@@ -57,7 +57,7 @@ EXPECTED_READERS = (
     "staff",
     "staff_lists",
     "injury_types",
-    "injury_history",
+    "injuries",
     "training",
     "mentoring",
     "tactics",
@@ -67,16 +67,41 @@ EXPECTED_READERS = (
 # Readers whose ranges the recorded baselines do not hold yet. The baselines are written by a
 # separate tool against the whole corpus, so a reader added since they were last written has no
 # range to be compared with, and its own checks are what bound it until they are written again.
-# Empty: the ranges cover every reader, so every reader added since must be added here until the
-# ranges are written again, and emptied out of it once they are.
-READERS_WITHOUT_RECORDED_RANGES: frozenset[str] = frozenset()
+# `injuries` is the reader the ranges still call `injury_history`, so its range is recorded under
+# a name no report carries; it comes out of here when the ranges are written again.
+READERS_WITHOUT_RECORDED_RANGES: frozenset[str] = frozenset({"injuries"})
 # Columns whose recorded ranges the output schema has since left behind, either because the
 # column was renamed or removed or because an empty cell in it now means something the recorded
 # rate was not measured against. A rename or a removal bumps the schema version and is recorded
 # column by column in the output schema snapshot, which is what guards the change itself, so a
-# column named here is a stale range rather than a column a reader lost. Empty while the ranges
-# match the schema.
-RETIRED_BASELINE_COLUMNS: dict[str, frozenset[str]] = {}
+# column named here is a stale range rather than a column a reader lost. These are the pre-1.0
+# renames; they come out of here when the ranges are written again.
+RETIRED_BASELINE_COLUMNS: dict[str, frozenset[str]] = {
+    "players": frozenset(
+        {
+            "condition",
+            "match_sharpness",
+            "contract_type",
+            "contract_type_code",
+            "contract_tailed_chain_club_uids",
+        }
+    ),
+    "contracts": frozenset({"type", "type_code", "tailed_chain_club_uids"}),
+    "managed_clubs": frozenset({"manager_person_uid"}),
+    "transfer_windows": frozenset(
+        {
+            "opens_day",
+            "opens_month",
+            "opens_season_year_offset",
+            "closes_day",
+            "closes_month",
+            "closes_season_year_offset",
+        }
+    ),
+    "competition_rules": frozenset({"club_count", "administration_points_deduction"}),
+    "sponsorships": frozenset({"type", "type_code"}),
+    "staff_lists": frozenset({"person_uids", "person_names"}),
+}
 
 
 def save_label(relative_name: str) -> str:
@@ -196,7 +221,7 @@ def test_uids_and_team_ids_are_unique(corpus_saves: dict[str, fmsave.Save]) -> N
         teams_stored_twice = 0
         for club in clubs:
             for team in club.teams:
-                if team.affiliate:
+                if team.is_affiliate:
                     continue
                 if team.team_id in storing_club_by_team:
                     teams_stored_twice += 1
@@ -441,7 +466,7 @@ def test_affiliate_registrations_are_not_loans(corpus_saves: dict[str, fmsave.Sa
         affiliate_team_parent: dict[int, int] = {}
         for club in clubs:
             for team in club.teams:
-                if team.affiliate:
+                if team.is_affiliate:
                     affiliate_team_parent[team.team_id] = club.uid
         mismatches.check(label, "affiliate teams listed", len(affiliate_team_parent) > 0)
 

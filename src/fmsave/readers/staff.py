@@ -43,7 +43,7 @@ from fmsave.readers.contracts import (
     CHAIN_RECORD_CLUB_UID,
     CHAIN_RECORD_CONTRACT_TYPE,
     CHAIN_RECORD_END,
-    CHAIN_RECORD_HAS_TAIL,
+    CHAIN_RECORD_HAS_TERMS,
     CHAIN_RECORD_SQUAD_STATUS,
     CHAIN_RECORD_START,
     CHAIN_RECORD_TEAM_ID,
@@ -479,7 +479,7 @@ def discover_contracts(
         if person_id in pindex_positions:
             continue
         record = decode_chain_record(game_db, tag_offset)
-        if not record[CHAIN_RECORD_HAS_TAIL]:
+        if not record[CHAIN_RECORD_HAS_TERMS]:
             untailed_hits += 1
             continue
         own_records = records_by_person.get(person_id)
@@ -542,7 +542,7 @@ def _human_records(
         tag_offset = hit - selector_offset
         if tag_offset >= header and startswith(tag, tag_offset):
             record = decoder.decode_chain_record(game_db, tag_offset)
-            if record[CHAIN_RECORD_HAS_TAIL]:
+            if record[CHAIN_RECORD_HAS_TERMS]:
                 records.append((tag_offset, record))
         hit = find(needle, hit + 1, object_end)
     return records
@@ -991,6 +991,9 @@ def _build_rows(
         person = person_object.person
         block = person_object.block
         club = club_index.club_by_uid.get(club_uid)
+        listed_club = (
+            None if listed_club_uid is None else club_index.club_by_uid.get(listed_club_uid)
+        )
         record = None if own_record is None else own_record[1]
         team_id = None if record is None else record[CHAIN_RECORD_TEAM_ID]
         personality = None if person is None else person[_PERSON_PERSONALITY]
@@ -1012,6 +1015,7 @@ def _build_rows(
                 team_id=team_id,
                 team_slot=_team_slot(club_index, team_id),
                 listed_club_uid=listed_club_uid,
+                listed_club_name=None if listed_club is None else listed_club.name,
                 in_club_lists=bool(list_numbers),
                 list_indexes=list_numbers,
                 has_contract=record is not None,
@@ -1053,8 +1057,8 @@ def _build_list_rows(
                     club_uid=club.uid,
                     club_name=club.name,
                     list_index=list_index,
-                    person_uids=tuple(person_object.uid for person_object in known),
-                    person_names=tuple(
+                    staff_uids=tuple(person_object.uid for person_object in known),
+                    staff_names=tuple(
                         None if person_object.person is None else person_object.person[_PERSON_NAME]
                         for person_object in known
                     ),

@@ -29,7 +29,7 @@ from fmsave.models.league_tables import (
     LeagueTableRow,
     LeagueTableSplit,
     MatchOutcome,
-    Venue,
+    MatchSide,
 )
 from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import MatchPosition, PlayerMatchStats
@@ -99,6 +99,7 @@ __all__ = [
     "ManagedClub",
     "MatchOutcome",
     "MatchPosition",
+    "MatchSide",
     "Mentality",
     "MentoringGroup",
     "Personality",
@@ -134,5 +135,4 @@ __all__ = [
     "Trait",
     "TransferValueState",
     "TransferWindow",
-    "Venue",
 ]

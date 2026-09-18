@@ -35,7 +35,7 @@ from typing import ClassVar
 from fmsave._status import register_field_statuses
 
 
-class Venue(StrEnum):
+class MatchSide(StrEnum):
     """Which side of a match a club was, the home one or the away one.
 
     This is the club's side, not the ground the match was played at: a match at a neutral
@@ -122,7 +122,7 @@ class LeagueTableMatch:
     """
 
     slot: int
-    home_or_away: Venue | None
+    home_or_away: MatchSide | None
     opponent_team_id: int | None
     opponent_club_uid: int | None
     opponent_club_name: str | None

@@ -75,7 +75,7 @@ from fmsave.models.league_tables import (
     LeagueTableRow,
     LeagueTableSplit,
     MatchOutcome,
-    Venue,
+    MatchSide,
 )
 from fmsave.readers.clubs import ClubIndex
 from fmsave.readers.competitions import CompetitionIndex
@@ -247,10 +247,10 @@ def _outcome(row: RawTableRow) -> MatchOutcome | None:
     return None
 
 
-def _venue(slot: int, layout: LeagueTableLayout) -> Venue | None:
-    """Which ground a slot is played at, or None when a layout leaves the parity unset.
+def _venue(slot: int, layout: LeagueTableLayout) -> MatchSide | None:
+    """Which side of the match the row's club was, or None when a layout leaves the parity unset.
 
-    The save alternates venue with the slot's parity and never says which parity is home. The
+    The save alternates the side with the slot's parity and never says which parity is home. The
     fixture calendar says it, because a calendar record stores its home team outright: on the
     tables whose rows account for exactly one season of that calendar, the slots the calendar
     can settle by itself are home where the even slot is home on at least 99.76% of them on
@@ -258,13 +258,13 @@ def _venue(slot: int, layout: LeagueTableLayout) -> Venue | None:
     `_venue_agreement` re-runs that comparison on every save read, so the parity this returns
     is checked rather than assumed.
 
-    A slot never played gets a venue too: the parity belongs to the slot, not to what happened
+    A slot never played gets a side too: the parity belongs to the slot, not to what happened
     in it, so the shape of a season stays readable where the season is unplayed.
     """
     home_slot_parity = layout.home_slot_parity
     if home_slot_parity is None:
         return None
-    return Venue.HOME if slot % 2 == home_slot_parity else Venue.AWAY
+    return MatchSide.HOME if slot % 2 == home_slot_parity else MatchSide.AWAY
 
 
 def _match_rows(
@@ -378,8 +378,8 @@ def _season_in_step(
 
 def _decided_venue(
     row_team_id: int, slot: LeagueTableMatch, meetings: Sequence[Fixture]
-) -> Venue | None:
-    """The venue the calendar itself gives a played slot, or None where it cannot say.
+) -> MatchSide | None:
+    """The side the calendar itself gives a played slot, or None where it cannot say.
 
     One played meeting between the two clubs settles it outright, from that record's own
     stored home team. Where both meetings have been played the scores decide, and only when
@@ -390,7 +390,7 @@ def _decided_venue(
     """
     played = [fixture for fixture in meetings if fixture.played]
     if len(played) == 1:
-        return Venue.HOME if played[0].home_team_id == row_team_id else Venue.AWAY
+        return MatchSide.HOME if played[0].home_team_id == row_team_id else MatchSide.AWAY
     if not played:
         return None
     row_club_at_home: list[bool] = []
@@ -406,7 +406,7 @@ def _decided_venue(
             row_club_at_home.append(at_home)
     if len(row_club_at_home) != 1:
         return None
-    return Venue.HOME if row_club_at_home[0] else Venue.AWAY
+    return MatchSide.HOME if row_club_at_home[0] else MatchSide.AWAY
 
 
 @dataclass(frozen=True, slots=True)

@@ -188,8 +188,12 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
     clubs: list[Club] = []
     uid_by_club_index: dict[int, int] = {}
     club_by_uid: dict[int, Club] = {}
+    # A club's parent is any other club's uid, so its name is read from every record rather
+    # than from the clubs built so far, which are only the ones ahead of this one in index order.
+    name_by_uid = {record.uid: record.name for record in records}
     for position, (reputation, last_league_position) in zip(index_order, statuses, strict=True):
         record = records[position]
+        parent_club_uid = affiliates.parent_by_club_uid.get(record.uid)
         club = Club(
             uid=record.uid,
             name=record.name,
@@ -198,7 +202,8 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
             fa_nation_id=record.fa_nation_id,
             city_id=record.city_id,
             teams=teams_by_record[position] + affiliates.teams_by_record[position],
-            parent_club_uid=affiliates.parent_by_club_uid.get(record.uid),
+            parent_club_uid=parent_club_uid,
+            parent_club_name=None if parent_club_uid is None else name_by_uid.get(parent_club_uid),
             reputation=reputation,
             last_league_position=last_league_position,
         )
@@ -387,7 +392,7 @@ def _read_team_list(
 
 def _teams_in_slot_order(club_uid: int, team_ids: tuple[int, ...]) -> tuple[Team, ...]:
     return tuple(
-        Team(team_id=team_id, slot=slot, club_uid=club_uid, affiliate=False)
+        Team(team_id=team_id, slot=slot, club_uid=club_uid, is_affiliate=False)
         for slot, team_id in enumerate(team_ids)
     )
 
@@ -431,7 +436,7 @@ def _link_affiliate_teams(
                     team_id=team_id,
                     slot=len(own_teams) + len(affiliate_teams),
                     club_uid=storing_club[0],
-                    affiliate=True,
+                    is_affiliate=True,
                 )
             )
         for affiliate_team in affiliate_teams:

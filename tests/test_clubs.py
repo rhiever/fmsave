@@ -157,10 +157,11 @@ def test_reads_every_club_with_its_fields() -> None:
         fa_nation_id=3,
         city_id=77,
         teams=(
-            Team(team_id=70001, slot=0, club_uid=5001, affiliate=False),
-            Team(team_id=70002, slot=1, club_uid=5001, affiliate=False),
+            Team(team_id=70001, slot=0, club_uid=5001, is_affiliate=False),
+            Team(team_id=70002, slot=1, club_uid=5001, is_affiliate=False),
         ),
         parent_club_uid=None,
+        parent_club_name=None,
         reputation=6500,
         last_league_position=2,
     )
@@ -426,6 +427,7 @@ def test_affiliate_teams_follow_the_clubs_own_slots() -> None:
         Team(ACADEMY_TEAM_ID, 2, 5005, True),
     )
     assert parent.parent_club_uid is None
+    assert parent.parent_club_name is None
 
 
 def test_an_affiliate_club_keeps_its_row_its_own_slots_and_names_its_parent() -> None:
@@ -433,6 +435,7 @@ def test_an_affiliate_club_keeps_its_row_its_own_slots_and_names_its_parent() ->
     assert academy.name == "Example Academy"
     assert academy.teams == (Team(ACADEMY_TEAM_ID, 0, 5005, False),)
     assert academy.parent_club_uid == 5001
+    assert academy.parent_club_name == "Northbridge FC"
 
 
 def test_an_affiliate_team_keeps_its_stored_club_and_gains_a_fielding_club() -> None:
@@ -775,9 +778,10 @@ def test_field_statuses_follow_the_brief() -> None:
         "city_id",
         "teams",
         "parent_club_uid",
+        "parent_club_name",
     ):
         assert fmsave.field_status(Club, unconfirmed_field) == "unconfirmed", unconfirmed_field
-    for unconfirmed_team_field in ("team_id", "slot", "club_uid", "affiliate"):
+    for unconfirmed_team_field in ("team_id", "slot", "club_uid", "is_affiliate"):
         assert fmsave.field_status(Team, unconfirmed_team_field) == "unconfirmed"
 
 
@@ -786,8 +790,8 @@ def test_clubs_export_with_nested_teams() -> None:
     assert "teams" in export.column_names(Club)
     first_row = clubs_table.to_dicts(json_ready=True)[0]
     assert first_row["teams"] == [
-        {"team_id": 70001, "slot": 0, "club_uid": 5001, "affiliate": False},
-        {"team_id": 70002, "slot": 1, "club_uid": 5001, "affiliate": False},
+        {"team_id": 70001, "slot": 0, "club_uid": 5001, "is_affiliate": False},
+        {"team_id": 70002, "slot": 1, "club_uid": 5001, "is_affiliate": False},
     ]
     assert first_row["reputation"] == 6500
 

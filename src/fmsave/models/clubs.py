@@ -20,14 +20,14 @@ class Team:
             slot holds, such as a reserve or youth team, is not known (unconfirmed).
         club_uid: Uid of the club whose record stores this team: the club listing it for its
             own teams, and the affiliate club itself for an affiliate team (unconfirmed).
-        affiliate: Whether the team belongs to an affiliate club the listing club controls
+        is_affiliate: Whether the team belongs to an affiliate club the listing club controls
             (unconfirmed).
     """
 
     team_id: int
     slot: int
     club_uid: int
-    affiliate: bool
+    is_affiliate: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +51,8 @@ class Club:
             team list cannot be read (unconfirmed).
         parent_club_uid: Uid of the club that controls this one, when another club lists one
             of this club's teams among its affiliate teams, else None (unconfirmed).
+        parent_club_name: Denormalised full name of parent_club_uid; None wherever
+            parent_club_uid is (unconfirmed).
         reputation: Club reputation from 1 to 10000, or None when the save holds no valid
             value.
         last_league_position: League position at the end of the last completed season, or
@@ -65,11 +67,12 @@ class Club:
     city_id: int | None
     teams: tuple[Team, ...]
     parent_club_uid: int | None
+    parent_club_name: str | None
     reputation: int | None
     last_league_position: int | None
 
 
-register_field_statuses(Team, unconfirmed=("team_id", "slot", "club_uid", "affiliate"))
+register_field_statuses(Team, unconfirmed=("team_id", "slot", "club_uid", "is_affiliate"))
 register_field_statuses(
     Club,
     verified=("reputation", "last_league_position"),
@@ -82,5 +85,6 @@ register_field_statuses(
         "city_id",
         "teams",
         "parent_club_uid",
+        "parent_club_name",
     ),
 )

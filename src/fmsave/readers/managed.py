@@ -44,7 +44,7 @@ from fmsave.readers.clubs import ClubIndex
 from fmsave.readers.contracts import (
     CHAIN_RECORD_CLUB_UID,
     CHAIN_RECORD_END,
-    CHAIN_RECORD_HAS_TAIL,
+    CHAIN_RECORD_HAS_TERMS,
     build_contract_decoder,
 )
 
@@ -191,7 +191,7 @@ def _chain_record_club(
             club = club_by_uid.get(club_uid) if club_uid is not None else None
             record_end = chain_record[CHAIN_RECORD_END]
             if club is not None and (record_end is None or record_end >= clock):
-                rank = (chain_record[CHAIN_RECORD_HAS_TAIL], record_end or date.min)
+                rank = (chain_record[CHAIN_RECORD_HAS_TERMS], record_end or date.min)
                 if best_rank is None or rank > best_rank:
                     best_club = club
                     best_rank = rank
@@ -199,7 +199,7 @@ def _chain_record_club(
     return best_club
 
 
-def _manager_person_uid(game_db: bytes, selector: int, layout: HumansLayout) -> int | None:
+def _manager_staff_uid(game_db: bytes, selector: int, layout: HumansLayout) -> int | None:
     """The uid of the only person header for person id `selector - 1`, or None.
 
     A header is the person id followed by a doubled uid that is neither 0 nor FFFFFFFF. No
@@ -337,15 +337,15 @@ def resolve_managed_clubs(
             (), ManagedStats(human_count, route_one_resolved, route_two_resolved, 0)
         )
 
-    manager_person_uid = (
-        _manager_person_uid(game_db, selector, layouts.humans) if has_person_id else None
+    manager_staff_uid = (
+        _manager_staff_uid(game_db, selector, layouts.humans) if has_person_id else None
     )
     managed_club = ManagedClub(
         club_uid=club.uid,
         club_name=club.name,
         club_short_name=club.short_name,
         manager_name=manager_name,
-        manager_person_uid=manager_person_uid,
+        manager_staff_uid=manager_staff_uid,
     )
     return ManagedClubsResult(
         (managed_club,), ManagedStats(human_count, route_one_resolved, route_two_resolved, 1)

@@ -318,6 +318,8 @@ class Player:
             team_id does not resolve to a club (unconfirmed).
         team_club_uid: Uid of the club whose record stores the player's registered team,
             when another club controls that team, else None (unconfirmed).
+        team_club_name: Denormalised full name of team_club_uid; None wherever
+            team_club_uid is (unconfirmed).
         club_join_date: Date the player joined his current club; it disagrees with the
             contract start date for about half of players, so it is not a substitute for it
             (unconfirmed).
@@ -335,8 +337,10 @@ class Player:
         transfer_value: Transfer value in the save's base currency, set only when
             transfer_value_state is OK.
         transfer_value_state: How transfer_value was read from the save (unconfirmed).
-        condition: Condition, on a 0 to 10000 raw scale.
-        match_sharpness: Match sharpness, on a 0 to 10000 raw scale.
+        raw_condition: Condition, on the 0 to 10000 scale the save stores it on. The
+            game shows condition as a percentage, which is this divided by 100.
+        raw_match_sharpness: Match sharpness, on the 0 to 10000 scale the save stores
+            it on. The game shows it as a percentage, which is this divided by 100.
         traits: Named player traits; an unnamed bit is Trait.UNKNOWN with raw set to the
             bit number.
         trait_bits: The raw trait bitmask, or None when no person block validates.
@@ -387,6 +391,7 @@ class Player:
     team_id: int | None
     team_slot: int | None
     team_club_uid: int | None
+    team_club_name: str | None
     club_join_date: date | None
     natural_positions: tuple[str, ...]
     accomplished_positions: tuple[str, ...]
@@ -400,8 +405,8 @@ class Player:
     positions: Positions
     transfer_value: int | None
     transfer_value_state: TransferValueState
-    condition: int
-    match_sharpness: int
+    raw_condition: int
+    raw_match_sharpness: int
     traits: tuple[CodedValue[Trait], ...]
     trait_bits: int | None
     on_loan: bool | None
@@ -521,8 +526,8 @@ register_field_statuses(
         "raw_left_foot",
         "raw_right_foot",
         "transfer_value",
-        "condition",
-        "match_sharpness",
+        "raw_condition",
+        "raw_match_sharpness",
         "traits",
         "trait_bits",
         "on_loan",
@@ -550,6 +555,7 @@ register_field_statuses(
         "team_id",
         "team_slot",
         "team_club_uid",
+        "team_club_name",
         "club_join_date",
         "transfer_value_state",
         "home_grown_club_uids",

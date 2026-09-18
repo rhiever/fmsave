@@ -12,7 +12,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 import fmsave
-from fmsave._checks import INJURY_HISTORY_READER, GateResult, evaluate_injury_history
+from fmsave._checks import INJURIES_READER, GateResult, evaluate_injuries
 from fmsave._errors import FmsaveError, ReaderCheckError, SaveClosedError
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import InjuryStats
@@ -69,7 +69,7 @@ BOUNDS = find_layout(GateBounds, GAME_DB_SECTION, GAME_DB_SCHEMA, "").layout
 LAYOUT = find_injury_manager_layout(INJURY_MANAGER_SCHEMA, "")
 FILE_NAME = "career.bin"
 CLOCK = date(2031, 3, 1)
-# The career fragment's own rows, in the order `injury_history()` returns them.
+# The career fragment's own rows, in the order `injuries()` returns them.
 FIRST_LOG_DATE = date(2030, 11, 2)
 SECOND_LOG_DATE = date(2031, 2, 20)
 THIRD_LOG_DATE = date(2031, 2, 25)
@@ -160,7 +160,7 @@ def career_parts(save: fmsave.Save) -> CareerParts:
 
 
 def career_rows(save: fmsave.Save) -> tuple[tuple[InjuryRecord, ...], InjuryStats]:
-    """`build_injury_records` run on the career fragment, outside `injury_history()`."""
+    """`build_injury_records` run on the career fragment, outside `injuries()`."""
     parts = career_parts(save)
     walk = walk_injury_manager(parts.section, LAYOUT, FILE_NAME)
     return build_injury_records(
@@ -177,7 +177,7 @@ def career_rows(save: fmsave.Save) -> tuple[tuple[InjuryRecord, ...], InjuryStat
 
 def test_every_log_row_comes_first_then_every_typed_row(career_path: Path) -> None:
     with fmsave.open(career_path) as save:
-        history = save.injury_history()
+        history = save.injuries()
 
     assert len(history) == 6
     assert [row.kind for row in history] == [InjuryRecordKind.HISTORY] * 3 + [
@@ -197,7 +197,7 @@ def test_a_log_row_carries_its_player_its_date_and_the_club_of_the_team_it_names
     career_path: Path,
 ) -> None:
     with fmsave.open(career_path) as save:
-        history = save.injury_history()
+        history = save.injuries()
         player_name = save.players().by_uid(PLAYER_A_UID).name
     row = history[0]
 
@@ -221,7 +221,7 @@ def test_a_log_row_carries_its_player_its_date_and_the_club_of_the_team_it_names
 
 def test_a_log_row_with_no_time_slot_keeps_its_date_and_its_codes(career_path: Path) -> None:
     with fmsave.open(career_path) as save:
-        row = save.injury_history()[1]
+        row = save.injuries()[1]
 
     assert row.player_uid == PLAYER_C_UID
     assert row.date == SECOND_LOG_DATE
@@ -234,7 +234,7 @@ def test_a_log_row_with_no_time_slot_keeps_its_date_and_its_codes(career_path: P
 
 def test_a_log_row_whose_person_is_no_longer_a_player_keeps_its_club(career_path: Path) -> None:
     with fmsave.open(career_path) as save:
-        row = save.injury_history()[2]
+        row = save.injuries()[2]
 
     assert row.player_uid is None
     assert row.player_name is None
@@ -244,7 +244,7 @@ def test_a_log_row_whose_person_is_no_longer_a_player_keeps_its_club(career_path
 
 def test_a_typed_row_carries_its_injury_type_and_no_team_at_all(career_path: Path) -> None:
     with fmsave.open(career_path) as save:
-        row = save.injury_history()[3]
+        row = save.injuries()[3]
 
     assert row.kind is InjuryRecordKind.TYPED
     assert row.player_uid == PLAYER_A_UID
@@ -264,7 +264,7 @@ def test_a_typed_code_the_name_table_misses_and_a_typed_row_with_no_date(
     career_path: Path,
 ) -> None:
     with fmsave.open(career_path) as save:
-        history = save.injury_history()
+        history = save.injuries()
 
     assert history[4].date == SECOND_TYPED_DATE
     assert history[4].type_id == UNNAMED_TYPE_ID
@@ -469,9 +469,9 @@ def test_a_typed_row_more_than_a_week_old_is_returned_and_counted_near_the_clock
     save_path = career_fragment(injury_manager_section=ten_days_old).write(tmp_path / "career.bin")
 
     with fmsave.open(save_path) as save:
-        history = save.injury_history()
+        history = save.injuries()
         _rows, stats = career_rows(save)
-        reader_check = save._reader_check(INJURY_HISTORY_READER)
+        reader_check = save._reader_check(INJURIES_READER)
 
     assert len(history) == 7
     assert stats.typed_rows == 4
@@ -492,7 +492,7 @@ def test_a_typed_row_dated_years_from_the_clock_is_returned_and_counted_apart(
     save_path = career_fragment(injury_manager_section=years_old).write(tmp_path / "career.bin")
 
     with fmsave.open(save_path) as save:
-        history = save.injury_history()
+        history = save.injuries()
         _rows, stats = career_rows(save)
 
     assert len(history) == 7
@@ -507,9 +507,9 @@ def test_a_save_with_no_per_match_file_names_no_type_and_applies_no_type_gate(
     save_path = career_fragment(attachments=()).write(tmp_path / "career.bin")
 
     with fmsave.open(save_path) as save:
-        history = save.injury_history()
+        history = save.injuries()
         _rows, stats = career_rows(save)
-    unnamed = evaluate_injury_history(healthy_stats(type_table_entries=0), BOUNDS)
+    unnamed = evaluate_injuries(healthy_stats(type_table_entries=0), BOUNDS)
 
     assert len(history) == 6
     assert {row.type_name for row in history} == {None}
@@ -544,7 +544,7 @@ def test_the_columns_the_export_flattens() -> None:
 
 def test_a_row_survives_pickling_and_deep_copying(career_path: Path) -> None:
     with fmsave.open(career_path) as save:
-        row = save.injury_history()[0]
+        row = save.injuries()[0]
 
     # A round trip of fmsave's own record, not data from anywhere else.
     assert pickle.loads(pickle.dumps(row)) == row
@@ -553,23 +553,23 @@ def test_a_row_survives_pickling_and_deep_copying(career_path: Path) -> None:
 
 def test_the_table_is_read_once_and_raises_after_the_save_is_closed(career_path: Path) -> None:
     with fmsave.open(career_path) as save:
-        first_table = save.injury_history()
-        assert save.injury_history() is first_table
+        first_table = save.injuries()
+        assert save.injuries() is first_table
 
     with pytest.raises(SaveClosedError):
-        save.injury_history()
+        save.injuries()
 
 
 def test_the_typed_rows_are_never_described_as_ended() -> None:
-    documentation = fmsave.Save.injury_history.__doc__
+    documentation = fmsave.Save.injuries.__doc__
     assert documentation is not None
     assert "ended" not in documentation.lower()
 
 
 def test_the_anomalies_count_the_parts_no_row_carries(career_path: Path) -> None:
     with fmsave.open(career_path) as save:
-        save.injury_history()
-        reader_check = save._reader_check(INJURY_HISTORY_READER)
+        save.injuries()
+        reader_check = save._reader_check(INJURIES_READER)
 
     assert reader_check is not None
     assert reader_check.record_count == 6
@@ -590,8 +590,8 @@ def test_the_anomalies_count_the_parts_no_row_carries(career_path: Path) -> None
 
 
 def test_the_gates_every_save_measured_passes() -> None:
-    assert failed_gate_names(evaluate_injury_history(healthy_stats(), BOUNDS)) == []
-    assert [result.name for result in evaluate_injury_history(healthy_stats(), BOUNDS)] == list(
+    assert failed_gate_names(evaluate_injuries(healthy_stats(), BOUNDS)) == []
+    assert [result.name for result in evaluate_injuries(healthy_stats(), BOUNDS)] == list(
         GATE_NAMES
     )
 
@@ -632,13 +632,13 @@ def test_the_gates_every_save_measured_passes() -> None:
 def test_each_gate_fails_on_the_value_its_misalignment_measures(
     gate_name: str, overrides: dict[str, int]
 ) -> None:
-    results = evaluate_injury_history(healthy_stats(**overrides), BOUNDS)
+    results = evaluate_injuries(healthy_stats(**overrides), BOUNDS)
 
     assert failed_gate_names(results) == [gate_name]
 
 
 def test_log_rows_that_carry_no_date_at_all_fail_the_ascending_gate() -> None:
-    results = evaluate_injury_history(
+    results = evaluate_injuries(
         healthy_stats(log_steps=0, log_ascending_steps=0, log_dates_ok=MEASURED_LOG_ROWS), BOUNDS
     )
 
@@ -646,7 +646,7 @@ def test_log_rows_that_carry_no_date_at_all_fail_the_ascending_gate() -> None:
 
 
 def test_no_gate_applies_on_a_section_too_small_for_a_full_save() -> None:
-    results = evaluate_injury_history(
+    results = evaluate_injuries(
         healthy_stats(section_bytes=SMALL_SECTION_BYTES, log_lead_ok=609, typed_types_resolved=0),
         BOUNDS,
     )
@@ -655,7 +655,7 @@ def test_no_gate_applies_on_a_section_too_small_for_a_full_save() -> None:
 
 
 def test_the_share_of_people_who_are_still_players_is_counted_and_never_gated() -> None:
-    results = evaluate_injury_history(healthy_stats(log_players_resolved=12_886), BOUNDS)
+    results = evaluate_injuries(healthy_stats(log_players_resolved=12_886), BOUNDS)
 
     assert failed_gate_names(results) == []
 
@@ -668,7 +668,7 @@ def test_the_date_gate_counts_over_every_typed_row_and_not_over_the_dated_ones()
     over_the_dated_rows = misaligned.typed_dated_near_clock / misaligned.typed_dated
 
     assert over_the_dated_rows == 1.0
-    assert failed_gate_names(evaluate_injury_history(misaligned, BOUNDS)) == [
+    assert failed_gate_names(evaluate_injuries(misaligned, BOUNDS)) == [
         "injury_typed_dates_near_clock"
     ]
 
@@ -677,7 +677,7 @@ def test_a_date_that_decodes_far_from_the_clock_fails_the_date_gate() -> None:
     # Every typed row carries a date, and every one of them decodes to a year the game has
     # long passed: a share on how many rows are dated at all would score 1.0 on this, and that
     # is where every typed date that still decodes one byte late lands.
-    results = evaluate_injury_history(healthy_stats(typed_dated_near_clock=0), BOUNDS)
+    results = evaluate_injuries(healthy_stats(typed_dated_near_clock=0), BOUNDS)
 
     assert failed_gate_names(results) == ["injury_typed_dates_near_clock"]
 
@@ -691,10 +691,7 @@ def test_the_date_gate_passes_the_oldest_rows_any_save_state_has_held() -> None:
         typed_dated_over_a_week_old=MEASURED_TYPED_ROWS // 10
     )
 
-    assert (
-        failed_gate_names(evaluate_injury_history(a_tenth_of_the_rows_over_a_week_old, BOUNDS))
-        == []
-    )
+    assert failed_gate_names(evaluate_injuries(a_tenth_of_the_rows_over_a_week_old, BOUNDS)) == []
 
 
 @settings(max_examples=200, deadline=None)

@@ -41,6 +41,7 @@ _TeamFields = tuple[
     "int | None",
     int,
     "int | None",
+    "str | None",
 ]
 
 _DATE_CACHE_MISS = object()
@@ -209,6 +210,7 @@ class PlayerDecoder:
             club_reputation = club_last_league_position = None
             team_slot = None
             team_club_uid = None
+            team_club_name = None
         else:
             (
                 club_uid,
@@ -220,6 +222,7 @@ class PlayerDecoder:
                 club_last_league_position,
                 team_slot,
                 team_club_uid,
+                team_club_name,
             ) = team_fields
 
         ratings_start = record_offset + layout.ratings_offset
@@ -245,8 +248,8 @@ class PlayerDecoder:
         )
         transfer_value_raw: int = tail_values[tail_layout.transfer_value_index]
         club_join_date_raw: int = tail_values[tail_layout.club_join_date_index]
-        match_sharpness: int = tail_values[tail_layout.match_sharpness_index]
-        condition: int = tail_values[tail_layout.condition_index]
+        raw_match_sharpness: int = tail_values[tail_layout.match_sharpness_index]
+        raw_condition: int = tail_values[tail_layout.condition_index]
         height_cm: int = tail_values[tail_layout.height_index]
 
         transfer_value, transfer_value_state = _transfer_value(
@@ -321,6 +324,7 @@ class PlayerDecoder:
             team_id,
             team_slot,
             team_club_uid,
+            team_club_name,
             club_join_date,
             natural_positions,
             accomplished_positions,
@@ -334,8 +338,8 @@ class PlayerDecoder:
             positions,
             transfer_value,
             transfer_value_state,
-            condition,
-            match_sharpness,
+            raw_condition,
+            raw_match_sharpness,
             traits,
             trait_bits,
             on_loan,
@@ -410,8 +414,8 @@ def collect_player_stats(
             with_natural_position += 1
         height_counts[player.height_cm] += 1
         if (
-            player.condition <= condition_sharpness_maximum
-            and player.match_sharpness <= condition_sharpness_maximum
+            player.raw_condition <= condition_sharpness_maximum
+            and player.raw_match_sharpness <= condition_sharpness_maximum
         ):
             condition_sharpness_in_range += 1
         if player.club_join_date is not None:
@@ -498,9 +502,11 @@ def build_player_decoder(
         if fielding_club is None:
             club_uid, team_slot = storing_club_uid, stored_slot
             registration_club_uid: int | None = None
+            registration_club_name: str | None = None
         else:
             club_uid, team_slot = fielding_club
             registration_club_uid = storing_club_uid
+            registration_club_name = club_index.club_by_uid[storing_club_uid].name
         club = club_index.club_by_uid[club_uid]
         team_fields[team_id] = (
             club_uid,
@@ -512,6 +518,7 @@ def build_player_decoder(
             club.last_league_position,
             team_slot,
             registration_club_uid,
+            registration_club_name,
         )
     person_decoder = build_person_block_decoder(
         person_layout, name_pools, club_index, clock, file_name

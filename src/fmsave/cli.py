@@ -238,6 +238,18 @@ def _table_argument_help() -> str:
     return f"the table to write: {listed_tables}{noted_tables}"
 
 
+def _table_name(argument: str) -> str:
+    """A table name, spelled with hyphens or with the underscores the reader is named with.
+
+    The help lists the hyphenated spelling, which is the one the command line has always
+    taken, and `save.player_match_stats()` is what the documentation teaches, so both reach
+    the same table. A name that is neither is handed back as it was typed, so argparse names
+    it in its own message rather than a spelling the caller never wrote.
+    """
+    hyphenated = argument.replace("_", "-")
+    return hyphenated if hyphenated in _EXPORT_TABLES else argument
+
+
 def _build_parser() -> _CommandLineParser:
     parser = _CommandLineParser(
         prog="fmsave",
@@ -269,6 +281,7 @@ def _build_parser() -> _CommandLineParser:
     export_parser.add_argument(
         "table",
         metavar="TABLE",
+        type=_table_name,
         choices=tuple(_EXPORT_TABLES),
         help=_table_argument_help(),
     )
@@ -836,7 +849,7 @@ def _injury_type_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable
     return career_save.injury_types()
 
 
-def _injury_history_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[object]:
+def _injury_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[object]:
     """A club or nation scope keeps the rows of the players now in it, wherever they happened.
 
     An injury row carries the club the person was registered with when it happened, which for
@@ -844,7 +857,7 @@ def _injury_history_rows(career_save: fmsave.Save, scope: _ExportScope) -> Itera
     medical history means, so the scope is the scope's current players, as suspensions is. A
     row whose person the save no longer keeps as a player is kept only by --all.
     """
-    injuries = career_save.injury_history()
+    injuries = career_save.injuries()
     keeps_player = _player_filter(scope)
     if keeps_player is None:
         return injuries
@@ -942,7 +955,7 @@ _EXPORT_TABLES: dict[str, _ExportTable] = {
     "staff": _ExportTable(Staff, _CLUB_AND_NATION_SCOPES, _staff_rows),
     "staff-lists": _ExportTable(StaffList, _CLUB_AND_NATION_SCOPES, _staff_list_rows),
     "injury-types": _ExportTable(InjuryType, _EVERY_ROW_ONLY, _injury_type_rows),
-    "injury-history": _ExportTable(InjuryRecord, _CLUB_AND_NATION_SCOPES, _injury_history_rows),
+    "injuries": _ExportTable(InjuryRecord, _CLUB_AND_NATION_SCOPES, _injury_rows),
     "training": _ExportTable(
         TeamTraining, _CLUB_SCOPES, _training_rows, note=_MANAGED_CLUB_ONLY_NOTE
     ),

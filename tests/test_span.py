@@ -403,8 +403,6 @@ def test_one_rules_preamble_decodes_its_quad_lists_and_rounds() -> None:
     assert block.rounds[0].match_count == 10
     assert [round_record.number for round_record in block.rounds] == [1, 2, 3]
     assert block.fully_parsed is True
-    assert block.club_count is None
-    assert block.administration_points_deduction is None
 
 
 def test_a_rules_preamble_whose_quad_is_not_doubled_keeps_its_lists() -> None:

@@ -137,8 +137,8 @@ def is_double_round_robin(club_count: int, rounds_per_venue: int) -> bool:
 
 def window_dates(window: fmsave.TransferWindow) -> tuple[int, ...]:
     """When a window opens and closes, which is the whole of what a window says."""
-    opens = (window.opens_day, window.opens_month, window.opens_season_year_offset)
-    closes = (window.closes_day, window.closes_month, window.closes_season_year_offset)
+    opens = (window.start_day, window.start_month, window.start_season_year_offset)
+    closes = (window.end_day, window.end_month, window.end_season_year_offset)
     return opens + closes
 
 
@@ -394,12 +394,12 @@ def test_transfer_windows_are_dated_and_are_database_content(
         months_in_range = all(
             lowest_month <= month <= highest_month
             for window in windows
-            for month in (window.opens_month, window.closes_month)
+            for month in (window.start_month, window.end_month)
         )
         days_in_range = all(
             lowest_day <= day <= highest_day
             for window in windows
-            for day in (window.opens_day, window.closes_day)
+            for day in (window.start_day, window.end_day)
         )
         mismatches.check(label, "window months in range", months_in_range)
         mismatches.check(label, "window days in range", days_in_range)
