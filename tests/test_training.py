@@ -11,16 +11,16 @@ import pytest
 
 import fmsave
 import fmsave._context as context_module
-from fmsave._errors import FmsaveError, ReaderCheckError, SaveClosedError
-from fmsave._layouts import GateBounds, find_layout
-from fmsave._reader_stats import TrainingStats
-from fmsave.checks import (
+from fmsave._checks import (
     MENTORING_READER,
     TRAINING_READER,
     GateResult,
     evaluate_mentoring,
     evaluate_training,
 )
+from fmsave._errors import FmsaveError, ReaderCheckError, SaveClosedError
+from fmsave._layouts import GateBounds, find_layout
+from fmsave._reader_stats import TrainingStats
 from fmsave.export import column_names
 from fmsave.models.training import MentoringGroup, TeamTraining, TrainingSchedule, TrainingWeek
 from fmsave.readers._common import GAME_DB_SECTION, TRAINING_SECTION

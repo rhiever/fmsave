@@ -152,7 +152,7 @@ def test_fmsave_warnings_print_as_fmsave_warnings(
         warnings.warn(fmsave.FmsaveWarning("an example caution"), stacklevel=1)
         return cli.EXIT_OK
 
-    monkeypatch.setattr(cli, "run_info", warn_and_succeed)
+    monkeypatch.setattr(cli, "_run_info", warn_and_succeed)
     assert cli.main(["info", str(fragment_path)]) == cli.EXIT_OK
     assert "fmsave: warning: an example caution" in capsys.readouterr().err
 
@@ -164,7 +164,7 @@ def test_other_warnings_are_emitted_as_python_warnings(
         warnings.warn("a library caution", DeprecationWarning, stacklevel=1)
         return cli.EXIT_OK
 
-    monkeypatch.setattr(cli, "run_info", warn_and_succeed)
+    monkeypatch.setattr(cli, "_run_info", warn_and_succeed)
     with pytest.warns(DeprecationWarning, match="a library caution"):
         assert cli.main(["info", str(fragment_path)]) == cli.EXIT_OK
     assert "fmsave: warning" not in capsys.readouterr().err
@@ -179,7 +179,7 @@ def warn_twice_and_succeed(arguments: object) -> int:
 def test_other_warnings_follow_filters_for_their_own_module(
     fragment_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(cli, "run_info", warn_twice_and_succeed)
+    monkeypatch.setattr(cli, "_run_info", warn_twice_and_succeed)
     with warnings.catch_warnings(record=True) as recorded_warnings:
         warnings.simplefilter("always")
         warnings.filterwarnings("ignore", category=DeprecationWarning, module=re.escape(__name__))
@@ -191,7 +191,7 @@ def test_other_warnings_follow_filters_for_their_own_module(
 def test_a_repeated_warning_is_shown_once_under_the_default_action(
     fragment_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(cli, "run_info", warn_twice_and_succeed)
+    monkeypatch.setattr(cli, "_run_info", warn_twice_and_succeed)
     with warnings.catch_warnings(record=True) as recorded_warnings:
         warnings.simplefilter("default")
         assert cli.main(["info", str(fragment_path)]) == cli.EXIT_OK
@@ -291,7 +291,7 @@ def test_unexpected_exception_exits_1(
     def explode(arguments: object) -> int:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(cli, "run_info", explode)
+    monkeypatch.setattr(cli, "_run_info", explode)
     assert cli.main(["info", str(fragment_path)]) == cli.EXIT_UNEXPECTED
     error_output = capsys.readouterr().err
     assert "unexpected RuntimeError" in error_output
@@ -377,7 +377,7 @@ def test_os_error_without_strerror_names_the_error_type(
     def raise_bare_os_error(arguments: object) -> int:
         raise OSError()
 
-    monkeypatch.setattr(cli, "run_info", raise_bare_os_error)
+    monkeypatch.setattr(cli, "_run_info", raise_bare_os_error)
     assert cli.main(["info", str(fragment_path)]) == cli.EXIT_UNEXPECTED
     error_output = capsys.readouterr().err
     assert "None" not in error_output
@@ -403,7 +403,7 @@ def test_empty_file_name_uses_the_given_path(
     def raise_path_error(arguments: object) -> int:
         raise raised_error
 
-    monkeypatch.setattr(cli, "run_info", raise_path_error)
+    monkeypatch.setattr(cli, "_run_info", raise_path_error)
     cli.main(["info", str(fragment_path)])
     assert expected_message in capsys.readouterr().err
 
@@ -543,7 +543,7 @@ def test_trailing_separator_on_an_extra_argument_keeps_a_specific_message(
     assert exit_info.value.code == cli.EXIT_USAGE
     error_output = capsys.readouterr().err
     assert "fmsave: error: unrecognized arguments: extra" in error_output
-    assert cli.GENERIC_USAGE_MESSAGE not in error_output
+    assert cli._GENERIC_USAGE_MESSAGE not in error_output
 
 
 @pytest.mark.parametrize(
@@ -587,7 +587,7 @@ def test_redacted_arguments_that_do_not_fail_use_the_generic_message(
     assert captured_output.out == ""
     error_lines = captured_output.err.splitlines()
     assert error_lines[0].startswith("usage: fmsave [-h] [--version]")
-    assert error_lines[-1] == f"fmsave: error: {cli.GENERIC_USAGE_MESSAGE}"
+    assert error_lines[-1] == f"fmsave: error: {cli._GENERIC_USAGE_MESSAGE}"
     assert "Private Folder" not in captured_output.err
 
 
@@ -597,10 +597,10 @@ def test_message_that_still_shows_a_folder_uses_the_generic_message(
     def keep_argument(argument_token: str) -> str:
         return argument_token
 
-    monkeypatch.setattr(cli, "redact_argument", keep_argument)
+    monkeypatch.setattr(cli, "_redact_argument", keep_argument)
     with pytest.raises(SystemExit) as exit_info:
         cli.main(["info", "a.fm", "/Example/Private Folder/career.fm"])
     assert exit_info.value.code == cli.EXIT_USAGE
     error_output = capsys.readouterr().err
-    assert f"fmsave: error: {cli.GENERIC_USAGE_MESSAGE}" in error_output
+    assert f"fmsave: error: {cli._GENERIC_USAGE_MESSAGE}" in error_output
     assert "Private Folder" not in error_output

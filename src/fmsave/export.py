@@ -5,6 +5,13 @@ groups flatten to "<field>_<subfield>" columns, the same names pandas.json_norma
 gives for record_to_dict(record, json_ready=True). A coded value, or a tuple of coded values,
 becomes a label column plus a "<field>_code" column. Tuples stay single values: JSON arrays in
 JSON, ";"-joined text in CSV, or compact JSON text in CSV when their items are groups.
+
+A field holding a mapping whose keys the record type declares in UNKNOWN_KEYS, which the
+`unknown` field of every record is, flattens to one "<field>_<key>" column per declared key. A
+mapping whose keys are not declared, such as `SaveInfo.section_schemas`, stays one column
+holding the mapping itself, since a key that differs from save to save cannot be a column name.
+
+Only the names in __all__ are public.
 """
 
 from __future__ import annotations
@@ -25,7 +32,22 @@ from datetime import date, time
 from enum import StrEnum
 from typing import Any, Literal, TextIO, TypeGuard, cast
 
+from fmsave._frozen import FrozenMapping
 from fmsave.models.common import CodedValue
+
+__all__ = [
+    "column_names",
+    "flat_rows",
+    "flatten_dict",
+    "record_to_dict",
+    "select_columns",
+    "to_columns",
+    "to_pandas",
+    "to_polars",
+    "write_csv",
+    "write_json",
+    "write_jsonl",
+]
 
 type _FieldKind = Literal[
     "value",
@@ -38,6 +60,7 @@ type _FieldKind = Literal[
     "coded_values",
     "records",
     "unknown",
+    "mapping",
 ]
 type _ScalarKind = Literal["value", "bool", "date", "text_enum"]
 type _Step = _FieldRun | _FieldPlan
@@ -206,11 +229,12 @@ def _plan_field(record_type: type, index: int, field_name: str, annotation: obje
                 return _FieldPlan(
                     field_name, "records", index, qualified_name, members=_class_plan(item_type)
                 )
-    if (
-        origin is Mapping
-        and field_name == _UNKNOWN_FIELD_NAME
-        and typing.get_args(field_type) == (str, int)
-    ):
+    if origin is Mapping and typing.get_args(field_type) == (str, int):
+        if field_name != _UNKNOWN_FIELD_NAME:
+            # A mapping whose keys the record type does not declare. Its keys come from the
+            # save rather than from the class, so they cannot be columns: the field is one
+            # column holding the mapping whole.
+            return _FieldPlan(field_name, "mapping", index, qualified_name)
         unknown_keys = _unknown_keys(record_type)
         return _FieldPlan(
             field_name,
@@ -245,7 +269,7 @@ def _flat_columns(field_plans: tuple[_FieldPlan, ...]) -> list[str]:
                 )
             case "unknown":
                 columns.extend(f"{field_plan.name}_{key}" for key in field_plan.unknown_keys)
-            case "value" | "bool" | "date" | "text_enum" | "values" | "records":
+            case "value" | "bool" | "date" | "text_enum" | "values" | "records" | "mapping":
                 columns.append(field_plan.name)
     return columns
 
@@ -448,6 +472,23 @@ def _filled_unknown(field_plan: _FieldPlan, value: object) -> dict[object, objec
     return filled
 
 
+def _whole_mapping(field_plan: _FieldPlan, value: object) -> FrozenMapping[str, int] | None:
+    """A mapping field as one value, read-only so that a flat row keeps it whole.
+
+    It is copied into a FrozenMapping whatever mapping the record holds, because flatten_dict
+    and pandas.json_normalize both split a plain dict into a column per key, and the keys of
+    this field are not columns.
+
+    Raises:
+        TypeError: value is not a mapping.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise _mapping_type_error(field_plan)
+    return FrozenMapping(cast("Mapping[str, int]", value))
+
+
 def _unknown_values(field_plan: _FieldPlan, value: object) -> list[object]:
     if value is None:
         return [None] * len(field_plan.unknown_keys)
@@ -473,7 +514,7 @@ def _missing_nested(class_plan: _ClassPlan) -> dict[str, object]:
             case "coded" | "coded_values":
                 nested[field_plan.name] = None
                 nested[field_plan.code_name] = None
-            case "value" | "bool" | "date" | "text_enum" | "values" | "records":
+            case "value" | "bool" | "date" | "text_enum" | "values" | "records" | "mapping":
                 nested[field_plan.name] = None
     return nested
 
@@ -518,6 +559,8 @@ def _nested_record(
                 nested[field_name] = _record_items(step, value, json_ready=json_ready)
             case "unknown":
                 nested[field_name] = dict(zip(step.unknown_keys, _unknown_values(step, value)))
+            case "mapping":
+                nested[field_name] = _whole_mapping(step, value)
     return nested
 
 
@@ -554,6 +597,8 @@ def _append_flat_values(
                 flat_values.append(_record_items(step, value, json_ready=json_ready))
             case "unknown":
                 flat_values.extend(_unknown_values(step, value))
+            case "mapping":
+                flat_values.append(_whole_mapping(step, value))
             case "date":
                 flat_values.append(
                     value.isoformat() if json_ready and isinstance(value, (date, time)) else value
@@ -615,6 +660,11 @@ def _append_csv_cells(cells: list[object], record: object, class_plan: _ClassPla
                     cells.extend((_csv_items_text(labels), _csv_items_text(codes)))
             case "unknown":
                 cells.extend(_unknown_values(step, value))
+            case "mapping":
+                # A mapping is always compact JSON, which is what _csv_cell gives for one, so
+                # an empty mapping is "{}" and only a missing one is an empty cell.
+                whole_mapping = _whole_mapping(step, value)
+                cells.append(None if whole_mapping is None else _compact_json(whole_mapping))
             case "text_enum":
                 cells.append(value.value if isinstance(value, StrEnum) else value)
             case "bool":
@@ -630,8 +680,9 @@ def record_to_dict(record: object, *, json_ready: bool) -> dict[str, object]:
     coded value "x" becomes the keys "x" (its label text) and "x_code" (its raw number); a tuple
     of coded values becomes the same two keys holding the label texts and the raw numbers in
     order. A StrEnum becomes its value string. The unknown field becomes a dict with exactly
-    the record type's UNKNOWN_KEYS, None where a key is absent. Tuples of plain values keep
-    their None items.
+    the record type's UNKNOWN_KEYS, None where a key is absent. A mapping field whose keys the
+    type does not declare stays one read-only mapping, so flatten_dict keeps it whole. Tuples
+    of plain values keep their None items.
 
     Args:
         record: A record dataclass instance.
@@ -659,7 +710,8 @@ def _flatten_into(flat: dict[str, object], nested: Mapping[str, object], prefix:
 def flatten_dict(nested: Mapping[str, object]) -> dict[str, object]:
     """Join the keys of nested dicts with "_", the way pandas.json_normalize(sep="_") does.
 
-    Lists and tuples are kept whole as single values, even when their items are dicts.
+    Lists and tuples are kept whole as single values, even when their items are dicts, and so
+    is a mapping that is not a dict, which is what a mapping column holds.
     """
     flat: dict[str, object] = {}
     _flatten_into(flat, nested, "")
@@ -795,6 +847,14 @@ def _missing_counts(records: Sequence[object], class_plan: _ClassPlan) -> list[i
                 # Only checks the items' own values; their counts are not columns.
                 _missing_counts(items, field_plan.members)
                 missing_counts.append(missing_count)
+            case "mapping":
+                _require_types(
+                    values,
+                    (Mapping, _NONE_TYPE),
+                    functools.partial(_mapping_type_error, field_plan),
+                )
+                # A present mapping is a present value, even when it holds nothing.
+                missing_counts.append(values.count(None))
             case "unknown":
                 _require_types(
                     values,
@@ -899,6 +959,10 @@ def _record_type_error(function_name: str, record_type: type, record: object) ->
 def _json_default(value: object) -> object:
     if isinstance(value, (date, time)):
         return value.isoformat()
+    if isinstance(value, Mapping):
+        # A read-only mapping column, which json writes as an object. A plain dict never
+        # reaches here, since json writes one itself.
+        return dict(cast("Mapping[str, object]", value))
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
@@ -1138,8 +1202,25 @@ def to_pandas(columns: Mapping[str, list[object]]) -> Any:
     return pandas_module.DataFrame(frame_columns)
 
 
+def _polars_column(values: list[object]) -> list[object]:
+    """The column as polars takes it: a read-only mapping becomes a plain dict.
+
+    polars builds a struct column from dicts and does not read any other mapping. Only the
+    first value present is looked at, since every value of a column is of its field's one kind.
+    """
+    first_value = next((value for value in values if value is not None), None)
+    if isinstance(first_value, Mapping) and not isinstance(first_value, dict):
+        return [
+            dict(cast("Mapping[str, object]", value)) if value is not None else None
+            for value in values
+        ]
+    return values
+
+
 def to_polars(columns: Mapping[str, list[object]]) -> Any:
     """Build a polars.DataFrame from flat columns, such as those from to_columns.
+
+    A mapping column becomes a struct column.
 
     Returns:
         A polars.DataFrame built with strict=False. The return type is Any because polars is an
@@ -1152,4 +1233,6 @@ def to_polars(columns: Mapping[str, list[object]]) -> Any:
         polars_module = importlib.import_module("polars")
     except ImportError as error:
         raise ImportError('to_polars() needs polars: pip install "fmsave[polars]"') from error
-    return polars_module.DataFrame(dict(columns), strict=False)
+    return polars_module.DataFrame(
+        {name: _polars_column(values) for name, values in columns.items()}, strict=False
+    )

@@ -11,6 +11,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 import fmsave
+from fmsave._checks import GateResult, evaluate_injury_types
 from fmsave._container import (
     DirectoryEntry,
     match_file_entries,
@@ -20,7 +21,6 @@ from fmsave._container import (
 from fmsave._errors import SaveClosedError
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import InjuryTypeStats
-from fmsave.checks import GateResult, evaluate_injury_types
 from fmsave.export import column_names
 from fmsave.models.injuries import InjuryType
 from fmsave.readers._common import GAME_DB_SECTION

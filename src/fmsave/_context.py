@@ -26,7 +26,7 @@ from fmsave._errors import FmsaveError, SaveClosedError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import NamePoolLayout, PlayerRecordLayout, find_layout
 from fmsave.models.meta import SaveInfo
-from fmsave.name_maps import EMPTY_COMPETITION_NAMES
+from fmsave.name_maps import _EMPTY_COMPETITION_NAMES  # pyright: ignore[reportPrivateUsage]
 from fmsave.readers._common import GAME_DB_SECTION, SPAN_REGION
 from fmsave.readers.clubs import ClubIndex, find_club_layouts, read_club_index
 from fmsave.readers.competitions import (
@@ -88,7 +88,7 @@ class SaveContext:
         container_index: ContainerIndex,
         info: SaveInfo,
         *,
-        competition_names: FrozenMapping[int, str] = EMPTY_COMPETITION_NAMES,
+        competition_names: FrozenMapping[int, str] = _EMPTY_COMPETITION_NAMES,
     ) -> None:
         self._container_index = container_index
         self._info = info

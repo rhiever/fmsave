@@ -9,11 +9,7 @@ import pytest
 
 import fmsave
 from fmsave import Table
-from fmsave._layouts import FULL_SAVE_MINIMUM_GAME_DB_BYTES, GateBounds, find_layout
-from fmsave._reader_stats import CompetitionStats, StageStats
-from fmsave._save import COMPETITIONS_TABLE_CACHE_KEY, STAGES_TABLE_CACHE_KEY
-from fmsave._status import field_status
-from fmsave.checks import (
+from fmsave._checks import (
     GateResult,
     check_competitions,
     check_stages,
@@ -21,6 +17,10 @@ from fmsave.checks import (
     evaluate_competitions,
     evaluate_stages,
 )
+from fmsave._layouts import FULL_SAVE_MINIMUM_GAME_DB_BYTES, GateBounds, find_layout
+from fmsave._reader_stats import CompetitionStats, StageStats
+from fmsave._save import COMPETITIONS_TABLE_CACHE_KEY, STAGES_TABLE_CACHE_KEY
+from fmsave._status import field_status
 from fmsave.export import column_names
 from fmsave.models.common import CodedValue
 from fmsave.models.competitions import Competition, CompetitionRound, Stage

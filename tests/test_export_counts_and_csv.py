@@ -203,7 +203,7 @@ def test_csv_text_equals_the_reference_writer(
         expected_text = reference_csv_text(records, record_type, selection)
         assert written_csv_text(records, record_type, selection) == expected_text
         cli_stream = io.StringIO(newline="")
-        cli.write_records(records, record_type, "csv", selection, cli_stream)
+        cli._write_records(records, record_type, "csv", selection, cli_stream)
         assert cli_stream.getvalue() == expected_text
     csv_path = tmp_path / "table.csv"
     Table(records, record_type).write_csv(csv_path)
@@ -515,7 +515,7 @@ def test_records_of_another_type_are_rejected_under_the_public_operation_name(
     with pytest.raises(TypeError, match=f"^write_csv {expected_message}$"):
         written_csv_text(wrong_records, ExampleSampledRecord, None)
     with pytest.raises(TypeError, match=f"^write_records {expected_message}$"):
-        cli.write_records(wrong_records, ExampleSampledRecord, "csv", None, io.StringIO())
+        cli._write_records(wrong_records, ExampleSampledRecord, "csv", None, io.StringIO())
     # The Table constructor already rejects such records, so they are put in place directly.
     table = Table((), ExampleSampledRecord)
     object.__setattr__(table, "_records", wrong_records)

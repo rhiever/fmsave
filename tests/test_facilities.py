@@ -10,10 +10,10 @@ import pytest
 import fmsave
 import fmsave._save as save_module
 from fmsave import ClubFacilities, CodedValue, CorporateFacilities, export
+from fmsave._checks import evaluate_facilities
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import FacilityStats
 from fmsave._save import FACILITIES_TABLE_CACHE_KEY
-from fmsave.checks import evaluate_facilities
 from fmsave.readers._common import GAME_DB_SECTION
 from fmsave.readers.clubs import find_club_layouts, read_club_index
 from fmsave.readers.facilities import find_facility_layout, read_club_facilities

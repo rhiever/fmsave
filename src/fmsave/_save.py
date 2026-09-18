@@ -7,7 +7,8 @@ from collections.abc import Callable, Mapping, Sequence
 from types import TracebackType
 from typing import NamedTuple, Self
 
-from fmsave import checks
+from fmsave import _checks
+from fmsave._checks import GateResult, ReaderCheck
 from fmsave._container import ContainerIndex, read_index, read_section
 from fmsave._context import SaveContext, closed_save_error
 from fmsave._errors import ReaderCheckError
@@ -25,7 +26,6 @@ from fmsave._layouts import (
 )
 from fmsave._reader_stats import ResultStats, TacticStats
 from fmsave._version import read_save_info
-from fmsave.checks import GateResult, ReaderCheck
 from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
@@ -46,7 +46,10 @@ from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
 from fmsave.models.tactics import SetPieceRoutine, Tactic
 from fmsave.models.training import MentoringGroup, TeamTraining
-from fmsave.name_maps import EMPTY_COMPETITION_NAMES, normalize_competition_names
+from fmsave.name_maps import (
+    _EMPTY_COMPETITION_NAMES,  # pyright: ignore[reportPrivateUsage]
+    _normalized_competition_names,  # pyright: ignore[reportPrivateUsage]
+)
 from fmsave.readers._common import (
     FEEDER_SECTION,
     GAME_DB_SECTION,
@@ -160,17 +163,17 @@ MENTORING_TABLE_CACHE_KEY = "table:mentoring"
 # What each shared decode is kept under. While nothing is stored there the decode has not
 # finished, which is what tells a failed pass from a failed reader of a pass that ran.
 _SHARED_PASS_CACHE_KEYS: Mapping[str, str] = {
-    checks.PLAYER_PASS: PLAYERS_TABLE_CACHE_KEY,
-    checks.SPAN_PASS: SPAN_RECORDS_CACHE_KEY,
-    checks.FINANCE_PASS: FINANCES_TABLE_CACHE_KEY,
-    checks.STAFF_PASS: STAFF_TABLE_CACHE_KEY,
-    checks.TACTICS_PASS: TACTICS_TABLE_CACHE_KEY,
-    checks.TRAINING_PASS: TRAINING_TABLE_CACHE_KEY,
+    _checks.PLAYER_PASS: PLAYERS_TABLE_CACHE_KEY,
+    _checks.SPAN_PASS: SPAN_RECORDS_CACHE_KEY,
+    _checks.FINANCE_PASS: FINANCES_TABLE_CACHE_KEY,
+    _checks.STAFF_PASS: STAFF_TABLE_CACHE_KEY,
+    _checks.TACTICS_PASS: TACTICS_TABLE_CACHE_KEY,
+    _checks.TRAINING_PASS: TRAINING_TABLE_CACHE_KEY,
 }
 
 
 class _FinanceTables(NamedTuple):
-    """The two tables one decode pass over the club records builds, and their checks."""
+    """The two tables one decode pass over the club records builds, and their _checks."""
 
     finances: Table[FinanceMonth]
     sponsorships: Table[Sponsorship]
@@ -202,7 +205,7 @@ _EMPTY_TACTIC_STATS = TacticStats(
 
 
 class _TacticTables(NamedTuple):
-    """The two tables one walk over the manager's team blocks builds, and their checks."""
+    """The two tables one walk over the manager's team blocks builds, and their _checks."""
 
     tactics: Table[Tactic]
     set_pieces: Table[SetPieceRoutine]
@@ -218,7 +221,7 @@ class _StaffTables(NamedTuple):
 
 
 class _TrainingTables(NamedTuple):
-    """The two tables one walk over the training section builds, and their checks."""
+    """The two tables one walk over the training section builds, and their _checks."""
 
     training: Table[TeamTraining]
     mentoring: Table[MentoringGroup]
@@ -226,7 +229,7 @@ class _TrainingTables(NamedTuple):
 
 
 class _PlayerTables(NamedTuple):
-    """The three tables one decode pass over the player records builds, and their checks."""
+    """The three tables one decode pass over the player records builds, and their _checks."""
 
     players: Table[Player]
     contracts: Table[Contract]
@@ -267,7 +270,7 @@ class Save:
         info: SaveInfo,
         *,
         strict: bool = False,
-        competition_names: FrozenMapping[int, str] = EMPTY_COMPETITION_NAMES,
+        competition_names: FrozenMapping[int, str] = _EMPTY_COMPETITION_NAMES,
     ) -> None:
         self._container_index = container_index
         self._info = info
@@ -552,7 +555,7 @@ class Save:
         fixtures, result_stats = self._scored_fixtures(
             fixtures, span_records, stage_index, find_result_layout(save_info.build)
         )
-        fixture_check = checks.check_fixtures(
+        fixture_check = _checks.check_fixtures(
             fixture_stats, result_stats, gate_bounds, span_records.span_bytes
         )
         self._enforce_checks((fixture_check,))
@@ -586,7 +589,7 @@ class Save:
         # whether a record's stage id is one the table holds, and copies no value out of it, so
         # no score it produces carries anything of that index. That is why this reads the
         # cached index instead of going through `stages()`, which would enforce that reader's
-        # checks. Taking only a membership test is what fails safe: a stage table that had
+        # _checks. Taking only a membership test is what fails safe: a stage table that had
         # moved would cost scores here and could never invent one, which is the opposite of the
         # defect the rule about handing another reader's data out unchecked exists to stop.
         # A fixture row does carry stage-derived fields, its competition and round among them,
@@ -668,7 +671,7 @@ class Save:
         stadiums, stadium_stats = build_stadiums(
             stadium_index, club_index, tuple(fixtures), self._stadium_layout()
         )
-        stadium_check = checks.check_stadiums(
+        stadium_check = _checks.check_stadiums(
             stadium_stats, gate_bounds, stadium_index.game_db_bytes
         )
         self._enforce_checks((stadium_check,))
@@ -693,8 +696,8 @@ class Save:
             stadium_index, context.club_index(), self._stadium_layout()
         )
         self._enforce(
-            checks.STADIUMS_READER,
-            checks.evaluate_stadium_table(
+            _checks.STADIUMS_READER,
+            _checks.evaluate_stadium_table(
                 table_stats, self._gate_bounds(), stadium_index.game_db_bytes
             ),
         )
@@ -769,7 +772,7 @@ class Save:
         injury_types, injury_type_stats = read_injury_types(
             context.match_file_entries(), context.read_match_file, layout
         )
-        injury_type_check = checks.check_injury_types(
+        injury_type_check = _checks.check_injury_types(
             injury_type_stats, gate_bounds, declared_game_db_bytes
         )
         self._enforce_checks((injury_type_check,))
@@ -883,7 +886,7 @@ class Save:
                 clock,
                 layout,
             )
-        injury_check = checks.check_injury_history(injury_stats, gate_bounds)
+        injury_check = _checks.check_injury_history(injury_stats, gate_bounds)
         self._enforce_checks((injury_check,))
         self._store_reader_checks((injury_check,))
         return Table(injuries, InjuryRecord)
@@ -956,7 +959,7 @@ class Save:
         self.clubs()
         club_index = context.club_index()
         groups, affiliate_stats = build_affiliate_groups(stored_groups, club_index)
-        affiliate_check = checks.check_affiliates(
+        affiliate_check = _checks.check_affiliates(
             affiliate_stats, gate_bounds, club_index.game_db_bytes
         )
         self._enforce_checks((affiliate_check,))
@@ -1021,7 +1024,7 @@ class Save:
         with context.section(JOB_CENTRE_SECTION) as job_centre:
             with context.section(GAME_DB_SECTION):
                 # The club index hands out a club name and a team slot on every row, so it is
-                # read through the reader that enforces its own checks. With a name map the
+                # read through the reader that enforces its own _checks. With a name map the
                 # competitions are read the same way and for the same reason, since every
                 # competition name a row carries comes out of that index; without one every
                 # competition_name is None anyway, so the id-pair pass is never paid for.
@@ -1038,7 +1041,7 @@ class Save:
                 layout,
                 save_info.file_name,
             )
-        vacancy_check = checks.check_job_vacancies(vacancy_stats, gate_bounds)
+        vacancy_check = _checks.check_job_vacancies(vacancy_stats, gate_bounds)
         self._enforce_checks((vacancy_check,))
         self._store_reader_checks((vacancy_check,))
         return Table(vacancies, JobVacancy)
@@ -1109,7 +1112,7 @@ class Save:
         league_tables, table_stats = build_league_tables(
             span_records, fixtures_table, competition_index, club_index, layout
         )
-        table_check = checks.check_league_tables(table_stats, gate_bounds, span_records.span_bytes)
+        table_check = _checks.check_league_tables(table_stats, gate_bounds, span_records.span_bytes)
         self._enforce_checks((table_check,))
         self._store_reader_checks((table_check,))
         return Table(league_tables, LeagueTable)
@@ -1177,7 +1180,7 @@ class Save:
         rules, rules_stats = build_competition_rules(
             span_records, league_tables, fixtures_table, competition_index
         )
-        rules_check = checks.check_competition_rules(
+        rules_check = _checks.check_competition_rules(
             rules_stats, gate_bounds, span_records.span_bytes
         )
         self._enforce_checks((rules_check,))
@@ -1261,7 +1264,7 @@ class Save:
         match_rows, match_stats = build_player_match_stats(
             records_by_position, player_records, players, club_index, stage_index, layout
         )
-        match_check = checks.check_player_match_stats(match_stats, gate_bounds, game_db_length)
+        match_check = _checks.check_player_match_stats(match_stats, gate_bounds, game_db_length)
         self._enforce_checks((match_check,))
         self._store_reader_checks((match_check,))
         return Table(match_rows, PlayerMatchStats)
@@ -1395,8 +1398,8 @@ class Save:
         # Both checks run before either table is built: when one fails, nothing is cached and
         # the next call decodes and checks again.
         reader_checks = (
-            checks.check_finances(finance_stats, gate_bounds, game_db_length),
-            checks.check_sponsorships(finance_stats, gate_bounds, game_db_length),
+            _checks.check_finances(finance_stats, gate_bounds, game_db_length),
+            _checks.check_sponsorships(finance_stats, gate_bounds, game_db_length),
         )
         self._enforce_checks(reader_checks)
         return _FinanceTables(
@@ -1459,7 +1462,7 @@ class Save:
                 game_db, club_index, finance_layouts, layout, len(managed_clubs) > 0
             )
             game_db_length = len(game_db)
-        facility_check = checks.check_facilities(facility_stats, gate_bounds, game_db_length)
+        facility_check = _checks.check_facilities(facility_stats, gate_bounds, game_db_length)
         self._enforce_checks((facility_check,))
         self._store_reader_checks((facility_check,))
         return Table(facilities, ClubFacilities)
@@ -1607,8 +1610,8 @@ class Save:
         # Both checks run before either table is built: when one fails, nothing is cached and
         # the next call decodes and checks again.
         reader_checks = (
-            checks.check_staff(staff_stats, gate_bounds, game_db_length),
-            checks.check_staff_lists(staff_stats, gate_bounds, game_db_length),
+            _checks.check_staff(staff_stats, gate_bounds, game_db_length),
+            _checks.check_staff_lists(staff_stats, gate_bounds, game_db_length),
         )
         self._enforce_checks(reader_checks)
         return _StaffTables(Table(staff_rows, Staff), Table(list_rows, StaffList), reader_checks)
@@ -1754,8 +1757,8 @@ class Save:
         # Both checks run before either table is built: when one fails, nothing is cached and
         # the next call walks and checks again.
         reader_checks = (
-            checks.check_tactics(tactic_stats, gate_bounds, game_db_length),
-            checks.check_set_pieces(tactic_stats, gate_bounds, game_db_length),
+            _checks.check_tactics(tactic_stats, gate_bounds, game_db_length),
+            _checks.check_set_pieces(tactic_stats, gate_bounds, game_db_length),
         )
         self._enforce_checks(reader_checks)
         return _TacticTables(
@@ -1766,8 +1769,8 @@ class Save:
         """Both tables empty, for a manager with no club: nothing here is judged."""
         empty_stats = _EMPTY_TACTIC_STATS
         reader_checks = (
-            checks.check_tactics(empty_stats, gate_bounds, 0),
-            checks.check_set_pieces(empty_stats, gate_bounds, 0),
+            _checks.check_tactics(empty_stats, gate_bounds, 0),
+            _checks.check_set_pieces(empty_stats, gate_bounds, 0),
         )
         return _TacticTables(Table((), Tactic), Table((), SetPieceRoutine), reader_checks)
 
@@ -1922,8 +1925,8 @@ class Save:
         # Both checks run before either table is built: when one fails, nothing is cached and
         # the next call walks and checks again.
         reader_checks = (
-            checks.check_training(training_stats, gate_bounds, game_db_length),
-            checks.check_mentoring(training_stats, gate_bounds, game_db_length),
+            _checks.check_training(training_stats, gate_bounds, game_db_length),
+            _checks.check_mentoring(training_stats, gate_bounds, game_db_length),
         )
         self._enforce_checks(reader_checks)
         return _TrainingTables(
@@ -1964,11 +1967,11 @@ class Save:
             ReaderCheckError: An applied check failed and the save was opened strict.
         """
         if self._strict:
-            checks.enforce(reader_name, results, strict=True)
+            _checks.enforce(reader_name, results, strict=True)
             return
         if reader_name in self._warned_readers:
             return
-        if checks.enforce(reader_name, results, strict=False):
+        if _checks.enforce(reader_name, results, strict=False):
             self._warned_readers.add(reader_name)
 
     def _enforce_checks(self, reader_checks: Sequence[ReaderCheck]) -> None:
@@ -1983,14 +1986,14 @@ class Save:
             ReaderCheckError: An applied check failed and the save was opened strict.
         """
         if self._strict:
-            checks.enforce_checks(reader_checks, strict=True)
+            _checks.enforce_checks(reader_checks, strict=True)
             return
         unwarned = tuple(
             reader_check
             for reader_check in reader_checks
             if reader_check.reader not in self._warned_readers
         )
-        if checks.enforce_checks(unwarned, strict=False):
+        if _checks.enforce_checks(unwarned, strict=False):
             self._warned_readers.update(reader_check.reader for reader_check in unwarned)
 
     def _store_reader_checks(self, reader_checks: Sequence[ReaderCheck]) -> None:
@@ -2002,7 +2005,7 @@ class Save:
     def _read_clubs(self) -> Table[Club]:
         gate_bounds = self._gate_bounds()
         club_index = self._context.club_index()
-        club_check = checks.check_clubs(club_index.stats, gate_bounds, club_index.game_db_bytes)
+        club_check = _checks.check_clubs(club_index.stats, gate_bounds, club_index.game_db_bytes)
         self._enforce_checks((club_check,))
         self._store_reader_checks((club_check,))
         return Table(club_index.clubs, Club)
@@ -2028,7 +2031,7 @@ class Save:
                 humans, game_db, summary, club_index, clock, layouts, save_info.file_name
             )
             game_db_length = len(game_db)
-        managed_check = checks.check_managed(managed_stats, gate_bounds, game_db_length)
+        managed_check = _checks.check_managed(managed_stats, gate_bounds, game_db_length)
         self._enforce_checks((managed_check,))
         self._store_reader_checks((managed_check,))
         return Table(managed_clubs, ManagedClub)
@@ -2051,7 +2054,9 @@ class Save:
             self.competitions()
             name_for = context.competition_index().name_for
         stage_index = context.stage_index()
-        stage_check = checks.check_stages(stage_index.stats, gate_bounds, stage_index.game_db_bytes)
+        stage_check = _checks.check_stages(
+            stage_index.stats, gate_bounds, stage_index.game_db_bytes
+        )
         self._enforce_checks((stage_check,))
         self._store_reader_checks((stage_check,))
         stages = stage_index.stages
@@ -2064,7 +2069,7 @@ class Save:
         # The stage index the competitions were built from is cached by the call above and
         # already carries the section length the checks want, so game_db is read once in all.
         game_db_length = context.stage_index().game_db_bytes
-        competition_check = checks.check_competitions(
+        competition_check = _checks.check_competitions(
             competition_index.stats, gate_bounds, game_db_length
         )
         self._enforce_checks((competition_check,))
@@ -2081,7 +2086,7 @@ class Save:
         with context.section(GAME_DB_SECTION) as game_db:
             windows, window_stats = read_transfer_windows(game_db, tagged_layout, window_layout)
             game_db_length = len(game_db)
-        window_check = checks.check_transfer_windows(window_stats, gate_bounds, game_db_length)
+        window_check = _checks.check_transfer_windows(window_stats, gate_bounds, game_db_length)
         self._enforce_checks((window_check,))
         self._store_reader_checks((window_check,))
         return Table(windows, TransferWindow)
@@ -2189,19 +2194,19 @@ class Save:
         # built: when one fails, nothing is cached and the next call decodes and checks again.
         player_count = len(decoded_players)
         reader_checks = (
-            checks.check_players(
+            _checks.check_players(
                 collect_player_stats(
                     decoded_players, decoder, player_records.markerless_count, gate_bounds
                 ),
                 gate_bounds,
                 game_db_length,
             ),
-            checks.check_contracts(
+            _checks.check_contracts(
                 decoder.contract_decoder.stats(player_count, len(decoded_contracts)),
                 gate_bounds,
                 game_db_length,
             ),
-            checks.check_suspensions(
+            _checks.check_suspensions(
                 suspension_stats(suspension_entries_by_position, player_count, clock),
                 gate_bounds,
                 game_db_length,
@@ -2289,7 +2294,7 @@ def open_save(
     """
     # The map is checked before the file is touched, so a mistake in it costs none of the work
     # of opening a save.
-    names = normalize_competition_names(competition_names)
+    names = _normalized_competition_names(competition_names)
     container_index = read_index(path)
     return Save(
         container_index,

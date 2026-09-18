@@ -13,11 +13,7 @@ import pytest
 import fmsave
 import fmsave._save as save_module
 from fmsave import Ability, Staff, StaffList, export, field_status
-from fmsave._frozen import FrozenMapping
-from fmsave._layouts import GateBounds, PlayerRecordLayout, find_layout
-from fmsave._reader_stats import StaffStats
-from fmsave._save import STAFF_LISTS_TABLE_CACHE_KEY, STAFF_TABLE_CACHE_KEY
-from fmsave.checks import (
+from fmsave._checks import (
     STAFF_LISTS_READER,
     STAFF_READER,
     GateResult,
@@ -25,6 +21,10 @@ from fmsave.checks import (
     evaluate_staff,
     evaluate_staff_lists,
 )
+from fmsave._frozen import FrozenMapping
+from fmsave._layouts import GateBounds, PlayerRecordLayout, find_layout
+from fmsave._reader_stats import StaffStats
+from fmsave._save import STAFF_LISTS_TABLE_CACHE_KEY, STAFF_TABLE_CACHE_KEY
 from fmsave.readers._common import GAME_DB_SECTION
 from fmsave.readers.clubs import ClubIndex, find_club_layouts, read_club_index
 from fmsave.readers.names import NamePools
@@ -790,7 +790,7 @@ def failing_check(stats: StaffStats, bounds: GateBounds, game_db_bytes: int) -> 
 def test_a_failed_check_leaves_neither_table_readable(
     career_save_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(save_module.checks, "check_staff", failing_check)
+    monkeypatch.setattr(save_module._checks, "check_staff", failing_check)
     with fmsave.open(career_save_path, strict=True) as career_save:
         with pytest.raises(fmsave.ReaderCheckError):
             career_save.staff()

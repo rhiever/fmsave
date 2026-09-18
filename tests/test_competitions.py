@@ -7,10 +7,10 @@ import pytest
 
 import fmsave
 import fmsave._context as context_module
+from fmsave._checks import GateResult, evaluate_competitions
 from fmsave._container import ContainerIndex
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import CompetitionStats
-from fmsave.checks import GateResult, evaluate_competitions
 from fmsave.readers._common import GAME_DB_SECTION
 from fmsave.readers.competitions import (
     build_competition_index,

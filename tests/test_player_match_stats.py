@@ -12,16 +12,16 @@ import pytest
 
 import fmsave
 from fmsave import Table
-from fmsave._layouts import GateBounds, MatchRecordLayout, PlayerRecordLayout, find_layout
-from fmsave._reader_stats import MatchStats
-from fmsave._save import PLAYER_MATCH_STATS_TABLE_CACHE_KEY
-from fmsave._status import field_status
-from fmsave.checks import (
+from fmsave._checks import (
     GateResult,
     check_player_match_stats,
     enforce,
     evaluate_player_match_stats,
 )
+from fmsave._layouts import GateBounds, MatchRecordLayout, PlayerRecordLayout, find_layout
+from fmsave._reader_stats import MatchStats
+from fmsave._save import PLAYER_MATCH_STATS_TABLE_CACHE_KEY
+from fmsave._status import field_status
 from fmsave.export import column_names
 from fmsave.models.matches import MatchPosition, PlayerMatchStats
 from fmsave.models.players import Player

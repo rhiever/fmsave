@@ -53,7 +53,7 @@ def console_blocks() -> list[str]:
 def cli_option_strings() -> set[str]:
     """Every option string of the fmsave parser and its command parsers."""
     option_strings: set[str] = set()
-    pending_parsers: list[argparse.ArgumentParser] = [cli.build_parser()]
+    pending_parsers: list[argparse.ArgumentParser] = [cli._build_parser()]
     while pending_parsers:
         parser = pending_parsers.pop()
         for action in parser._actions:
@@ -65,7 +65,7 @@ def cli_option_strings() -> set[str]:
 
 def cli_command_parsers() -> dict[str, argparse.ArgumentParser]:
     """The command parsers of the fmsave parser, by command name."""
-    for action in cli.build_parser()._actions:
+    for action in cli._build_parser()._actions:
         if isinstance(action, argparse._SubParsersAction):
             return dict(action.choices)
     raise AssertionError("the fmsave parser has no commands")

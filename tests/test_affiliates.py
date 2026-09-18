@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 
 import fmsave
+from fmsave._checks import AFFILIATES_READER, GateResult, evaluate_affiliates
 from fmsave._errors import ReaderCheckError, SaveClosedError
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import AffiliateStats
-from fmsave.checks import AFFILIATES_READER, GateResult, evaluate_affiliates
 from fmsave.export import column_names
 from fmsave.models.affiliates import AffiliateGroup
 from fmsave.readers._common import FEEDER_SECTION, GAME_DB_SECTION

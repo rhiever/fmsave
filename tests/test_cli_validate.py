@@ -8,8 +8,8 @@ import pytest
 
 import fmsave
 from fmsave import cli
+from fmsave._checks import GateResult
 from fmsave._container import ContainerIndex, read_region_frames
-from fmsave.checks import GateResult
 
 FILE_NAME = "career example.fm"
 REPORT_KEYS = {
@@ -149,7 +149,7 @@ def test_validate_text_lists_each_reader_and_the_build(
 def test_a_failed_contract_check_exits_3_and_names_the_gate(
     save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr("fmsave.checks.evaluate_contracts", failing_contract_gates)
+    monkeypatch.setattr("fmsave._checks.evaluate_contracts", failing_contract_gates)
     assert cli.main(["validate", str(save_path)]) == cli.EXIT_UNSUPPORTED
     output_lines = capsys.readouterr().out.splitlines()
     assert "contracts: failed (4 records)" in output_lines
@@ -165,7 +165,7 @@ def test_a_failed_contract_check_exits_3_and_names_the_gate(
 def test_a_failed_check_in_json_exits_3(
     save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr("fmsave.checks.evaluate_contracts", failing_contract_gates)
+    monkeypatch.setattr("fmsave._checks.evaluate_contracts", failing_contract_gates)
     assert cli.main(["validate", str(save_path), "--json"]) == cli.EXIT_UNSUPPORTED
     report = json.loads(capsys.readouterr().out)
     statuses = {reader["reader"]: reader["status"] for reader in report["readers"]}
@@ -210,7 +210,7 @@ def test_a_failed_league_table_check_leaves_the_other_span_readers_ok(
     after it, so it reads that table; the table is still returned, so this reader is judged on
     its own gates and reports them.
     """
-    monkeypatch.setattr("fmsave.checks.evaluate_league_tables", failing_league_table_gates)
+    monkeypatch.setattr("fmsave._checks.evaluate_league_tables", failing_league_table_gates)
     assert cli.main(["validate", str(save_path)]) == cli.EXIT_UNSUPPORTED
     output_lines = capsys.readouterr().out.splitlines()
     assert "league_tables: failed (2 records)" in output_lines
@@ -257,7 +257,7 @@ def test_a_failed_staff_check_fails_both_staff_readers_with_their_own_gates(
     both tables, so the staff-list reader is reported on its own counts. Each reader lists its
     own gates, so the report names the gate that failed against the reader it belongs to.
     """
-    monkeypatch.setattr("fmsave.checks.evaluate_staff", failing_staff_gates)
+    monkeypatch.setattr("fmsave._checks.evaluate_staff", failing_staff_gates)
     assert cli.main(["validate", str(save_path), "--json"]) == cli.EXIT_UNSUPPORTED
     report = json.loads(capsys.readouterr().out)
     readers = {reader["reader"]: reader for reader in report["readers"]}
@@ -287,7 +287,7 @@ def test_a_failure_outranks_a_reader_error(
     save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(fmsave.Save, "managed_clubs", raise_corrupt_save)
-    monkeypatch.setattr("fmsave.checks.evaluate_contracts", failing_contract_gates)
+    monkeypatch.setattr("fmsave._checks.evaluate_contracts", failing_contract_gates)
     assert cli.main(["validate", str(save_path)]) == cli.EXIT_UNSUPPORTED
     capsys.readouterr()
 

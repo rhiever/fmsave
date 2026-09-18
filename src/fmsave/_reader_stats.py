@@ -1,4 +1,4 @@
-"""Counts the readers keep while they decode, for the reader checks in fmsave.checks.
+"""Counts the readers keep while they decode, for the reader checks in fmsave._checks.
 
 Each record holds plain counts from one reader's existing pass; nothing here reads a save.
 """

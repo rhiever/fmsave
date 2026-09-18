@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date
+from typing import ClassVar
 
 from fmsave._status import register_field_statuses
 
@@ -31,6 +32,8 @@ class SectionInfo:
     decompressed_size: int
     schema: int
     unknown: Mapping[str, int] = field(hash=False)
+
+    UNKNOWN_KEYS: ClassVar[tuple[str, ...]] = ("tail0", "tail1")
 
 
 @dataclass(frozen=True, slots=True)

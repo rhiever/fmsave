@@ -14,7 +14,21 @@ from pathlib import Path
 import pytest
 
 import fmsave
-from fmsave import checks
+from fmsave import _checks
+from fmsave._checks import (
+    GateResult,
+    ReaderCheck,
+    ReaderValidation,
+    ValidationReport,
+    check_managed,
+    enforce,
+    enforce_checks,
+    evaluate_clubs,
+    evaluate_contracts,
+    evaluate_players,
+    evaluate_suspensions,
+    validate_save,
+)
 from fmsave._errors import ISSUES_URL
 from fmsave._layouts import (
     FULL_SAVE_MINIMUM_GAME_DB_BYTES,
@@ -36,20 +50,6 @@ from fmsave._save import (
     SUSPENSIONS_TABLE_CACHE_KEY,
 )
 from fmsave._status import registered_statuses
-from fmsave.checks import (
-    GateResult,
-    ReaderCheck,
-    ReaderValidation,
-    ValidationReport,
-    check_managed,
-    enforce,
-    enforce_checks,
-    evaluate_clubs,
-    evaluate_contracts,
-    evaluate_players,
-    evaluate_suspensions,
-    validate_save,
-)
 from fmsave.readers.clubs import find_club_layouts, read_club_index
 from tests.fixtures.career import (
     INJURY_MANAGER_SECTION_NAME,
@@ -278,7 +278,7 @@ def failed_gate_names(results: tuple[GateResult, ...]) -> list[str]:
 
 
 def test_gate_switch_is_on_by_default() -> None:
-    assert checks._gates_enabled is True
+    assert _checks._gates_enabled is True
     shifted_results = evaluate_players(
         dataclasses.replace(healthy_player_stats(), handling_above_finishing=12_200),
         BOUNDS,
@@ -294,11 +294,11 @@ def test_disabling_gates_restores_the_switch_after_an_exception() -> None:
         BOUNDS,
         FULL_SIZE_GAME_DB_BYTES,
     )
-    with pytest.raises(RuntimeError, match="fictional failure"), checks._gates_disabled():
-        assert checks._gates_enabled is False
+    with pytest.raises(RuntimeError, match="fictional failure"), _checks._gates_disabled():
+        assert _checks._gates_enabled is False
         enforce("players", shifted_results, strict=True)
         raise RuntimeError("fictional failure")
-    assert checks._gates_enabled is True
+    assert _checks._gates_enabled is True
 
 
 def test_gate_bounds_apply_from_the_full_save_threshold() -> None:
@@ -691,7 +691,7 @@ def test_two_failing_readers_of_one_pass_share_one_joined_message() -> None:
         "suspensions failed checks: issued_after_clock=0.5 (expected 0.9..). "
         f"Please report it at {ISSUES_URL} with the output of fmsave validate."
     )
-    assert isinstance(error_info.value, checks.GateCheckError)
+    assert isinstance(error_info.value, _checks.GateCheckError)
     assert error_info.value.checks == (passing_check, contract_check, suspension_check)
 
 
@@ -1301,7 +1301,7 @@ def test_a_failing_reader_is_reported_failed_and_the_others_still_run(
     ) -> tuple[GateResult, ...]:
         return (failing_gate("status_confirmation"),)
 
-    monkeypatch.setattr(checks, "evaluate_clubs", failing_evaluate_clubs)
+    monkeypatch.setattr(_checks, "evaluate_clubs", failing_evaluate_clubs)
     with fmsave.open(counted_fragment_path, strict=True) as career_save:
         with pytest.raises(fmsave.ReaderCheckError, match="^clubs failed checks: "):
             career_save.clubs()
@@ -1354,7 +1354,7 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered
         evaluations.append(stats.chain_records)
         return (failing_gate("tails_parsed"),)
 
-    monkeypatch.setattr(checks, "evaluate_contracts", failing_evaluate_contracts)
+    monkeypatch.setattr(_checks, "evaluate_contracts", failing_evaluate_contracts)
     with fmsave.open(counted_fragment_path, strict=True) as career_save:
         for read_table in (career_save.players, career_save.contracts, career_save.suspensions):
             with pytest.raises(fmsave.ReaderCheckError) as error_info:
@@ -1369,7 +1369,7 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered
                 SUSPENSIONS_TABLE_CACHE_KEY,
             ):
                 # The failure is remembered under the key, but it is not a value: nothing here
-                # can be handed a table built from a pass that failed its checks.
+                # can be handed a table built from a pass that failed its _checks.
                 assert career_save._context.cached_value(cache_key) is None
         assert len(evaluations) == 3
         report = validate_save(career_save)
@@ -1722,8 +1722,8 @@ def test_two_failing_readers_of_the_player_pass_are_named_in_one_error(
     ) -> tuple[GateResult, ...]:
         return (failing_gate("issued_after_clock"),)
 
-    monkeypatch.setattr(checks, "evaluate_contracts", failing_evaluate_contracts)
-    monkeypatch.setattr(checks, "evaluate_suspensions", failing_evaluate_suspensions)
+    monkeypatch.setattr(_checks, "evaluate_contracts", failing_evaluate_contracts)
+    monkeypatch.setattr(_checks, "evaluate_suspensions", failing_evaluate_suspensions)
     with (
         fmsave.open(counted_fragment_path, strict=True) as career_save,
         pytest.raises(fmsave.ReaderCheckError) as error_info,
@@ -1755,7 +1755,7 @@ def test_a_failed_check_warns_and_hands_the_table_back(
 
     The warning carries the very message a strict save raises: one wording, two channels.
     """
-    monkeypatch.setattr(checks, "evaluate_clubs", failing_evaluate_clubs)
+    monkeypatch.setattr(_checks, "evaluate_clubs", failing_evaluate_clubs)
     with fmsave.open(counted_fragment_path) as career_save:
         with pytest.warns(fmsave.ReaderCheckWarning) as caught_warnings:
             clubs_table = career_save.clubs()
@@ -1776,7 +1776,7 @@ def test_a_failed_check_warns_and_hands_the_table_back(
 def test_a_strict_save_raises_and_keeps_no_table(
     counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(checks, "evaluate_clubs", failing_evaluate_clubs)
+    monkeypatch.setattr(_checks, "evaluate_clubs", failing_evaluate_clubs)
     with warnings.catch_warnings(record=True) as caught_warnings:
         warnings.simplefilter("always")
         with fmsave.open(counted_fragment_path, strict=True) as career_save:
@@ -1794,7 +1794,7 @@ def test_one_warning_covers_a_reader_however_many_readers_ask_for_it(
 
     A warning per reader, or per call, would be worse than the block this replaces.
     """
-    monkeypatch.setattr(checks, "evaluate_clubs", failing_evaluate_clubs)
+    monkeypatch.setattr(_checks, "evaluate_clubs", failing_evaluate_clubs)
     with warnings.catch_warnings(record=True) as caught_warnings:
         warnings.simplefilter("always")
         with fmsave.open(counted_fragment_path) as career_save:
@@ -1812,7 +1812,7 @@ def test_one_warning_covers_a_reader_however_many_readers_ask_for_it(
 def test_a_warning_points_at_the_line_that_called_the_reader(
     counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(checks, "evaluate_clubs", failing_evaluate_clubs)
+    monkeypatch.setattr(_checks, "evaluate_clubs", failing_evaluate_clubs)
     with warnings.catch_warnings(record=True) as caught_warnings:
         warnings.simplefilter("always")
         with fmsave.open(counted_fragment_path) as career_save:
@@ -1848,7 +1848,7 @@ def test_a_structural_failure_raises_whether_or_not_the_save_is_strict(
         ):
             career_save.clubs()
     assert "no club records found" in str(error_info.value)
-    assert not isinstance(error_info.value, checks.GateCheckError)
+    assert not isinstance(error_info.value, _checks.GateCheckError)
     assert caught_warnings == []
 
 
@@ -1860,7 +1860,7 @@ def test_validate_save_reports_a_failed_reader_without_raising_or_warning(
     A warning per failed reader would make `fmsave validate` noisiest on exactly the saves it
     exists to diagnose.
     """
-    monkeypatch.setattr(checks, "evaluate_clubs", failing_evaluate_clubs)
+    monkeypatch.setattr(_checks, "evaluate_clubs", failing_evaluate_clubs)
     with warnings.catch_warnings(record=True) as caught_warnings:
         warnings.simplefilter("always")
         with fmsave.open(counted_fragment_path) as career_save:
@@ -1892,7 +1892,7 @@ def test_a_reader_read_after_validate_save_hands_back_its_table(
         club_checks.append(stats.records)
         return (failing_gate("status_confirmation"),)
 
-    monkeypatch.setattr(checks, "evaluate_clubs", counting_failing_evaluate_clubs)
+    monkeypatch.setattr(_checks, "evaluate_clubs", counting_failing_evaluate_clubs)
     with warnings.catch_warnings(record=True) as caught_warnings:
         warnings.simplefilter("always")
         with fmsave.open(counted_fragment_path) as career_save:
@@ -1918,7 +1918,7 @@ def test_validate_save_leaves_a_strict_save_strict(
     The report is of the save as its owner opened it, so a reader that a strict save stops is
     reported failed there and stops afterwards too.
     """
-    monkeypatch.setattr(checks, "evaluate_clubs", failing_evaluate_clubs)
+    monkeypatch.setattr(_checks, "evaluate_clubs", failing_evaluate_clubs)
     with fmsave.open(counted_fragment_path, strict=True) as career_save:
         report = validate_save(career_save)
         with pytest.raises(fmsave.ReaderCheckError):

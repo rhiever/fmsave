@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 from datetime import date
 from enum import IntEnum
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, cast
 
 import pytest
 
@@ -28,6 +28,7 @@ from fmsave.export import (
     write_jsonl,
 )
 from fmsave.models import CodedValue, ContractEndSource
+from fmsave.table import Table
 from tests.helpers.export_asserts import assert_matches_json_normalize
 
 
@@ -106,6 +107,14 @@ class ExampleWithCodeSuffixClash:
 class ExampleWithoutUnknownKeys:
     uid: int
     unknown: Mapping[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class ExampleSectionList:
+    """A record whose mapping field is keyed on the save rather than on the class."""
+
+    name: str
+    section_schemas: Mapping[str, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -520,6 +529,60 @@ def test_frozen_mapping_unknown_values_are_read() -> None:
     columns = to_columns([record], ExampleRecord)
     assert columns["unknown_money_a"] == [7]
     assert columns["unknown_e8"] == [3]
+
+
+def test_a_mapping_that_is_not_the_unknown_field_is_one_column() -> None:
+    """Its keys come from the save, so they cannot be column names and the mapping stays whole."""
+    record = ExampleSectionList("first", FrozenMapping({"alpha": 3, "beta": 4}))
+    assert column_names(ExampleSectionList) == ("name", "section_schemas")
+    for json_ready in (False, True):
+        flat_row = flatten_dict(record_to_dict(record, json_ready=json_ready))
+        assert set(flat_row) == set(column_names(ExampleSectionList))
+        assert flat_row["section_schemas"] == {"alpha": 3, "beta": 4}
+    assert to_columns([record], ExampleSectionList)["section_schemas"] == [{"alpha": 3, "beta": 4}]
+
+
+def test_a_mapping_column_counts_as_present_even_when_it_holds_nothing() -> None:
+    records = [
+        ExampleSectionList("first", FrozenMapping({"alpha": 3})),
+        ExampleSectionList("second", FrozenMapping({})),
+    ]
+    assert Table(records, ExampleSectionList).coverage == {"name": 1.0, "section_schemas": 1.0}
+
+
+def test_a_mapping_column_reaches_both_frame_builders() -> None:
+    records = [ExampleSectionList("first", FrozenMapping({"alpha": 3}))]
+    columns = to_columns(records, ExampleSectionList)
+    assert to_pandas(columns)["section_schemas"].tolist() == [{"alpha": 3}]
+    # polars reads a struct column from dicts and from no other mapping.
+    assert to_polars(columns)["section_schemas"].to_list() == [{"alpha": 3}]
+
+
+def test_a_mapping_column_is_written_as_json(tmp_path: Path) -> None:
+    records = [
+        ExampleSectionList("first", FrozenMapping({"alpha": 3})),
+        ExampleSectionList("second", FrozenMapping({})),
+    ]
+    csv_stream = io.StringIO(newline="")
+    write_csv(flat_rows(records, ExampleSectionList), column_names(ExampleSectionList), csv_stream)
+    assert csv_stream.getvalue().splitlines() == [
+        "name,section_schemas",
+        'first,"{""alpha"":3}"',
+        "second,{}",
+    ]
+    # The writer that reads the records straight writes the same text.
+    csv_path = tmp_path / "sections.csv"
+    Table(records, ExampleSectionList).write_csv(csv_path)
+    assert csv_path.read_bytes() == csv_stream.getvalue().encode("utf-8")
+    json_stream = io.StringIO()
+    write_json([record_to_dict(records[0], json_ready=True)], json_stream)
+    assert json.loads(json_stream.getvalue())[0]["section_schemas"] == {"alpha": 3}
+
+
+def test_a_mapping_column_that_is_not_a_mapping_raises_type_error() -> None:
+    record = ExampleSectionList("first", cast("Mapping[str, int]", "not a mapping"))
+    with pytest.raises(TypeError, match="ExampleSectionList.section_schemas is not a mapping"):
+        record_to_dict(record, json_ready=False)
 
 
 def test_unknown_field_without_unknown_keys_raises_type_error() -> None:

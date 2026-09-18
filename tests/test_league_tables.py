@@ -12,12 +12,12 @@ from pathlib import Path
 import pytest
 
 import fmsave
-from fmsave import Table, checks
+from fmsave import Table, _checks
+from fmsave._checks import GateResult, check_league_tables, enforce, evaluate_league_tables
 from fmsave._layouts import GateBounds, LeagueTableLayout, find_layout
 from fmsave._reader_stats import LeagueTableStats
 from fmsave._save import LEAGUE_TABLES_TABLE_CACHE_KEY
 from fmsave._status import field_status
-from fmsave.checks import GateResult, check_league_tables, enforce, evaluate_league_tables
 from fmsave.export import column_names, record_to_dict
 from fmsave.models.league_tables import (
     LeagueTable,
@@ -746,7 +746,7 @@ def test_a_failed_check_on_a_borrowed_index_stops_the_tables_being_built(
     evaluation_name: str,
     reader_name: str,
 ) -> None:
-    """An index may only be handed out through the accessor that enforces its own checks.
+    """An index may only be handed out through the accessor that enforces its own _checks.
 
     This reader hands borrowed data straight out: a club name and a team slot on every row, a
     competition id on every table, and the stage joins the calendar vote runs on. Taking any of
@@ -760,7 +760,7 @@ def test_a_failed_check_on_a_borrowed_index_stops_the_tables_being_built(
     ) -> tuple[GateResult, ...]:
         return (GateResult("a_failed_gate", 0.5, 0.9, None, False, True),)
 
-    monkeypatch.setattr(checks, evaluation_name, failing_evaluation)
+    monkeypatch.setattr(_checks, evaluation_name, failing_evaluation)
     career_path = write_career(tmp_path)
 
     with (

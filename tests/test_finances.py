@@ -13,15 +13,15 @@ import pytest
 import fmsave
 import fmsave._save as save_module
 from fmsave import FinanceMonth, Sponsorship, SponsorType, export
-from fmsave._layouts import FULL_SAVE_MINIMUM_GAME_DB_BYTES, GateBounds, find_layout
-from fmsave._reader_stats import FinanceStats
-from fmsave._save import FINANCES_TABLE_CACHE_KEY, SPONSORSHIPS_TABLE_CACHE_KEY
-from fmsave.checks import (
+from fmsave._checks import (
     FINANCES_READER,
     SPONSORSHIPS_READER,
     evaluate_finances,
     evaluate_sponsorships,
 )
+from fmsave._layouts import FULL_SAVE_MINIMUM_GAME_DB_BYTES, GateBounds, find_layout
+from fmsave._reader_stats import FinanceStats
+from fmsave._save import FINANCES_TABLE_CACHE_KEY, SPONSORSHIPS_TABLE_CACHE_KEY
 from fmsave.readers._common import GAME_DB_SECTION
 from fmsave.readers.clubs import ClubRecordSpan, find_club_layouts, read_club_index
 from fmsave.readers.finances import (
@@ -540,7 +540,7 @@ def test_no_finance_gate_applies_to_a_fragment() -> None:
 def test_a_failed_finance_check_stops_both_tables(
     career_save_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from fmsave import checks
+    from fmsave import _checks
 
     def failing_evaluate_finances(
         stats: FinanceStats, bounds: GateBounds, game_db_bytes: int
@@ -549,7 +549,7 @@ def test_a_failed_finance_check_stops_both_tables(
             fmsave.GateResult("finance_net_identity", 0.0, 0.99, None, passed=False, applied=True),
         )
 
-    monkeypatch.setattr(checks, "evaluate_finances", failing_evaluate_finances)
+    monkeypatch.setattr(_checks, "evaluate_finances", failing_evaluate_finances)
     with fmsave.open(career_save_path, strict=True) as career_save:
         for read_table in (career_save.finances, career_save.sponsorships):
             with pytest.raises(fmsave.ReaderCheckError, match="^finances failed checks: "):

@@ -15,7 +15,7 @@ import pytest
 
 import fmsave
 from fmsave import AmbiguousNameError, Club, Stage, Table, cli, export
-from fmsave.checks import GateResult
+from fmsave._checks import GateResult
 from fmsave.models.players import Player
 from tests.fixtures.career import (
     ATHLETIC_NATION_ID,
@@ -143,7 +143,7 @@ def test_an_ambiguous_club_name_lists_the_candidates_and_exits_2(
     error_lines = error_text.splitlines()
     assert "  uid 5001  Northbridge FC (Northbridge), nation id 3" in error_lines
     assert "  uid 5006  Northbridge FC (Northbridge), nation id 9" in error_lines
-    assert "later release" in error_text
+    assert "fmsave ships none" in error_text
     assert error_lines[-1].endswith("use the uid to choose one")
 
 
@@ -175,7 +175,7 @@ def test_a_path_like_value_is_reduced_in_the_ambiguity_header() -> None:
         (example_club(5101, shared_short_name), example_club(5102, shared_short_name)), Club
     )
     with pytest.raises(AmbiguousNameError) as error_info:
-        cli.resolve_club(clubs, shared_short_name)
+        cli._resolve_club(clubs, shared_short_name)
     message_lines = str(error_info.value).splitlines()
     assert message_lines[0] == 'more than one club matches "Rovers":'
     assert [line.split()[1] for line in message_lines[1:3]] == ["5101", "5102"]
@@ -236,7 +236,7 @@ def test_a_nation_name_exits_2(save_path: Path, capsys: pytest.CaptureFixture[st
     )
     assert exit_code == cli.EXIT_USAGE
     assert output_text == ""
-    assert "nation names arrive in a later release; pass a nation id" in error_text
+    assert "no save stores a nation name and fmsave ships none; pass a nation id" in error_text
 
 
 @pytest.mark.parametrize(
@@ -281,7 +281,7 @@ def test_a_nation_name_exits_2(save_path: Path, capsys: pytest.CaptureFixture[st
         pytest.param(
             "competition-rules",
             ["--nation", "3"],
-            ("competition rules cannot be scoped by nation", cli.COMPETITION_RULES_NOTE),
+            ("competition rules cannot be scoped by nation", cli._COMPETITION_RULES_NOTE),
             id="competition-rules-nation",
         ),
         pytest.param(
@@ -558,7 +558,7 @@ def test_a_failed_player_check_warns_and_still_writes_the_file(
     def failing_player_gates(*arguments: object) -> tuple[GateResult, ...]:
         return (GateResult("players_minimum", 4, 25000, None, passed=False, applied=True),)
 
-    monkeypatch.setattr("fmsave.checks.evaluate_players", failing_player_gates)
+    monkeypatch.setattr("fmsave._checks.evaluate_players", failing_player_gates)
     output_path = tmp_path / "out.csv"
     exit_code, output_text, error_text = run_export(
         capsys, str(save_path), "players", "--all", "-o", str(output_path)
@@ -579,7 +579,7 @@ def test_a_failed_player_check_with_strict_exits_3_and_writes_no_file(
     def failing_player_gates(*arguments: object) -> tuple[GateResult, ...]:
         return (GateResult("players_minimum", 4, 25000, None, passed=False, applied=True),)
 
-    monkeypatch.setattr("fmsave.checks.evaluate_players", failing_player_gates)
+    monkeypatch.setattr("fmsave._checks.evaluate_players", failing_player_gates)
     output_path = tmp_path / "out.csv"
     exit_code, output_text, error_text = run_export(
         capsys, str(save_path), "players", "--all", "--strict", "-o", str(output_path)
@@ -705,7 +705,7 @@ def export_to_a_failing_output_file(
     def failing_write_records(*arguments: object) -> None:
         raise write_error
 
-    monkeypatch.setattr(cli, "write_records", failing_write_records)
+    monkeypatch.setattr(cli, "_write_records", failing_write_records)
     monkeypatch.setattr(sys, "platform", platform_name)
     output_path = output_folder / "out.csv"
     exit_code = cli.main(["export", str(save_path), "players", "--all", "-o", str(output_path)])
@@ -1319,7 +1319,7 @@ def test_a_failed_fixture_check_with_strict_exits_3(
     def failing_fixture_gates(*arguments: object) -> tuple[GateResult, ...]:
         return (GateResult("fixtures_minimum", FIXTURE_COUNT, 90_000, None, False, True),)
 
-    monkeypatch.setattr("fmsave.checks.evaluate_fixtures", failing_fixture_gates)
+    monkeypatch.setattr("fmsave._checks.evaluate_fixtures", failing_fixture_gates)
     exit_code, output_text, error_text = run_export(
         capsys, str(save_path), "fixtures", "--all", "--strict"
     )
@@ -1443,7 +1443,7 @@ def test_training_takes_no_nation_scope_and_names_its_note(
     assert output_text == ""
     assert "training cannot be scoped by nation" in error_text
     assert "use --club, --managed-club or --all" in error_text
-    assert cli.MANAGED_CLUB_ONLY_NOTE in error_text
+    assert cli._MANAGED_CLUB_ONLY_NOTE in error_text
 
 
 def test_job_vacancies_scoped_to_a_competition_keeps_that_competitions_rows(
@@ -1459,8 +1459,8 @@ def test_job_vacancies_scoped_to_a_competition_keeps_that_competitions_rows(
 
 
 def test_the_competition_rules_help_carries_the_note_about_linked_blocks() -> None:
-    help_text = cli.table_argument_help()
-    assert f"competition-rules ({cli.COMPETITION_RULES_NOTE})" in help_text
+    help_text = cli._table_argument_help()
+    assert f"competition-rules ({cli._COMPETITION_RULES_NOTE})" in help_text
     assert "returns only the blocks that link to one" in help_text
 
 

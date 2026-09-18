@@ -10,17 +10,17 @@ from pathlib import Path
 import pytest
 
 import fmsave
-from fmsave import Table, checks
-from fmsave._layouts import GateBounds, find_layout
-from fmsave._reader_stats import RulesStats
-from fmsave._save import COMPETITION_RULES_TABLE_CACHE_KEY
-from fmsave._status import field_status
-from fmsave.checks import (
+from fmsave import Table, _checks
+from fmsave._checks import (
     GateResult,
     check_competition_rules,
     enforce,
     evaluate_competition_rules,
 )
+from fmsave._layouts import GateBounds, find_layout
+from fmsave._reader_stats import RulesStats
+from fmsave._save import COMPETITION_RULES_TABLE_CACHE_KEY
+from fmsave._status import field_status
 from fmsave.export import column_names
 from fmsave.models.rules import CompetitionRules, RulesBlockKind, RulesRound
 from fmsave.readers import rules as rules_reader
@@ -691,7 +691,7 @@ def test_a_failed_league_table_check_stops_the_rules_being_built(
     ) -> tuple[GateResult, ...]:
         return (GateResult("a_failed_gate", 0.5, 0.9, None, False, True),)
 
-    monkeypatch.setattr(checks, "evaluate_league_tables", failing_league_table_gates)
+    monkeypatch.setattr(_checks, "evaluate_league_tables", failing_league_table_gates)
 
     with (
         fmsave.open(career_save_path, strict=True) as career_save,

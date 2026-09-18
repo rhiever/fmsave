@@ -9,10 +9,10 @@ from pathlib import Path
 import pytest
 
 import fmsave
+from fmsave._checks import JOB_VACANCIES_READER, GateResult, evaluate_job_vacancies
 from fmsave._errors import ReaderCheckError, SaveClosedError
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import JobVacancyStats
-from fmsave.checks import JOB_VACANCIES_READER, GateResult, evaluate_job_vacancies
 from fmsave.export import column_names
 from fmsave.models.jobs import JobVacancy
 from fmsave.readers._common import GAME_DB_SECTION, MISSING_REFERENCE

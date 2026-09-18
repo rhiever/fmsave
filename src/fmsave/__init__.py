@@ -16,11 +16,19 @@ from fmsave._errors import (
 from fmsave._package import __version__
 from fmsave._save import Save
 from fmsave._save import open_save as open
-from fmsave._status import field_status
-from fmsave.checks import GateResult, ReaderValidation, ValidationReport, validate_save
+from fmsave._status import FieldStatus, field_status
+from fmsave.checks import (
+    GateCheckError,
+    GateResult,
+    ReaderCheck,
+    ReaderStatus,
+    ReaderValidation,
+    ValidationReport,
+    validate_save,
+)
 from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.clubs import Club, Team
-from fmsave.models.common import CodedValue, ContractEndSource
+from fmsave.models.common import CodedValue, ContractEndSource, TransferValueState
 from fmsave.models.competitions import Competition, CompetitionRound, Stage
 from fmsave.models.contracts import (
     Clause,
@@ -109,10 +117,12 @@ __all__ = [
     "ContractType",
     "CorporateFacilities",
     "CorruptSaveError",
+    "FieldStatus",
     "FinanceMonth",
     "Fixture",
     "FmsaveError",
     "FmsaveWarning",
+    "GateCheckError",
     "GateResult",
     "InjuryCause",
     "InjuryRecord",
@@ -135,8 +145,10 @@ __all__ = [
     "PlayerMatchStats",
     "PlayerSuspension",
     "Positions",
+    "ReaderCheck",
     "ReaderCheckError",
     "ReaderCheckWarning",
+    "ReaderStatus",
     "ReaderValidation",
     "Reputation",
     "RulesBlockKind",
@@ -168,6 +180,7 @@ __all__ = [
     "TrainingSchedule",
     "TrainingWeek",
     "Trait",
+    "TransferValueState",
     "TransferWindow",
     "UnknownBuildWarning",
     "UnsupportedGameError",

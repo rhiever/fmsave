@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 
 import fmsave
+from fmsave._checks import GateResult, enforce, evaluate_results
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import ResultStats
-from fmsave.checks import GateResult, enforce, evaluate_results
 from fmsave.models.fixtures import Fixture
 from fmsave.readers._common import GAME_DB_SECTION
 from fmsave.readers.results import (

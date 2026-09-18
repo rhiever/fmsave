@@ -12,10 +12,10 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 import fmsave
+from fmsave._checks import INJURY_HISTORY_READER, GateResult, evaluate_injury_history
 from fmsave._errors import FmsaveError, ReaderCheckError, SaveClosedError
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import InjuryStats
-from fmsave.checks import INJURY_HISTORY_READER, GateResult, evaluate_injury_history
 from fmsave.export import column_names
 from fmsave.models.injuries import (
     InjuryCause,

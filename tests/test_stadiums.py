@@ -11,6 +11,14 @@ from pathlib import Path
 import pytest
 
 import fmsave
+from fmsave._checks import (
+    GateResult,
+    check_stadiums,
+    enforce,
+    evaluate_fixtures,
+    evaluate_stadium_table,
+    evaluate_stadiums,
+)
 from fmsave._context import STADIUM_INDEX_CACHE_KEY
 from fmsave._errors import SaveClosedError
 from fmsave._layouts import (
@@ -21,14 +29,6 @@ from fmsave._layouts import (
 )
 from fmsave._reader_stats import FixtureStats, StadiumStats
 from fmsave._status import field_status
-from fmsave.checks import (
-    GateResult,
-    check_stadiums,
-    enforce,
-    evaluate_fixtures,
-    evaluate_stadium_table,
-    evaluate_stadiums,
-)
 from fmsave.export import column_names
 from fmsave.models.fixtures import Fixture
 from fmsave.models.stadiums import Stadium

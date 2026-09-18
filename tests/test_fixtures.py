@@ -11,6 +11,7 @@ import pytest
 
 import fmsave
 from fmsave import Table
+from fmsave._checks import GateResult, check_fixtures, enforce, evaluate_fixtures
 from fmsave._layouts import (
     FULL_SAVE_MINIMUM_SPAN_BYTES,
     FixtureCalendarLayout,
@@ -20,7 +21,6 @@ from fmsave._layouts import (
 from fmsave._reader_stats import FixtureStats, ResultStats
 from fmsave._save import FIXTURES_TABLE_CACHE_KEY
 from fmsave._status import field_status
-from fmsave.checks import GateResult, check_fixtures, enforce, evaluate_fixtures
 from fmsave.export import column_names, record_to_dict
 from fmsave.models.competitions import CompetitionRound
 from fmsave.models.fixtures import Fixture

@@ -11,17 +11,17 @@ from hypothesis import strategies as strategy
 
 import fmsave
 from fmsave import _context as context_module
-from fmsave._container import ContainerIndex
-from fmsave._errors import FmsaveError, SaveClosedError
-from fmsave._layouts import GateBounds, find_layout
-from fmsave._reader_stats import TacticStats
-from fmsave.checks import (
+from fmsave._checks import (
     SET_PIECES_READER,
     TACTICS_READER,
     GateResult,
     evaluate_set_pieces,
     evaluate_tactics,
 )
+from fmsave._container import ContainerIndex
+from fmsave._errors import FmsaveError, SaveClosedError
+from fmsave._layouts import GateBounds, find_layout
+from fmsave._reader_stats import TacticStats
 from fmsave.export import column_names, record_to_dict
 from fmsave.models.common import CodedValue
 from fmsave.models.tactics import (

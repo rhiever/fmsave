@@ -14,7 +14,7 @@ import pytest
 
 import fmsave
 import fmsave._context as context_module
-from fmsave import checks
+from fmsave import _checks
 from fmsave._container import ContainerIndex
 from fmsave._frozen import FrozenMapping
 from fmsave.models.suspensions import SuspensionScope
@@ -43,9 +43,9 @@ FIRST_COMPETITION_ONLY = {FIRST_COMPETITION_DATABASE_ID: FIRST_COMPETITION_NAME}
 BROKEN_GATE_NAME = "fictional_competition_gate"
 
 
-def failing_competition_gates(*_arguments: object) -> tuple[checks.GateResult, ...]:
+def failing_competition_gates(*_arguments: object) -> tuple[_checks.GateResult, ...]:
     """One competition check that fails, standing in for a decode that came out wrong."""
-    return (checks.GateResult(BROKEN_GATE_NAME, 0.0, 1.0, None, passed=False, applied=True),)
+    return (_checks.GateResult(BROKEN_GATE_NAME, 0.0, 1.0, None, passed=False, applied=True),)
 
 
 def write_names_csv(folder: Path, csv_text: str) -> Path:
@@ -329,14 +329,14 @@ def test_a_failing_competition_check_leaves_stages_unable_to_name_anything(
     name on every stage row, and a reader who called only `stages()` would see no error at all.
     """
 
-    monkeypatch.setattr(checks, "evaluate_competitions", failing_competition_gates)
+    monkeypatch.setattr(_checks, "evaluate_competitions", failing_competition_gates)
 
     with fmsave.open(
         career_save_path, strict=True, competition_names=FIRST_COMPETITION_ONLY
     ) as career_save:
-        with pytest.raises(checks.GateCheckError) as stages_error:
+        with pytest.raises(_checks.GateCheckError) as stages_error:
             career_save.stages()
-        with pytest.raises(checks.GateCheckError):
+        with pytest.raises(_checks.GateCheckError):
             career_save.competitions()
 
     message = str(stages_error.value)
@@ -350,7 +350,7 @@ def test_a_failing_competition_check_leaves_an_unnamed_save_reading_stages(
     """Without a map the stage table names nothing, so it needs no competition index and the
     competition checks are none of its business."""
 
-    monkeypatch.setattr(checks, "evaluate_competitions", failing_competition_gates)
+    monkeypatch.setattr(_checks, "evaluate_competitions", failing_competition_gates)
 
     with fmsave.open(career_save_path) as career_save:
         stages_table = career_save.stages()
