@@ -100,7 +100,11 @@ INJURY_TYPE_TABLE = InjuryTypeTableLayout(
 # The injury history the `injury_manager` section stores: four arrays, three lists and an
 # eight-byte tail, back to back from offset 12, ending on the section's last byte. The two
 # arrays of stride 14 hold date pairs no reader ships; array 2 carries one typed row per
-# injured person and array 3 the log of past injuries.
+# injured person and array 3 the log of past injuries. A typed row's date ran from 66 days
+# ahead of the in-game date to 8 days behind it across the save states measured, so the band
+# the date check judges those dates against is 180 days either way: wide enough that a career
+# state no save has shown yet passes, narrow enough that the dates a misread row decodes,
+# which land more than a thousand days out, do not.
 INJURY_MANAGER = InjuryManagerLayout(
     arrays_offset=12,
     array_strides=(14, 14, 13, 15),
@@ -117,7 +121,7 @@ INJURY_MANAGER = InjuryManagerLayout(
     typed_type_offset=9,
     typed_r11_offset=11,
     typed_r12_offset=12,
-    typed_retention_days=7,
+    typed_clock_band_days=180,
     recent_log_days=30,
 )
 
@@ -1201,14 +1205,18 @@ GATE_BOUNDS = GateBounds(
     # player records, and putting a random player in place of the stored one scores 0.0 /
     # 0.00027 / 0.00016. The floor leaves room for the transfers a month of a career brings.
     injury_log_recent_team_matches=(0.90, None),
-    # Every typed row carries the lead byte, and 0.9883 / 0.9884 / 0.9929 carry a date that is
-    # inside the window the game keeps a typed row for; the rest store the null date word. Read
-    # one byte late the lead byte falls to 0.0117 / 0.0116 / 0.0071 and the dated-and-in-window
-    # share to 0.0058 / 0.0018 / 0.0040, and four bytes late both are zero. The share is taken
-    # over every typed row on purpose: over the dated rows alone it is 1.0 read one byte late
-    # too, because the few dates that still decode all land inside the window.
+    # Every typed row carries the lead byte, and 0.9883 / 0.9884 / 0.9929 / 0.9931 carry a date
+    # that lands within the band around the in-game date; the rest store the null date word.
+    # Read one byte late the lead byte falls to 0.0117 / 0.0116 / 0.0071 / 0.0037 and the
+    # dated-and-near-the-clock share to zero on every state, because the few dates that still
+    # decode land over a thousand days away; four bytes late no date decodes at all. The share
+    # is taken over every typed row on purpose: over the dated rows alone it is 1.0 read one
+    # byte late too. How far behind the clock the game keeps a typed row is career state, so
+    # the band is deliberately much wider than the deviations measured rather than drawn round
+    # them: an earlier floor on a one-week window measured 0.9015 on a later save state and
+    # failed a reader that was reading the section correctly.
     injury_typed_lead_byte=(0.999, None),
-    injury_typed_retention=(0.95, None),
+    injury_typed_dates_near_clock=(0.95, None),
     # 0.9157 / 0.9445 / 0.9387 of typed rows carry an injury type the name table holds; the
     # rest carry one of a dozen codes the table has no entry for at all, so the floor sits well
     # below them. Read one or four bytes late the share is zero on all three saves.

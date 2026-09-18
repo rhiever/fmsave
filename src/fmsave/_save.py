@@ -714,9 +714,11 @@ class Save:
         says which person a history belongs to.
 
         A `TYPED` row carries the injury type of a recent or current episode. Its date runs
-        from a week behind the in-game date to weeks ahead of it, and **it is not a list of
-        injuries the player has recovered from**: what it names is the type, which no
-        `HISTORY` row carries. About one type code in fifteen has no entry in
+        from a little over a week behind the in-game date to a couple of months ahead of it,
+        and how far behind depends on the save: the oldest was seven days back on five of the
+        save states measured and eight days back on two, so nothing here treats a week as a
+        rule. It is **not a list of injuries the player has recovered from**: what it names is
+        the type, which no `HISTORY` row carries. About one type code in fifteen has no entry in
         `Save.injury_types`, and then `type_name` is empty.
 
         A row whose person the save no longer keeps as a player leaves `player_uid` and

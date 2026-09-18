@@ -92,7 +92,7 @@ GATE_NAMES = (
     "injury_log_teams_resolved",
     "injury_log_recent_team_matches",
     "injury_typed_lead_byte",
-    "injury_typed_retention",
+    "injury_typed_dates_near_clock",
     "injury_typed_types_resolved",
 )
 # What the largest save measured counts, which is what the synthetic check cases start from.
@@ -129,7 +129,8 @@ def healthy_stats(**overrides: int) -> InjuryStats:
         "typed_rows": MEASURED_TYPED_ROWS,
         "typed_lead_ok": MEASURED_TYPED_ROWS,
         "typed_dated": 1_524,
-        "typed_within_retention": 1_524,
+        "typed_dated_near_clock": 1_524,
+        "typed_dated_over_a_week_old": 0,
         "typed_players_resolved": 1_540,
         "typed_types_resolved": 1_412,
         "type_table_entries": 93,
@@ -296,7 +297,8 @@ def test_the_walk_and_the_joins_count_every_row(career_path: Path) -> None:
         typed_rows=3,
         typed_lead_ok=3,
         typed_dated=2,
-        typed_within_retention=2,
+        typed_dated_near_clock=2,
+        typed_dated_over_a_week_old=0,
         typed_players_resolved=2,
         typed_types_resolved=2,
         type_table_entries=5,
@@ -444,32 +446,60 @@ def test_a_body_the_walk_cannot_consume_exactly_names_its_section(body: bytes) -
         walk_injury_manager(body, LAYOUT, FILE_NAME)
 
 
-def test_a_typed_row_older_than_the_retention_window_is_still_returned(
-    tmp_path: Path,
-) -> None:
-    overdue = injury_manager_body(
+def typed_rows_with_one_extra_date(packed: bytes) -> bytes:
+    """The career fragment's section with one more typed row, dated as given."""
+    return injury_manager_body(
         window_a=career_injury_window_rows(),
         window_b=career_injury_window_rows(),
         typed=(
             *career_typed_injury_rows(),
-            # Ten days before the in-game date, which is past the seven days the game keeps.
-            injury_typed_row_bytes(
-                date=packed_date(50, 2031), selector=1, type_id=NAMED_TYPE_ID, r11=1, r12=1
-            ),
+            injury_typed_row_bytes(date=packed, selector=1, type_id=NAMED_TYPE_ID, r11=1, r12=1),
         ),
         log=career_injury_log_rows(),
         lists=((12,), (), ()),
     )
-    save_path = career_fragment(injury_manager_section=overdue).write(tmp_path / "career.bin")
+
+
+def test_a_typed_row_more_than_a_week_old_is_returned_and_counted_near_the_clock(
+    tmp_path: Path,
+) -> None:
+    # Ten days before the in-game date. Whether the game still holds a row that old is career
+    # state: the oldest was seven days back on five save states measured and eight on two, so
+    # this row is sound, counted as near the clock, and reported as an anomaly only.
+    ten_days_old = typed_rows_with_one_extra_date(packed_date(50, 2031))
+    save_path = career_fragment(injury_manager_section=ten_days_old).write(tmp_path / "career.bin")
+
+    with fmsave.open(save_path) as save:
+        history = save.injury_history()
+        _rows, stats = career_rows(save)
+        reader_check = save._reader_check(INJURY_HISTORY_READER)
+
+    assert len(history) == 7
+    assert stats.typed_rows == 4
+    assert stats.typed_dated == 3
+    assert stats.typed_dated_near_clock == 3
+    assert stats.typed_dated_over_a_week_old == 1
+    assert reader_check is not None
+    assert reader_check.anomalies["typed_rows_over_a_week_old"] == 1
+    assert reader_check.anomalies["typed_rows_far_from_the_clock"] == 0
+
+
+def test_a_typed_row_dated_years_from_the_clock_is_returned_and_counted_apart(
+    tmp_path: Path,
+) -> None:
+    # Two years before the in-game date, which is where a date read from neighbouring bytes
+    # lands and further than the band the date gate judges.
+    years_old = typed_rows_with_one_extra_date(packed_date(50, 2029))
+    save_path = career_fragment(injury_manager_section=years_old).write(tmp_path / "career.bin")
 
     with fmsave.open(save_path) as save:
         history = save.injury_history()
         _rows, stats = career_rows(save)
 
     assert len(history) == 7
-    assert stats.typed_rows == 4
     assert stats.typed_dated == 3
-    assert stats.typed_within_retention == stats.typed_dated - 1
+    assert stats.typed_dated_near_clock == stats.typed_dated - 1
+    assert stats.typed_dated_over_a_week_old == 1
 
 
 def test_a_save_with_no_per_match_file_names_no_type_and_applies_no_type_gate(
@@ -555,7 +585,8 @@ def test_the_anomalies_count_the_parts_no_row_carries(career_path: Path) -> None
         "unresolved_log_teams": 0,
         "untyped_rows": 1,
         "undated_typed_rows": 1,
-        "typed_rows_outside_retention": 0,
+        "typed_rows_far_from_the_clock": 0,
+        "typed_rows_over_a_week_old": 0,
     }
 
 
@@ -601,8 +632,8 @@ def test_the_gates_every_save_measured_passes() -> None:
             "injury_typed_lead_byte", {"typed_lead_ok": 18}, id="the typed lead byte read late"
         ),
         pytest.param(
-            "injury_typed_retention",
-            {"typed_dated": 9, "typed_within_retention": 9},
+            "injury_typed_dates_near_clock",
+            {"typed_dated": 9, "typed_dated_near_clock": 0},
             id="the typed date read late",
         ),
         pytest.param(
@@ -643,25 +674,41 @@ def test_the_share_of_people_who_are_still_players_is_counted_and_never_gated() 
     assert failed_gate_names(results) == []
 
 
-def test_the_retention_gate_counts_over_every_typed_row_and_not_over_the_dated_ones() -> None:
-    # Read one byte late, 9 of the 1,542 typed rows still decode a date and every one of them
-    # lands inside the window, so a share taken over the dated rows alone is 1.0 and cannot
-    # fail. The wider denominator is what makes 9 rows a failure.
-    misaligned = healthy_stats(typed_dated=9, typed_within_retention=9)
-    over_the_dated_rows = misaligned.typed_within_retention / misaligned.typed_dated
+def test_the_date_gate_counts_over_every_typed_row_and_not_over_the_dated_ones() -> None:
+    # Read one byte late, 9 of the 1,542 typed rows still decode a date, and a share taken
+    # over those 9 dated rows alone cannot fail whatever they decode to. The wider denominator
+    # is what makes 9 rows a failure.
+    misaligned = healthy_stats(typed_dated=9, typed_dated_near_clock=9)
+    over_the_dated_rows = misaligned.typed_dated_near_clock / misaligned.typed_dated
 
     assert over_the_dated_rows == 1.0
     assert failed_gate_names(evaluate_injury_history(misaligned, BOUNDS)) == [
-        "injury_typed_retention"
+        "injury_typed_dates_near_clock"
     ]
 
 
-def test_a_date_that_decodes_outside_the_retention_window_fails_the_retention_gate() -> None:
+def test_a_date_that_decodes_far_from_the_clock_fails_the_date_gate() -> None:
     # Every typed row carries a date, and every one of them decodes to a year the game has
-    # long passed: a share on how many rows are dated at all would score 1.0 on this.
-    results = evaluate_injury_history(healthy_stats(typed_within_retention=0), BOUNDS)
+    # long passed: a share on how many rows are dated at all would score 1.0 on this, and that
+    # is where every typed date that still decodes one byte late lands.
+    results = evaluate_injury_history(healthy_stats(typed_dated_near_clock=0), BOUNDS)
 
-    assert failed_gate_names(results) == ["injury_typed_retention"]
+    assert failed_gate_names(results) == ["injury_typed_dates_near_clock"]
+
+
+def test_the_date_gate_passes_the_oldest_rows_any_save_state_has_held() -> None:
+    # The oldest dated typed row was seven days behind the clock on five of the save states
+    # measured and eight days behind on two, a full day's rows at that age rather than a
+    # remnant: 225 of 2,457 on the newest, which is what a floor drawn round a one-week window
+    # failed. The band is wide enough that career state cannot fail this gate on its own.
+    a_tenth_of_the_rows_over_a_week_old = healthy_stats(
+        typed_dated_over_a_week_old=MEASURED_TYPED_ROWS // 10
+    )
+
+    assert (
+        failed_gate_names(evaluate_injury_history(a_tenth_of_the_rows_over_a_week_old, BOUNDS))
+        == []
+    )
 
 
 @settings(max_examples=200, deadline=None)

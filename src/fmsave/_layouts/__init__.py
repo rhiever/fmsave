@@ -1086,9 +1086,12 @@ class InjuryManagerLayout:
 
     Both dates carry time-slot bits in the high bits of their first word, so they are decoded
     with `fmsave._scan.decode_date` rather than any validator that wants those bits clear.
-    `typed_retention_days` is how long past its date the game keeps a typed row, and
-    `recent_log_days` how far back a log row counts as recent for the check that compares its
-    team with the player's current one.
+    `typed_clock_band_days` is how far either side of the in-game date a typed row's date may
+    sit before the check that judges those dates counts it as unsound, and `recent_log_days`
+    how far back a log row counts as recent for the check that compares its team with the
+    player's current one. The band is not a rule the game keeps to: it is wide enough to hold
+    every dated typed row of every save measured with room to spare, and narrow enough that a
+    date read from neighbouring bytes falls outside it.
     """
 
     arrays_offset: int
@@ -1106,7 +1109,7 @@ class InjuryManagerLayout:
     typed_type_offset: int
     typed_r11_offset: int
     typed_r12_offset: int
-    typed_retention_days: int
+    typed_clock_band_days: int
     recent_log_days: int
 
 
@@ -1637,8 +1640,9 @@ class GateBounds:
     rows; `injury_log_ascending` (steps from one dated row to the next that did not reach an
     earlier date, of those steps); `injury_log_recent_team_matches` (recent rows whose stored
     team is the player's current team, of recent rows whose player resolves and has a team);
-    `injury_typed_lead_byte`, `injury_typed_retention` (rows whose date decodes **and** falls
-    inside the window the game keeps a typed row for) and `injury_typed_types_resolved` (rows
+    `injury_typed_lead_byte`, `injury_typed_dates_near_clock` (rows whose date decodes **and**
+    lands within `typed_clock_band_days` of the in-game date) and
+    `injury_typed_types_resolved` (rows
     whose injury type the name table holds), all as shares of the typed rows. They apply from
     `injury_manager_minimum_applies_from_bytes` of decompressed section, because the checks
     judge full-save counts and a fragment carries none.
@@ -1646,8 +1650,8 @@ class GateBounds:
     The walk itself is the structural check and it raises rather than scoring: a start or a
     stride read wrong cannot consume the section exactly. What these shares add is a judgement
     of each row's own shape, and each one separates a sound decode from the same rows read one
-    or four bytes late: the lead byte falls to at most 0.012, the dated-and-in-window share to
-    at most 0.006 and the injury types to zero, teams to at most 0.21, and the ascending share
+    or four bytes late: the lead byte falls to at most 0.012, the dated-and-near-the-clock
+    share to zero and the injury types to zero, teams to at most 0.21, and the ascending share
     to at most 0.82. `injury_log_recent_team_matches` is the one join to a table read from
     another section entirely, and putting a random player in place of the stored one scores at
     most 0.0003 on it. `injury_log_ascending` is judged on the steps between dated rows and is
@@ -1655,14 +1659,23 @@ class GateBounds:
     log rows from which not one date decodes is what a decode read one byte out looks like, so
     it fails there for want of a rate.
 
-    `injury_typed_retention` counts over **every** typed row rather than over the dated ones,
-    and that denominator is the whole reason it can fail. Over the dated rows the share is 1.0
-    read correctly and 1.0 read one byte late too, because the handful of dates that still
-    decode there all happen to land inside the window; over every typed row it falls from
-    0.988 to 0.006, the same margin a plain check on how many rows carry a date has. It also
-    catches what that plain check cannot: a date read from neighbouring bytes that decodes to
-    a year the game has long passed. Since every dated row of every save measured is inside
-    the window, this one check covers both, so there is no separate check on dated rows.
+    `injury_typed_dates_near_clock` counts over **every** typed row rather than over the dated
+    ones, and that denominator is the whole reason it can fail. Over the dated rows the share
+    is 1.0 read correctly and 1.0 read one byte late too, because the handful of dates that
+    still decode there land near the clock as well; over every typed row it falls from 0.988
+    to 0.0. It subsumes a plain check on how many rows carry a date and catches what that
+    check cannot: a date read from neighbouring bytes that decodes to a year the game has
+    long passed, which is where every date that still decodes one byte late lands.
+
+    What the band does **not** claim is a retention rule. How far behind the in-game date a
+    typed row may sit is career state, not layout: on seven save states measured the oldest
+    dated typed row was seven days behind the clock on five of them and eight days behind on
+    the other two, with a full day's worth of rows at that age rather than a remnant, so a
+    bound drawn tight around either figure fails a save the reader reads correctly. The band
+    is `typed_clock_band_days` either side of the clock instead: 2.7 times the widest
+    deviation measured (66 days, ahead of the clock), while every date read one byte late
+    lands more than a thousand days away. The counts behind the tail are reported as
+    anomalies.
 
     One counted share carries no gate: how many log rows still name a player is 0.94 to 0.96,
     and it is career state rather than layout, since a person the save no longer keeps as a
@@ -1850,7 +1863,7 @@ class GateBounds:
     injury_log_teams_resolved: BoundPair
     injury_log_recent_team_matches: BoundPair
     injury_typed_lead_byte: BoundPair
-    injury_typed_retention: BoundPair
+    injury_typed_dates_near_clock: BoundPair
     injury_typed_types_resolved: BoundPair
     finance_net_identity: BoundPair
     finance_balance_continuity: BoundPair

@@ -59,6 +59,10 @@ _FLAG_BYTES = 1
 # What a log row's team field holds when it names no team. No save measured stores either, but
 # every other reader that ships a stored id reads them this way.
 _NO_TEAM = frozenset({0, MISSING_REFERENCE})
+# How far behind the in-game date a typed row has to sit to be counted as part of the tail. A
+# week was once taken for the horizon the game keeps these rows to, and a later save state held
+# a full day's rows behind it, so the count is reported and nothing is judged by it.
+_TYPED_TAIL_DAYS = 7
 
 
 def find_injury_type_layout(build: str) -> InjuryTypeTableLayout:
@@ -458,7 +462,10 @@ def build_injury_records(
     name_by_type_id = {injury_type.id: injury_type.name for injury_type in injury_types}
     lead_byte = layout.lead_byte
     recent_from = clock - timedelta(days=layout.recent_log_days)
-    retention = timedelta(days=layout.typed_retention_days)
+    clock_band = timedelta(days=layout.typed_clock_band_days)
+    band_starts = clock - clock_band
+    band_ends = clock + clock_band
+    tail_starts = clock - timedelta(days=_TYPED_TAIL_DAYS)
 
     records: list[InjuryRecord] = []
     log_lead_ok = 0
@@ -541,7 +548,8 @@ def build_injury_records(
 
     typed_lead_ok = 0
     typed_dated = 0
-    typed_within_retention = 0
+    typed_dated_near_clock = 0
+    typed_dated_over_a_week_old = 0
     typed_players_resolved = 0
     typed_types_resolved = 0
     unpack_typed_row = typed_fields.fields_struct.unpack_from
@@ -555,8 +563,10 @@ def build_injury_records(
         typed_date = decode_date(section, date_offset)
         if typed_date is not None:
             typed_dated += 1
-            if typed_date + retention >= clock:
-                typed_within_retention += 1
+            if band_starts <= typed_date <= band_ends:
+                typed_dated_near_clock += 1
+            if typed_date < tail_starts:
+                typed_dated_over_a_week_old += 1
         selector = field_values[typed_fields.selector_index]
         record_position = position_by_pindex.get(selector - 1)
         player_uid = None if record_position is None else record_uids[record_position]
@@ -609,7 +619,8 @@ def build_injury_records(
         typed_rows=walk.typed_rows,
         typed_lead_ok=typed_lead_ok,
         typed_dated=typed_dated,
-        typed_within_retention=typed_within_retention,
+        typed_dated_near_clock=typed_dated_near_clock,
+        typed_dated_over_a_week_old=typed_dated_over_a_week_old,
         typed_players_resolved=typed_players_resolved,
         typed_types_resolved=typed_types_resolved,
         type_table_entries=len(injury_types),

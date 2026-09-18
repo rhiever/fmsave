@@ -1315,13 +1315,17 @@ def evaluate_injury_history(stats: InjuryStats, bounds: GateBounds) -> tuple[Gat
     is excused as well when the name table is empty, since a save carrying no per-match file
     holds these names nowhere at all.
 
-    `injury_typed_retention` is a share of **every** typed row, not of the dated ones. Taken
-    over the dated rows it is 1.0 read correctly and 1.0 read one byte late as well, because
-    the handful of dates that still decode there all happen to land inside the window, so it
-    could not fail its own misalignment; over every typed row it falls from 0.988 to 0.006.
-    It subsumes a plain check on how many rows carry a date, since every dated row of every
-    save measured is inside the window, and it catches one thing more: a date read from
-    neighbouring bytes that decodes to a year the game has long passed.
+    `injury_typed_dates_near_clock` is a share of **every** typed row, not of the dated ones.
+    Taken over the dated rows it is 1.0 read correctly and 1.0 read one byte late as well, so
+    it could not fail its own misalignment; over every typed row it falls from 0.988 to zero.
+    It subsumes a plain check on how many rows carry a date and catches one thing more: a date
+    read from neighbouring bytes that decodes to a year the game has long passed, which is
+    where every date that still decodes one byte late lands. The band it judges against is
+    much wider than any deviation measured, because how far behind the in-game date the game
+    keeps a typed row is career state: five of the seven save states measured held nothing
+    older than seven days and two held a full day's rows at eight days, so a bound drawn
+    tight round either figure fails a section read correctly. `typed_rows_over_a_week_old` is
+    reported as an anomaly for that reason and no gate judges it.
 
     One counted share carries no gate: how many log rows still name a player runs 0.94 to
     0.96 and is career state, since a person the save no longer keeps as a player is a real
@@ -1371,9 +1375,9 @@ def evaluate_injury_history(stats: InjuryStats, bounds: GateBounds) -> tuple[Gat
             typed_applied,
         ),
         _gate(
-            "injury_typed_retention",
-            _rate(stats.typed_within_retention, typed_rows),
-            bounds.injury_typed_retention,
+            "injury_typed_dates_near_clock",
+            _rate(stats.typed_dated_near_clock, typed_rows),
+            bounds.injury_typed_dates_near_clock,
             typed_applied,
         ),
         _gate(
@@ -1393,9 +1397,11 @@ def check_injury_history(stats: InjuryStats, bounds: GateBounds) -> ReaderCheck:
     says what it passed over. `log_rows_without_a_player` and `typed_rows_without_a_player`
     count the rows whose person the save no longer keeps as a player, which no gate judges.
     `unresolved_log_teams`, `untyped_rows`, `undated_typed_rows` and
-    `typed_rows_outside_retention` split what the gated shares left out: the last two together
-    are what `injury_typed_retention` counts against, and every save measured holds the first
-    of them and none of the second.
+    `typed_rows_far_from_the_clock` split what the gated shares left out: the last two
+    together are what `injury_typed_dates_near_clock` counts against, and every save measured
+    holds the first of them and none of the second. `typed_rows_over_a_week_old` counts the
+    dated typed rows further behind the in-game date than a week, which runs from none to a
+    tenth of the rows depending on the save state and is career state rather than layout.
     """
     first_list, second_list, third_list = (stats.list_entries + (0, 0, 0))[:3]
     return ReaderCheck(
@@ -1414,7 +1420,8 @@ def check_injury_history(stats: InjuryStats, bounds: GateBounds) -> ReaderCheck:
                 "unresolved_log_teams": stats.log_rows - stats.log_teams_resolved,
                 "untyped_rows": stats.typed_rows - stats.typed_types_resolved,
                 "undated_typed_rows": stats.typed_rows - stats.typed_dated,
-                "typed_rows_outside_retention": stats.typed_dated - stats.typed_within_retention,
+                "typed_rows_far_from_the_clock": stats.typed_dated - stats.typed_dated_near_clock,
+                "typed_rows_over_a_week_old": stats.typed_dated_over_a_week_old,
             }
         ),
     )

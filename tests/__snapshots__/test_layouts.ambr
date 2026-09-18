@@ -776,9 +776,9 @@
         'selector_offset': 5,
         'tail': b'\x01\x00\x00\x00\x00\x00\xff\xff',
         'typed_array_index': 2,
+        'typed_clock_band_days': 180,
         'typed_r11_offset': 11,
         'typed_r12_offset': 12,
-        'typed_retention_days': 7,
         'typed_type_offset': 9,
       }),
       'region': 'injury_manager',
@@ -1412,12 +1412,12 @@
           20,
           None,
         ),
-        'injury_typed_lead_byte': tuple(
-          0.999,
+        'injury_typed_dates_near_clock': tuple(
+          0.95,
           None,
         ),
-        'injury_typed_retention': tuple(
-          0.95,
+        'injury_typed_lead_byte': tuple(
+          0.999,
           None,
         ),
         'injury_typed_types_resolved': tuple(

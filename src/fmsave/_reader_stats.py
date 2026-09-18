@@ -531,7 +531,9 @@ class InjuryStats:
     those storing exactly the team that player is registered with now.
 
     Of the typed rows: `typed_lead_ok` and `typed_dated` count the same two shapes,
-    `typed_within_retention` the dated rows the game's retention window still covers,
+    `typed_dated_near_clock` the dated rows whose date lands within the layout's band either
+    side of the in-game date and `typed_dated_over_a_week_old` those more than seven days
+    behind it, which is career state and no gate's business,
     `typed_players_resolved` those whose stored person is still a player and
     `typed_types_resolved` those whose injury type the name table holds.
     `type_table_entries` is how many names that table held at all, which is zero on a save
@@ -554,7 +556,8 @@ class InjuryStats:
     typed_rows: int
     typed_lead_ok: int
     typed_dated: int
-    typed_within_retention: int
+    typed_dated_near_clock: int
+    typed_dated_over_a_week_old: int
     typed_players_resolved: int
     typed_types_resolved: int
     type_table_entries: int
