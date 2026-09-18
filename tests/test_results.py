@@ -392,7 +392,7 @@ def test_healthy_result_counts_pass_every_gate_and_a_small_span_applies_none() -
     results = evaluate_results(healthy_result_stats(), BOUNDS, FULL_SIZE_SPAN_BYTES)
     assert tuple(result.name for result in results) == RESULT_GATE_NAMES
     assert all(result.applied and result.passed for result in results)
-    enforce("fixtures", results)
+    enforce("fixtures", results, strict=True)
 
     small_results = evaluate_results(healthy_result_stats(), BOUNDS, SMALL_SPAN_BYTES)
     assert all(not result.applied and result.passed for result in small_results)
@@ -444,10 +444,10 @@ def test_result_gates_fail_one_at_a_time(stats: ResultStats, expected_failures: 
 
     assert failed_gate_names(results) == expected_failures
     if not expected_failures:
-        enforce("fixtures", results)
+        enforce("fixtures", results, strict=True)
         return
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("fixtures", results)
+        enforce("fixtures", results, strict=True)
     message = str(error_info.value)
     assert expected_failures[0] in message
     for fictional_text in ("Alex", "Northbridge", "Example", FILE_NAME):
@@ -513,7 +513,7 @@ def test_each_result_gate_stops_the_reader_when_its_count_passes_its_bound(
     with_result_bounds(monkeypatch)
 
     with (
-        fmsave.open(career_path) as career_save,
+        fmsave.open(career_path, strict=True) as career_save,
         pytest.raises(fmsave.ReaderCheckError) as error_info,
     ):
         career_save.fixtures()

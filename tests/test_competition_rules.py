@@ -483,7 +483,7 @@ def test_healthy_counts_pass_every_gate_and_a_small_span_applies_none() -> None:
 
     assert tuple(result.name for result in results) == GATE_NAMES
     assert all(result.applied and result.passed for result in results)
-    enforce("competition_rules", results)
+    enforce("competition_rules", results, strict=True)
 
     small_results = evaluate_competition_rules(healthy_stats(), BOUNDS, SMALL_SPAN_BYTES)
     assert all(not result.applied and result.passed for result in small_results)
@@ -574,10 +574,10 @@ def test_the_rules_gates_fail_one_at_a_time(
 
     assert failed_gate_names(results) == list(expected_failures)
     if not expected_failures:
-        enforce("competition_rules", results)
+        enforce("competition_rules", results, strict=True)
         return
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("competition_rules", results)
+        enforce("competition_rules", results, strict=True)
     message = str(error_info.value)
     assert expected_failures[0] in message
     for fictional_text in ("Alex", "Northbridge", "Example", FILE_NAME):
@@ -620,7 +620,7 @@ def test_a_full_size_span_applies_the_gates_and_a_broken_decode_raises(
     )
 
     with (
-        fmsave.open(career_path) as career_save,
+        fmsave.open(career_path, strict=True) as career_save,
         pytest.raises(fmsave.ReaderCheckError) as error_info,
     ):
         career_save.competition_rules()
@@ -652,7 +652,7 @@ def test_a_link_that_stops_linking_fails_the_count_no_share_could_catch() -> Non
     assert failed_gate_names(results) == ["rules_linked_blocks_minimum"]
     assert not gate_named(results, "rules_link_round_dates").applied
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("competition_rules", results)
+        enforce("competition_rules", results, strict=True)
     assert "rules_linked_blocks_minimum" in str(error_info.value)
 
 
@@ -674,7 +674,7 @@ def test_a_save_with_too_few_runs_to_judge_is_not_held_to_the_count() -> None:
 
     assert not gate_named(results, "rules_linked_blocks_minimum").applied
     assert failed_gate_names(results) == []
-    enforce("competition_rules", results)
+    enforce("competition_rules", results, strict=True)
 
 
 def test_a_failed_league_table_check_stops_the_rules_being_built(
@@ -694,7 +694,7 @@ def test_a_failed_league_table_check_stops_the_rules_being_built(
     monkeypatch.setattr(checks, "evaluate_league_tables", failing_league_table_gates)
 
     with (
-        fmsave.open(career_save_path) as career_save,
+        fmsave.open(career_save_path, strict=True) as career_save,
         pytest.raises(fmsave.ReaderCheckError) as error_info,
     ):
         career_save.competition_rules()

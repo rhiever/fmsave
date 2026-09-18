@@ -7,10 +7,14 @@ While a reader decodes, it counts what it sees into a stats record from `fmsave.
 `JobVacancyStats`, `StaffStats`, `InjuryTypeStats`, `InjuryStats`, `TrainingStats` or
 `TacticStats`).
 The `evaluate_*` functions compare those counts with the loose `GateBounds` registered for the
-save's layout and return one `GateResult` per check, and `enforce` raises `ReaderCheckError`
-when an applied check failed, before the reader caches its table. The checks apply only to a
-`game_db` of at least `GateBounds.minimum_applies_from_bytes`, since smaller sections come from
-fragments that cannot meet full-save counts.
+save's layout and return one `GateResult` per check, and `enforce` reports an applied check
+that failed, before the reader caches its table: it raises `ReaderCheckError` on a save opened
+with `strict=True`, and otherwise warns `ReaderCheckWarning` with the same message and lets the
+reader hand its table back. A bound is a measurement of the saves it was drawn from and no
+more, so a save unlike those is not a save fmsave should refuse to read. What still raises is a
+structural failure, which readers raise for themselves: a decode with no table to hand back.
+The checks apply only to a `game_db` of at least `GateBounds.minimum_applies_from_bytes`, since
+smaller sections come from fragments that cannot meet full-save counts.
 
 `validate_save` runs every reader and returns a `ValidationReport`, which holds only structural
 facts, counts and rates: never names, uids or other values from the save.
@@ -21,7 +25,9 @@ the `evaluate_*`, `check_*` and `enforce*` functions are internal to fmsave.
 
 from __future__ import annotations
 
+import os.path
 import platform
+import warnings
 from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -29,7 +35,7 @@ from statistics import median_low
 from typing import TYPE_CHECKING, Literal
 
 from fmsave._context import closed_save_error
-from fmsave._errors import ISSUES_URL, FmsaveError, ReaderCheckError
+from fmsave._errors import ISSUES_URL, FmsaveError, ReaderCheckError, ReaderCheckWarning
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import BoundPair, GateBounds
 from fmsave._package import __version__
@@ -65,13 +71,14 @@ if TYPE_CHECKING:
 
 __all__ = ["GateResult", "ReaderValidation", "ValidationReport", "validate_save"]
 
-# Internal switch: when False, failed checks are still evaluated and reported but never raised.
+# Internal switch: when False, failed checks are still evaluated and reported, but neither
+# raised nor warned about.
 _gates_enabled = True
 
 
 @contextmanager
 def _gates_disabled() -> Generator[None]:
-    """Evaluate and report checks without raising inside the block, then restore the switch."""
+    """Evaluate and report checks without raising or warning inside the block, then restore it."""
     global _gates_enabled
     previous_setting = _gates_enabled
     _gates_enabled = False
@@ -2137,32 +2144,75 @@ def _failure_summary(reader_name: str, results: Sequence[GateResult]) -> str | N
     return f"{reader_name} failed checks: {'; '.join(failures)}"
 
 
-def enforce(reader_name: str, results: Sequence[GateResult]) -> None:
-    """Raise when any applied check failed. The message holds only rounded rates and bounds.
+# A warning is issued against the first frame outside this package, so a reader's caller sees
+# its own line rather than a line of fmsave's, however many frames deep the reader sits.
+_PACKAGE_FILE_PREFIX = os.path.dirname(__file__)
+
+
+def _warn_failure(message: str) -> None:
+    warnings.warn(
+        message,
+        ReaderCheckWarning,
+        stacklevel=2,
+        skip_file_prefixes=(_PACKAGE_FILE_PREFIX,),
+    )
+
+
+def enforce(reader_name: str, results: Sequence[GateResult], *, strict: bool) -> bool:
+    """Report a failed applied check. The message holds only rounded rates and bounds.
+
+    On a strict save the failure is raised, and on any other save it is warned about with that
+    same message and the reader hands its table back: a bound measured on a handful of saves
+    is not something to refuse a whole save over.
+
+    Returns:
+        Whether a failure was warned about, which is False on a strict save and whenever
+        every applied check passed.
 
     Raises:
-        ReaderCheckError: An applied check failed.
+        ReaderCheckError: An applied check failed and `strict` is True.
+
+    Warns:
+        ReaderCheckWarning: An applied check failed and `strict` is False.
     """
     summary = _failure_summary(reader_name, results)
-    if summary is not None and _gates_enabled:
-        raise GateCheckError(f"{summary}. {_REPORT_REQUEST}")
+    if summary is None or not _gates_enabled:
+        return False
+    message = f"{summary}. {_REPORT_REQUEST}"
+    if strict:
+        raise GateCheckError(message)
+    _warn_failure(message)
+    return True
 
 
-def enforce_checks(reader_checks: Sequence[ReaderCheck]) -> None:
-    """Raise when any applied check of any of these readers failed, naming each failed reader.
+def enforce_checks(reader_checks: Sequence[ReaderCheck], *, strict: bool) -> bool:
+    """Report the applied checks of these readers that failed, naming each failed reader.
 
-    The error carries every one of the readers' checks, so a report can show them.
+    On a strict save the failure is raised, carrying every one of the readers' checks so that a
+    report can show them, and on any other save it is warned about with that same message.
+
+    Returns:
+        Whether a failure was warned about, which is False on a strict save and whenever
+        every applied check passed.
 
     Raises:
-        ReaderCheckError: An applied check failed.
+        ReaderCheckError: An applied check failed and `strict` is True.
+
+    Warns:
+        ReaderCheckWarning: An applied check failed and `strict` is False.
     """
     summaries = [
         summary
         for reader_check in reader_checks
         if (summary := _failure_summary(reader_check.reader, reader_check.gates)) is not None
     ]
-    if summaries and _gates_enabled:
-        raise GateCheckError(f"{'. '.join(summaries)}. {_REPORT_REQUEST}", tuple(reader_checks))
+    if not summaries or not _gates_enabled:
+        return False
+    message = f"{'. '.join(summaries)}. {_REPORT_REQUEST}"
+    if strict:
+        raise GateCheckError(message, tuple(reader_checks))
+    _warn_failure(message)
+    return True
 
 
 type ReaderStatus = Literal["ok", "failed", "error"]
@@ -2172,13 +2222,20 @@ type ReaderStatus = Literal["ok", "failed", "error"]
 class ReaderValidation:
     """How one reader fared in `validate_save`.
 
-    Players, contracts and suspensions are decoded in one pass. When a check of any of the three
-    fails, all three are reported "failed" and none of their tables is read, and each of them
-    still lists its own gates: a reader can be "failed" while every one of its own gates
-    passed. Fixtures, league tables, competition rules and stadiums share the one streamed pass
-    over the span the same way, and are reported together when that pass itself is what failed.
-    Four more pairs share a decode in the same way: finances with sponsorships, staff with
-    staff lists, training with mentoring, and tactics with set pieces.
+    A reader is "failed" when a check of its own did not pass, and it is the only one reported
+    so: the readers that join through it read the table it returned and are judged on their own
+    checks.
+
+    A save opened with `strict=True` is reported differently, because a failed check stops the
+    reader there and everything downstream of it with it. Players, contracts and suspensions
+    are decoded in one pass, so when a check of any of the three fails, all three are reported
+    "failed" and none of their tables is read, and each of them still lists its own gates: a
+    reader can be "failed" while every one of its own gates passed. Fixtures, league tables,
+    competition rules and stadiums share the one streamed pass over the span the same way, and
+    are reported together when that pass itself is what failed. Four more pairs share a decode
+    in the same way: finances with sponsorships, staff with staff lists, training with
+    mentoring, and tactics with set pieces. A structural failure spreads the same way on any
+    save, since no mode reads a table from a decode that produced none.
 
     Attributes:
         reader: The reader: "clubs", "players", "contracts", "suspensions", "managed_clubs",
@@ -2187,8 +2244,9 @@ class ReaderValidation:
             "affiliates", "job_vacancies", "staff", "staff_lists", "injury_types",
             "injury_history", "training", "mentoring", "tactics", "set_pieces" or
             "facilities".
-        status: "ok" when the reader returned its table, "failed" when checks stopped it, and
-            "error" when it raised another fmsave error.
+        status: "ok" when the reader returned its table and every applied check of its own
+            passed, "failed" when a check did not, and "error" when it raised another fmsave
+            error.
         record_count: How many records the reader decoded, or None when it did not get far
             enough to count them.
         gates: The reader's checks, in a fixed order; empty when the reader has no checks of
@@ -2258,6 +2316,31 @@ class ValidationReport:
         }
 
 
+def _completed_validation(
+    reader_name: str,
+    record_count: int,
+    coverage: Mapping[str, float],
+    reader_check: ReaderCheck | None,
+) -> ReaderValidation:
+    """A reader that returned its table: "failed" when a check of its own did not pass.
+
+    On a save opened without `strict=True` a failed check no longer stops the reader, so this
+    is where most "failed" rows come from. The check has already been evaluated and kept beside
+    the table, so the report reads the result off it rather than making a reader raise to find
+    out. Coverage is left out of a failed row, as it is of one that raised.
+    """
+    gates = () if reader_check is None else reader_check.gates
+    failed = any(gate.applied and not gate.passed for gate in gates)
+    return ReaderValidation(
+        reader_name,
+        "failed" if failed else "ok",
+        record_count,
+        gates,
+        _NO_COVERAGE if failed else coverage,
+        _NO_ANOMALIES if reader_check is None else reader_check.anomalies,
+    )
+
+
 def _unsuccessful_validation(reader_name: str, error: FmsaveError) -> ReaderValidation:
     if not isinstance(error, ReaderCheckError):
         return ReaderValidation(reader_name, "error", None, (), _NO_COVERAGE, _NO_ANOMALIES)
@@ -2290,13 +2373,21 @@ def validate_save(career_save: Save) -> ValidationReport:
     without the error's text; the remaining readers still run. The report holds only structural
     facts, counts and rates, never names, uids or other values from the save.
 
+    Readers run here exactly as they would for any other caller, with their warnings suppressed
+    for the length of the run: this report lists every check each reader ran, so a warning
+    beside it would only repeat what it already says. Running them leaves the save no different
+    from how a caller who read those tables himself would leave it. On a save opened the
+    default way nothing raises for a failed check, so every table this decodes is kept: the
+    reader calls a caller makes afterwards are free of charge, and say nothing further about a
+    check this report has already reported.
+
     Some readers share one decode: the players, contracts and suspensions of the player pass,
     the fixtures, league tables, competition rules and stadiums that all need the one streamed
     pass over the span, and the finance, staff, training and tactics pairs, each built by one
-    pass of its own. When that shared decode is what failed, its error is reported for every reader of
-    the pass and the decode is not attempted again, so the span is streamed once however many of
-    its readers report it. A reader that failed after its pass had been decoded failed on its
-    own, and the others still run.
+    pass of its own. When that shared decode raises before it finishes, its error is reported
+    for every reader of the pass and the decode is not attempted again, so the span is streamed
+    once however many of its readers report it. A reader that failed after its pass had been
+    decoded failed on its own, and the others still run.
 
     Raises:
         SaveClosedError: The save is closed.
@@ -2334,40 +2425,40 @@ def validate_save(career_save: Save) -> ValidationReport:
     )
     validations: list[ReaderValidation] = []
     failed_passes: dict[str, FmsaveError] = {}
-    for reader_name, read_table in reader_tables:
-        shared_pass = _READER_PASSES.get(reader_name)
-        carried_error = None if shared_pass is None else failed_passes.get(shared_pass)
-        if carried_error is not None:
-            # The shared decode would run again only to raise the same error.
-            validations.append(_unsuccessful_validation(reader_name, carried_error))
-            continue
-        try:
-            table = read_table()
-        except FmsaveError as error:
-            # Only a failure of the shared decode itself is carried to the rest of its pass.
-            # A reader that raised after that decode was kept failed on its own account: the
-            # decode is cached, so the readers after it repeat none of it, and reporting them
-            # failed would call a table unreadable that reads perfectly well. This is narrow on
-            # purpose, and widening it to carry every failure of any reader of a pass would not
-            # be the safe direction: it would report the competition rules unreadable because
-            # the league tables missed a gate, which is a different wrong answer rather than a
-            # cautious one. The span is still streamed once, because the case that costs a
-            # second streaming is the one where nothing was cached, which is the case carried.
-            if shared_pass is not None and not career_save._shared_pass_cached(shared_pass):  # pyright: ignore[reportPrivateUsage]
-                failed_passes[shared_pass] = error
-            validations.append(_unsuccessful_validation(reader_name, error))
-            continue
-        reader_check = career_save._reader_check(reader_name)  # pyright: ignore[reportPrivateUsage]
-        validations.append(
-            ReaderValidation(
-                reader_name,
-                "ok",
-                len(table),
-                () if reader_check is None else reader_check.gates,
-                table.coverage,
-                _NO_ANOMALIES if reader_check is None else reader_check.anomalies,
+    # A failed check warns rather than raising on a save opened the default way, and this
+    # report lists every check each reader ran: a warning beside it would only repeat what the
+    # report already says, and would make `fmsave validate` noisiest on exactly the saves it
+    # exists to diagnose. The readers run as they would for any other caller, so a run leaves
+    # nothing behind that changes how the save reads afterwards.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ReaderCheckWarning)
+        for reader_name, read_table in reader_tables:
+            shared_pass = _READER_PASSES.get(reader_name)
+            carried_error = None if shared_pass is None else failed_passes.get(shared_pass)
+            if carried_error is not None:
+                # The shared decode would run again only to raise the same error.
+                validations.append(_unsuccessful_validation(reader_name, carried_error))
+                continue
+            try:
+                table = read_table()
+            except FmsaveError as error:
+                # Only a failure of the shared decode itself is carried to the rest of its pass.
+                # A reader that raised after that decode was kept failed on its own account: the
+                # decode is cached, so the readers after it repeat none of it, and reporting them
+                # failed would call a table unreadable that reads perfectly well. This is narrow on
+                # purpose, and widening it to carry every failure of any reader of a pass would not
+                # be the safe direction: it would report the competition rules unreadable because
+                # the league tables missed a gate, which is a different wrong answer rather than a
+                # cautious one. The span is still streamed once, because the case that costs a
+                # second streaming is the one where nothing was cached, which is the case carried.
+                if shared_pass is not None and not career_save._shared_pass_cached(shared_pass):  # pyright: ignore[reportPrivateUsage]
+                    failed_passes[shared_pass] = error
+                validations.append(_unsuccessful_validation(reader_name, error))
+                continue
+            reader_check = career_save._reader_check(reader_name)  # pyright: ignore[reportPrivateUsage]
+            validations.append(
+                _completed_validation(reader_name, len(table), table.coverage, reader_check)
             )
-        )
     return ValidationReport(
         fmsave_version=__version__,
         python_version=platform.python_version(),

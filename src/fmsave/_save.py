@@ -25,7 +25,7 @@ from fmsave._layouts import (
 )
 from fmsave._reader_stats import ResultStats, TacticStats
 from fmsave._version import read_save_info
-from fmsave.checks import ReaderCheck
+from fmsave.checks import GateResult, ReaderCheck
 from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
@@ -249,21 +249,37 @@ class Save:
     not kept open. Each reader reopens the file, checks that it has not changed since
     it was opened, and reads only the parts it needs.
 
+    Every reader measures what it decoded against the bounds its checks carry. A failed check
+    warns with `ReaderCheckWarning` and the reader hands its table back; a save opened with
+    `strict=True` raises `ReaderCheckError` instead. A structural failure, where the decode
+    has no table to hand back, raises either way. `fmsave.validate_save` reports every check
+    of every reader without raising or warning.
+
     A Save is not thread-safe: use one Save per thread. Records and tables it returns
     are immutable, safe to share, and keep working after the Save is closed.
     """
 
-    __slots__ = ("_container_index", "_context", "_info")
+    __slots__ = ("_container_index", "_context", "_info", "_strict", "_warned_readers")
 
     def __init__(
         self,
         container_index: ContainerIndex,
         info: SaveInfo,
         *,
+        strict: bool = False,
         competition_names: FrozenMapping[int, str] = EMPTY_COMPETITION_NAMES,
     ) -> None:
         self._container_index = container_index
         self._info = info
+        # Settled when the save is opened and never changed afterwards, which is what makes a
+        # failed check safe to cache: the result cache remembers a build that raised the
+        # library's own error and raises it again without rebuilding, so a reader that raised
+        # for a failed check must raise for every later call on this save. Nothing may switch
+        # this on or off around a call. `validate_save` used to, and a caller who ran it on a
+        # save opened the ordinary way was left with readers that raised ever after.
+        self._strict = strict
+        # The readers already warned about, so a save warns at most once for each of them.
+        self._warned_readers: set[str] = set()
         self._context = SaveContext(container_index, info, competition_names=competition_names)
 
     @property
@@ -286,8 +302,11 @@ class Save:
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
             ReaderCheckError: No club record is accepted, a club uid or club index appears
-                in two records, a team id is listed twice (by one club or by two), or, on a
-                full-size save, the club records fall outside the checks' bounds.
+                in two records, or a team id is listed twice (by one club or by two).
+
+        Warns:
+            ReaderCheckWarning: On a full-size save, the club records fall outside the checks'
+                bounds. A save opened with strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(CLUBS_TABLE_CACHE_KEY, self._read_clubs)
@@ -309,11 +328,14 @@ class Save:
                 valid UTF-8.
             ReaderCheckError: No club record is accepted, a club uid or club index appears
                 in two records, a team id is listed twice (by one club or by two), no player
-                records were found, two player records share a uid, the save's in-game
-                date is unreadable, or, on a full-size save, the players, contracts or
-                suspensions decoded fall outside the checks' bounds. With a name map, also
-                anything the competition reader raises, since the pass names each ban's
-                competition from that table.
+                records were found, two player records share a uid, or the save's in-game
+                date is unreadable. With a name map, also anything the competition reader
+                raises, since the pass names each ban's competition from that table.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save, the players, contracts or suspensions
+                decoded fall outside the checks' bounds, or, with a name map, the competition
+                table does. A save opened with strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(PLAYERS_TABLE_CACHE_KEY, self._players_table_entry_point)
@@ -334,11 +356,14 @@ class Save:
                 valid UTF-8.
             ReaderCheckError: No club record is accepted, a club uid or club index appears
                 in two records, a team id is listed twice (by one club or by two), no player
-                records were found, two player records share a uid, the save's in-game
-                date is unreadable, or, on a full-size save, the players, contracts or
-                suspensions decoded fall outside the checks' bounds. With a name map, also
-                anything the competition reader raises, since the pass names each ban's
-                competition from that table.
+                records were found, two player records share a uid, or the save's in-game
+                date is unreadable. With a name map, also anything the competition reader
+                raises, since the pass names each ban's competition from that table.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save, the players, contracts or suspensions
+                decoded fall outside the checks' bounds, or, with a name map, the competition
+                table does. A save opened with strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(CONTRACTS_TABLE_CACHE_KEY, self._contracts_table_entry_point)
@@ -370,11 +395,14 @@ class Save:
                 valid UTF-8.
             ReaderCheckError: No club record is accepted, a club uid or club index appears
                 in two records, a team id is listed twice (by one club or by two), no player
-                records were found, two player records share a uid, the save's in-game
-                date is unreadable, or, on a full-size save, the players, contracts or
-                suspensions decoded fall outside the checks' bounds. With a name map, also
-                anything the competition reader raises, since every competition name a ban
-                carries comes from that table.
+                records were found, two player records share a uid, or the save's in-game
+                date is unreadable. With a name map, also anything the competition reader
+                raises, since every competition name a ban carries comes from that table.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save, the players, contracts or suspensions
+                decoded fall outside the checks' bounds, or, with a name map, the competition
+                table does. A save opened with strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(SUSPENSIONS_TABLE_CACHE_KEY, self._suspensions_table_entry_point)
@@ -417,10 +445,15 @@ class Save:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
-            ReaderCheckError: No stage table was found in the tail of the game database, a
-                stage id appears in two rows, or, on a full-size save, the stage table falls
-                outside the checks' bounds. With a name map the competition checks must pass
-                as well, since a stage's competition name is read out of that table.
+            ReaderCheckError: No stage table was found in the tail of the game database, or a
+                stage id appears in two rows. With a name map the competition reader runs
+                first, so anything it raises is raised here too, since a stage's competition
+                name is read out of that table.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save, the stage table falls outside the checks'
+                bounds, or, with a name map, the competition table does. A save opened with
+                strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(STAGES_TABLE_CACHE_KEY, self._read_stages)
@@ -438,9 +471,12 @@ class Save:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
-            ReaderCheckError: No stage table was found in the tail of the game database, a
-                stage id appears in two rows, or, on a full-size save, fewer competitions were
-                found than the checks allow.
+            ReaderCheckError: No stage table was found in the tail of the game database, or a
+                stage id appears in two rows.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save, fewer competitions were found than the
+                checks allow. A save opened with strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(COMPETITIONS_TABLE_CACHE_KEY, self._read_competitions)
@@ -470,11 +506,16 @@ class Save:
             CorruptSaveError: The save is damaged or was being written.
             ReaderCheckError: No club record is accepted, a club uid or club index appears in
                 two records, a team id is listed twice, no stage table was found in the tail of
-                the game database, a stage id appears in two rows, no stadium table was found
-                or its checks did not pass, the save's in-game date is unreadable, or, on a
-                full-size span, the calendar or the scores joined onto it fall outside the
-                checks' bounds. With a competition name map, the competition checks run first
-                and raise here too, so no row is named from a table whose checks did not pass.
+                the game database, a stage id appears in two rows, no stadium table was found,
+                or the save's in-game date is unreadable. With a competition name map, the
+                competition reader runs first and raises here too, so no row is named from a
+                table that could not be read.
+
+        Warns:
+            ReaderCheckWarning: On a full-size span, the calendar or the scores joined onto it
+                fall outside the checks' bounds. The stadium table's checks run here as well,
+                and with a name map the competition table's, since a row carries a ground and a
+                name from each. A save opened with strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(FIXTURES_TABLE_CACHE_KEY, self._read_fixtures)
@@ -514,7 +555,7 @@ class Save:
         fixture_check = checks.check_fixtures(
             fixture_stats, result_stats, gate_bounds, span_records.span_bytes
         )
-        checks.enforce_checks((fixture_check,))
+        self._enforce_checks((fixture_check,))
         self._store_reader_checks((fixture_check,))
         return Table(fixtures, Fixture)
 
@@ -599,10 +640,14 @@ class Save:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
-            ReaderCheckError: No stadium table was found, a stadium uid appears in two rows,
-                or, on a full-size save, what the table or the calendar link decoded falls
-                outside the checks' bounds. The club and fixture checks run first and raise
-                here too, since a row carries club names and a calendar-derived link.
+            ReaderCheckError: No stadium table was found, or a stadium uid appears in two
+                rows. The club and fixture readers run first and raise here too, since a row
+                carries club names and a calendar-derived link.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save, what the table or the calendar link
+                decoded falls outside the checks' bounds. The club and fixture checks run here
+                as well. A save opened with strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(STADIUMS_TABLE_CACHE_KEY, self._read_stadiums)
@@ -626,7 +671,7 @@ class Save:
         stadium_check = checks.check_stadiums(
             stadium_stats, gate_bounds, stadium_index.game_db_bytes
         )
-        checks.enforce_checks((stadium_check,))
+        self._enforce_checks((stadium_check,))
         self._store_reader_checks((stadium_check,))
         return Table(stadiums, Stadium)
 
@@ -647,7 +692,7 @@ class Save:
         table_stats = stadium_table_stats(
             stadium_index, context.club_index(), self._stadium_layout()
         )
-        checks.enforce(
+        self._enforce(
             checks.STADIUMS_READER,
             checks.evaluate_stadium_table(
                 table_stats, self._gate_bounds(), stadium_index.game_db_bytes
@@ -669,8 +714,11 @@ class Save:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
-            ReaderCheckError: On a full-size save, fewer windows were decoded than the checks
-                allow, or the windows that were found did not decode their dates.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save, fewer windows were decoded than the checks
+                allow, or the windows that were found did not decode their dates. A save opened
+                with strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(TRANSFER_WINDOWS_TABLE_CACHE_KEY, self._read_transfer_windows)
@@ -694,8 +742,11 @@ class Save:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: A per-match file is damaged or was being written.
-            ReaderCheckError: On a full-size save listing at least one per-match file, fewer
-                records of the table were read than the checks allow.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save listing at least one per-match file, fewer
+                records of the table were read than the checks allow. A save opened with
+                strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(INJURY_TYPES_TABLE_CACHE_KEY, self._read_injury_types)
@@ -721,7 +772,7 @@ class Save:
         injury_type_check = checks.check_injury_types(
             injury_type_stats, gate_bounds, declared_game_db_bytes
         )
-        checks.enforce_checks((injury_type_check,))
+        self._enforce_checks((injury_type_check,))
         self._store_reader_checks((injury_type_check,))
         return Table(injury_types, InjuryType)
 
@@ -783,11 +834,14 @@ class Save:
             CorruptSaveError: The save is damaged or was being written.
             ReaderCheckError: The save's in-game date is unreadable, so an injury date cannot
                 be judged against it; a count in the section runs past the end of it, the
-                section's tail is not where it belongs, or bytes follow it; no club or player
-                record is accepted; or, on a full-size section, the rows fall outside the
-                checks' bounds. Every index whose data this reader hands out is read through
-                the reader that enforces that index's own checks, so none of those checks can
-                be skipped.
+                section's tail is not where it belongs, or bytes follow it; or no club or
+                player record is accepted.
+
+        Warns:
+            ReaderCheckWarning: On a full-size section, the rows fall outside the checks'
+                bounds. Every index whose data this reader hands out is read through the reader
+                that enforces that index's own checks, so those checks are reported here as
+                well. A save opened with strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(INJURY_HISTORY_TABLE_CACHE_KEY, self._read_injury_history)
@@ -830,7 +884,7 @@ class Save:
                 layout,
             )
         injury_check = checks.check_injury_history(injury_stats, gate_bounds)
-        checks.enforce_checks((injury_check,))
+        self._enforce_checks((injury_check,))
         self._store_reader_checks((injury_check,))
         return Table(injuries, InjuryRecord)
 
@@ -874,9 +928,13 @@ class Save:
             ReaderCheckError: The group section is too short to hold its header, a group's
                 member count is outside what a group may hold, a group runs past the end of
                 the section, the groups do not end on the section's last byte, no club record
-                is accepted, a club uid or club index appears in two records, a team id is
-                listed twice, or, on a full-size save whose groups hold a member, fewer members
-                resolve to a club than the checks allow.
+                is accepted, a club uid or club index appears in two records, or a team id is
+                listed twice.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save whose groups hold a member, fewer members
+                resolve to a club than the checks allow, or the club table falls outside its
+                own bounds. A save opened with strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(AFFILIATES_TABLE_CACHE_KEY, self._read_affiliates)
@@ -901,7 +959,7 @@ class Save:
         affiliate_check = checks.check_affiliates(
             affiliate_stats, gate_bounds, club_index.game_db_bytes
         )
-        checks.enforce_checks((affiliate_check,))
+        self._enforce_checks((affiliate_check,))
         self._store_reader_checks((affiliate_check,))
         return Table(groups, AffiliateGroup)
 
@@ -931,11 +989,15 @@ class Save:
                 not its header and its record size times the count it claims; the save's
                 in-game date is unreadable, so an advertised date cannot be judged against it;
                 no club record is accepted; a club uid or club index appears in two records; a
-                team id is listed twice; no stage table was found in the tail of the game
-                database; or, on a feed of at least twenty records, the records fall outside
-                the checks' bounds. With a competition name map the competition checks run
-                first and raise here too, so no row is named from a table whose checks did not
-                pass.
+                team id is listed twice; or no stage table was found in the tail of the game
+                database. With a competition name map the competition reader runs first and
+                raises here too, so no row is named from a table that could not be read.
+
+        Warns:
+            ReaderCheckWarning: On a feed of at least twenty records, the records fall outside
+                the checks' bounds. The club and stage tables' checks run here as well, and
+                with a name map the competition table's. A save opened with strict=True raises
+                ReaderCheckError instead.
         """
         context = self._context
         return context.cached(JOB_VACANCIES_TABLE_CACHE_KEY, self._read_job_vacancies)
@@ -977,7 +1039,7 @@ class Save:
                 save_info.file_name,
             )
         vacancy_check = checks.check_job_vacancies(vacancy_stats, gate_bounds)
-        checks.enforce_checks((vacancy_check,))
+        self._enforce_checks((vacancy_check,))
         self._store_reader_checks((vacancy_check,))
         return Table(vacancies, JobVacancy)
 
@@ -1002,14 +1064,18 @@ class Save:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
-            ReaderCheckError: The fixture calendar the vote runs on, or the club, stage or
-                competition table this reader joins through, failed its own checks; no club
-                record is accepted; a club uid or club index appears in two records; a team id
-                is listed twice; no stage table was found in the tail of the game database; a
-                stage id appears in two rows; the save's in-game date is unreadable; or, on a
-                full-size span, the blocks fall outside the checks' bounds. Every index whose
-                data this reader hands out is read through the accessor that enforces that
-                index's own checks, so none of those checks can be skipped.
+            ReaderCheckError: No club record is accepted; a club uid or club index appears in
+                two records; a team id is listed twice; no stage table was found in the tail of
+                the game database; a stage id appears in two rows; or the save's in-game date
+                is unreadable.
+
+        Warns:
+            ReaderCheckWarning: On a full-size span, the blocks fall outside the checks'
+                bounds. Every index whose data this reader hands out is read through the
+                accessor that enforces that index's own checks, so the checks of the fixture
+                calendar the vote runs on, and of the club, stage and competition tables this
+                reader joins through, are reported here as well. A save opened with strict=True
+                raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(LEAGUE_TABLES_TABLE_CACHE_KEY, self._read_league_tables)
@@ -1029,8 +1095,9 @@ class Save:
         # index's own checks, never through the raw context index, because this reader hands
         # the borrowed data straight out: club names and team slots on every row, competition
         # ids on every table, and the stage joins the calendar vote runs on. Forcing the club,
-        # competition or stage bounds to something unmeetable must stop this call, not leave it
-        # returning thousands of club names from an index whose checks never ran. The calendar
+        # competition or stage bounds to something unmeetable must be reported on this call, not
+        # leave it returning thousands of club names from an index whose checks never ran. On a
+        # strict save that stops the call; on any other it warns here too. The calendar
         # above already built and cached all three indexes inside one game_db borrow, so these
         # are cache reads plus their checks, and this reader decompresses nothing of its own.
         self.clubs()
@@ -1043,7 +1110,7 @@ class Save:
             span_records, fixtures_table, competition_index, club_index, layout
         )
         table_check = checks.check_league_tables(table_stats, gate_bounds, span_records.span_bytes)
-        checks.enforce_checks((table_check,))
+        self._enforce_checks((table_check,))
         self._store_reader_checks((table_check,))
         return Table(league_tables, LeagueTable)
 
@@ -1078,14 +1145,17 @@ class Save:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
-            ReaderCheckError: The league tables this reader links to, the fixture calendar
-                their vote runs on, or the club, stage or competition table those readers join
-                through, failed its own checks; no club record is accepted; a club uid or club
-                index appears in two records; a team id is listed twice; no stage table was
-                found in the tail of the game database; a stage id appears in two rows; no
-                stadium table was found; the save's in-game date is unreadable, so the span
-                pass cannot run; or, on a full-size span, the blocks or the link fall outside
-                the checks' bounds.
+            ReaderCheckError: No club record is accepted; a club uid or club index appears in
+                two records; a team id is listed twice; no stage table was found in the tail of
+                the game database; a stage id appears in two rows; no stadium table was found;
+                or the save's in-game date is unreadable, so the span pass cannot run.
+
+        Warns:
+            ReaderCheckWarning: On a full-size span, the blocks or the link fall outside the
+                checks' bounds. The checks of the league tables this reader links to, of the
+                fixture calendar their vote runs on, and of the club, stage and competition
+                tables those readers join through, are reported here as well. A save opened
+                with strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(COMPETITION_RULES_TABLE_CACHE_KEY, self._read_competition_rules)
@@ -1110,7 +1180,7 @@ class Save:
         rules_check = checks.check_competition_rules(
             rules_stats, gate_bounds, span_records.span_bytes
         )
-        checks.enforce_checks((rules_check,))
+        self._enforce_checks((rules_check,))
         self._store_reader_checks((rules_check,))
         return Table(rules, CompetitionRules)
 
@@ -1140,13 +1210,17 @@ class Save:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
-            ReaderCheckError: The club or player readers this one joins through failed their own
-                checks; no club record is accepted; a club uid or club index appears in two
-                records; a team id is listed twice; no player records were found; two player
-                records share a uid; no stage table was found in the tail of the game database;
-                the save's in-game date is unreadable, so the years a match may be dated in
-                cannot be worked out; or, on a full-size save, the records decoded fall outside
-                the checks' bounds.
+            ReaderCheckError: No club record is accepted; a club uid or club index appears in
+                two records; a team id is listed twice; no player records were found; two
+                player records share a uid; no stage table was found in the tail of the game
+                database; or the save's in-game date is unreadable, so the years a match may be
+                dated in cannot be worked out.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save, the records decoded fall outside the
+                checks' bounds. The checks of the club and player readers this one joins
+                through are reported here as well. A save opened with strict=True raises
+                ReaderCheckError instead.
         """
         context = self._context
         return context.cached(PLAYER_MATCH_STATS_TABLE_CACHE_KEY, self._read_player_match_stats)
@@ -1188,7 +1262,7 @@ class Save:
             records_by_position, player_records, players, club_index, stage_index, layout
         )
         match_check = checks.check_player_match_stats(match_stats, gate_bounds, game_db_length)
-        checks.enforce_checks((match_check,))
+        self._enforce_checks((match_check,))
         self._store_reader_checks((match_check,))
         return Table(match_rows, PlayerMatchStats)
 
@@ -1233,9 +1307,13 @@ class Save:
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
             ReaderCheckError: No club record is accepted, a club uid or club index appears in
-                two records, a team id is listed twice, the save's in-game date is unreadable,
-                so no month can be dated, or, on a full-size save, the months and sponsors
-                decoded fall outside the checks' bounds.
+                two records, a team id is listed twice, or the save's in-game date is
+                unreadable, so no month can be dated.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save, the months and sponsors decoded fall
+                outside the checks' bounds, or the club table falls outside its own. A save
+                opened with strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(FINANCES_TABLE_CACHE_KEY, self._finances_table_entry_point)
@@ -1261,9 +1339,13 @@ class Save:
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
             ReaderCheckError: No club record is accepted, a club uid or club index appears in
-                two records, a team id is listed twice, the save's in-game date is unreadable,
-                so no month can be dated, or, on a full-size save, the months and sponsors
-                decoded fall outside the checks' bounds.
+                two records, a team id is listed twice, or the save's in-game date is
+                unreadable, so no month can be dated.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save, the months and sponsors decoded fall
+                outside the checks' bounds, or the club table falls outside its own. A save
+                opened with strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(SPONSORSHIPS_TABLE_CACHE_KEY, self._sponsorships_table_entry_point)
@@ -1297,9 +1379,9 @@ class Save:
         # cold call decompresses that section once rather than once per reader.
         with context.section(GAME_DB_SECTION) as game_db:
             # Every row carries a club name, so the club table is read through the reader that
-            # enforces the club checks rather than through the index behind them: forcing those
-            # bounds to something unmeetable must stop this call instead of leaving it handing
-            # out names from an index whose checks never ran.
+            # enforces the club checks rather than through the index behind them: forcing
+            # those bounds to something unmeetable must be reported on this call instead of
+            # leaving it handing out names from an index whose checks never ran.
             self.clubs()
             # Whether a managed club exists is what decides whether the series floor applies,
             # and this reader hands out nothing of that table, but it is read through the same
@@ -1316,7 +1398,7 @@ class Save:
             checks.check_finances(finance_stats, gate_bounds, game_db_length),
             checks.check_sponsorships(finance_stats, gate_bounds, game_db_length),
         )
-        checks.enforce_checks(reader_checks)
+        self._enforce_checks(reader_checks)
         return _FinanceTables(
             Table(months, FinanceMonth), Table(sponsorships, Sponsorship), reader_checks
         )
@@ -1347,8 +1429,12 @@ class Save:
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
             ReaderCheckError: No club record is accepted, a club uid or club index appears in
-                two records, a team id is listed twice, or, on a full-size save, the ratings
-                decoded fall outside the checks' bounds.
+                two records, or a team id is listed twice.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save, the ratings decoded fall outside the
+                checks' bounds, or the club table falls outside its own. A save opened with
+                strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(FACILITIES_TABLE_CACHE_KEY, self._read_facilities)
@@ -1374,7 +1460,7 @@ class Save:
             )
             game_db_length = len(game_db)
         facility_check = checks.check_facilities(facility_stats, gate_bounds, game_db_length)
-        checks.enforce_checks((facility_check,))
+        self._enforce_checks((facility_check,))
         self._store_reader_checks((facility_check,))
         return Table(facilities, ClubFacilities)
 
@@ -1421,9 +1507,13 @@ class Save:
             CorruptSaveError: The save is damaged or was being written, a contract record runs
                 past the end of the game database, or a name block's relation list runs past
                 the window it was found in.
-            ReaderCheckError: The club or player readers' own checks stopped them, the save's
-                in-game date is unreadable, so no contract can be dated, or, on a full-size
-                save, the staff decoded fall outside the checks' bounds.
+            ReaderCheckError: The club or player readers raised, or the save's in-game date is
+                unreadable, so no contract can be dated.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save, the staff decoded fall outside the checks'
+                bounds, or the club or player checks this reader runs first do. A save opened
+                with strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(STAFF_TABLE_CACHE_KEY, self._staff_table_entry_point)
@@ -1456,9 +1546,13 @@ class Save:
             CorruptSaveError: The save is damaged or was being written, a contract record runs
                 past the end of the game database, or a name block's relation list runs past
                 the window it was found in.
-            ReaderCheckError: The club or player readers' own checks stopped them, the save's
-                in-game date is unreadable, so no contract can be dated, or, on a full-size
-                save, the staff decoded fall outside the checks' bounds.
+            ReaderCheckError: The club or player readers raised, or the save's in-game date is
+                unreadable, so no contract can be dated.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save, the staff decoded fall outside the checks'
+                bounds, or the club or player checks this reader runs first do. A save opened
+                with strict=True raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(STAFF_LISTS_TABLE_CACHE_KEY, self._staff_lists_table_entry_point)
@@ -1516,7 +1610,7 @@ class Save:
             checks.check_staff(staff_stats, gate_bounds, game_db_length),
             checks.check_staff_lists(staff_stats, gate_bounds, game_db_length),
         )
-        checks.enforce_checks(reader_checks)
+        self._enforce_checks(reader_checks)
         return _StaffTables(Table(staff_rows, Staff), Table(list_rows, StaffList), reader_checks)
 
     def tactics(self) -> Table[Tactic]:
@@ -1553,9 +1647,13 @@ class Save:
             ReaderCheckError: The tactics section is too short to hold its header, a constant a
                 team block is built around is not where fmsave expects it, a count inside a
                 block runs past the end of the section, a name does not decode, no club record
-                is accepted, a club uid or club index appears in two records, a team id is
-                listed twice, or, on a full-size save that lists a managed club, what the walk
-                read falls outside the checks' bounds.
+                is accepted, a club uid or club index appears in two records, or a team id is
+                listed twice.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save that lists a managed club, what the walk
+                read falls outside the checks' bounds. A save opened with strict=True raises
+                ReaderCheckError instead.
         """
         context = self._context
         return context.cached(TACTICS_TABLE_CACHE_KEY, self._tactics_table_entry_point)
@@ -1580,9 +1678,13 @@ class Save:
             ReaderCheckError: The tactics section is too short to hold its header, a constant a
                 team block is built around is not where fmsave expects it, a count inside a
                 block runs past the end of the section, a name does not decode, no club record
-                is accepted, a club uid or club index appears in two records, a team id is
-                listed twice, or, on a full-size save that lists a managed club, what the walk
-                read falls outside the checks' bounds.
+                is accepted, a club uid or club index appears in two records, or a team id is
+                listed twice.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save that lists a managed club, what the walk
+                read falls outside the checks' bounds. A save opened with strict=True raises
+                ReaderCheckError instead.
         """
         context = self._context
         return context.cached(SET_PIECES_TABLE_CACHE_KEY, self._set_pieces_table_entry_point)
@@ -1655,7 +1757,7 @@ class Save:
             checks.check_tactics(tactic_stats, gate_bounds, game_db_length),
             checks.check_set_pieces(tactic_stats, gate_bounds, game_db_length),
         )
-        checks.enforce_checks(reader_checks)
+        self._enforce_checks(reader_checks)
         return _TacticTables(
             Table(tactics, Tactic), Table(set_pieces, SetPieceRoutine), reader_checks
         )
@@ -1714,9 +1816,12 @@ class Save:
             ReaderCheckError: The training section is too short to hold its header list, a
                 block the walk accepted holds a weekly record or a mentoring group it cannot
                 read, no club record is accepted, a club uid or club index appears in two
-                records, a team id is listed twice, no player record is found, or, on a
-                full-size save whose manager runs a club, the blocks and weeks read fall
-                outside the checks' bounds.
+                records, a team id is listed twice, or no player record is found.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save whose manager runs a club, the blocks and
+                weeks read fall outside the checks' bounds. A save opened with strict=True
+                raises ReaderCheckError instead.
         """
         context = self._context
         return context.cached(TRAINING_TABLE_CACHE_KEY, self._training_table_entry_point)
@@ -1745,9 +1850,12 @@ class Save:
             ReaderCheckError: The training section is too short to hold its header list, a
                 block the walk accepted holds a weekly record or a mentoring group it cannot
                 read, no club record is accepted, a club uid or club index appears in two
-                records, a team id is listed twice, no player record is found, or, on a
-                full-size save whose manager runs a club, the members read fall outside the
-                checks' bounds.
+                records, a team id is listed twice, or no player record is found.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save whose manager runs a club, the members read
+                fall outside the checks' bounds. A save opened with strict=True raises
+                ReaderCheckError instead.
         """
         context = self._context
         return context.cached(MENTORING_TABLE_CACHE_KEY, self._mentoring_table_entry_point)
@@ -1817,7 +1925,7 @@ class Save:
             checks.check_training(training_stats, gate_bounds, game_db_length),
             checks.check_mentoring(training_stats, gate_bounds, game_db_length),
         )
-        checks.enforce_checks(reader_checks)
+        self._enforce_checks(reader_checks)
         return _TrainingTables(
             Table(team_rows, TeamTraining), Table(group_rows, MentoringGroup), reader_checks
         )
@@ -1849,8 +1957,44 @@ class Save:
             save_info.build,
         ).layout
 
+    def _enforce(self, reader_name: str, results: Sequence[GateResult]) -> None:
+        """Report this reader's failed checks: raise on a strict save, else warn at most once.
+
+        Raises:
+            ReaderCheckError: An applied check failed and the save was opened strict.
+        """
+        if self._strict:
+            checks.enforce(reader_name, results, strict=True)
+            return
+        if reader_name in self._warned_readers:
+            return
+        if checks.enforce(reader_name, results, strict=False):
+            self._warned_readers.add(reader_name)
+
+    def _enforce_checks(self, reader_checks: Sequence[ReaderCheck]) -> None:
+        """Report these readers' failed checks: raise on a strict save, else warn at most once.
+
+        A reader warned about once is not warned about again, so a table read a second time,
+        and an index two readers both check, cost one warning between them rather than one
+        each. The first failure a reader reports is therefore the one its caller hears about;
+        `fmsave.validate_save` lists every check of every reader.
+
+        Raises:
+            ReaderCheckError: An applied check failed and the save was opened strict.
+        """
+        if self._strict:
+            checks.enforce_checks(reader_checks, strict=True)
+            return
+        unwarned = tuple(
+            reader_check
+            for reader_check in reader_checks
+            if reader_check.reader not in self._warned_readers
+        )
+        if checks.enforce_checks(unwarned, strict=False):
+            self._warned_readers.update(reader_check.reader for reader_check in unwarned)
+
     def _store_reader_checks(self, reader_checks: Sequence[ReaderCheck]) -> None:
-        """Keep checks that passed next to their tables, for the validation report."""
+        """Keep each reader's checks next to its table, for the validation report."""
         context = self._context
         for reader_check in reader_checks:
             context.cached(_check_cache_key(reader_check.reader), _returning(reader_check))
@@ -1859,7 +2003,7 @@ class Save:
         gate_bounds = self._gate_bounds()
         club_index = self._context.club_index()
         club_check = checks.check_clubs(club_index.stats, gate_bounds, club_index.game_db_bytes)
-        checks.enforce_checks((club_check,))
+        self._enforce_checks((club_check,))
         self._store_reader_checks((club_check,))
         return Table(club_index.clubs, Club)
 
@@ -1885,7 +2029,7 @@ class Save:
             )
             game_db_length = len(game_db)
         managed_check = checks.check_managed(managed_stats, gate_bounds, game_db_length)
-        checks.enforce_checks((managed_check,))
+        self._enforce_checks((managed_check,))
         self._store_reader_checks((managed_check,))
         return Table(managed_clubs, ManagedClub)
 
@@ -1908,7 +2052,7 @@ class Save:
             name_for = context.competition_index().name_for
         stage_index = context.stage_index()
         stage_check = checks.check_stages(stage_index.stats, gate_bounds, stage_index.game_db_bytes)
-        checks.enforce_checks((stage_check,))
+        self._enforce_checks((stage_check,))
         self._store_reader_checks((stage_check,))
         stages = stage_index.stages
         return Table(stages if name_for is None else named_stages(stages, name_for), Stage)
@@ -1923,7 +2067,7 @@ class Save:
         competition_check = checks.check_competitions(
             competition_index.stats, gate_bounds, game_db_length
         )
-        checks.enforce_checks((competition_check,))
+        self._enforce_checks((competition_check,))
         self._store_reader_checks((competition_check,))
         return Table(competition_index.competitions, Competition)
 
@@ -1938,7 +2082,7 @@ class Save:
             windows, window_stats = read_transfer_windows(game_db, tagged_layout, window_layout)
             game_db_length = len(game_db)
         window_check = checks.check_transfer_windows(window_stats, gate_bounds, game_db_length)
-        checks.enforce_checks((window_check,))
+        self._enforce_checks((window_check,))
         self._store_reader_checks((window_check,))
         return Table(windows, TransferWindow)
 
@@ -2063,7 +2207,7 @@ class Save:
                 game_db_length,
             ),
         )
-        checks.enforce_checks(reader_checks)
+        self._enforce_checks(reader_checks)
         return _PlayerTables(
             Table(tuple(decoded_players), Player),
             Table(tuple(decoded_contracts), Contract),
@@ -2109,12 +2253,19 @@ class Save:
 def open_save(
     path: str | os.PathLike[str],
     *,
+    strict: bool = False,
     competition_names: Mapping[int, str] | str | os.PathLike[str] | None = None,
 ) -> Save:
     """Open a Football Manager 26 save file for reading.
 
     Args:
         path: The save file to read.
+        strict: Whether a failed reader check stops the reader. The checks are bounds measured
+            on a handful of saves, so a save stranger than those is read and warned about by
+            default: a reader whose checks fail issues `ReaderCheckWarning` and hands its table
+            back. With True it raises `ReaderCheckError` instead, which is what a pipeline that
+            would rather stop than read a table it cannot vouch for wants. A structural failure,
+            where the decode has no table to hand back, raises either way.
         competition_names: Names for competitions, keyed on `Competition.database_id`, either
             as a mapping or as the path of a two-column CSV that
             `fmsave.read_competition_names` reads. No save stores a competition name and fmsave
@@ -2140,4 +2291,9 @@ def open_save(
     # of opening a save.
     names = normalize_competition_names(competition_names)
     container_index = read_index(path)
-    return Save(container_index, read_save_info(container_index), competition_names=names)
+    return Save(
+        container_index,
+        read_save_info(container_index),
+        strict=strict,
+        competition_names=names,
+    )

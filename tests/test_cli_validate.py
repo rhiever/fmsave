@@ -154,7 +154,11 @@ def test_a_failed_contract_check_exits_3_and_names_the_gate(
     output_lines = capsys.readouterr().out.splitlines()
     assert "contracts: failed (4 records)" in output_lines
     assert "  tails_parsed = 0.5 expected 0.9.." in output_lines
-    assert "players: failed (4 records)" in output_lines
+    # The contracts share a decode with the players, but the failed gate is the contracts' own:
+    # the pass still produced all three tables, so only the reader whose counts are out of
+    # bounds is reported failed.
+    assert "players: ok (4 records)" in output_lines
+    assert "suspensions: ok (2 records)" in output_lines
     assert "clubs: ok (3 records)" in output_lines
 
 
@@ -200,11 +204,11 @@ def test_a_failed_span_pass_is_reported_for_its_readers_and_scans_the_span_once(
 def test_a_failed_league_table_check_leaves_the_other_span_readers_ok(
     save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A reader that failed after its shared pass ran fails alone: the pass is already read.
+    """A reader is failed by its own counts, not by the counts of a reader it reads.
 
-    The competition-rules reader is the exception, and not because of the shared pass: it
-    takes each block's competition from the league table stored after it, so a failed
-    league-table check stops it as well, and it reports no gate of its own.
+    The competition-rules reader takes each block's competition from the league table stored
+    after it, so it reads that table; the table is still returned, so this reader is judged on
+    its own gates and reports them.
     """
     monkeypatch.setattr("fmsave.checks.evaluate_league_tables", failing_league_table_gates)
     assert cli.main(["validate", str(save_path)]) == cli.EXIT_UNSUPPORTED
@@ -212,7 +216,7 @@ def test_a_failed_league_table_check_leaves_the_other_span_readers_ok(
     assert "league_tables: failed (2 records)" in output_lines
     assert "  table_blocks_minimum = 2 expected 1000.." in output_lines
     assert "fixtures: ok (6 records)" in output_lines
-    assert "competition_rules: failed" in output_lines
+    assert "competition_rules: ok (2 records)" in output_lines
 
 
 @pytest.mark.parametrize(("decode_target", "pass_readers"), SHARED_PASS_PAIRS)
@@ -247,19 +251,18 @@ def test_a_failed_shared_decode_is_reported_for_both_its_readers_and_runs_once(
 def test_a_failed_staff_check_fails_both_staff_readers_with_their_own_gates(
     save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A check that fails before the pass is cached fails the pass, as the player pass does.
+    """One decode builds both staff tables, and each reader is judged on its own gates.
 
-    Both staff tables and both sets of checks are built by the one decode, and the checks are
-    enforced before either table is kept, so a failed staff gate leaves nothing cached and the
-    staff-list reader is reported failed as well. Each reader still lists its own gates, so
-    the report names the gate that failed and not the other reader's.
+    The staff gate that fails here is the staff reader's own, and the decode still produced
+    both tables, so the staff-list reader is reported on its own counts. Each reader lists its
+    own gates, so the report names the gate that failed against the reader it belongs to.
     """
     monkeypatch.setattr("fmsave.checks.evaluate_staff", failing_staff_gates)
     assert cli.main(["validate", str(save_path), "--json"]) == cli.EXIT_UNSUPPORTED
     report = json.loads(capsys.readouterr().out)
     readers = {reader["reader"]: reader for reader in report["readers"]}
     assert readers["staff"]["status"] == "failed"
-    assert readers["staff_lists"]["status"] == "failed"
+    assert readers["staff_lists"]["status"] == "ok"
     assert [gate["name"] for gate in readers["staff"]["gates"]] == ["staff_people"]
     assert "staff_people" not in [gate["name"] for gate in readers["staff_lists"]["gates"]]
     assert readers["clubs"]["status"] == "ok"

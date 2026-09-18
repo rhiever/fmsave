@@ -494,7 +494,9 @@ def test_a_failed_competition_check_stops_a_name_reaching_the_calendar(
 
     with (
         fmsave.open(
-            career_save_path, competition_names={FIRST_COMPETITION_DATABASE_ID: "Example League"}
+            career_save_path,
+            strict=True,
+            competition_names={FIRST_COMPETITION_DATABASE_ID: "Example League"},
         ) as named_save,
         pytest.raises(fmsave.ReaderCheckError) as error_info,
     ):
@@ -601,7 +603,7 @@ def test_healthy_fixture_stats_pass_every_gate_and_a_small_span_applies_none() -
     results = evaluate_fixtures(healthy_fixture_stats(), BOUNDS, FULL_SIZE_SPAN_BYTES)
     assert tuple(result.name for result in results) == FIXTURE_GATE_NAMES
     assert all(result.applied and result.passed for result in results)
-    enforce("fixtures", results)
+    enforce("fixtures", results, strict=True)
 
     small_results = evaluate_fixtures(healthy_fixture_stats(), BOUNDS, SMALL_SPAN_BYTES)
     assert all(not result.applied and result.passed for result in small_results)
@@ -661,10 +663,10 @@ def test_fixture_gates_fail_one_at_a_time(
 
     assert failed_gate_names(results) == expected_failures
     if not expected_failures:
-        enforce("fixtures", results)
+        enforce("fixtures", results, strict=True)
         return
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("fixtures", results)
+        enforce("fixtures", results, strict=True)
     message = str(error_info.value)
     assert expected_failures[0] in message
     for fictional_text in ("Alex", "Northbridge", "Example", FILE_NAME):

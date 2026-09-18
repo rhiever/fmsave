@@ -422,7 +422,7 @@ def test_the_flipped_parity_agrees_with_the_calendar_on_no_slot_at_all(tmp_path:
     results = evaluate_league_tables(flipped_on_a_full_save, BOUNDS, FULL_SIZE_SPAN_BYTES)
     assert failed_gate_names(results) == ["table_venue_calendar_agreement"]
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("league_tables", results)
+        enforce("league_tables", results, strict=True)
     assert "table_venue_calendar_agreement" in str(error_info.value)
 
 
@@ -724,7 +724,7 @@ def test_a_failed_calendar_check_stops_the_tables_being_built(
     with_gate_bounds(monkeypatch, UNMEETABLE_FIXTURE_BOUNDS)
 
     with (
-        fmsave.open(career_path) as career_save,
+        fmsave.open(career_path, strict=True) as career_save,
         pytest.raises(fmsave.ReaderCheckError) as error_info,
     ):
         career_save.league_tables()
@@ -764,7 +764,7 @@ def test_a_failed_check_on_a_borrowed_index_stops_the_tables_being_built(
     career_path = write_career(tmp_path)
 
     with (
-        fmsave.open(career_path) as career_save,
+        fmsave.open(career_path, strict=True) as career_save,
         pytest.raises(fmsave.ReaderCheckError) as error_info,
     ):
         career_save.league_tables()
@@ -847,7 +847,7 @@ def test_healthy_stats_pass_every_gate_and_a_small_span_applies_none() -> None:
     results = evaluate_league_tables(healthy_stats(), BOUNDS, FULL_SIZE_SPAN_BYTES)
     assert tuple(result.name for result in results) == GATE_NAMES
     assert all(result.applied and result.passed for result in results)
-    enforce("league_tables", results)
+    enforce("league_tables", results, strict=True)
 
     small_results = evaluate_league_tables(healthy_stats(), BOUNDS, SMALL_SPAN_BYTES)
     assert all(not result.applied and result.passed for result in small_results)
@@ -924,7 +924,7 @@ def test_league_table_gates_fail_one_at_a_time(
 
     assert failed_gate_names(results) == list(expected_failures)
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("league_tables", results)
+        enforce("league_tables", results, strict=True)
     message = str(error_info.value)
     assert expected_failures[0] in message
     for fictional_text in ("Alex", "Northbridge", "Example", FILE_NAME):

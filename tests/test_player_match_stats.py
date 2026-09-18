@@ -699,7 +699,7 @@ def test_the_gates_fail_one_at_a_time_when_their_counts_are_driven_past_their_bo
     results = evaluate_player_match_stats(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert failed_gate_names(results) == list(expected_failures)
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("player_match_stats", results)
+        enforce("player_match_stats", results, strict=True)
     assert str(error_info.value).startswith("player_match_stats failed checks: ")
     assert expected_failures[0] in str(error_info.value)
 
@@ -777,7 +777,7 @@ def test_the_reader_raises_when_its_counts_are_past_its_bounds_and_returns_its_t
         per_match_rating_in_range=(0.99, None),
     )
     monkeypatch.setattr(fmsave.Save, "_gate_bounds", lambda career_save: unmeetable_bounds)
-    with fmsave.open(career_save_path) as career_save:
+    with fmsave.open(career_save_path, strict=True) as career_save:
         with pytest.raises(fmsave.ReaderCheckError) as error_info:
             career_save.player_match_stats()
         # Remembered as failed, and so never handed out as a table.

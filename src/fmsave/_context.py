@@ -136,6 +136,11 @@ class SaveContext:
         says something about the machine rather than about the save. Never store section
         bytes here.
 
+        A failed reader check is remembered on the same terms, and only a save opened with
+        `strict=True` raises one at all. That rests on `Save` settling its strictness when the
+        save is opened and never changing it: a failure remembered under one setting and met
+        under another would be a remembered answer to a question nobody asked again.
+
         Raises:
             SaveClosedError: The context is closed.
         """

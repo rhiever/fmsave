@@ -92,6 +92,12 @@ Every field is either verified (checked against the game) or unconfirmed; ask wi
 - **What the save keeps only in part.** The score of a played match: the calendar stores no score and the records that do are retained for about a quarter of a career's matches. Injuries older than about two years. A player's full-career injury history, which the save holds without saying whose it is, so it cannot be joined to anyone.
 - **What is not stored in a readable way at all.** Today's injuries and availability, team selection and line-ups, staff attribute values, card counts, the scouting budget, club debt and asking prices.
 
+## When a check fails
+
+Every reader measures what it decoded — how many records, how many resolved a join, how many fell in range — against loose bounds. Those bounds come from a couple of careers, so a save unlike them can miss one and still be read perfectly well. A missed bound is a warning and you get the table anyway.
+
+Pass `strict=True` to `fmsave.open` to have a missed bound raise `ReaderCheckError` instead, or `fmsave export --strict` on the command line. A decode that found nothing to hand back is a different thing and raises either way. `fmsave validate` lists every check without warning.
+
 ## Competition names
 
 No save holds a competition name: the game renders them from its own installed database. What every competition row does carry is `database_id`, the competition's id in the game's editor database, which is the same value in every save and is what name sources outside a save are keyed on.

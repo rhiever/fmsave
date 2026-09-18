@@ -791,7 +791,7 @@ def test_a_failed_check_leaves_neither_table_readable(
     career_save_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(save_module.checks, "check_staff", failing_check)
-    with fmsave.open(career_save_path) as career_save:
+    with fmsave.open(career_save_path, strict=True) as career_save:
         with pytest.raises(fmsave.ReaderCheckError):
             career_save.staff()
         with pytest.raises(fmsave.ReaderCheckError):

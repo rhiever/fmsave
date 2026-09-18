@@ -550,7 +550,7 @@ def test_a_failed_finance_check_stops_both_tables(
         )
 
     monkeypatch.setattr(checks, "evaluate_finances", failing_evaluate_finances)
-    with fmsave.open(career_save_path) as career_save:
+    with fmsave.open(career_save_path, strict=True) as career_save:
         for read_table in (career_save.finances, career_save.sponsorships):
             with pytest.raises(fmsave.ReaderCheckError, match="^finances failed checks: "):
                 read_table()

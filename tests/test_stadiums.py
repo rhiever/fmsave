@@ -598,10 +598,10 @@ def test_the_stadium_gates_fail_one_at_a_time(
     assert [result.name for result in results] == list(STADIUM_GATE_NAMES)
     assert failed_gate_names(results) == expected_failures
     if not expected_failures:
-        enforce("stadiums", results)
+        enforce("stadiums", results, strict=True)
         return
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("stadiums", results)
+        enforce("stadiums", results, strict=True)
     message = str(error_info.value)
     assert expected_failures[0] in message
     for fictional_text in ("Northbridge", "Example Park", FILE_NAME):

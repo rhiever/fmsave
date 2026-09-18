@@ -295,6 +295,11 @@ def build_parser() -> CommandLineParser:
     export_parser.add_argument(
         "-o", "--output", metavar="PATH", help="write to this file instead of standard output"
     )
+    export_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="stop rather than write when a reader's checks fail (they warn by default)",
+    )
 
     validate_parser = subcommands.add_parser(
         "validate",
@@ -1076,7 +1081,10 @@ def run_export(arguments: argparse.Namespace) -> int:
     output_path = None if arguments.output is None else Path(arguments.output)
     if output_path is not None:
         check_output_path(output_path, save_path)
-    with fmsave.open(save_path, competition_names=competition_names) as career_save:
+    # A failed check warns, and the rows it judged are written anyway; --strict stops instead.
+    with fmsave.open(
+        save_path, strict=arguments.strict, competition_names=competition_names
+    ) as career_save:
         scope = resolve_scope(career_save, arguments)
         records = export_table.rows(career_save, scope)
     with (

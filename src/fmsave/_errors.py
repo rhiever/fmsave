@@ -41,3 +41,12 @@ class FmsaveWarning(UserWarning):
 
 class UnknownBuildWarning(FmsaveWarning):
     """The save comes from an FM26 build fmsave has no layout tables for."""
+
+
+class ReaderCheckWarning(FmsaveWarning):
+    """A reader's measured checks failed and it handed its table back anyway.
+
+    This is what a failed check does on a save opened without `strict=True`. The message is
+    the one `ReaderCheckError` carries on a strict save. A structural failure, where the
+    decode has no table to hand back at all, raises `ReaderCheckError` whatever the setting.
+    """

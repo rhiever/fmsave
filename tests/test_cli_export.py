@@ -547,7 +547,30 @@ def test_output_file_that_is_the_save_exits_2_and_keeps_the_save(
     assert own_save_path.read_bytes() == save_bytes
 
 
-def test_a_failed_player_check_exits_3_and_writes_no_file(
+def test_a_failed_player_check_warns_and_still_writes_the_file(
+    save_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A bound measured on a handful of saves must not stop a save being exported."""
+
+    def failing_player_gates(*arguments: object) -> tuple[GateResult, ...]:
+        return (GateResult("players_minimum", 4, 25000, None, passed=False, applied=True),)
+
+    monkeypatch.setattr("fmsave.checks.evaluate_players", failing_player_gates)
+    output_path = tmp_path / "out.csv"
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "players", "--all", "-o", str(output_path)
+    )
+    assert exit_code == cli.EXIT_OK
+    assert output_text == ""
+    assert "fmsave: warning: players failed checks: players_minimum" in error_text
+    # The header and the four players the fragment holds, written despite the failed check.
+    assert len(csv_rows(output_path.read_text(encoding="utf-8"))) == 5
+
+
+def test_a_failed_player_check_with_strict_exits_3_and_writes_no_file(
     save_path: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -559,7 +582,7 @@ def test_a_failed_player_check_exits_3_and_writes_no_file(
     monkeypatch.setattr("fmsave.checks.evaluate_players", failing_player_gates)
     output_path = tmp_path / "out.csv"
     exit_code, output_text, error_text = run_export(
-        capsys, str(save_path), "players", "--all", "-o", str(output_path)
+        capsys, str(save_path), "players", "--all", "--strict", "-o", str(output_path)
     )
     assert exit_code == cli.EXIT_UNSUPPORTED
     assert output_text == ""
@@ -1290,14 +1313,16 @@ def test_fixtures_to_a_file_in_a_unicode_folder(
     assert len(csv_rows(file_text)) - 1 == FIXTURE_COUNT
 
 
-def test_a_failed_fixture_check_exits_3(
+def test_a_failed_fixture_check_with_strict_exits_3(
     save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     def failing_fixture_gates(*arguments: object) -> tuple[GateResult, ...]:
         return (GateResult("fixtures_minimum", FIXTURE_COUNT, 90_000, None, False, True),)
 
     monkeypatch.setattr("fmsave.checks.evaluate_fixtures", failing_fixture_gates)
-    exit_code, output_text, error_text = run_export(capsys, str(save_path), "fixtures", "--all")
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "fixtures", "--all", "--strict"
+    )
     assert exit_code == cli.EXIT_UNSUPPORTED
     assert output_text == ""
     assert "fixtures_minimum" in error_text

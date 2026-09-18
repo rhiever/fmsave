@@ -369,7 +369,7 @@ def test_healthy_stage_stats_pass_every_gate_and_a_small_section_applies_none() 
     results = evaluate_stages(healthy_stage_stats(), BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert tuple(result.name for result in results) == STAGE_GATE_NAMES
     assert all(result.applied and result.passed for result in results)
-    enforce("stages", results)
+    enforce("stages", results, strict=True)
 
     small_results = evaluate_stages(healthy_stage_stats(), BOUNDS, SMALL_GAME_DB_BYTES)
     assert all(not result.applied and result.passed for result in small_results)
@@ -404,10 +404,10 @@ def test_stage_gates_fail_one_at_a_time_with_a_message_naming_the_gate(
 
     assert failed_gate_names(results) == expected_failures
     if not expected_failures:
-        enforce("stages", results)
+        enforce("stages", results, strict=True)
         return
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("stages", results)
+        enforce("stages", results, strict=True)
     message = str(error_info.value)
     assert expected_failures[0] in message
     for fictional_text in ("Alex", "Northbridge", "Example", FILE_NAME):
@@ -465,7 +465,7 @@ def test_each_reader_enforces_its_checks_before_it_hands_back_a_table(
     monkeypatch.setattr(fmsave.Save, "_gate_bounds", lambda career_save: applied_bounds)
 
     with (
-        fmsave.open(career_save_path) as career_save,
+        fmsave.open(career_save_path, strict=True) as career_save,
         pytest.raises(fmsave.ReaderCheckError) as error_info,
     ):
         getattr(career_save, reader_name)()

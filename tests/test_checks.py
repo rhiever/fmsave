@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import inspect
 import json
 import pickle
 import re
 import struct
+import warnings
 from array import array
 from pathlib import Path
 
@@ -283,7 +285,7 @@ def test_gate_switch_is_on_by_default() -> None:
         FULL_SIZE_GAME_DB_BYTES,
     )
     with pytest.raises(fmsave.ReaderCheckError):
-        enforce("players", shifted_results)
+        enforce("players", shifted_results, strict=True)
 
 
 def test_disabling_gates_restores_the_switch_after_an_exception() -> None:
@@ -294,7 +296,7 @@ def test_disabling_gates_restores_the_switch_after_an_exception() -> None:
     )
     with pytest.raises(RuntimeError, match="fictional failure"), checks._gates_disabled():
         assert checks._gates_enabled is False
-        enforce("players", shifted_results)
+        enforce("players", shifted_results, strict=True)
         raise RuntimeError("fictional failure")
     assert checks._gates_enabled is True
 
@@ -307,7 +309,7 @@ def test_healthy_player_stats_pass_every_applied_gate() -> None:
     results = evaluate_players(healthy_player_stats(), BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert tuple(result.name for result in results) == PLAYER_GATE_NAMES
     assert all(result.applied and result.passed for result in results)
-    enforce("players", results)
+    enforce("players", results, strict=True)
 
 
 def test_player_gates_are_not_applied_to_a_small_section() -> None:
@@ -322,7 +324,7 @@ def test_player_gates_are_not_applied_to_a_small_section() -> None:
         SMALL_GAME_DB_BYTES,
     )
     assert all(not result.applied for result in shifted_results)
-    enforce("players", shifted_results)
+    enforce("players", shifted_results, strict=True)
 
 
 def test_a_shifted_layout_fails_with_a_message_naming_both_gates() -> None:
@@ -332,7 +334,7 @@ def test_a_shifted_layout_fails_with_a_message_naming_both_gates() -> None:
     results = evaluate_players(shifted_stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert failed_gate_names(results) == ["handling_above_finishing", "with_natural_position"]
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("players", results)
+        enforce("players", results, strict=True)
     assert str(error_info.value) == (
         "players failed checks: handling_above_finishing=0.61 (expected 0.2..0.3); "
         "with_natural_position=0.89 (expected 0.97..). "
@@ -353,7 +355,7 @@ def test_one_record_short_of_the_minimum_fails_only_the_players_minimum_gate() -
     with pytest.raises(
         fmsave.ReaderCheckError, match=r"players_minimum=4999 \(expected 5000\.\.\)"
     ):
-        enforce("players", results)
+        enforce("players", results, strict=True)
 
 
 @pytest.mark.parametrize(
@@ -450,7 +452,7 @@ def test_past_dated_tail_ends_are_a_share_of_the_tails_with_an_end() -> None:
         fmsave.ReaderCheckError,
         match=re.escape("contracts failed checks: past_dated_tail_ends=0.051 (expected ..0.05)."),
     ):
-        enforce("contracts", results)
+        enforce("contracts", results, strict=True)
 
 
 def test_club_gates_pass_healthy_stats_and_fail_below_the_club_minimum() -> None:
@@ -515,7 +517,7 @@ def test_a_club_status_read_that_loses_the_reputation_fails_both_reputation_gate
     shifted_results = evaluate_clubs(shifted_read, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert failed_gate_names(shifted_results) == ["reputation_found", "reputation_median"]
     with pytest.raises(fmsave.ReaderCheckError, match=r"reputation_found=0\.14"):
-        enforce("clubs", shifted_results)
+        enforce("clubs", shifted_results, strict=True)
 
     nothing_read = dataclasses.replace(
         healthy_club_stats(), reputation_found=0, reputations_median=None
@@ -602,7 +604,7 @@ def test_a_suspension_search_that_finds_nothing_fails_the_share_and_the_clock_ch
     assert results[1].observed is None
     assert not results[2].applied
     with pytest.raises(fmsave.ReaderCheckError, match=r"suspension_share_of_players=0 "):
-        enforce("suspensions", results)
+        enforce("suspensions", results, strict=True)
     small_results = evaluate_suspensions(nothing_found, BOUNDS, SMALL_GAME_DB_BYTES)
     assert all(not result.applied and result.passed for result in small_results)
 
@@ -653,7 +655,7 @@ def test_the_managed_club_reader_has_no_checks_and_reports_what_its_routes_found
         "club_route_one_unresolved": 1,
         "club_route_two_unresolved": 1,
     }
-    enforce_checks((reader_check,))
+    enforce_checks((reader_check,), strict=True)
     with_club = ManagedStats(human_count=1, route_one_resolved=1, route_two_resolved=1, rows=1)
     assert dict(check_managed(with_club, BOUNDS, FULL_SIZE_GAME_DB_BYTES).anomalies) == {
         "humans_without_club": 0,
@@ -668,13 +670,13 @@ def test_a_failed_check_with_a_likely_cause_names_it() -> None:
     results = evaluate_contracts(missing_tables, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert failed_gate_names(results) == ["tails_without_clause_table"]
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("contracts", results)
+        enforce("contracts", results, strict=True)
     assert "likely an unrecognised bonus list shape in the contract tail" in str(error_info.value)
 
     few_chains = dataclasses.replace(healthy_contract_stats(), players_with_chain=1_000)
     other_results = evaluate_contracts(few_chains, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     with pytest.raises(fmsave.ReaderCheckError) as other_error_info:
-        enforce("contracts", other_results)
+        enforce("contracts", other_results, strict=True)
     assert "likely" not in str(other_error_info.value)
 
 
@@ -683,7 +685,7 @@ def test_two_failing_readers_of_one_pass_share_one_joined_message() -> None:
     suspension_check = ReaderCheck("suspensions", 3, (failing_gate("issued_after_clock"),), {})
     passing_check = ReaderCheck("players", 20, (), {})
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce_checks((passing_check, contract_check, suspension_check))
+        enforce_checks((passing_check, contract_check, suspension_check), strict=True)
     assert str(error_info.value) == (
         "contracts failed checks: tails_parsed=0.5 (expected 0.9..). "
         "suspensions failed checks: issued_after_clock=0.5 (expected 0.9..). "
@@ -699,7 +701,7 @@ def test_the_enforce_message_holds_no_digits_beyond_rates_and_bounds() -> None:
     )
     results = evaluate_players(shifted_stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("players", results)
+        enforce("players", results, strict=True)
     message = str(error_info.value)
     remainder = message.replace(ISSUES_URL, "")
     for gate_name in ("handling_above_finishing", "with_natural_position"):
@@ -1300,7 +1302,7 @@ def test_a_failing_reader_is_reported_failed_and_the_others_still_run(
         return (failing_gate("status_confirmation"),)
 
     monkeypatch.setattr(checks, "evaluate_clubs", failing_evaluate_clubs)
-    with fmsave.open(counted_fragment_path) as career_save:
+    with fmsave.open(counted_fragment_path, strict=True) as career_save:
         with pytest.raises(fmsave.ReaderCheckError, match="^clubs failed checks: "):
             career_save.clubs()
         # The failure is remembered, but no table was left behind for anyone to be handed.
@@ -1353,7 +1355,7 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered
         return (failing_gate("tails_parsed"),)
 
     monkeypatch.setattr(checks, "evaluate_contracts", failing_evaluate_contracts)
-    with fmsave.open(counted_fragment_path) as career_save:
+    with fmsave.open(counted_fragment_path, strict=True) as career_save:
         for read_table in (career_save.players, career_save.contracts, career_save.suspensions):
             with pytest.raises(fmsave.ReaderCheckError) as error_info:
                 read_table()
@@ -1470,14 +1472,57 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
     )
     with fmsave.open(counted_fragment_path) as career_save:
         readers = reader_by_name(validate_save(career_save))
-    # Every gate applies here bar one: this fragment's calendar is empty, so no record stores
-    # a ground, and a share with no population to judge is reported rather than failed.
-    assert all(
-        gate.applied
-        for reader in readers.values()
-        for gate in reader.gates
-        if gate.name != "fixture_stadiums_resolved"
-    )
+    # Every reader reaches its own gates, whatever another reader's counts did, so this judges
+    # each reader's own counts. The gates standing aside are the shares whose population this
+    # fragment leaves empty: no fixture stores a ground, no table's rows account for a season
+    # of the calendar, no rules block has a run of tables after it, no club keeps a finance
+    # series or a sponsor, no vacancy and no staff block was decoded, no list holds an id and
+    # the injury section holds no row. An empty population is a fact about the fragment rather
+    # than a layout that has moved, and a count gate sits beside each of these and fails here.
+    assert {
+        name: [gate.name for gate in reader.gates if not gate.applied]
+        for name, reader in readers.items()
+        if any(not gate.applied for gate in reader.gates)
+    } == {
+        "fixtures": ["fixture_stadiums_resolved"],
+        "league_tables": ["table_venue_calendar_agreement"],
+        "competition_rules": ["rules_linked_blocks_minimum", "rules_link_round_dates"],
+        "stadiums": ["stadium_home_grounds_owned"],
+        "finances": [
+            "finance_net_identity",
+            "finance_balance_continuity",
+            "finance_expenditure_split",
+        ],
+        "sponsorships": ["finance_clubs_with_sponsors"],
+        "job_vacancies": [
+            "job_vacancy_tag",
+            "job_vacancy_dates_ordered",
+            "job_vacancy_advertised_ascending",
+            "job_vacancy_reserved_zero",
+        ],
+        "staff": [
+            "staff_ability_signature",
+            "staff_preference_slots",
+            "staff_codes_in_set",
+            "staff_block_40_in_range",
+            "staff_listed_contracted_here",
+        ],
+        "staff_lists": ["staff_list_ids_are_staff"],
+        "injury_history": [
+            "injury_log_lead_byte",
+            "injury_log_dates",
+            "injury_log_ascending",
+            "injury_log_teams_resolved",
+            "injury_log_recent_team_matches",
+            "injury_typed_lead_byte",
+            "injury_typed_dates_near_clock",
+            "injury_typed_types_resolved",
+        ],
+        "facilities": ["facility_byte_in_range"],
+    }
+    # A reader is failed by its own counts alone. The six reported "ok" are the ones whose every
+    # applied gate this fragment meets, which it could not show while a reader that read another
+    # reader's table was stopped by that reader's counts.
     assert {name: reader.status for name, reader in readers.items()} == {
         "clubs": "failed",
         "players": "failed",
@@ -1496,22 +1541,19 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # apply rather than report a career with no competition rules of its own.
         "competition_rules": "failed",
         "player_match_stats": "failed",
-        # Every club, staff, medical and setup reader names its rows from the clubs or the
-        # players, so the failed club and player checks stop each of them before it reaches a
-        # gate of its own. Only the injury types, which need neither, fail on a gate here.
-        "stadiums": "failed",
+        "stadiums": "ok",
         "finances": "failed",
-        "sponsorships": "failed",
+        "sponsorships": "ok",
         "affiliates": "failed",
-        "job_vacancies": "failed",
+        "job_vacancies": "ok",
         "staff": "failed",
         "staff_lists": "failed",
         "injury_types": "failed",
-        "injury_history": "failed",
+        "injury_history": "ok",
         "training": "failed",
-        "mentoring": "failed",
+        "mentoring": "ok",
         "tactics": "failed",
-        "set_pieces": "failed",
+        "set_pieces": "ok",
         "facilities": "failed",
     }
     assert {name: failed_gate_names(reader.gates) for name, reader in readers.items()} == {
@@ -1577,42 +1619,44 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # share to take either: the count fails on its floor and the share fails for want of a
         # rate, which is what a transfer-window decode that has moved looks like.
         "transfer_windows": ["transfer_windows_minimum", "transfer_window_dates"],
-        # This reader asks the fixtures reader for the calendar its vote runs on, and that
-        # reader's checks raise first, so it never reaches its own gates and reports none of
-        # them. Its gates are judged on their own counts in the league-table tests, where an
-        # empty span fails all five rather than passing for want of a rate.
-        "league_tables": [],
-        # This reader takes each block's competition from the league table stored after it, so
-        # it reads that table through the checked league-table reader, and that reader's
-        # checks raise first here as well. Its own gates are judged on their own counts in the
-        # competition-rules tests, where an empty span fails the marker count and leaves the
-        # parsed share without a denominator, which fails too.
-        "competition_rules": [],
-        # This reader decodes the players to name its rows, so the failed player pass stops it
-        # before it reaches a gate of its own. Its three gates are judged on their own counts in
-        # the per-match tests, where a search that found nothing fails all three.
-        "player_match_stats": [],
-        # Each of these reads the clubs or the players to name its rows, through the readers
-        # that enforce their own checks, so the failed club and player gates raise before any
-        # of them reaches a gate of its own. Each one's gates are judged on their own counts in
-        # its own tests.
+        # An empty span leaves the table decode with no block at all, which fails four counts
+        # and both shares rather than passing for want of a rate.
+        "league_tables": [
+            "table_blocks_minimum",
+            "table_block_duplicates_minimum",
+            "table_block_team_in_range",
+            "table_groups_resolved",
+            "double_round_robin_divisions",
+        ],
+        # No preamble marker either, so the count fails on its floor and the parsed share for
+        # want of a rate.
+        "competition_rules": ["rules_markers_minimum", "rules_fully_parsed"],
+        # The search finds no per-match record, which leaves all three shares without a
+        # denominator: a layout that has moved fails here rather than reporting a career whose
+        # players have played no matches.
+        "player_match_stats": [
+            "per_match_competition_in_stage_space",
+            "per_match_minutes_in_range",
+            "per_match_rating_in_range",
+        ],
+        # The fragment's 101-row stadium table meets the two floors this test relaxed for it,
+        # and the three shares beside them judge only the rows it does hold.
         "stadiums": [],
-        "finances": [],
+        "finances": ["finance_series_minimum"],
         "sponsorships": [],
-        "affiliates": [],
+        "affiliates": ["affiliate_members_resolved"],
         "job_vacancies": [],
-        "staff": [],
-        "staff_lists": [],
-        # The one exception: the type table is read out of a per-match entry and names nothing
-        # from the save, so it reaches its own gate, and this fragment's one attachment is not
-        # a per-match file, which leaves the table empty and the floor unmet.
+        "staff": ["staff_minimum"],
+        "staff_lists": ["staff_lists_fit"],
+        # The type table is read out of a per-match entry, and this fragment's one attachment
+        # is not a per-match file, which leaves the table empty and the floor unmet.
         "injury_types": ["injury_type_entries_minimum"],
         "injury_history": [],
-        "training": [],
+        "training": ["training_blocks_match_club_teams"],
         "mentoring": [],
-        "tactics": [],
+        "tactics": ["tactics_team_blocks_match_club", "tactic_selection_selectors_resolved"],
         "set_pieces": [],
-        "facilities": [],
+        "facilities": ["facility_clubs_minimum"],
     }
 
 
@@ -1681,7 +1725,7 @@ def test_two_failing_readers_of_the_player_pass_are_named_in_one_error(
     monkeypatch.setattr(checks, "evaluate_contracts", failing_evaluate_contracts)
     monkeypatch.setattr(checks, "evaluate_suspensions", failing_evaluate_suspensions)
     with (
-        fmsave.open(counted_fragment_path) as career_save,
+        fmsave.open(counted_fragment_path, strict=True) as career_save,
         pytest.raises(fmsave.ReaderCheckError) as error_info,
     ):
         career_save.players()
@@ -1690,3 +1734,193 @@ def test_two_failing_readers_of_the_player_pass_are_named_in_one_error(
         "suspensions failed checks: issued_after_clock=0.5 (expected 0.9..). "
         f"Please report it at {ISSUES_URL} with the output of fmsave validate."
     )
+
+
+def failing_evaluate_clubs(
+    stats: ClubStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    return (failing_gate("status_confirmation"),)
+
+
+FAILED_CLUB_CHECK_MESSAGE = (
+    "clubs failed checks: status_confirmation=0.5 (expected 0.9..). "
+    f"Please report it at {ISSUES_URL} with the output of fmsave validate."
+)
+
+
+def test_a_failed_check_warns_and_hands_the_table_back(
+    counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bound measured on a handful of saves must not stop a save being read.
+
+    The warning carries the very message a strict save raises: one wording, two channels.
+    """
+    monkeypatch.setattr(checks, "evaluate_clubs", failing_evaluate_clubs)
+    with fmsave.open(counted_fragment_path) as career_save:
+        with pytest.warns(fmsave.ReaderCheckWarning) as caught_warnings:
+            clubs_table = career_save.clubs()
+        # The table is kept, so a second call is the same table and says nothing more.
+        assert career_save.clubs() is clubs_table
+
+    assert len(clubs_table) == 2
+    assert len(caught_warnings) == 1
+    assert str(caught_warnings[0].message) == FAILED_CLUB_CHECK_MESSAGE
+    with (
+        fmsave.open(counted_fragment_path, strict=True) as strict_save,
+        pytest.raises(fmsave.ReaderCheckError) as error_info,
+    ):
+        strict_save.clubs()
+    assert str(error_info.value) == FAILED_CLUB_CHECK_MESSAGE
+
+
+def test_a_strict_save_raises_and_keeps_no_table(
+    counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(checks, "evaluate_clubs", failing_evaluate_clubs)
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        with fmsave.open(counted_fragment_path, strict=True) as career_save:
+            for _ in range(2):
+                with pytest.raises(fmsave.ReaderCheckError):
+                    career_save.clubs()
+            assert career_save._context.cached_value(CLUBS_TABLE_CACHE_KEY) is None
+    assert caught_warnings == []
+
+
+def test_one_warning_covers_a_reader_however_many_readers_ask_for_it(
+    counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Readers that read the club table through the club reader do not each warn again.
+
+    A warning per reader, or per call, would be worse than the block this replaces.
+    """
+    monkeypatch.setattr(checks, "evaluate_clubs", failing_evaluate_clubs)
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        with fmsave.open(counted_fragment_path) as career_save:
+            assert len(career_save.clubs()) == 2
+            career_save.finances()
+            career_save.facilities()
+            career_save.staff()
+            career_save.clubs()
+    club_warnings = [
+        caught for caught in caught_warnings if caught.category is fmsave.ReaderCheckWarning
+    ]
+    assert [str(caught.message) for caught in club_warnings] == [FAILED_CLUB_CHECK_MESSAGE]
+
+
+def test_a_warning_points_at_the_line_that_called_the_reader(
+    counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(checks, "evaluate_clubs", failing_evaluate_clubs)
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        with fmsave.open(counted_fragment_path) as career_save:
+            expected_line = inspect.currentframe().f_lineno + 1  # pyright: ignore[reportOptionalMemberAccess]
+            career_save.clubs()
+    assert len(caught_warnings) == 1
+    assert Path(caught_warnings[0].filename) == Path(__file__)
+    assert caught_warnings[0].lineno == expected_line
+
+
+def structural_failure_path(tmp_path: Path) -> Path:
+    """A save whose game database holds no club record at all: a decode with nothing to hand back."""
+    sections = [
+        SectionFrame("game_db", section_body(".dat", GAME_DB_SCHEMA, bytes(512)))
+        if section.name == "game_db"
+        else section
+        for section in default_sections()
+    ]
+    return build_container_fragment(sections).write(tmp_path / "Private Folder" / FILE_NAME)
+
+
+@pytest.mark.parametrize("strict", [False, True], ids=["warning-save", "strict-save"])
+def test_a_structural_failure_raises_whether_or_not_the_save_is_strict(
+    tmp_path: Path, strict: bool
+) -> None:
+    """A check is a bound; "no club records found" is a decode with no table to hand back."""
+    fragment_path = structural_failure_path(tmp_path)
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        with (
+            fmsave.open(fragment_path, strict=strict) as career_save,
+            pytest.raises(fmsave.ReaderCheckError) as error_info,
+        ):
+            career_save.clubs()
+    assert "no club records found" in str(error_info.value)
+    assert not isinstance(error_info.value, checks.GateCheckError)
+    assert caught_warnings == []
+
+
+def test_validate_save_reports_a_failed_reader_without_raising_or_warning(
+    counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The report is where a caller inspects checks in full, so it neither raises nor warns.
+
+    A warning per failed reader would make `fmsave validate` noisiest on exactly the saves it
+    exists to diagnose.
+    """
+    monkeypatch.setattr(checks, "evaluate_clubs", failing_evaluate_clubs)
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        with fmsave.open(counted_fragment_path) as career_save:
+            report = validate_save(career_save)
+    assert caught_warnings == []
+    readers = reader_by_name(report)
+    assert readers["clubs"].status == "failed"
+    assert readers["clubs"].gates == (failing_gate("status_confirmation"),)
+    assert readers["players"].status == "ok"
+
+
+def test_a_reader_read_after_validate_save_hands_back_its_table(
+    counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Inspecting a save must not change how that save reads afterwards.
+
+    A caller who runs `validate_save` to find out what is wrong with a save must not be
+    punished for having asked. The readers run there exactly as they would for any other
+    caller, so on a save opened the default way a failed check raises nothing and leaves no
+    remembered failure behind: the table the report decoded is kept, and the call that follows
+    is handed it. That call says nothing further, because the report has already reported the
+    check, and costs nothing, because the decode is not repeated.
+    """
+    club_checks: list[int] = []
+
+    def counting_failing_evaluate_clubs(
+        stats: ClubStats, bounds: GateBounds, game_db_bytes: int
+    ) -> tuple[GateResult, ...]:
+        club_checks.append(stats.records)
+        return (failing_gate("status_confirmation"),)
+
+    monkeypatch.setattr(checks, "evaluate_clubs", counting_failing_evaluate_clubs)
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        with fmsave.open(counted_fragment_path) as career_save:
+            report = validate_save(career_save)
+            clubs_table = career_save.clubs()
+            stadiums_table = career_save.stadiums()
+
+    readers = reader_by_name(report)
+    assert readers["clubs"].status == "failed"
+    assert readers["clubs"].gates == (failing_gate("status_confirmation"),)
+    assert len(clubs_table) == 2
+    # A reader that reads the club table through the club reader is handed it as well.
+    assert len(stadiums_table) > 0
+    assert club_checks == [2]
+    assert caught_warnings == []
+
+
+def test_validate_save_leaves_a_strict_save_strict(
+    counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A save opened strict is reported the way a strict save reads, and still raises after.
+
+    The report is of the save as its owner opened it, so a reader that a strict save stops is
+    reported failed there and stops afterwards too.
+    """
+    monkeypatch.setattr(checks, "evaluate_clubs", failing_evaluate_clubs)
+    with fmsave.open(counted_fragment_path, strict=True) as career_save:
+        report = validate_save(career_save)
+        with pytest.raises(fmsave.ReaderCheckError):
+            career_save.clubs()
+    assert reader_by_name(report)["clubs"].status == "failed"

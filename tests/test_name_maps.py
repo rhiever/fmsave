@@ -331,7 +331,9 @@ def test_a_failing_competition_check_leaves_stages_unable_to_name_anything(
 
     monkeypatch.setattr(checks, "evaluate_competitions", failing_competition_gates)
 
-    with fmsave.open(career_save_path, competition_names=FIRST_COMPETITION_ONLY) as career_save:
+    with fmsave.open(
+        career_save_path, strict=True, competition_names=FIRST_COMPETITION_ONLY
+    ) as career_save:
         with pytest.raises(checks.GateCheckError) as stages_error:
             career_save.stages()
         with pytest.raises(checks.GateCheckError):
