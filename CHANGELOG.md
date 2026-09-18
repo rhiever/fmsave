@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `Clause.value` reports `verified` rather than `unconfirmed`. Its meaning is now confirmed for every named clause kind: the two release clauses whose fee had never been read off a contract screen were read, and each carries a fee like the other release kinds. `Clause.parameter` stays `unconfirmed`, because a minority of plain minimum-fee clauses carry a parameter whose meaning nothing pins.
+
 ## [0.3.0] - 2026-09-17
 
 ### Added

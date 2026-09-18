@@ -80,18 +80,23 @@ class ClauseKind(IntEnum):
     Clause (Domestic Clubs in Higher Division)"; no contract in the corpus carries both.
 
     RELEGATION_RELEASE and NON_PROMOTION_RELEASE are the clauses the game calls a relegation
-    release clause and a non promotion release clause; what their value and parameter hold is
-    not confirmed.
+    release clause and a non promotion release clause, and each one's value is a release fee
+    like the other release kinds. Neither ever carries a parameter.
 
-    A clause's value is the release fee for MINIMUM_FEE_RELEASE, MINIMUM_FEE_RELEASE_FOREIGN,
-    MINIMUM_FEE_RELEASE_DOMESTIC and MINIMUM_FEE_RELEASE_DOMESTIC_HIGHER_DIVISION, and the
-    amount paid for APPEARANCE_FEE, SHUTOUT_BONUS, INTERNATIONAL_CAP_BONUS,
-    UNUSED_SUBSTITUTE_FEE and SEASONAL_LANDMARK_COMBINED_GOALS_AND_ASSISTS. A clause's
-    parameter is a percentage for TOP_DIVISION_RELEGATION_SALARY_DROP, years for
+    A clause's value is the release fee for MINIMUM_FEE_RELEASE, RELEGATION_RELEASE,
+    NON_PROMOTION_RELEASE, MINIMUM_FEE_RELEASE_FOREIGN, MINIMUM_FEE_RELEASE_DOMESTIC and
+    MINIMUM_FEE_RELEASE_DOMESTIC_HIGHER_DIVISION, and the amount paid for APPEARANCE_FEE,
+    SHUTOUT_BONUS, INTERNATIONAL_CAP_BONUS, UNUSED_SUBSTITUTE_FEE and
+    SEASONAL_LANDMARK_COMBINED_GOALS_AND_ASSISTS. Every clause of those kinds carries one.
+    TOP_DIVISION_RELEGATION_SALARY_DROP and OPTIONAL_EXTENSION_BY_CLUB carry a parameter
+    instead and no value.
+
+    A clause's parameter is a percentage for TOP_DIVISION_RELEGATION_SALARY_DROP, years for
     OPTIONAL_EXTENSION_BY_CLUB, the number of goals plus assists that earns the bonus for
     SEASONAL_LANDMARK_COMBINED_GOALS_AND_ASSISTS, and days to expiry from the contract start
     for MINIMUM_FEE_RELEASE_DOMESTIC and MINIMUM_FEE_RELEASE_DOMESTIC_HIGHER_DIVISION (None
-    means no expiry).
+    means no expiry). A minority of MINIMUM_FEE_RELEASE clauses carry a parameter too, and
+    what it holds there is not confirmed.
     """
 
     UNKNOWN = -1
@@ -114,16 +119,17 @@ class ClauseKind(IntEnum):
 class Clause:
     """One clause attached to a contract, such as a release fee, an extension option or a bonus.
 
-    Every named kind is confirmed in game. What a clause's parameter and value hold is
-    confirmed for most of those kinds but not for RELEGATION_RELEASE and
-    NON_PROMOTION_RELEASE (see ClauseKind), and a status covers a field across every kind, so
-    both fields ship unconfirmed.
+    Every named kind is confirmed in game, and so is what a clause's value holds for each of
+    them (see ClauseKind). A status covers a field across every kind, so parameter still ships
+    unconfirmed: a minority of MINIMUM_FEE_RELEASE clauses carry one whose meaning no in-game
+    reading pins.
 
     Attributes:
         kind: The clause's kind.
         parameter: The clause's parameter, whose meaning depends on kind; None when the
             save stores no parameter (unconfirmed).
-        value: The clause's money value; None when the save stores no value (unconfirmed).
+        value: The clause's money value, in the save's own money unit and not converted;
+            None when the save stores no value.
     """
 
     kind: CodedValue[ClauseKind]
@@ -256,8 +262,8 @@ class Contract:
 
 register_field_statuses(
     Clause,
-    verified=("kind",),
-    unconfirmed=("parameter", "value"),
+    verified=("kind", "value"),
+    unconfirmed=("parameter",),
 )
 # `end` is the same tail field Contract.end is taken from, and the contract end the game
 # displays confirmed it; `start` has no displayed label behind it on either class.

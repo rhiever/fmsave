@@ -2105,7 +2105,7 @@ def test_a_derived_field_carries_the_status_of_what_it_is_taken_from() -> None:
     assert field_status(Contract, "end") == field_status(ContractChainEntry, "end")
     assert field_status(Contract, "end") == "verified"
     assert field_status(Clause, "parameter") == "unconfirmed"
-    assert field_status(Clause, "value") == "unconfirmed"
+    assert field_status(Clause, "value") == "verified"
 
 
 def test_pickle_and_deepcopy_round_trip_contract_records() -> None:
