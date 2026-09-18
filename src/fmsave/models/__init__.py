@@ -12,6 +12,7 @@ from fmsave.models.contracts import (
     ContractType,
     SquadStatus,
 )
+from fmsave.models.facilities import ClubFacilities, CorporateFacilities
 from fmsave.models.finances import FinanceMonth, Sponsorship, SponsorType
 from fmsave.models.fixtures import Fixture
 from fmsave.models.injuries import (
@@ -73,6 +74,7 @@ __all__ = [
     "Clause",
     "ClauseKind",
     "Club",
+    "ClubFacilities",
     "CodedValue",
     "Competition",
     "CompetitionRound",
@@ -81,6 +83,7 @@ __all__ = [
     "ContractChainEntry",
     "ContractEndSource",
     "ContractType",
+    "CorporateFacilities",
     "FinanceMonth",
     "Fixture",
     "InjuryCause",

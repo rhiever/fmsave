@@ -175,12 +175,15 @@ def test_each_stored_tactic_of_each_team_is_one_row(career_path: Path) -> None:
     assert [row.style_name for row in tactics] == [TACTIC_STYLE_NAME, TACTIC_STYLE_NAME]
 
 
-def test_the_mentality_and_the_team_instructions_ship_as_raw_numbers(career_path: Path) -> None:
+def test_the_mentality_is_named_and_the_team_instructions_ship_as_raw_numbers(
+    career_path: Path,
+) -> None:
     with fmsave.open(career_path) as save:
         first, second = save.tactics()
 
-    assert first.mentality.label is Mentality.UNKNOWN
+    assert first.mentality.label is Mentality.ATTACKING
     assert first.mentality.raw == 6
+    assert second.mentality.label is Mentality.BALANCED
     assert second.mentality.raw == 4
     assert first.unknown["team_instruction_02"] == 6
     assert first.unknown["team_instruction_11"] == 84

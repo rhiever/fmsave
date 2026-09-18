@@ -3,6 +3,10 @@
 A row is one person at one club: the department list the club keeps him in, the terms of his
 contract, his ability, and the preferences a staff profile shows. The human manager is a row of
 his own with no readable ability.
+
+**The club's board is not here.** A club's staff screen shows its president, its director and
+its managing director beside the coaching and medical staff, and none of the three has a row in
+the staff structures this reads; the rest of that screen's people matched a row one for one.
 """
 
 from __future__ import annotations
@@ -82,8 +86,14 @@ class Staff:
 
     `unknown["contract_e36"]` and the three codes beside it are **not** player squad statuses:
     they come from the same bytes but take different values on staff, and no displayed label has
-    named one, so they ship as raw numbers and never as a `SquadStatus`. The job title is not
-    readable at all; the byte that most likely carries it is `unknown["r4"]`.
+    named one, so they ship as raw numbers and never as a `SquadStatus`.
+
+    **The job title is not readable, and `unknown["r4"]` is not it.** That byte was the one
+    candidate for it, and a club's staff screen ruled it out: over 78 displayed rows, 8 of the
+    16 codes on show carried two or more different job titles, 7 titles appeared under two or
+    three different codes, and one code carried seven titles on its own. So `r4` keeps its raw
+    number for good rather than becoming a named role, and the codes that happen to sit on one
+    title at one club are not evidence of a meaning the field demonstrably does not have.
 
     The human manager is a row with `is_human_manager` true. His object is laid out differently,
     so `ability`, `preferences` and every `unknown` key read from the ability block are absent
@@ -193,8 +203,15 @@ class StaffList:
 
     A club that lists nobody has no row here at all; a club that lists somebody has all three
     rows, empty lists included. The lists split a club's staff into groups, and the codes their
-    members carry differ from list to list, but no displayed label has named a list, so
-    `list_index` is a number and nothing more.
+    members carry differ from list to list.
+
+    **The three lists look like the three departments a club's staff screen shows.** On one
+    club of one save, the screen's medical, coaching and recruitment panels held 13, 19 and 10
+    people and the club's senior rows in lists 0, 1 and 2 held 13, 18 and 9 of them, the
+    missing two being the human manager and one contracted person no list holds; every person
+    matched by name, which makes list 0 medical, list 1 coaching and list 2 recruitment. That
+    is arithmetic on one club rather than a label on a list, so it is recorded here and
+    `list_index` stays a number.
 
     People a list holds who turn out to be players are dropped, and so are the few whose object
     cannot be told from another's, so a list's people are those `staff()` also has a row for.

@@ -5,12 +5,12 @@ youth side and the teams the club fields at the clubs it controls each have thei
 club but the managed one has any at all. So the rows here are the teams of one club, and each
 carries the team it belongs to.
 
-**Which week runs which schedule is not confirmed.** The save writes each week as its start
-date followed by a schedule name, and this reads the name as belonging to the date written
-before it. That is what the bytes say, and it is the opposite of what one earlier reader of
-this format did, so `TrainingWeek.schedule_name` stays `unconfirmed` until a Training screen
-settles it. The week's own start date is not in doubt: consecutive weeks step exactly seven
-days on every pair of every calendar measured.
+**Which week runs which schedule is settled.** The save writes each week as its start date
+followed by a schedule name, and the name belongs to the date written before it: a manager's
+own Training screen showed the same schedule against the same week for four consecutive weeks,
+where pairing each name with the following week -- what one earlier reader of this format did
+-- would have been a week out on every one of them. The week's own start date is not in doubt
+either: consecutive weeks step exactly seven days on every pair of every calendar measured.
 
 What a week's sessions actually are is not read: each day holds three codes with no known
 meaning, and nothing here presents them.
@@ -32,9 +32,8 @@ class TrainingWeek:
 
     Attributes:
         week_start: The day the week starts, None when the stored date does not decode.
-        schedule_name: Name of the schedule the save stores with that week, exactly as the
-            save holds it. A schedule is a user's own file, so this is whatever it was called
-            (unconfirmed).
+        schedule_name: Name of the schedule the week runs, exactly as the save holds it. A
+            schedule is a user's own file, so this is whatever it was called.
     """
 
     week_start: date | None
@@ -123,14 +122,14 @@ class MentoringGroup:
     member_names: tuple[str | None, ...]
 
 
-# The date is pinned by the seven-day step holding on every pair of every calendar; the name
-# beside it is not, because only a Training screen can say which week a name belongs to. The
-# team key and its club join are structural: every block's team is a team of the managed club
-# and each appears once. The slot is the club record's own order, which no screen has named.
+# The date is pinned by the seven-day step holding on every pair of every calendar, and the
+# name beside it by a Training screen: four consecutive weeks showed the schedule this pairing
+# gives them and not the one the other pairing would. The team key and its club join are
+# structural: every block's team is a team of the managed club and each appears once. The slot
+# is the club record's own order, which no screen has named.
 register_field_statuses(
     TrainingWeek,
-    verified=("week_start",),
-    unconfirmed=("schedule_name",),
+    verified=("week_start", "schedule_name"),
 )
 register_field_statuses(
     TrainingSchedule,

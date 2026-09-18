@@ -431,6 +431,18 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'offset_after_chain': 50,
+        'value_range': tuple(
+          1,
+          20,
+        ),
+      }),
+      'region': 'game_db',
+      'schema': 4000,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
         'competition_id_exclusive_range': tuple(
           0,
           60000,
@@ -1307,6 +1319,14 @@
         ),
         'double_round_robin_divisions': tuple(
           5,
+          None,
+        ),
+        'facility_byte_in_range': tuple(
+          0.99,
+          None,
+        ),
+        'facility_clubs_minimum': tuple(
+          1,
           None,
         ),
         'finance_balance_continuity': tuple(

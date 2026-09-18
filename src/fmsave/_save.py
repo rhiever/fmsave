@@ -30,6 +30,7 @@ from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
+from fmsave.models.facilities import ClubFacilities
 from fmsave.models.finances import FinanceMonth, Sponsorship
 from fmsave.models.fixtures import Fixture
 from fmsave.models.injuries import InjuryRecord, InjuryType
@@ -62,6 +63,7 @@ from fmsave.readers.affiliates import (
     find_affiliate_layout,
     walk_affiliate_groups,
 )
+from fmsave.readers.facilities import find_facility_layout, read_club_facilities
 from fmsave.readers.finances import find_finance_layouts, read_club_finances
 from fmsave.readers.fixtures import build_fixtures
 from fmsave.readers.injuries import (
@@ -143,6 +145,7 @@ INJURY_TYPES_TABLE_CACHE_KEY = "table:injury_types"
 INJURY_HISTORY_TABLE_CACHE_KEY = "table:injury_history"
 FINANCES_TABLE_CACHE_KEY = "table:finances"
 SPONSORSHIPS_TABLE_CACHE_KEY = "table:sponsorships"
+FACILITIES_TABLE_CACHE_KEY = "table:facilities"
 AFFILIATES_TABLE_CACHE_KEY = "table:affiliates"
 JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
 STADIUMS_TABLE_CACHE_KEY = "table:stadiums"
@@ -569,6 +572,10 @@ class Save:
         no club used often enough lists none, and a shared ground lists every club that uses
         it. Owning a ground and playing at it are different things and are separate fields.
 
+        **A ground with no stored owner is the council's.** The game's facilities screen shows
+        one such ground as owned by the council, so an empty `owner_club_uid` is what the game
+        displays that way rather than an owner fmsave failed to read.
+
         The last row of the table is a template the save carries rather than a ground anyone
         plays at, and it is returned like any other row the walk found.
 
@@ -705,13 +712,17 @@ class Save:
     def injury_history(self) -> Table[InjuryRecord]:
         """Every injury the save still remembers, in stored order, of both kinds.
 
-        A `HISTORY` row is one the game's Injury History tab shows: when the injury happened,
-        the team the person was at, and how it came about and how bad it was as raw codes no
-        in-game label names yet. **The save keeps only about the last two years of them**: the
-        oldest row on every save measured is 742 days before the in-game date, and rows older
-        than that are gone rather than kept, so this is a rolling window and not a whole
-        career. The store the game itself keeps careers in is not read, because nothing in it
-        says which person a history belongs to.
+        A `HISTORY` row is an injury the save remembers happening: when it happened, the team
+        the person was at, whether it happened in training or in a match, and how bad it was,
+        both of those in the game's own words. **The save keeps only about the last two years
+        of them**: the oldest row on every save measured is 742 days before the in-game date,
+        and rows older than that are gone rather than kept, so this is a rolling window and not
+        a whole career.
+
+        **These are not the rows the game's Injury History tab lists.** That tab reads the
+        full-career store, which fmsave does not ship because nothing in it says which person a
+        history belongs to: it shows injuries from years outside this window, so what is here
+        is the recent part of the career that tab shows whole.
 
         A `TYPED` row carries the injury type of a recent or current episode. Its date runs
         from a little over a week behind the in-game date to a couple of months ahead of it,
@@ -808,21 +819,27 @@ class Save:
         """Every group of clubs the save stores together, in stored order.
 
         **What groups a set of clubs is not established.** These groups live in a section of
-        their own and carry nothing that says what the grouping means: the affiliates a club's
-        Club Site lists and the clubs of one owner both fit what has been measured, and two
-        clubs whose Club Site names an affiliate belong to no group here. Every club field is
-        `unconfirmed` for that reason.
+        their own and carry nothing that says what the grouping means, so every club field is
+        `unconfirmed`.
+
+        **They are not the affiliates a club's Affiliated Clubs screen lists.** The club whose
+        screen listed 26 affiliates belongs to no group here, and the one group naming a club
+        that screen also names pairs it with its own academy rather than with the viewing club.
+        A multi-club ownership group is recognisable in the largest group of every save
+        measured, which would suit an ownership reading, but no screen has said so. So a club's
+        own affiliates, and the kind of each affiliation, are in no field fmsave reads.
 
         This is **not** the parent link `Club.parent_club_uid` carries, which comes from the
-        team lists inside the club records; the two relations share no pair at all. A member
+        team lists inside the club records; the two relations share no pair at all, although
+        the parent link is what a club's B and C sides on that screen come through. A member
         whose stored club index no club record claims leaves that entry's uid and name empty
         rather than being guessed, which is about one member in sixty.
 
-        A club's partners are the members of the groups it belongs to, without itself::
+        The other members of the groups a club belongs to, without the club itself::
 
             groups = career_save.affiliates()
             own_groups = groups.filter(lambda group: club_uid in group.club_uids)
-            partners = tuple(
+            others = tuple(
                 member_uid
                 for group in own_groups
                 for member_uid in group.club_uids
@@ -1171,14 +1188,20 @@ class Save:
         searched either way.
 
         `balance` is the balance at the **end** of the row's month, and `net_transfers` is
-        positive for a net **spend**. Money is a whole number in the save's base currency, which
-        is not necessarily the one the game displays: one save measured shows euros at about
-        1.157 times the stored value, and nothing here is converted. The weekly fields are
-        weekly; every other money field is one month's amount.
+        positive for a net **spend**. **Money is a whole number in the save's base currency,
+        which is not the currency the game displays**: on the save whose screens were read the
+        balance, both budgets, the wage bill and the month's income and expenditure all display
+        at about 1.157 times the stored value, one rate fitting every one of them, which is
+        what says the stored unit is its own unit. Nothing here is converted and no rate is
+        applied. The weekly fields are weekly; every other money field is one month's amount.
+        `transfer_budget_allocated` is **not** the budget the board allocated: that screen
+        showed a budget well above it with almost none of it spent, so what the field is stays
+        unnamed.
 
         `month` is worked out from the save's own date rather than stored: the last row of a
-        club is the month before the save's month. Several useful figures are arithmetic on
-        these rows rather than fields: wage headroom is `wage_budget_weekly` less
+        club is the month before the save's month, which is the lag that put that club's two
+        oldest rows on the months its own screen labelled them with. Several useful figures are
+        arithmetic on these rows rather than fields: wage headroom is `wage_budget_weekly` less
         `wage_payroll_weekly`, a yearly figure is a weekly one times 52, a club's latest month
         is its last row, and a club summary is its rows grouped by `club_uid`.
 
@@ -1279,6 +1302,61 @@ class Save:
             Table(months, FinanceMonth), Table(sponsorships, Sponsorship), reader_checks
         )
 
+    def facilities(self) -> Table[ClubFacilities]:
+        """Every club's corporate facilities rating, in club index order.
+
+        **The clubs are the ones `finances()` covers**, because the rating is stored behind a
+        club's monthly finance chain and only the clubs of the one or two league nations a save
+        tracks keep one. A club with no rows in `finances()` has no row here either, which is
+        most clubs of a save and is ordinary rather than a failure; a save whose clubs keep no
+        series returns an empty table, and `fmsave validate` reports the counts.
+
+        `corporate_facilities` is the rating the game's Facilities screen shows as a word on
+        its **Corporate** line. Four of the twenty codes carry the word a club's own screen
+        displayed against that exact number -- 9 Adequate, 15 Good, 19 and 20 Excellent -- and
+        every other code reads UNKNOWN with its raw number kept, including the codes next to a
+        named one. The screen's other facility lines, the stadium and pitch, the training and
+        youth grounds and the academy, are not stored anywhere near this byte and are not read
+        at all.
+
+        The table is read on the first call; later calls return the same table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: No club record is accepted, a club uid or club index appears in
+                two records, a team id is listed twice, or, on a full-size save, the ratings
+                decoded fall outside the checks' bounds.
+        """
+        context = self._context
+        return context.cached(FACILITIES_TABLE_CACHE_KEY, self._read_facilities)
+
+    def _read_facilities(self) -> Table[ClubFacilities]:
+        context = self._context
+        save_info = context.info
+        gate_bounds = self._gate_bounds()
+        game_db_schema = save_info.section_schemas.get(GAME_DB_SECTION)
+        finance_layouts = find_finance_layouts(game_db_schema, save_info.build)
+        layout = find_facility_layout(game_db_schema, save_info.build)
+        # One game_db borrow covers the club records, the club index and the managed club, so a
+        # cold call decompresses that section once rather than once per lookup.
+        with context.section(GAME_DB_SECTION) as game_db:
+            # Every row carries a club name, so the club table is read through the reader that
+            # enforces the club checks rather than through the index behind them.
+            self.clubs()
+            # Whether a managed club exists is what decides whether the count floor applies.
+            managed_clubs = self.managed_clubs()
+            club_index = context.club_index()
+            facilities, facility_stats = read_club_facilities(
+                game_db, club_index, finance_layouts, layout, len(managed_clubs) > 0
+            )
+            game_db_length = len(game_db)
+        facility_check = checks.check_facilities(facility_stats, gate_bounds, game_db_length)
+        checks.enforce_checks((facility_check,))
+        self._store_reader_checks((facility_check,))
+        return Table(facilities, ClubFacilities)
+
     def staff(self) -> Table[Staff]:
         """Everyone a club employs who is not a player, in the order their objects are stored.
 
@@ -1298,8 +1376,14 @@ class Save:
         **The contract codes are not player squad statuses.** `unknown["contract_e36"]` comes
         from the byte a player's squad status is read from, but it takes different values on
         staff and no displayed label has named one, so it and the three codes beside it ship as
-        raw numbers. The job title is not readable at all: the byte most likely to carry it
-        ships as `unknown["r4"]`.
+        raw numbers.
+
+        **The job title is not readable, and `unknown["r4"]` is not it.** A club's staff screen
+        settled that: over 78 displayed rows, 8 of the 16 codes on show carried two or more
+        different job titles and 7 titles appeared under two or three different codes, so the
+        byte keeps its raw number rather than becoming a named role. **The club's board is not
+        in this table either**: the president, the director and the managing director appear on
+        that same screen with no row here, while every other person on it matched a row.
 
         Several useful figures are arithmetic on these rows rather than fields: a club's
         non-playing wage bill is the sum of `wage` over its rows, how many of its staff it
@@ -1330,11 +1414,16 @@ class Save:
         three rows, empty lists included. Only 733 to 1,957 of a save's 48,000 to 51,000 clubs
         list anybody, so most clubs are absent, which is ordinary rather than a failure.
 
-        The lists split a club's staff into groups whose codes differ from list to list, but no
-        displayed label has named a list, so `list_index` is a number and nothing more. People
-        a list names who turn out to be players are dropped, and `fmsave validate` reports how
-        many; so are the few whose object cannot be told from another's, so a list's people are
-        those `staff()` also has a row for. A list's size is `len(person_uids)`.
+        The lists split a club's staff into groups whose codes differ from list to list.
+        **They look like the three departments a club's staff screen shows**: on one club of
+        one save the screen's medical, coaching and recruitment panels held 13, 19 and 10
+        people, and that club's senior rows in lists 0, 1 and 2 held 13, 18 and 9 of them
+        person for person, the two missing being the human manager and one contracted person no
+        list holds. That is arithmetic on one club rather than a label on a list, so
+        `list_index` stays a number. People a list names who turn out to be players are
+        dropped, and `fmsave validate` reports how many; so are the few whose object cannot be
+        told from another's, so a list's people are those `staff()` also has a row for. A
+        list's size is `len(person_uids)`.
 
         The table is read on the first call to `staff()` or `staff_lists()`, from one decode
         pass; later calls to either return the same tables. When a check of that pass fails,
@@ -1422,12 +1511,14 @@ class Save:
         the line-ups the section keeps for thousands of other clubs are a different structure
         that fmsave does not read.
 
-        `mentality` and every position bit are **raw codes with the label UNKNOWN**: they are
-        read from offsets a strict walk of every record lands on exactly, but no displayed
-        mentality or formation has been matched to one of those numbers. The 19 team
-        instructions and the setting units of each slot are unidentified numbers in the same
-        way, and ship in `unknown` and as `TacticSettingUnit` values rather than under names
-        they have not earned.
+        `mentality` carries the word the game shows: the seven codes are the seven mentalities
+        it offers, from Very Defensive to Very Attacking, confirmed against a manager's own
+        tactics. **Every position bit is still a raw code with the label UNKNOWN**: the bits
+        are read from offsets a strict walk of every record lands on exactly, but no displayed
+        formation has been matched to one of those numbers. The 19 team instructions and the
+        setting units of each slot are unidentified numbers in the same way, and ship in
+        `unknown` and as `TacticSettingUnit` values rather than under names they have not
+        earned.
 
         The table is read on the first call to `tactics()` or `set_pieces()`, from one walk;
         later calls to either return the same tables. When a check of that walk fails, neither
@@ -1565,12 +1656,13 @@ class Save:
         managed club with the slot it holds in that club's list. **No other club has a
         calendar at all**, and a save whose manager runs no club returns an empty table.
 
-        **Which week runs which schedule is read as the save stores it, and the pairing is not
-        yet confirmed against the game.** Each weekly record holds the week's start date and
-        then a schedule name, and this reads the name as the schedule of the week whose date
-        came before it. The dates themselves are solid: consecutive weeks step exactly seven
-        days on every pair of every calendar measured, and the calendar runs from well before
-        the save's date to well after it.
+        **Which week runs which schedule is settled.** Each weekly record holds the week's
+        start date and then a schedule name, and the name is the schedule of the week whose
+        date came before it: a manager's Training screen showed exactly that schedule for four
+        consecutive weeks, where pairing each name with the following week would have been a
+        week out on all four. The dates themselves are solid too: consecutive weeks step
+        exactly seven days on every pair of every calendar measured, and the calendar runs from
+        well before the save's date to well after it.
 
         The active week of a team is the latest one that has started. A week whose stored date
         does not decode carries None, and a save whose date is unreadable has nothing to

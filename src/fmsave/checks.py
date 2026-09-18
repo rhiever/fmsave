@@ -3,8 +3,9 @@
 While a reader decodes, it counts what it sees into a stats record from `fmsave._reader_stats`
 (`PlayerStats`, `ContractStats`, `ClubStats`, `SuspensionStats`, `ManagedStats`, `StageStats`,
 `CompetitionStats`, `FixtureStats`, `TransferWindowStats`, `LeagueTableStats`, `RulesStats`,
-`MatchStats`, `StadiumStats`, `FinanceStats`, `AffiliateStats`, `JobVacancyStats`, `StaffStats`,
-`InjuryTypeStats`, `InjuryStats`, `TrainingStats` or `TacticStats`).
+`MatchStats`, `StadiumStats`, `FinanceStats`, `FacilityStats`, `AffiliateStats`,
+`JobVacancyStats`, `StaffStats`, `InjuryTypeStats`, `InjuryStats`, `TrainingStats` or
+`TacticStats`).
 The `evaluate_*` functions compare those counts with the loose `GateBounds` registered for the
 save's layout and return one `GateResult` per check, and `enforce` raises `ReaderCheckError`
 when an applied check failed, before the reader caches its table. The checks apply only to a
@@ -37,6 +38,7 @@ from fmsave._reader_stats import (
     ClubStats,
     CompetitionStats,
     ContractStats,
+    FacilityStats,
     FinanceStats,
     FixtureStats,
     InjuryStats,
@@ -95,6 +97,7 @@ INJURY_TYPES_READER = "injury_types"
 INJURY_HISTORY_READER = "injury_history"
 FINANCES_READER = "finances"
 SPONSORSHIPS_READER = "sponsorships"
+FACILITIES_READER = "facilities"
 AFFILIATES_READER = "affiliates"
 JOB_VACANCIES_READER = "job_vacancies"
 STADIUMS_READER = "stadiums"
@@ -1501,6 +1504,40 @@ def evaluate_sponsorships(
     )
 
 
+def evaluate_facilities(
+    stats: FacilityStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The facilities reader's checks, in a fixed order.
+
+    The share judges the clubs that keep a finance series, which are the only clubs that carry
+    a rating, so it applies only where there is one of those: a save whose clubs keep no series
+    has no rating to read, exactly as it has no month to read. It is what catches a rating read
+    from the wrong offset, since the bytes around it hold a value inside the range on a few
+    clubs in a hundred rather than on all of them.
+
+    The count floor is the finance floor's, for the same population: at least one club with a
+    series, applied only where the save lists a managed club, whose own club held a series on
+    every save measured. A save with no human manager whose clubs keep no series is the one
+    hole, the same one `finances()` documents, and `fmsave validate` reports the counts.
+    """
+    applied = _applies(bounds, game_db_bytes)
+    return (
+        _share_gate(
+            "facility_byte_in_range",
+            stats.in_range,
+            stats.clubs_with_series,
+            bounds.facility_byte_in_range,
+            applied,
+        ),
+        _gate(
+            "facility_clubs_minimum",
+            stats.clubs_with_series,
+            bounds.facility_clubs_minimum,
+            applied and stats.managed_club_exists,
+        ),
+    )
+
+
 def evaluate_affiliates(
     stats: AffiliateStats, bounds: GateBounds, game_db_bytes: int
 ) -> tuple[GateResult, ...]:
@@ -1776,6 +1813,26 @@ def check_staff_lists(stats: StaffStats, bounds: GateBounds, game_db_bytes: int)
         stats.list_rows,
         evaluate_staff_lists(stats, bounds, game_db_bytes),
         FrozenMapping({"player_values_in_lists": stats.player_values_in_lists}),
+    )
+
+
+def check_facilities(stats: FacilityStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The facilities reader's checks, record count and anomaly counts.
+
+    `clubs_without_a_rating` counts the clubs with a finance series whose record ends before
+    the rating would sit, which no save measured holds any of, and `ratings_out_of_range` the
+    ratings outside the range the layout carries, which the share gate bounds.
+    """
+    return ReaderCheck(
+        FACILITIES_READER,
+        stats.rows,
+        evaluate_facilities(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {
+                "clubs_without_a_rating": stats.clubs_with_series - stats.rows,
+                "ratings_out_of_range": stats.rows - stats.in_range,
+            }
+        ),
     )
 
 
@@ -2107,7 +2164,8 @@ class ReaderValidation:
             "stages", "competitions", "fixtures", "league_tables", "transfer_windows",
             "competition_rules", "player_match_stats", "stadiums", "finances", "sponsorships",
             "affiliates", "job_vacancies", "staff", "staff_lists", "injury_types",
-            "injury_history", "training", "mentoring", "tactics" or "set_pieces".
+            "injury_history", "training", "mentoring", "tactics", "set_pieces" or
+            "facilities".
         status: "ok" when the reader returned its table, "failed" when checks stopped it, and
             "error" when it raised another fmsave error.
         record_count: How many records the reader decoded, or None when it did not get far
@@ -2202,15 +2260,14 @@ def validate_save(career_save: Save) -> ValidationReport:
     Readers run in the order clubs, players, contracts, suspensions, managed clubs, stages,
     competitions, fixtures, league tables, transfer windows, competition rules, per-match
     player stats, stadiums, finances, sponsorships, affiliates, job vacancies, staff, staff
-    lists, injury types, injury history, training, mentoring, tactics, set pieces. The order
-    puts each reader after the ones whose work it reuses, so a shared decode that fails is
-    reported where it failed: stadiums follow the fixtures whose calendar they read, injury
-    types precede the injury history that names its types, and the two readers of each shared
-    pass sit side by side. A reader whose checks fail is reported "failed" with its checks, and
-    one that raises another fmsave error
-    is reported "error" without the error's text; the remaining readers still run. The report
-    holds only structural facts, counts and rates, never names, uids or other values from the
-    save.
+    lists, injury types, injury history, training, mentoring, tactics, set pieces, club
+    facilities. The order puts each reader after the ones whose work it reuses, so a shared
+    decode that fails is reported where it failed: stadiums follow the fixtures whose calendar
+    they read, injury types precede the injury history that names its types, and the two
+    readers of each shared pass sit side by side. A reader whose checks fail is reported
+    "failed" with its checks, and one that raises another fmsave error is reported "error"
+    without the error's text; the remaining readers still run. The report holds only structural
+    facts, counts and rates, never names, uids or other values from the save.
 
     Some readers share one decode: the players, contracts and suspensions of the player pass,
     the fixtures, league tables, competition rules and stadiums that all need the one streamed
@@ -2252,6 +2309,7 @@ def validate_save(career_save: Save) -> ValidationReport:
         (MENTORING_READER, career_save.mentoring),
         (TACTICS_READER, career_save.tactics),
         (SET_PIECES_READER, career_save.set_pieces),
+        (FACILITIES_READER, career_save.facilities),
     )
     validations: list[ReaderValidation] = []
     failed_passes: dict[str, FmsaveError] = {}

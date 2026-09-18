@@ -66,6 +66,7 @@ READER_SECTION_READS: dict[str, tuple[dict[str, int], int]] = {
     "mentoring": ({GAME_DB: 1, HUMANS: 1, SAVE_SUMMARY: 1, TRAINING: 1}, 0),
     "tactics": ({GAME_DB: 1, HUMANS: 1, SAVE_SUMMARY: 1, TACTICS: 1}, 0),
     "set_pieces": ({GAME_DB: 1, HUMANS: 1, SAVE_SUMMARY: 1, TACTICS: 1}, 0),
+    "facilities": ({GAME_DB: 1, HUMANS: 1, SAVE_SUMMARY: 1}, 0),
 }
 
 

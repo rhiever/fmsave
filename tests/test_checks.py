@@ -174,6 +174,7 @@ READER_ORDER = (
     "mentoring",
     "tactics",
     "set_pieces",
+    "facilities",
 )
 EXAMPLE_COMPETITION_COUNT = 3
 
@@ -981,9 +982,11 @@ def test_validate_save_reports_every_reader_ok_with_gates_not_applied(
         # This fragment's players carry no match records at all.
         "player_match_stats": 0,
         "stadiums": 101,
-        # The two clubs of this fragment carry no finance chain, so neither table has a row.
+        # The two clubs of this fragment carry no finance chain, so neither table has a row,
+        # and the facilities rating stored behind that chain has none either.
         "finances": 0,
         "sponsorships": 0,
+        "facilities": 0,
         "affiliates": 2,
         "job_vacancies": 3,
         # Only the human manager has a person object here; no club record lists anybody.
@@ -1171,6 +1174,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "unresolved_selectors": 5,
         },
         "set_pieces": {"named_routines": 2},
+        "facilities": {"clubs_without_a_rating": 0, "ratings_out_of_range": 0},
     }
 
 
@@ -1329,6 +1333,7 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_caches_nothin
         "affiliates": "ok",
         "job_vacancies": "ok",
         "injury_types": "ok",
+        "facilities": "ok",
         # These name a person or a squad member from the players, so the failed pass stops each
         # of them, and each one's pass partner is carried with it.
         "staff": "failed",
@@ -1441,6 +1446,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "mentoring": "failed",
         "tactics": "failed",
         "set_pieces": "failed",
+        "facilities": "failed",
     }
     assert {name: failed_gate_names(reader.gates) for name, reader in readers.items()} == {
         "clubs": ["clubs_minimum", "status_confirmation", "reputation_median"],
@@ -1538,6 +1544,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "mentoring": [],
         "tactics": [],
         "set_pieces": [],
+        "facilities": [],
     }
 
 

@@ -251,6 +251,21 @@ class SponsorChainLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class FacilityByteLayout:
+    """Where a club's corporate facilities rating sits behind its finance chain.
+
+    The rating is the byte at `offset_after_chain` past the end of the club's monthly snapshot
+    chain, so it moves with the chain as a career adds months to it and only a club with a
+    chain has one at all. `value_range` is the inclusive range the rating takes, which the
+    checks count against: it is the range every club with a chain reads inside, and the bytes
+    either side of the rating read inside it on a few clubs in a hundred.
+    """
+
+    offset_after_chain: int
+    value_range: tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
 class PersonBlockLayout:
     """How to locate and parse a player's person block inside its record window.
 
@@ -1697,6 +1712,15 @@ class GateBounds:
     rather than a broken decode; the series floor is what catches a locator that has stopped
     finding chains, and on a save with no human manager nothing does.
 
+    Club facilities: `facility_byte_in_range` (clubs whose rating lies inside the layout's
+    range, of clubs with a finance series) and `facility_clubs_minimum` (clubs with a rating).
+    The share applies only where a club has a series, as the finance shares do, and the count
+    floor applies only where the save lists a managed club, whose own club held a series on
+    every save measured. The share is what catches a rating read from the wrong offset: the
+    byte one before the rating reads inside the range on 0.018 / 0.018 / 0.0 of the clubs, the
+    byte one after on 0.033 / 0.088 / 0.035, and four bytes after -- the worst control
+    measured -- on 0.18 / 0.63 / 0.12, all far below the floor.
+
     Affiliate groups: `affiliate_members_resolved` (group members the public club index names,
     of group members). It applies on a full-size `game_db` **and** only when a group holds a
     member at all, because a save whose section stores no group has no member to resolve and
@@ -1871,6 +1895,8 @@ class GateBounds:
     finance_clubs_with_two_chains: BoundPair
     finance_series_minimum: BoundPair
     finance_clubs_with_sponsors: BoundPair
+    facility_byte_in_range: BoundPair
+    facility_clubs_minimum: BoundPair
     affiliate_members_resolved: BoundPair
     job_vacancy_minimum_applies_from_records: int
     job_vacancy_tag: BoundPair
@@ -1921,6 +1947,7 @@ type Layout = (
     | ContractLayout
     | FinanceChainLayout
     | SponsorChainLayout
+    | FacilityByteLayout
     | SuspensionLayout
     | MatchRecordLayout
     | StadiumTableLayout

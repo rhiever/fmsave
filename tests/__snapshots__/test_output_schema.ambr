@@ -20,6 +20,12 @@
         'reputation',
         'last_league_position',
       ]),
+      'ClubFacilities': list([
+        'club_uid',
+        'club_name',
+        'corporate_facilities',
+        'corporate_facilities_code',
+      ]),
       'Competition': list([
         'id',
         'database_id',

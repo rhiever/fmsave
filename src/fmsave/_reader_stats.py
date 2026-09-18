@@ -384,6 +384,23 @@ class FinanceStats:
 
 
 @dataclass(frozen=True, slots=True)
+class FacilityStats:
+    """What one pass over the club records counted for the facilities checks.
+
+    `clubs_with_series` counts the clubs whose record holds a finance chain, which are the only
+    clubs that carry a facilities rating, `rows` those whose record reaches the rating, and
+    `in_range` those whose rating lies inside the layout's range. `managed_club_exists` says
+    whether the save lists a managed club, which is what decides whether the count floor
+    applies at all.
+    """
+
+    clubs_with_series: int
+    rows: int
+    in_range: int
+    managed_club_exists: bool
+
+
+@dataclass(frozen=True, slots=True)
 class StaffStats:
     """What one pass over the club staff lists and the staff objects counted.
 

@@ -1,8 +1,12 @@
 """Club money: one row per club per month, and the sponsor contracts a club holds.
 
-Money is a whole number in the save's base currency, which is not necessarily the currency the
-game displays: one save measured shows euros at about 1.157 times the stored value. No save says
-which currency the base is, so nothing here is converted.
+**Money is a whole number in the save's base currency, which is not the currency the game
+displays.** One save's screens were read against its own stored values and every figure came
+out at the same rate: the balance, the transfer and wage budgets, the wage bill and the
+month's income and expenditure all display at about 1.157 times what is stored, the one rate
+fitting each of them. A single rate across every money field of a career is what says the
+stored unit is a unit of its own rather than the displayed currency. No save says which unit
+that is, so **nothing here is converted** and no rate is applied.
 
 The weekly fields are weekly amounts; every other money field is one month's amount, or a
 balance at the end of a month.
@@ -37,14 +41,17 @@ class FinanceMonth:
     Attributes:
         club_uid: Uid of the club (unconfirmed).
         club_name: Denormalised full name of club_uid (unconfirmed).
-        month: First day of the month the row covers, worked out from the save's own date
-            (unconfirmed): the last row of a club is the month before the save's month.
+        month: First day of the month the row covers, worked out from the save's own date: the
+            last row of a club is the month before the save's month, and a club's two oldest
+            rows landed on the months its own finance screen labelled them with.
         balance: The club's balance at the end of the month.
-        transfer_budget_allocated: The transfer budget the board set (unconfirmed); it is
-            below transfer_budget_remaining on about a quarter of rows.
+        transfer_budget_allocated: A transfer figure with no confirmed meaning
+            (unconfirmed). It is **not** the budget the board allocated: a club's own finances
+            screen showed a budget well above this figure with almost none of it spent, and
+            this figure is below transfer_budget_remaining on about a quarter of rows.
         transfer_budget_remaining: What is left of the transfer budget.
-        wage_budget_weekly: The wage budget, per week.
-        wage_payroll_weekly: The wages being paid, per week.
+        wage_budget_weekly: The wage budget, per week; a club's screen showed this times 52.
+        wage_payroll_weekly: The wages being paid, per week; likewise times 52 on the screen.
         income_excluding_transfers: The month's income other than transfer fees
             (unconfirmed).
         net_transfers: The month's transfer flow, **positive for a net spend** (unconfirmed).
@@ -101,22 +108,25 @@ class Sponsorship:
     UNKNOWN_KEYS: ClassVar[tuple[str, ...]] = ("flag10", "u15", "b17", "enum18", "b19")
 
 
+# The wage budget and the payroll are verified against a club's own finances screen, which
+# showed each of them as the weekly figure times 52. The month label is verified too: the two
+# oldest rows of that club's series landed on the months the screen's history panel labelled,
+# which is what the one-month lag predicts and what no other lag does.
 register_field_statuses(
     FinanceMonth,
     verified=(
+        "month",
         "balance",
         "transfer_budget_remaining",
         "wage_budget_weekly",
         "wage_payroll_weekly",
         "net",
     ),
-    # The month label rests on the one-month lag between the last row and the save's clock,
-    # which is supported indirectly; the rest are read from known offsets whose meaning no
-    # displayed figure has pinned yet.
+    # The rest are read from known offsets whose meaning no displayed figure has pinned yet,
+    # `transfer_budget_allocated` being the one a screen has ruled a meaning out for.
     unconfirmed=(
         "club_uid",
         "club_name",
-        "month",
         "transfer_budget_allocated",
         "income_excluding_transfers",
         "net_transfers",

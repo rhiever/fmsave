@@ -5,10 +5,14 @@ in. They are not in any section of the save: every per-match file the save holds
 copy of the table, so a save that holds no per-match file has no names at all. Some injury
 codes have no entry in the table, so a code a player's injury carries need not be named here.
 
-The history is one table of two kinds of row. A `HISTORY` row is an injury the game's Injury
-History tab shows: when it happened, and which team the person was at. A `TYPED` row carries
-the injury type of a recent or current episode. The save keeps the history for about the last
-two years only.
+The history is one table of two kinds of row. A `HISTORY` row is an injury the save remembers
+happening: when it happened, and which team the person was at. A `TYPED` row carries the injury
+type of a recent or current episode. The save keeps the history for about the last two years
+only.
+
+**A `HISTORY` row is not a row of the game's Injury History tab.** That tab reads the
+full-career store, which fmsave does not ship: it shows injuries from years outside this
+rolling window, so the store here is the recent part of a career the tab shows whole.
 """
 
 from __future__ import annotations
@@ -50,15 +54,31 @@ class InjuryRecordKind(StrEnum):
 
 
 class InjuryCause(IntEnum):
-    """How an injury came about. No in-game label names any stored code yet."""
+    """Whether an injury happened in training or in a match.
+
+    Both stored codes are named, each from the cause a player's injury history displayed
+    against rows carrying that exact code. The screen also shows a second line saying what the
+    player was doing -- jumping, tackling, wear and tear -- and that detail is in no field
+    fmsave reads: three different details share the training code alone.
+    """
 
     UNKNOWN = -1
+    IN_TRAINING = 0
+    IN_MATCH = 1
 
 
 class InjurySeverity(IntEnum):
-    """How bad an injury was. No in-game label names any stored code yet."""
+    """How bad an injury was, in the game's own words.
+
+    All four stored codes are named, each from the severity a player's injury history displayed
+    against a dated row carrying that exact code.
+    """
 
     UNKNOWN = -1
+    SLIGHT = 0
+    MINOR = 1
+    MODERATE = 2
+    MAJOR = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,10 +109,10 @@ class InjuryRecord:
         type_name: Denormalised name of type_id from `Save.injury_types`, None for the codes
             that table has no entry for and on every row of a save with no per-match file
             (unconfirmed).
-        cause: How the injury came about, on a HISTORY row; None on every TYPED row. Every
-            stored code reads UNKNOWN and keeps its raw number (unconfirmed).
-        severity: How bad the injury was, on a HISTORY row; None on every TYPED row. Every
-            stored code reads UNKNOWN and keeps its raw number (unconfirmed).
+        cause: Whether the injury happened in training or in a match, on a HISTORY row; None
+            on every TYPED row. Both stored codes carry the cause a screen displayed for them.
+        severity: How bad the injury was, on a HISTORY row; None on every TYPED row. All four
+            stored codes carry the severity a screen displayed for them.
         unknown: Numeric fields with no known meaning, each present only on the kind of row
             that carries it: `r0` a byte that is 1 on every row of every save, `hi7_date` the
             time-slot bits of the row's date word, and, on a TYPED row, `r11` and `r12`
@@ -121,16 +141,25 @@ class InjuryRecord:
 register_field_statuses(InjuryType, unconfirmed=("id", "name", "unknown"))
 # The person link is the stored index plus one, which is measured against the player records
 # rather than shown anywhere, and `type_name` is only as good as `InjuryType.name` it copies.
+# The cause and the severity are verified because a player's injury history displayed the cause
+# of both stored codes and the severity of all four against dated rows carrying them.
 register_field_statuses(
     InjuryRecord,
-    verified=("kind", "date", "team_id", "club_uid", "club_name", "type_id"),
+    verified=(
+        "kind",
+        "date",
+        "team_id",
+        "club_uid",
+        "club_name",
+        "type_id",
+        "cause",
+        "severity",
+    ),
     unconfirmed=(
         "player_uid",
         "player_name",
         "team_slot",
         "type_name",
-        "cause",
-        "severity",
         "unknown",
     ),
 )

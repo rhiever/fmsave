@@ -33,6 +33,7 @@ from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
+from fmsave.models.facilities import ClubFacilities
 from fmsave.models.finances import FinanceMonth, Sponsorship
 from fmsave.models.fixtures import Fixture
 from fmsave.models.injuries import InjuryRecord, InjuryType
@@ -746,6 +747,15 @@ def finance_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[objec
     return (month for month in finances if keeps_club(month.club_uid))
 
 
+def facility_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
+    """The facilities of the scope's clubs. Only clubs with a finance series have a row."""
+    facilities = career_save.facilities()
+    if scope.club_uids is None and scope.nation_id is None:
+        return facilities
+    keeps_club = club_uid_filter(career_save, scope)
+    return (club for club in facilities if keeps_club(club.club_uid))
+
+
 def sponsorship_rows(career_save: fmsave.Save, scope: ExportScope) -> Iterable[object]:
     """The sponsorship contracts of the scope's clubs, ended ones included."""
     sponsorships = career_save.sponsorships()
@@ -907,6 +917,7 @@ EXPORT_TABLES: dict[str, ExportTable] = {
     "stadiums": ExportTable(Stadium, CLUB_AND_NATION_SCOPES, stadium_rows),
     "finances": ExportTable(FinanceMonth, CLUB_AND_NATION_SCOPES, finance_rows),
     "sponsorships": ExportTable(Sponsorship, CLUB_AND_NATION_SCOPES, sponsorship_rows),
+    "facilities": ExportTable(ClubFacilities, CLUB_AND_NATION_SCOPES, facility_rows),
     "affiliates": ExportTable(AffiliateGroup, CLUB_AND_NATION_SCOPES, affiliate_rows),
     "job-vacancies": ExportTable(JobVacancy, EVERY_SCOPE, job_vacancy_rows),
     "staff": ExportTable(Staff, CLUB_AND_NATION_SCOPES, staff_rows),

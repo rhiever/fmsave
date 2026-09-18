@@ -62,6 +62,7 @@ READER_ORDER = (
     "mentoring",
     "tactics",
     "set_pieces",
+    "facilities",
 )
 # The readers that cannot run without the one streamed pass over the span: the three built
 # from it, and the stadiums whose home clubs are counted from the calendar it carries.
@@ -138,6 +139,7 @@ def test_validate_text_lists_each_reader_and_the_build(
         "mentoring: ok (2 records)",
         "tactics: ok (2 records)",
         "set_pieces: ok (40 records)",
+        "facilities: ok (2 records)",
         "game FM26, build 26.3.2+2329565",
     ]
     for private_text in PRIVATE_TEXTS:

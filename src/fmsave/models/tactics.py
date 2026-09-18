@@ -6,12 +6,13 @@ records, and the copies are not byte-identical. A row here is one stored copy, k
 team and the tactic's place in that team's own list, and the same tactic name appears once per
 team.
 
-**Almost nothing here has a name yet.** The mentality code, the position bits, the 19 team
-instruction bytes and the 24-byte setting units are all read from offsets that are pinned by
-measurement, but no displayed label has been matched to one of those codes, so every coded
-label is `UNKNOWN` and every unnamed number ships raw. The position bits do agree with the
-natural positions of the players picked in each slot, which is a corroboration against another
-decoded field rather than a displayed formation, so it names no bit.
+**The mentality is named; almost nothing else here is.** The seven mentality codes carry the
+seven words the game shows, read off a manager's own tactics. The position bits, the 19 team
+instruction bytes and the 24-byte setting units are read from offsets that are pinned by
+measurement, but no displayed label has been matched to one of those codes, so every one of
+their labels is `UNKNOWN` and every unnamed number ships raw. The position bits do agree with
+the natural positions of the players picked in each slot, which is a corroboration against
+another decoded field rather than a displayed formation, so it names no bit.
 """
 
 from __future__ import annotations
@@ -26,14 +27,22 @@ from fmsave.models.common import CodedValue
 
 
 class Mentality(IntEnum):
-    """How attacking a tactic's mentality is.
+    """How attacking a tactic's mentality is, in the game's own words.
 
-    Every code is UNKNOWN: the byte is read from a pinned offset inside the team-instruction
-    block and the saves measured hold the codes 4, 5 and 6, but no displayed mentality has been
-    matched to one of those numbers yet.
+    The seven codes are the seven mentalities the game offers, in the order it lists them, and
+    the manager of the save they were read from confirmed the list against his own tactics: the
+    tactic showing Attacking stores 6 and the two showing Balanced store 4. A code outside the
+    seven is UNKNOWN and keeps its raw number.
     """
 
     UNKNOWN = -1
+    VERY_DEFENSIVE = 1
+    DEFENSIVE = 2
+    CAUTIOUS = 3
+    BALANCED = 4
+    POSITIVE = 5
+    ATTACKING = 6
+    VERY_ATTACKING = 7
 
 
 class TacticPosition(IntEnum):
@@ -139,7 +148,8 @@ class Tactic:
         name: The tactic's name as the manager typed it (unconfirmed).
         style_name: The tactical style shown with the tactic, as stored text. No screen has
             confirmed that this label is the style (unconfirmed).
-        mentality: The mentality code; every label is UNKNOWN.
+        mentality: The mentality the tactic is set to; the seven codes the game offers each
+            carry the word it shows for them, and any other code reads UNKNOWN.
         slots: The eleven positions, in stored order.
         unknown: The 19 team-instruction bytes, one int per byte, and the tactic's four-byte
             style code as one little-endian int. Byte 2 of the instructions is the mentality
@@ -220,10 +230,11 @@ register_field_statuses(
         "unknown",
     ),
 )
-# The mentality byte and the slots are read from a record the walk consumes exactly, so the
-# fields are verified even though every label in them is UNKNOWN. Everything else is either a
-# join fmsave makes (the club and team fields), a number the save keeps with no name for it, or
-# text no screen has confirmed the meaning of.
+# The mentality byte and the slots are read from a record the walk consumes exactly, and the
+# mentality's own words come off a manager's tactics screen; the slots' position bits stay
+# UNKNOWN, which is about the labels rather than the field. Everything else is either a join
+# fmsave makes (the club and team fields), a number the save keeps with no name for it, or text
+# no screen has confirmed the meaning of.
 register_field_statuses(
     Tactic,
     verified=("mentality", "slots"),

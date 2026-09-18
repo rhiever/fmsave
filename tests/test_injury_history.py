@@ -212,10 +212,10 @@ def test_a_log_row_carries_its_player_its_date_and_the_club_of_the_team_it_names
     assert row.type_id is None
     assert row.type_name is None
     assert row.cause is not None
-    assert row.cause.label is InjuryCause.UNKNOWN
+    assert row.cause.label is InjuryCause.IN_MATCH
     assert row.cause.raw == 1
     assert row.severity is not None
-    assert row.severity.label is InjurySeverity.UNKNOWN
+    assert row.severity.label is InjurySeverity.MODERATE
     assert row.severity.raw == 2
     assert row.unknown == {"r0": 1, "hi7_date": TIME_SLOT}
 

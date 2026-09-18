@@ -61,6 +61,10 @@ FIXTURE_WITH_GROUND_MINIMUM = 0.95
 # the game keeps. The longest series on the corpus is 60 months and the limit is twice that, so
 # a career whose window is wider than any seen here still passes while the runaway walk does not.
 FINANCE_MONTHS_LIMIT = 120
+# How many different facility ratings a save's clubs hold between them. The saves measured hold
+# 14 to 20 of the 20 the scale allows; the bytes on either side of the rating are a fixed 7 on
+# every club, so a read that slipped onto one of those would hold exactly one.
+FACILITY_DISTINCT_RATINGS_MINIMUM = 5
 # A league position is a place in a division. Read one byte over, this field reads the low byte
 # of the stored competition id, which is far outside a division's range on most records; read
 # one byte back it is a reserved zero on every record, which leaves no position at all. The
@@ -191,6 +195,41 @@ def test_finance_series_stay_inside_one_club_and_cover_the_managed_club(
         if managed_club_uid is not None:
             mismatches.check(
                 label, "the managed club keeps a series", managed_club_uid in months_per_club
+            )
+    mismatches.fail_if_any()
+
+
+@pytest.mark.corpus_fast
+def test_facility_ratings_cover_the_finance_clubs_and_vary_between_them(
+    corpus_saves: dict[str, fmsave.Save],
+) -> None:
+    """The clubs with a rating are the clubs with a series, and the ratings differ between them.
+
+    The reader's own share asks whether each rating is inside the range the layout carries,
+    which a constant byte satisfies as well as a rating does: the bytes beside this one hold a
+    fixed 7 on every club, and reading one of those would score 1.0 on that share and one
+    distinct value here. Which clubs carry a rating is not bounded by any check either, and it
+    is what falls if the rating were read from a record the chain locator did not accept.
+    """
+    mismatches = CorpusMismatches()
+    for relative_name, career_save in corpus_saves.items():
+        label = save_label(relative_name)
+        facilities = career_save.facilities()
+        rated_club_uids = {club.club_uid for club in facilities}
+        series_club_uids = {month.club_uid for month in career_save.finances()}
+        mismatches.check(
+            label, "every club with a series has a rating", rated_club_uids == series_club_uids
+        )
+        ratings = counted(club.corporate_facilities.raw for club in facilities)
+        mismatches.check(
+            label,
+            "ratings vary between clubs",
+            len(ratings) >= FACILITY_DISTINCT_RATINGS_MINIMUM,
+        )
+        managed_club_uid = managed_club_uid_of(career_save)
+        if managed_club_uid is not None:
+            mismatches.check(
+                label, "the managed club has a rating", managed_club_uid in rated_club_uids
             )
     mismatches.fail_if_any()
 

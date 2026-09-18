@@ -13,6 +13,7 @@ from fmsave._layouts import (
     ClubStatusLayout,
     CompetitionIdPairLayout,
     ContractLayout,
+    FacilityByteLayout,
     FinanceChainLayout,
     FixtureCalendarLayout,
     GameInfoLayout,
@@ -553,6 +554,14 @@ SPONSOR_CHAINS = SponsorChainLayout(
     annual_offset=21,
     year_range=(1991, 2099),
     value_maximum=2_000_000_000,
+)
+
+# The corporate facilities rating, 50 bytes past the end of a club's snapshot chain. Every club
+# with a chain reads 1 to 20 there on all three saves measured (335, 57 and 172 clubs, 20, 14 and
+# 17 distinct values), and it is the only byte within 4 KB of the chain end that does.
+FACILITY_BYTE = FacilityByteLayout(
+    offset_after_chain=50,
+    value_range=(1, 20),
 )
 
 # A suspension entry is 20 bytes long; its signature bytes pin 5 of them.
@@ -1246,6 +1255,14 @@ GATE_BOUNDS = GateBounds(
     # career where a few clubs hold none while still failing a sponsor search that has moved,
     # which finds nothing at all.
     finance_clubs_with_sponsors=(0.95, None),
+    # Every one of the 335 / 57 / 172 clubs with a finance series carries a facilities rating in
+    # 1 to 20 fifty bytes past the chain's end. Read one byte early the share is 0.018 / 0.018 /
+    # 0.0, one byte late 0.033 / 0.088 / 0.035 and four bytes late 0.18 / 0.63 / 0.12, so the
+    # floor sits above the worst of those with room to spare. The clubs with a rating are the
+    # clubs with a series, so the count floor is the finance floor's: one, and only where a
+    # managed club exists.
+    facility_byte_in_range=(0.99, None),
+    facility_clubs_minimum=(1, None),
     # 419 of 426, 417 of 424 and 419 of 426 group members are club indexes a club record
     # claims; the seven that are not fall in gaps of the index. Reading the index one higher
     # drops the share to 0.859, 0.870 and 0.859, below the 0.91 a random index of this range
@@ -1417,6 +1434,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CONTRACTS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=FINANCE_CHAINS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=SPONSOR_CHAINS),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=FACILITY_BYTE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=SUSPENSIONS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=MATCH_RECORDS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STADIUM_TABLE),

@@ -49,8 +49,10 @@ class Stadium:
         capacity: A further capacity the save stores, empty where the save stores zero, which
             is about four grounds in five (unconfirmed).
         owner_club_uid: Uid of the club that owns the ground, or None when the save names no
-            owner or names a club it does not list. Owning a ground is not the same as playing
-            at it (unconfirmed).
+            owner or names a club it does not list. A ground with no stored owner is the
+            council's: the game's own facilities screen shows one such ground as owned by the
+            council, so an empty owner is an answer rather than a gap. Owning a ground is not
+            the same as playing at it (unconfirmed).
         owner_club_name: Denormalised name of owner_club_uid, or None when there is no owner
             or the owner does not resolve (unconfirmed).
         home_club_uids: Uids of the clubs whose home ground this is, in ascending order. It
@@ -64,8 +66,8 @@ class Stadium:
         pitch_width_dm: The pitch's width in decimetres.
         pitch_min_length_dm: The shortest pitch length the ground allows (unconfirmed).
         pitch_min_width_dm: The narrowest pitch width the ground allows (unconfirmed).
-        pitch_max_length_dm: The longest pitch length the ground allows (unconfirmed).
-        pitch_max_width_dm: The widest pitch width the ground allows (unconfirmed).
+        pitch_max_length_dm: The longest pitch length the ground allows.
+        pitch_max_width_dm: The widest pitch width the ground allows.
         built_date: The date the ground was built, or None when the save stores none. A few
             grounds carry a date after the save's own clock.
         rebuilt_date: The date the ground was last rebuilt, or None when the save stores none.
@@ -97,8 +99,10 @@ class Stadium:
 
 
 # The capacities, the pitch and the two dates are the fields an independent read of these
-# saves confirms one by one. The uid convention, the owner's id space, the pitch limits and the
-# calendar-derived home grounds are all measured rather than displayed anywhere, so they stay
+# saves confirms one by one, and two grounds' own facilities screens showed each of them, the
+# maximum pitch dimensions included, in yards against the stored decimetres. The uid
+# convention, the owner's id space, the smallest pitch a ground allows and the
+# calendar-derived home grounds are measured rather than displayed anywhere, so they stay
 # unconfirmed until an in-game screen names one.
 register_field_statuses(
     Stadium,
@@ -107,6 +111,8 @@ register_field_statuses(
         "expansion_capacity",
         "pitch_length_dm",
         "pitch_width_dm",
+        "pitch_max_length_dm",
+        "pitch_max_width_dm",
         "built_date",
         "rebuilt_date",
     ),
@@ -120,8 +126,6 @@ register_field_statuses(
         "home_club_names",
         "pitch_min_length_dm",
         "pitch_min_width_dm",
-        "pitch_max_length_dm",
-        "pitch_max_width_dm",
         "unknown",
     ),
 )
