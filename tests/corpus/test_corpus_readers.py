@@ -70,14 +70,11 @@ EXPECTED_READERS = (
 # Empty: the ranges cover every reader, so every reader added since must be added here until the
 # ranges are written again, and emptied out of it once they are.
 READERS_WITHOUT_RECORDED_RANGES: frozenset[str] = frozenset()
-# Columns the recorded ranges still name that the output schema has since replaced. The
-# baselines were written against output schema 1; a rename or a removal bumps that version and
-# is recorded column by column in the output schema snapshot, which is what guards the change
-# itself, so a column named here is a stale range rather than a column a reader lost. Emptied
-# once the ranges are written again.
-RETIRED_BASELINE_COLUMNS: dict[str, frozenset[str]] = {
-    "suspensions": frozenset({"suspension_competition_id", "unknown_e14"}),
-}
+# Columns the recorded ranges still name that the output schema has since replaced. A rename or
+# a removal bumps the schema version and is recorded column by column in the output schema
+# snapshot, which is what guards the change itself, so a column named here is a stale range
+# rather than a column a reader lost. Empty while the ranges match the schema.
+RETIRED_BASELINE_COLUMNS: dict[str, frozenset[str]] = {}
 
 
 def save_label(relative_name: str) -> str:
