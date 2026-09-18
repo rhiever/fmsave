@@ -88,9 +88,9 @@ CORPUS_LINKED_ROUND_SHAPE = 312
 JUST_ABOVE_THE_ROUND_DATE_FLOOR = 3_192
 JUST_BELOW_THE_ROUND_DATE_FLOOR = 3_191
 MISALIGNED_ROUNDS_IN_CALENDAR = 2_848
-# The linked-block floor is 100 and applies from 200 blocks with a run.
-JUST_ABOVE_THE_LINKED_BLOCK_FLOOR = 100
-JUST_BELOW_THE_LINKED_BLOCK_FLOOR = 99
+# The linked-block floor is 90 and applies from 200 blocks with a run.
+JUST_ABOVE_THE_LINKED_BLOCK_FLOOR = 90
+JUST_BELOW_THE_LINKED_BLOCK_FLOOR = 89
 RUNS_BELOW_THE_LINK_THRESHOLD = 199
 # Scores for the two league matches the example calendar holds between the same two clubs, so
 # a save written with them gives the result checks a population to judge.

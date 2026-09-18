@@ -47,7 +47,7 @@ INJURY_TYPE_GATE_NAME = "injury_type_entries_minimum"
 BOUNDS = find_layout(GateBounds, GAME_DB_SECTION, GAME_DB_SCHEMA, "").layout
 LAYOUT = find_injury_type_layout("")
 # One below the gate's floor, and the count every save measured carries.
-FAILING_TABLE_ENTRIES = 49
+FAILING_TABLE_ENTRIES = 19
 HEALTHY_TABLE_ENTRIES = 93
 # More entries carrying the magic than the layout ever reads.
 TABLE_LESS_ENTRY_COUNT = 5

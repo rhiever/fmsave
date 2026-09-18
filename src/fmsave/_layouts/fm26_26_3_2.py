@@ -1174,7 +1174,9 @@ GATE_BOUNDS = GateBounds(
     # records before the chain breaks and reading the lead byte four bytes late decodes none at
     # all, so either misalignment fails it. The floor stays loose because the table is database
     # content: an installed database with fewer injuries legitimately carries fewer records.
-    injury_type_entries_minimum=(50, None),
+    # It sits at 20 rather than higher so that both legs of a count floor clear: 93 records is
+    # 4.65 times the floor, and the floor is five times the worst control reading of 4.
+    injury_type_entries_minimum=(20, None),
     injury_manager_minimum_applies_from_bytes=FULL_SAVE_MINIMUM_INJURY_MANAGER_BYTES,
     # The three saves measured hold 128,866 / 91,474 / 138,330 log rows in a section of 1.4 to
     # 2.3 MB, so the floor is an order of magnitude below the smallest and cannot trouble a
@@ -1370,14 +1372,17 @@ GATE_BOUNDS = GateBounds(
     # because the agreement is.
     table_venue_calendar_agreement=(0.95, None),
     # 418 / 288 / 445 blocks link to exactly one league table carrying a competition, out of
-    # the 471 / 339 / 497 blocks the span stores a run of table blocks after. The lowest of
-    # those clears the floor by 65% of its own value, and the threshold the gate applies from
-    # sits 41% below the smallest run population measured, so a save holding a third of these
-    # divisions still both applies this gate and clears it: the worst run-to-link rate measured
-    # is 0.850, which on 200 runs is 170 blocks. This is a count and not a share because a
-    # share cannot fail here: the misalignment permutes the runs among the same blocks, so
-    # every share of them is invariant, and only a count falls when the link stops linking.
-    rules_linked_blocks_minimum=(100, None),
+    # the 471 / 339 / 497 blocks the span stores a run of table blocks after. The threshold the
+    # gate applies from sits 41% below the smallest run population measured, so a save holding a
+    # third of these divisions still both applies this gate and clears it: the worst run-to-link
+    # rate measured is 0.850, which on 200 runs is 170 blocks. This is a count and not a share
+    # because a share cannot fail here: the misalignment permutes the runs among the same
+    # blocks, so every share of them is invariant, and only a count falls when the link stops
+    # linking. That is also why the control for this floor is the link returning nothing, which
+    # scores 0: there is no shifted reading that moves a count here, so the forced-empty case is
+    # the control a count floor is measured against. The floor sits at 90, which the lowest
+    # observed 288 clears by 3.2 times.
+    rules_linked_blocks_minimum=(90, None),
     rules_link_minimum_applies_from_runs=200,
     # 0.7491 / 0.7801 / 0.7477 of the dated rounds of a linked block fall on a date its
     # competition plays a fixture on. Linking each block to the table run stored *before* it

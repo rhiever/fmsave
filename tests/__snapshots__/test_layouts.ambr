@@ -1409,7 +1409,7 @@
         ),
         'injury_manager_minimum_applies_from_bytes': 262144,
         'injury_type_entries_minimum': tuple(
-          50,
+          20,
           None,
         ),
         'injury_typed_lead_byte': tuple(
@@ -1529,7 +1529,7 @@
           None,
         ),
         'rules_linked_blocks_minimum': tuple(
-          100,
+          90,
           None,
         ),
         'rules_markers_minimum': tuple(
