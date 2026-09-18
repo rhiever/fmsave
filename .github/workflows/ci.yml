@@ -112,3 +112,40 @@ jobs:
       - run: uv sync --locked
       - name: Run tests
         run: uv run pytest -m "not corpus"
+
+  # The rest of the supported range, on every operating system fmsave claims. A private
+  # repository pays for its own minutes and macOS costs ten of them an hour, so this job
+  # runs only where they are free: it turns itself on the moment the repository is made
+  # public, with no line here to change. To force it on, make the condition `if: true`.
+  test-matrix:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    if: github.event.repository.private == false
+    needs: test
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.12", "3.13", "3.14"]
+        exclude:
+          # Run by the two jobs above, whether or not the repository is public.
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: ubuntu-latest
+            python-version: "3.14"
+          - os: windows-latest
+            python-version: "3.14"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.13"
+          python-version: ${{ matrix.python-version }}
+          enable-cache: false
+      - run: uv sync --locked
+      # The corpus tier needs private saves that are not here, as in every job above.
+      - name: Run tests
+        run: uv run pytest -m "not corpus"

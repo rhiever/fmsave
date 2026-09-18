@@ -1,6 +1,6 @@
 [project]
 name = "fmsave"
-version = "0.3.0"
+version = "0.4.0"
 description = "Read Football Manager 26 save files into Python records, DataFrames, CSV and JSON."
 readme = "README.md"
 requires-python = ">=3.12"
