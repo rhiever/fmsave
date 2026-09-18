@@ -1659,7 +1659,7 @@ class GateBounds:
     which is a fact about the save rather than a layout that has moved. The floor sits far
     below the 93 records every save measured carries: what it catches is a record shape read
     from the wrong offset, which decodes a handful of records at most before its chain breaks.
-    Injury history: `injury_log_minimum` (log rows walked), `injury_log_lead_byte`,
+    Injury history: `injury_log_lead_byte`,
     `injury_log_dates` (rows whose date decodes and is on or before the in-game date) and
     `injury_log_teams_resolved` (rows whose team id a club lists), all as shares of the log
     rows; `injury_log_ascending` (steps from one dated row to the next that did not reach an
@@ -1890,7 +1890,6 @@ class GateBounds:
     per_match_rating_in_range: BoundPair
     injury_type_entries_minimum: BoundPair
     injury_manager_minimum_applies_from_bytes: int
-    injury_log_minimum: BoundPair
     injury_log_lead_byte: BoundPair
     injury_log_dates: BoundPair
     injury_log_ascending: BoundPair

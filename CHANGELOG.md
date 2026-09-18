@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Removed
+
+- The injury history reader's `injury_log_minimum` check. The walk that reads those rows raises on every input that would have tripped the floor, so the check could not fail and never had; what judges that walk is the walk itself, and the shares of row shape and joins beside it.
+
 ### Changed
 
 - A suspension says what it covers. A ban that covers one competition now carries `competition_id` in the same id space `stages()`, `competitions()`, `fixtures()`, `league_tables()` and `player_match_stats()` use, so it joins all of them, and a `competition_name` that a save opened with a name map fills in. A nation-wide ban carries `nation_id` instead, and `scope` says which of the two a row is. The single `suspension_competition_id` field held both kinds of id with nothing to tell them apart, and is gone: it is replaced rather than renamed, because reading one of those numbers as the other names the wrong thing. The scope code itself stays readable as `scope_code`, and leaves `unknown`. A name is only as good as the map: a competition the game created during the career has a database id no outside name source carries, so some bans keep an id and no name even with a full map. `fmsave.OUTPUT_SCHEMA_VERSION` is 2, because the `suspension_competition_id` and `unknown_e14` columns are gone.

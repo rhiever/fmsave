@@ -1421,10 +1421,6 @@
           0.999,
           None,
         ),
-        'injury_log_minimum': tuple(
-          10000,
-          None,
-        ),
         'injury_log_recent_team_matches': tuple(
           0.9,
           None,

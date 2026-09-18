@@ -1320,9 +1320,9 @@ def evaluate_injury_history(stats: InjuryStats, bounds: GateBounds) -> tuple[Gat
     them separates a sound decode from the same rows read one or four bytes late.
 
     `injury_log_ascending` is judged on the steps between rows whose date decodes, and it is
-    deliberately **not** excused when there are no such steps: a section holding at least
-    `injury_log_minimum` rows from which not one date decodes is what a decode read one byte
-    out looks like, so it fails there for want of a rate. The typed shares are excused when
+    deliberately **not** excused when there are no such steps: a section full of rows from
+    which not one date decodes is what a decode read one byte out looks like, so it fails
+    there for want of a rate. The typed shares are excused when
     the section holds no typed row, and the recent-team share when no row of the last month
     has a player with a team, because a career can legitimately hold neither. The type share
     is excused as well when the name table is empty, since a save carrying no per-match file
@@ -1349,7 +1349,6 @@ def evaluate_injury_history(stats: InjuryStats, bounds: GateBounds) -> tuple[Gat
     typed_rows = stats.typed_rows
     typed_applied = applied and typed_rows > 0
     return (
-        _gate("injury_log_minimum", log_rows, bounds.injury_log_minimum, applied),
         _gate(
             "injury_log_lead_byte",
             _rate(stats.log_lead_ok, log_rows),

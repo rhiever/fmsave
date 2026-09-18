@@ -1171,8 +1171,10 @@ GATE_BOUNDS = GateBounds(
     # rather than on the layout.
     table_groups_resolved=(0.70, None),
     # Dozens of groups per save are shaped like a division whose clubs all play each other twice.
-    # This is what fails when the grouping stops telling one table from the next: the blocks
-    # then arrive in runs of dozens, and no run has a division's shape.
+    # This fails when the grouping stops telling one table from the next altogether, which
+    # leaves no run with a division's shape. It does NOT catch a grouping index read one byte
+    # out: measured, that shatters whole tables into fragments and still leaves dozens of
+    # division-shaped runs, and no floor can sit between those and a healthy career's.
     double_round_robin_divisions=(5, None),
     # Hundreds of rules preamble blocks on a save measured. The floor sits more than an order
     # of magnitude below the smallest count measured, which leaves a career carrying far fewer
@@ -1205,10 +1207,6 @@ GATE_BOUNDS = GateBounds(
     # 4.65 times the floor, and the floor is five times the worst control reading of 4.
     injury_type_entries_minimum=(20, None),
     injury_manager_minimum_applies_from_bytes=FULL_SAVE_MINIMUM_INJURY_MANAGER_BYTES,
-    # A save measured holds six figures of log rows in a section of 1.4 to 2.3 MB, so the floor
-    # is an order of magnitude below the smallest count measured and cannot trouble a career of
-    # any length that fills a section this size.
-    injury_log_minimum=(10_000, None),
     # Every log row on every save carries the lead byte and a date that decodes and is on or
     # before the in-game date. Read one byte late the first falls to at most 0.006 and the
     # second to zero on every save measured, and four bytes late both are zero.
@@ -1349,8 +1347,10 @@ GATE_BOUNDS = GateBounds(
     # that starts past where the block sits leaves 0.121.
     staff_person_blocks=(0.99, None),
     # Thousands to tens of thousands of people on a save measured. The floor is far below the
-    # smallest count measured: what it catches is a list read or a discovery pass that finds
-    # next to nothing.
+    # smallest count measured, and measurement narrowed what it catches: the whole person
+    # header read one byte late leaves 26 people, which fails here, but six other real misreads
+    # leave thousands, which the shares beside this one catch and this floor does not. It is a
+    # floor against a pass that finds next to nothing, and nothing more.
     staff_minimum=(1_000, None),
     # At least 0.688 of listed pairs have a contract at the listing club or at its
     # parent. The floor clears the lowest observed value by 22% of its width, which is thin, and it

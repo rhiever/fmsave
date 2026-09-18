@@ -85,7 +85,6 @@ AFFILIATE_TEAM_ID = 70007
 AFFILIATE_TEAM_SLOT = 2
 # Every gate this reader carries, in the order it evaluates them.
 GATE_NAMES = (
-    "injury_log_minimum",
     "injury_log_lead_byte",
     "injury_log_dates",
     "injury_log_ascending",
@@ -600,19 +599,6 @@ def test_the_gates_every_save_measured_passes() -> None:
 @pytest.mark.parametrize(
     ("gate_name", "overrides"),
     [
-        pytest.param(
-            "injury_log_minimum",
-            {
-                "log_rows": 9_999,
-                "log_lead_ok": 9_999,
-                "log_dates_ok": 9_999,
-                "log_steps": 9_998,
-                "log_ascending_steps": 9_998,
-                "log_players_resolved": 9_600,
-                "log_teams_resolved": 9_990,
-            },
-            id="fewer log rows than a full save holds",
-        ),
         pytest.param("injury_log_lead_byte", {"log_lead_ok": 609}, id="the lead byte read late"),
         pytest.param("injury_log_dates", {"log_dates_ok": 464}, id="the date read late"),
         pytest.param(
