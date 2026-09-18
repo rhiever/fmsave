@@ -3,11 +3,9 @@
 The names are the game's own text, as the save stores it, in the language the save was written
 in. They are not in any section of the save: every per-match file the save holds carries one
 copy of the table, so a save that holds no per-match file has no names at all. Some injury
-codes have no entry in the table, so a code a player's injury carries need not be named here.
-For seven of those codes a name comes from the game's own display instead of from the save: an
-injury row the game showed, tied to the code by the return date it lands on. Those names fill
-`InjuryRecord.type_name` only where the save's table has no entry, and `injury_types()` itself
-never invents a row.
+codes have no entry in the table, so a code a player's injury carries need not be named here
+and reads as no name at all. **fmsave ships no injury names of its own**, whatever a screen
+displays for such a code, exactly as it ships no competition names.
 
 The history is one table of two kinds of row. A `HISTORY` row is an injury the save remembers
 happening: when it happened, and which team the person was at. A `TYPED` row carries the injury
@@ -122,9 +120,8 @@ class InjuryRecord:
             first and then the teams it controls; None wherever club_uid is (unconfirmed).
         type_id: The injury's type code, on a TYPED row; None on every HISTORY row, which
             carries no type (verified).
-        type_name: Denormalised name of type_id from `Save.injury_types`, falling back for
-            seven codes that table has no entry for to the name the game displayed for them.
-            None for the codes neither names and on every row of a save with no per-match file
+        type_name: Denormalised name of type_id from `Save.injury_types`, None for the codes
+            that table has no entry for and on every row of a save with no per-match file
             (unconfirmed).
         cause: Whether the injury happened in training or in a match, on a HISTORY row; None
             on every TYPED row. Both stored codes carry the cause a screen displayed for them,

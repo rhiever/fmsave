@@ -668,9 +668,9 @@ class Save:
         written in. They are in no section of the save: each per-match file it holds carries
         one copy of the table, so **a save with no per-match file has no names at all** and
         this table is then empty. Some injury codes have no entry in the table, so a code an
-        injury carries need not be named here; this table holds only what the save itself
-        stores, and the seven names read off the game's own screens fill in
-        `InjuryRecord.type_name` rather than adding a row here.
+        injury carries need not be named here. This table holds only what the save itself
+        stores: fmsave ships no injury names of its own, so a code the save leaves out has no
+        name here or anywhere else.
 
         Only as many per-match files are read as it takes to find the table, whatever a save
         lists, and no game database is read at all. The table is read on the first call; later
@@ -734,8 +734,8 @@ class Save:
         how far behind those go depends on the save, so nothing here treats a week as a rule.
         A typed row is **not a list of injuries the player has recovered from**: what it names
         is the type, which no `HISTORY` row carries. About one type code in fifteen has no entry
-        in `Save.injury_types`; seven of those codes take the name the game displayed for them
-        instead, and `type_name` is empty for the rest.
+        in `Save.injury_types`, and `type_name` is empty for those: fmsave ships no injury
+        names of its own.
 
         A row whose person the save no longer keeps as a player leaves `player_uid` and
         `player_name` empty, which is about one `HISTORY` row in twenty. A `HISTORY` row whose
@@ -1317,12 +1317,14 @@ class Save:
         series returns an empty table, and `fmsave validate` reports the counts.
 
         `corporate_facilities` is the rating the game's Facilities screen shows as a word on
-        its **Corporate** line. Four of the twenty codes carry the word a club's own screen
-        displayed against that exact number -- 9 Adequate, 15 Good, 19 and 20 Excellent -- and
-        every other code reads UNKNOWN with its raw number kept, including the codes next to a
-        named one. The screen's other facility lines, the stadium and pitch, the training and
-        youth grounds and the academy, are not stored anywhere near this byte and are not read
-        at all.
+        its **Corporate** line, and the words rise with the stored number. Fifteen of the
+        twenty codes carry the word one club's own screen displayed against that exact number,
+        from 1 Basic to 20 Excellent; two more, 8 and 14, carry the word of the codes either
+        side of them, each of which a screen displayed the same word for. The three codes no
+        club in the save carries -- 3, 4 and 16 -- read UNKNOWN with the raw number kept,
+        rather than taking a word from where they sit on the scale. The screen's other facility
+        lines, the stadium and pitch, the training and youth grounds and the academy, are not
+        stored anywhere near this byte and are not read at all.
 
         The table is read on the first call; later calls return the same table.
 

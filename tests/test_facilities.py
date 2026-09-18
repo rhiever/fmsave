@@ -9,7 +9,7 @@ import pytest
 
 import fmsave
 import fmsave._save as save_module
-from fmsave import ClubFacilities, CorporateFacilities, export
+from fmsave import ClubFacilities, CodedValue, CorporateFacilities, export
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import FacilityStats
 from fmsave._save import FACILITIES_TABLE_CACHE_KEY
@@ -36,13 +36,33 @@ FINANCE_LAYOUTS = find_finance_layouts(GAME_DB_SCHEMA, BUILD_STRING)
 FACILITY_LAYOUT = find_facility_layout(GAME_DB_SCHEMA, BUILD_STRING)
 FULL_SIZE_GAME_DB_BYTES = 100 * 1024 * 1024
 EXAMPLE_CLUB_UID = 4001
-# The four ratings a club's own screen named, with the word it displayed for each.
+# The fifteen ratings a club's own screen named, with the word it displayed for each.
 NAMED_RATINGS = (
+    (1, CorporateFacilities.BASIC),
+    (2, CorporateFacilities.BASIC),
+    (5, CorporateFacilities.FAIRLY_BASIC),
+    (6, CorporateFacilities.ADEQUATE),
+    (7, CorporateFacilities.ADEQUATE),
     (9, CorporateFacilities.ADEQUATE),
+    (10, CorporateFacilities.AVERAGE),
+    (11, CorporateFacilities.AVERAGE),
+    (12, CorporateFacilities.AVERAGE),
+    (13, CorporateFacilities.GOOD),
     (15, CorporateFacilities.GOOD),
+    (17, CorporateFacilities.EXCELLENT),
+    (18, CorporateFacilities.EXCELLENT),
     (19, CorporateFacilities.EXCELLENT),
     (20, CorporateFacilities.EXCELLENT),
 )
+# The two the clubs either side of them bracket: 8 between two Adequate clubs, 14 between two
+# Good ones. Nothing else is filled in that way.
+BRACKETED_RATINGS = (
+    (8, CorporateFacilities.ADEQUATE),
+    (14, CorporateFacilities.GOOD),
+)
+# The codes no club in the save carries, which no screen and no bracket names: 3 and 4 sit
+# below the lowest word seen and 16 between a Good and an Excellent.
+UNNAMED_RATINGS = (3, 4, 16)
 
 
 def test_facilities_lists_every_club_with_a_series_in_club_index_order(
@@ -55,11 +75,13 @@ def test_facilities_lists_every_club_with_a_series_in_club_index_order(
     assert facilities[0] == ClubFacilities(
         club_uid=NORTHBRIDGE_UID,
         club_name="Northbridge FC",
-        corporate_facilities=fmsave.CodedValue(
-            label=CorporateFacilities.UNKNOWN, raw=NORTHBRIDGE_FACILITY_BYTE
+        corporate_facilities=CodedValue(
+            label=CorporateFacilities.EXCELLENT, raw=NORTHBRIDGE_FACILITY_BYTE
         ),
     )
-    assert facilities[1].corporate_facilities.raw == ATHLETIC_FACILITY_BYTE
+    assert facilities[1].corporate_facilities == CodedValue(
+        label=CorporateFacilities.AVERAGE, raw=ATHLETIC_FACILITY_BYTE
+    )
 
 
 def one_club_game_db(facility_byte: int) -> bytes:
@@ -105,8 +127,28 @@ def test_a_named_rating_carries_the_word_its_screen_displayed(
     assert stats == FacilityStats(clubs_with_series=1, rows=1, in_range=1, managed_club_exists=True)
 
 
-@pytest.mark.parametrize("facility_byte", [1, 11, 18])
+@pytest.mark.parametrize(
+    ("facility_byte", "expected_label"),
+    BRACKETED_RATINGS,
+    ids=[f"rating {facility_byte}" for facility_byte, _label in BRACKETED_RATINGS],
+)
+def test_a_bracketed_rating_carries_the_word_its_neighbours_share(
+    facility_byte: int, expected_label: CorporateFacilities
+) -> None:
+    """A code between two clubs displaying one word can only be that word on a rising scale."""
+    rows, _stats = one_club_facilities(facility_byte)
+    (row,) = rows
+    below = CodedValue.from_raw(CorporateFacilities, facility_byte - 1)
+    above = CodedValue.from_raw(CorporateFacilities, facility_byte + 1)
+    assert below.label is expected_label
+    assert above.label is expected_label
+    assert row.corporate_facilities.label is expected_label
+    assert row.corporate_facilities.raw == facility_byte
+
+
+@pytest.mark.parametrize("facility_byte", UNNAMED_RATINGS)
 def test_an_unnamed_rating_reads_unknown_and_keeps_its_number(facility_byte: int) -> None:
+    """No club in the save carries these, so neither a screen nor a bracket names them."""
     rows, _stats = one_club_facilities(facility_byte)
     (row,) = rows
     assert row.corporate_facilities.label is CorporateFacilities.UNKNOWN

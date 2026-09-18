@@ -13,11 +13,6 @@ three lists and an eight-byte tail, back to back with nothing between them. Noth
 for and there is nothing to resynchronise on, so the walk itself is the structural check: a
 count read one byte out of place claims either far more bytes than the section holds or too few
 to reach the tail.
-
-A handful of injury codes have no entry in the save's own name table, and `DISPLAYED_TYPE_NAMES`
-holds the names the game itself displayed for those codes. It is a fallback and nothing more:
-the save's table wins wherever it has an entry, and no code is in the map unless one player's
-injury history displayed that name against that stored code.
 """
 
 from __future__ import annotations
@@ -68,24 +63,6 @@ _NO_TEAM = frozenset({0, MISSING_REFERENCE})
 # week was once taken for the horizon the game keeps these rows to, and a later save state held
 # a full day's rows behind it, so the count is reported and nothing is judged by it.
 _TYPED_TAIL_DAYS = 7
-# Names the game displayed for codes the save's own table has no entry for. Each one was read
-# off a player's injury history and tied to the stored code by arithmetic on the game's own
-# figures: the displayed injury's date plus the days it kept the player out lands on the
-# expected return date the player's typed row stores, and the pinning row is the newest one at
-# or before that date, so no other injury of that player can be the one the code belongs to.
-# They are in the form the save's table uses, with the leading article dropped. A code is added
-# here only on that evidence; a code carried by no such row stays without a name.
-DISPLAYED_TYPE_NAMES: FrozenMapping[int, str] = FrozenMapping(
-    {
-        43: "slipped disc",
-        74: "hernia",
-        75: "double hernia",
-        76: "strained Achilles tendon",
-        78: "knee tendonitis",
-        100: "torn abdominal muscle",
-        103: "pectoral tendonitis",
-    }
-)
 
 
 def find_injury_type_layout(build: str) -> InjuryTypeTableLayout:
@@ -459,8 +436,8 @@ def build_injury_records(
 
     A typed row's date is the day the player is **expected back**, not the day he was hurt,
     which is why so many of these dates sit ahead of the in-game date. A typed row whose code
-    the save's own name table has no entry for takes its name from `DISPLAYED_TYPE_NAMES`, and
-    the count of rows the save's table names is kept separately from that.
+    the save's own name table has no entry for carries no name at all: fmsave ships no injury
+    names of its own.
 
     A row's person is the stored selector less one, looked up among the player records: a
     person the save no longer keeps as a player leaves the uid and the name empty and is
@@ -605,11 +582,6 @@ def build_injury_records(
         type_name = name_by_type_id.get(type_id)
         if type_name is not None:
             typed_types_resolved += 1
-        else:
-            # The save's table has no entry for this code, so the name the game displayed for
-            # it fills in. The count above stays the share of rows the save's own table names,
-            # which is what the checks judge: a fallback name says nothing about the decode.
-            type_name = DISPLAYED_TYPE_NAMES.get(type_id)
         records.append(
             InjuryRecord(
                 kind=InjuryRecordKind.TYPED,
