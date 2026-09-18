@@ -668,7 +668,9 @@ class Save:
         written in. They are in no section of the save: each per-match file it holds carries
         one copy of the table, so **a save with no per-match file has no names at all** and
         this table is then empty. Some injury codes have no entry in the table, so a code an
-        injury carries need not be named here.
+        injury carries need not be named here; this table holds only what the save itself
+        stores, and the seven names read off the game's own screens fill in
+        `InjuryRecord.type_name` rather than adding a row here.
 
         Only as many per-match files are read as it takes to find the table, whatever a save
         lists, and no game database is read at all. The table is read on the first call; later
@@ -724,13 +726,16 @@ class Save:
         history belongs to: it shows injuries from years outside this window, so what is here
         is the recent part of the career that tab shows whole.
 
-        A `TYPED` row carries the injury type of a recent or current episode. Its date runs
-        from a little over a week behind the in-game date to a couple of months ahead of it,
-        and how far behind depends on the save: the oldest was seven days back on five of the
-        save states measured and eight days back on two, so nothing here treats a week as a
-        rule. It is **not a list of injuries the player has recovered from**: what it names is
-        the type, which no `HISTORY` row carries. About one type code in fifteen has no entry in
-        `Save.injury_types`, and then `type_name` is empty.
+        A `TYPED` row carries the injury type of a recent or current episode, and **its date is
+        the day the player is expected back** rather than the day he was hurt, which is why so
+        many of these dates sit ahead of the in-game date: adding each displayed injury's date
+        to the time it kept the player out lands on the date stored here, checked on eleven
+        players. A date behind the in-game date is a return the game has already reached, and
+        how far behind those go depends on the save, so nothing here treats a week as a rule.
+        A typed row is **not a list of injuries the player has recovered from**: what it names
+        is the type, which no `HISTORY` row carries. About one type code in fifteen has no entry
+        in `Save.injury_types`; seven of those codes take the name the game displayed for them
+        instead, and `type_name` is empty for the rest.
 
         A row whose person the save no longer keeps as a player leaves `player_uid` and
         `player_name` empty, which is about one `HISTORY` row in twenty. A `HISTORY` row whose

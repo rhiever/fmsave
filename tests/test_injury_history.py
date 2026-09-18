@@ -32,6 +32,7 @@ from fmsave.readers._common import (
 )
 from fmsave.readers.clubs import ClubIndex
 from fmsave.readers.injuries import (
+    DISPLAYED_TYPE_NAMES,
     build_injury_records,
     find_injury_manager_layout,
     walk_injury_manager,
@@ -273,6 +274,81 @@ def test_a_typed_code_the_name_table_misses_and_a_typed_row_with_no_date(
     assert history[5].date is None
     assert history[5].player_uid is None
     assert history[5].type_name == NAMED_TYPE
+
+
+DISPLAYED_CODE = min(DISPLAYED_TYPE_NAMES)
+STORED_NAME_FOR_DISPLAYED_CODE = "Example Strain"
+
+
+def typed_rows_with_one_extra_type(type_id: int) -> bytes:
+    """The career fragment's section with one more typed row, of the type given."""
+    return injury_manager_body(
+        window_a=career_injury_window_rows(),
+        window_b=career_injury_window_rows(),
+        typed=(
+            *career_typed_injury_rows(),
+            injury_typed_row_bytes(
+                date=packed_date(60, 2031), selector=1, type_id=type_id, r11=1, r12=1
+            ),
+        ),
+        log=career_injury_log_rows(),
+        lists=((12,), (), ()),
+    )
+
+
+def test_a_code_the_save_does_not_name_takes_the_name_the_game_displayed(
+    tmp_path: Path,
+) -> None:
+    """A displayed name fills in where the save's own table has no entry for the code.
+
+    The count of rows the save's table names leaves the fallback out, so the check that judges
+    the type field still measures the save rather than the map.
+    """
+    section = typed_rows_with_one_extra_type(DISPLAYED_CODE)
+    save_path = career_fragment(injury_manager_section=section).write(tmp_path / "career.bin")
+
+    with fmsave.open(save_path) as save:
+        history = save.injury_history()
+        _rows, stats = career_rows(save)
+        type_ids = {injury_type.id for injury_type in save.injury_types()}
+
+    assert DISPLAYED_CODE not in type_ids
+    assert history[6].type_id == DISPLAYED_CODE
+    assert history[6].type_name == DISPLAYED_TYPE_NAMES[DISPLAYED_CODE]
+    assert stats.typed_rows == 4
+    assert stats.typed_types_resolved == 2
+
+
+def test_the_saves_own_name_wins_over_the_one_the_game_displayed(tmp_path: Path) -> None:
+    """A code the save's table names keeps that name, whatever the fallback map holds."""
+    section = typed_rows_with_one_extra_type(DISPLAYED_CODE)
+    save_path = career_fragment(injury_manager_section=section).write(tmp_path / "career.bin")
+
+    with fmsave.open(save_path) as save:
+        parts = career_parts(save)
+        walk = walk_injury_manager(parts.section, LAYOUT, FILE_NAME)
+        stored_types = Table(
+            (
+                *parts.injury_types,
+                InjuryType(id=DISPLAYED_CODE, name=STORED_NAME_FOR_DISPLAYED_CODE, unknown={}),
+            ),
+            InjuryType,
+        )
+        rows, stats = build_injury_records(
+            parts.section,
+            walk,
+            parts.player_records,
+            parts.players,
+            parts.club_index,
+            stored_types,
+            CLOCK,
+            LAYOUT,
+        )
+
+    assert DISPLAYED_TYPE_NAMES[DISPLAYED_CODE] != STORED_NAME_FOR_DISPLAYED_CODE
+    assert rows[6].type_id == DISPLAYED_CODE
+    assert rows[6].type_name == STORED_NAME_FOR_DISPLAYED_CODE
+    assert stats.typed_types_resolved == 3
 
 
 def test_the_walk_and_the_joins_count_every_row(career_path: Path) -> None:

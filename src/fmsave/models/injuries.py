@@ -4,11 +4,15 @@ The names are the game's own text, as the save stores it, in the language the sa
 in. They are not in any section of the save: every per-match file the save holds carries one
 copy of the table, so a save that holds no per-match file has no names at all. Some injury
 codes have no entry in the table, so a code a player's injury carries need not be named here.
+For seven of those codes a name comes from the game's own display instead of from the save: an
+injury row the game showed, tied to the code by the return date it lands on. Those names fill
+`InjuryRecord.type_name` only where the save's table has no entry, and `injury_types()` itself
+never invents a row.
 
 The history is one table of two kinds of row. A `HISTORY` row is an injury the save remembers
 happening: when it happened, and which team the person was at. A `TYPED` row carries the injury
-type of a recent or current episode. The save keeps the history for about the last two years
-only.
+type of a recent or current episode, and **its date is the day the player is expected back**
+rather than the day he was hurt. The save keeps the history for about the last two years only.
 
 **A `HISTORY` row is not a row of the game's Injury History tab.** That tab reads the
 full-career store, which fmsave does not ship: it shows injuries from years outside this
@@ -60,6 +64,11 @@ class InjuryCause(IntEnum):
     against rows carrying that exact code. The screen also shows a second line saying what the
     player was doing -- jumping, tackling, wear and tear -- and that detail is in no field
     fmsave reads: three different details share the training code alone.
+
+    **Illness rows are the exception.** A row for an illness -- a virus, food poisoning, a
+    cold -- displays a vocabulary of its own, such as a cause of "Non-soccer", and its stored
+    codes do not follow this mapping. That is one measured counter-example, on an illness row,
+    against agreement on every injury row checked.
     """
 
     UNKNOWN = -1
@@ -72,6 +81,12 @@ class InjurySeverity(IntEnum):
 
     All four stored codes are named, each from the severity a player's injury history displayed
     against a dated row carrying that exact code.
+
+    **Illness rows are the exception.** A row for an illness -- a virus, food poisoning, a
+    cold -- displays a vocabulary of its own and its stored codes do not follow this mapping:
+    one such row stores the code an injury displays as Moderate while the game shows it as
+    Minor. That is one measured counter-example, on an illness row, against agreement on every
+    injury row checked.
     """
 
     UNKNOWN = -1
@@ -93,9 +108,10 @@ class InjuryRecord:
             (unconfirmed).
         player_name: Denormalised display name of player_uid; None wherever player_uid is
             (unconfirmed).
-        date: When the injury happened, on a HISTORY row. On a TYPED row it is the row's own
-            date, which can be days behind or weeks ahead of the in-game date, and None when
-            the save stores no date at all (verified).
+        date: When the injury happened, on a HISTORY row. On a TYPED row it is the day the
+            player is expected back rather than the day he was hurt, which is why it is often
+            ahead of the in-game date; it is None when the save stores no date at all
+            (verified).
         team_id: Id of the team the person was registered with at the time, on a HISTORY row;
             None on every TYPED row, which carries no team (verified).
         club_uid: Uid of the club that fields team_id, which for a team another club controls
@@ -106,13 +122,16 @@ class InjuryRecord:
             first and then the teams it controls; None wherever club_uid is (unconfirmed).
         type_id: The injury's type code, on a TYPED row; None on every HISTORY row, which
             carries no type (verified).
-        type_name: Denormalised name of type_id from `Save.injury_types`, None for the codes
-            that table has no entry for and on every row of a save with no per-match file
+        type_name: Denormalised name of type_id from `Save.injury_types`, falling back for
+            seven codes that table has no entry for to the name the game displayed for them.
+            None for the codes neither names and on every row of a save with no per-match file
             (unconfirmed).
         cause: Whether the injury happened in training or in a match, on a HISTORY row; None
-            on every TYPED row. Both stored codes carry the cause a screen displayed for them.
+            on every TYPED row. Both stored codes carry the cause a screen displayed for them,
+            except on an illness row, which displays its own vocabulary.
         severity: How bad the injury was, on a HISTORY row; None on every TYPED row. All four
-            stored codes carry the severity a screen displayed for them.
+            stored codes carry the severity a screen displayed for them, except on an illness
+            row, which displays its own vocabulary.
         unknown: Numeric fields with no known meaning, each present only on the kind of row
             that carries it: `r0` a byte that is 1 on every row of every save, `hi7_date` the
             time-slot bits of the row's date word, and, on a TYPED row, `r11` and `r12`
