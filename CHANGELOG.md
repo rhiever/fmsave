@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-17
+
+### Added
+
+- Fourteen readers: `Save.stadiums()`, `Save.finances()`, `Save.sponsorships()`, `Save.facilities()`, `Save.affiliates()`, `Save.job_vacancies()`, `Save.staff()`, `Save.staff_lists()`, `Save.injury_types()`, `Save.injury_history()`, `Save.training()`, `Save.mentoring()`, `Save.tactics()` and `Save.set_pieces()`.
+- Grounds: `stadiums()` returns every ground the save's database holds, with its capacities, pitch sizes, the years it was built and rebuilt, the club that owns it, and the clubs that play their home matches there. A ground with no stored owner is one the game shows as the council's. Only a couple of hundred grounds store a name; the rest are named from the game's installed database and come back empty. The clubs that play at a ground are not a stored link: they are the clubs that used it for most of their first-team home matches, so a shared ground lists every club and a ground nobody used often enough lists none.
+- Club money: `finances()` returns one row per club per month, oldest first, with the balance at the month's end, both transfer budgets, the wage budget and payroll, the wage bill, income, expenditure and the month's net. Only the clubs of the one or two league nations a save tracks keep a series, and which nations those are moves as a career goes on, so most clubs of a save have no rows and that is ordinary. Money is a whole number in the save's base currency, which is not the currency the game displays; nothing is converted. `sponsorships()` returns each of those clubs' sponsorship contracts, including ones that have ended, whose annual value is zero. `facilities()` returns each of those clubs' corporate facilities rating as the word its own screen shows.
+- Club relations: `affiliates()` returns the groups of clubs the save stores together, and `job_vacancies()` returns the job-centre feed with each job's team, competition, league position and advertised date. The feed keeps old rows and nothing in one says whether the job was filled.
+- Staff: `staff()` returns everyone a club employs who is not a player, one row per person per club, with the department lists that club keeps him in, his contract, his ability and the preferences a staff profile shows. A person an affiliate side lists whose contract is with that side's parent is a row at the parent, the same rule a player on a B team follows, and the listing side is kept in `listed_club_uid`. The save's human manager is a row of his own. `staff_lists()` returns the three staff lists each club record holds; only about a thousand clubs of a save list anybody.
+- Injuries: `injury_types()` returns the injury names the save itself stores, read from the per-match files that carry them rather than from any section, so a save with no per-match file has none. `injury_history()` returns every injury the save still remembers, of two kinds: a history row is one that happened, with the team, whether it happened in training or in a match and how bad it was, and the save keeps about the last two years of them; a typed row carries the injury type of a recent or current episode, and its date is the day the player is expected back rather than the day he was hurt.
+- The manager's own work, which no other club stores: `training()` returns one training calendar per team with each week's start date and the schedule it runs, `mentoring()` returns each mentoring group and its members, `tactics()` returns each team's own copy of every tactic the manager has with its name, style, mentality and position slots, and `set_pieces()` returns the twenty set-piece routine slots of each team.
+- `Fixture.stadium_uid`, the ground a match is played at, joined from the stadium table.
+- `LeagueTableMatch.venue`, whether a table's match slot was played at home or away. The save alternates venue with the slot's parity and the even slots are the home ones, checked against the fixture calendar's own stored home team.
+- `CompetitionRules.competition_id` and `competition_name`, where the save's layout says which competition a rules block governs: the league table stored right after a block is the competition that block's rules apply to. About a third of rows have no such table after them and stay empty.
+- Coded values for a tactic's `mentality` (the seven mentalities the game offers), and for an injury's `cause` (in training or in a match) and `severity` (slight, minor, moderate or major). An illness row uses a vocabulary of its own and does not follow either injury mapping, which each type's documentation says. A club's `corporate_facilities` names seventeen of its twenty codes; the three no club in the tested saves carries keep their raw number.
+- `fmsave export` takes a table name for each of the new readers.
+
+### Changed
+
+- `fmsave validate` runs and reports all twenty-six readers.
+- `competition_rules()` now reads the league tables and the fixture calendar to find a block's competition, so a cold call costs more than it did.
+- A job vacancy that names no team leaves `team_id` empty rather than handing out the save's missing-reference marker, as every other reader already did.
+
+### Notes
+
+- `fmsave.OUTPUT_SCHEMA_VERSION` stays 1: this release adds tables and columns, and renames or removes none.
+- Injury names come from the save's own table and no others are shipped, as with competition names, so an injury code that table has no entry for leaves `type_name` empty.
+- The job title of a staff member and of an advertised job is not readable: a club's staff screen shows one stored code carrying several different titles and one title under several codes, so the code ships as a raw number rather than as a role.
+- `affiliates()` is not a club's own affiliate list. What groups a set of clubs there is not established, and every field of those rows is unconfirmed.
+
 ## [0.2.0] - 2026-09-17
 
 ### Added
