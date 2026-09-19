@@ -24,3 +24,6 @@ oom-*
 
 # Tools
 .ruff_cache/
+
+# Docs
+docs/_build/

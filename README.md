@@ -2,6 +2,8 @@
 
 Read your Football Manager 26 saves from disk into Python records, DataFrames, CSV and JSON.
 
+**[Documentation](https://rhiever.github.io/fmsave/)** — guides and the full reference.
+
 ## Install
 
 fmsave needs Python 3.12 or newer.
