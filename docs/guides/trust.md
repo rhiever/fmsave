@@ -71,7 +71,7 @@ for reader in report.readers:
 ```
 
 A reader's status is `ok`, `failed` (a check of its own did not pass) or `error` (it raised). Each
-`ReaderValidation` also carries its `gates`, its `coverage` and its `anomalies` — counts of the
+`ReaderValidation` also carries its `gates`, its `coverage` and its `anomalies`, counts of the
 odd things it saw while decoding.
 
 The same thing from the command line:

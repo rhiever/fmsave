@@ -1196,7 +1196,7 @@ class Save:
         twenty matches per player per spell at a team, **counted across all competitions at once
         rather than per competition**, and drops the oldest as new ones arrive. A player who has
         played more than that in his current spell has only his latest matches here, so **a
-        per-competition total summed from these rows is short without saying so** — nothing in a
+        per-competition total summed from these rows is short without saying so**. Nothing in a
         row marks it as truncated. Friendlies, internationals and youth matches are kept apart
         from these records and are not here at all.
 

@@ -69,7 +69,7 @@ status.raw  # 1, the number the save holds
 ```
 
 A value fmsave cannot read is `None` rather than a guess. Before you lean on a field, check
-whether it is verified — see [Trusting a number](trust.md).
+whether it is verified. See [Trusting a number](trust.md).
 
 ## Narrow it down
 

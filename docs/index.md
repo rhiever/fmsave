@@ -46,13 +46,13 @@ If the game is running, copy the save and read the copy.
 
 ## Start here
 
-- [Your squad](guides/squad.md) — from a save file to a sorted squad with attributes, contracts
+- [Your squad](guides/squad.md): from a save file to a sorted squad with attributes, contracts
   and filters. Read this one first.
-- [Getting data out](guides/exporting.md) — DataFrames, CSV, JSON, and the `fmsave export`
+- [Getting data out](guides/exporting.md): DataFrames, CSV, JSON, and the `fmsave export`
   command.
-- [What a save holds](guides/what-a-save-holds.md) — the twenty-six readers, and what no save
+- [What a save holds](guides/what-a-save-holds.md): the twenty-six readers, and what no save
   can tell you.
-- [Trusting a number](guides/trust.md) — how to tell a verified field from an unconfirmed one,
+- [Trusting a number](guides/trust.md): how to tell a verified field from an unconfirmed one,
   and what a reader's checks mean.
 
 The reference section documents every record, field and command.

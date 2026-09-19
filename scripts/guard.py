@@ -4,9 +4,9 @@
 Blocks content that must never be committed or published: files under the private
 folder, save files and save bytes, binary files, oversized files, notebooks with
 outputs, symbolic links, submodules, long encoded data, text copied from the private
-folder, banned internal-process wording, runs of per-save figures in the published prose,
-and locally denylisted names, uids and terms in file contents, file paths and
-messages.
+folder, banned internal-process wording, typographic punctuation, runs of per-save figures
+in the published prose, and locally denylisted names, uids and terms in file contents, file
+paths and messages.
 
 Banned internal-process wording is the house vocabulary of how the work was organised, which
 means nothing to a reader of a public repository: the words in `BANNED_WORDS` and plan numbers
@@ -17,6 +17,12 @@ paths are exempt, because they are where the rule itself is written down: `scrip
 and `tests/test_guard.py`. The check does **not** run in history mode, since history is never
 rewritten and a past message or path cannot be fixed. So a clean history run says nothing about
 either rule in history: it does not look.
+
+Typographic punctuation is the em dash, the en dash, curly quotes and the ellipsis character,
+in file contents and in a commit message about to be written. Every one of them has a plain
+ASCII spelling that says the same thing, so the rule is that the ASCII spelling is the one
+written. `tests/test_guard.py` is exempt, being where the characters themselves are the
+subject. Like the wording rule, it does not run in history mode.
 
 Runs of per-save figures are looked for in `PROSE_PATHS` alone -- the published README and
 changelog -- as two or three figures separated by slashes or commas, which is how one
@@ -123,7 +129,7 @@ OVERLAP_WINDOW_LINES = 6
 OVERLAP_MINIMUM_ALPHANUMERIC = 40
 OVERLAP_MAX_SOURCE_BYTES = 5_000_000
 MINIMUM_UID_DIGITS = 6
-WORD_PATTERN = re.compile(r"[^\W_]+(?:['’.\-][^\W_]+)*")
+WORD_PATTERN = re.compile(r"[^\W_]+(?:['\u2019.\-][^\W_]+)*")
 UID_PATTERN = re.compile(r"(?<![0-9A-Za-z])[0-9]{6,}(?![0-9A-Za-z])")
 FENCE_OPENER_PATTERN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 PATH_SEPARATOR_PATTERN = re.compile(r"[_\-/.]+")
@@ -156,6 +162,20 @@ BANNED_WORD_PATTERN = re.compile(rf"(?<![0-9a-z])(?:{'|'.join(BANNED_WORDS)})(?!
 PLAN_NUMBER_PATTERN = re.compile(r"(?<![0-9a-z])m[123](?![0-9a-z])")
 # Where the rule is written down, so the words appear there on purpose.
 BANNED_WORDING_EXEMPT_PATHS = frozenset({"scripts/guard.py", "tests/test_guard.py"})
+# Typographic punctuation. Write the plain ASCII spelling instead: a comma, a colon, a full
+# stop or a pair of brackets says what a dash was doing, and "..." is three full stops.
+SMART_PUNCTUATION = {
+    "\u2014": "an em dash",
+    "\u2013": "an en dash",
+    "\u2018": "a curly quote",
+    "\u2019": "a curly quote",
+    "\u201c": "a curly quote",
+    "\u201d": "a curly quote",
+    "\u2026": "an ellipsis character",
+}
+SMART_PUNCTUATION_PATTERN = re.compile(f"[{''.join(SMART_PUNCTUATION)}]")
+# Where the characters are the subject, so they appear there on purpose.
+SMART_PUNCTUATION_EXEMPT_PATHS = frozenset({"tests/test_guard.py"})
 # The published prose, where a run of per-save figures has no business being.
 PROSE_PATHS = frozenset({"README.md", "CHANGELOG.md"})
 FIGURE = r"[0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?%?"
@@ -478,6 +498,25 @@ def banned_wording_findings(location: str, path: str, text: str) -> list[Finding
         for _, wording in banned_wording([path_text])
     )
     return findings
+
+
+def smart_punctuation(text: str) -> list[tuple[int, str]]:
+    """(line number, what it is) for each kind of typographic punctuation, once per line."""
+    found: set[tuple[int, str]] = set()
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        for match in SMART_PUNCTUATION_PATTERN.finditer(line):
+            found.add((line_number, SMART_PUNCTUATION[match.group(0)]))
+    return sorted(found)
+
+
+def smart_punctuation_findings(location: str, path: str, text: str) -> list[Finding]:
+    """Typographic punctuation in a file's contents, unless the path is exempt."""
+    if path in SMART_PUNCTUATION_EXEMPT_PATHS:
+        return []
+    return [
+        Finding(f"{location}:{line_number}", f"contains {description}")
+        for line_number, description in smart_punctuation(text)
+    ]
 
 
 def is_measurement_run(figures: Sequence[str]) -> bool:
@@ -872,6 +911,7 @@ def check_blob(
         findings.extend(encoded_run_findings(location, text))
         if check_wording:
             findings.extend(banned_wording_findings(location, blob.path, text))
+            findings.extend(smart_punctuation_findings(location, blob.path, text))
             findings.extend(figure_run_findings(location, blob.path, text))
     if references is not None:
         findings.extend(overlap_findings(location, text, references))
@@ -1018,10 +1058,18 @@ def history_blobs(repository_root: Path) -> Iterator[Blob]:
 
 
 def message_findings(
-    location: str, message: str, references: PrivateReferences | None
+    location: str,
+    message: str,
+    references: PrivateReferences | None,
+    check_wording: bool = True,
 ) -> list[Finding]:
     """Findings for one message: encoded runs always, private text when references exist."""
     findings = encoded_run_findings(location, message)
+    if check_wording:
+        findings.extend(
+            Finding(f"{location}:{line_number}", f"contains {description}")
+            for line_number, description in smart_punctuation(message)
+        )
     if references is not None:
         findings.extend(text_findings(location, message, references))
     return findings
@@ -1039,7 +1087,7 @@ def history_message_findings(
         commit_id, _, message = record.strip("\n").partition("\x00")
         if commit_id:
             location = f"commit {commit_id[:12]} message"
-            findings.extend(message_findings(location, message, references))
+            findings.extend(message_findings(location, message, references, check_wording=False))
     raw_tags = run_git(
         repository_root,
         ["for-each-ref", "--format=%(objecttype)%00%(objectname)%00%(contents)%1e", "refs/tags"],
@@ -1048,7 +1096,11 @@ def history_message_findings(
         object_type, _, remainder = record.strip("\n").partition("\x00")
         tag_id, _, message = remainder.partition("\x00")
         if object_type == "tag":
-            findings.extend(message_findings(f"tag {tag_id[:12]} message", message, references))
+            findings.extend(
+                message_findings(
+                    f"tag {tag_id[:12]} message", message, references, check_wording=False
+                )
+            )
     return findings
 
 

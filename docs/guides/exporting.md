@@ -65,26 +65,26 @@ fmsave export career.fm fixtures --managed-club --format jsonl -o fixtures.jsonl
 
 The scope is required, and exactly one of:
 
-- `--managed-club` — the club you run.
-- `--club VALUE` — one club by uid, name or short name, in any case. A name that matches more than
+- `--managed-club`: the club you run.
+- `--club VALUE`: one club by uid, name or short name, in any case. A name that matches more than
   one club is an error that lists the matches, so you can pick the uid.
-- `--competition VALUE` — one competition by id, or by name once `--competition-names` supplies
+- `--competition VALUE`: one competition by id, or by name once `--competition-names` supplies
   one.
-- `--nation VALUE` — one nation, by nation id.
-- `--all` — every row.
+- `--nation VALUE`: one nation, by nation id.
+- `--all`: every row.
 
 The rest:
 
 - `--format {csv,json,jsonl}`, default `csv`.
-- `--columns NAMES` — flat column names, comma-separated, written in the order you give them.
-- `-o PATH` — a file instead of standard output.
-- `--competition-names PATH` — a UTF-8 CSV of `database_id,name`. See
+- `--columns NAMES`: flat column names, comma-separated, written in the order you give them.
+- `-o PATH`: a file instead of standard output.
+- `--competition-names PATH`: a UTF-8 CSV of `database_id,name`. See
   [What a save holds](what-a-save-holds.md).
-- `--strict` — stop rather than write when a reader's checks fail. See
+- `--strict`: stop rather than write when a reader's checks fail. See
   [Trusting a number](trust.md).
 
 Table names on the command line use hyphens where the Python method uses underscores:
 `managed-clubs`, `league-tables`, `player-match-stats`, `set-pieces`.
 
-Four tables — `training`, `mentoring`, `tactics` and `set-pieces` — only exist for the club you
+Four tables (`training`, `mentoring`, `tactics` and `set-pieces`) only exist for the club you
 manage. Any other scope returns no rows.

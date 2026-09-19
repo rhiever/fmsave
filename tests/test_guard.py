@@ -1478,6 +1478,75 @@ def test_banned_wording_in_a_commit_message_is_blocked(
     ]
 
 
+# Typographic punctuation
+
+
+@pytest.mark.parametrize(
+    ("line", "description"),
+    [
+        ("# a dash \u2014 like this", "an em dash"),
+        ("# a range 1\u20132", "an en dash"),
+        ("# it\u2019s here", "a curly quote"),
+        ("# \u201cquoted\u201d", "a curly quote"),
+        ("# and so on\u2026", "an ellipsis character"),
+    ],
+)
+def test_smart_punctuation_in_a_file_is_blocked(
+    repository: Path, capsys: pytest.CaptureFixture[str], line: str, description: str
+) -> None:
+    stage(repository, "src/example.py", f"pass\n{line}\n")
+    assert run_guard(repository, "--staged") == 1
+    assert capsys.readouterr().err.splitlines() == [
+        f"guard: src/example.py:2: contains {description}",
+        blocked_line(1),
+    ]
+
+
+def test_ascii_punctuation_passes(repository: Path) -> None:
+    """The plain spellings the rule asks for, none of which the check may touch."""
+    stage(repository, "src/example.py", '# a dash - like this, a range 1-2, it\'s "quoted"...\n')
+    assert run_guard(repository, "--staged") == 0
+
+
+def test_smart_punctuation_is_reported_once_per_kind_per_line(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stage(repository, "src/example.py", "# one \u2014 two \u2014 three \u2013 four\n")
+    assert run_guard(repository, "--staged") == 1
+    assert capsys.readouterr().err.splitlines() == [
+        "guard: src/example.py:1: contains an em dash",
+        "guard: src/example.py:1: contains an en dash",
+        blocked_line(2),
+    ]
+
+
+def test_smart_punctuation_in_an_exempt_path_passes(repository: Path) -> None:
+    for exempt_path in sorted(guard.SMART_PUNCTUATION_EXEMPT_PATHS):
+        stage(repository, exempt_path, "# \u2014 \u2013 \u2018 \u2019 \u201c \u201d \u2026\n")
+    assert run_guard(repository, "--staged") == 0
+
+
+def test_smart_punctuation_is_not_checked_in_history(repository: Path) -> None:
+    """History is never rewritten, so a past file or message cannot be brought into line."""
+    stage(repository, "src/example.py", "# a dash \u2014 like this\n")
+    run_git(repository, "commit", "-q", "-m", "a dash \u2014 like this")
+    run_git(repository, "rm", "-q", "src/example.py")
+    run_git(repository, "commit", "-q", "-m", "remove it")
+    assert run_guard(repository, "--history") == 0
+
+
+def test_smart_punctuation_in_a_commit_message_is_blocked(
+    repository: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    message_path = tmp_path / "COMMIT_EDITMSG"
+    message_path.write_text("Add a docs site \u2014 guides and reference\n", encoding="utf-8")
+    assert run_guard(repository, "--commit-msg", str(message_path)) == 1
+    assert capsys.readouterr().err.splitlines() == [
+        "guard: message:1: contains an em dash",
+        blocked_line(1),
+    ]
+
+
 # Runs of per-save figures in the published prose
 
 

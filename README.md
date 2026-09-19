@@ -2,7 +2,7 @@
 
 Read your Football Manager 26 saves from disk into Python records, DataFrames, CSV and JSON.
 
-**[Documentation](https://rhiever.github.io/fmsave/)** — guides and the full reference.
+**[Documentation](https://rhiever.github.io/fmsave/)**: guides and the full reference.
 
 ## Install
 
@@ -44,13 +44,13 @@ Each reader returns a `Table`: `where(...)`, `filter(...)`, `sorted_by(...)`, `f
 
 Twenty-six readers in all, each returning a `Table` of records:
 
-- **People** — `players()`, `contracts()`, `suspensions()`, `staff()`, `staff_lists()`
-- **Clubs** — `clubs()`, `managed_clubs()`, `finances()`, `sponsorships()`, `facilities()`,
+- **People**: `players()`, `contracts()`, `suspensions()`, `staff()`, `staff_lists()`
+- **Clubs**: `clubs()`, `managed_clubs()`, `finances()`, `sponsorships()`, `facilities()`,
   `stadiums()`, `affiliates()`, `job_vacancies()`
-- **Competitions** — `stages()`, `competitions()`, `fixtures()`, `league_tables()`,
+- **Competitions**: `stages()`, `competitions()`, `fixtures()`, `league_tables()`,
   `competition_rules()`, `transfer_windows()`, `player_match_stats()`
-- **Injuries** — `injury_types()`, `injuries()`
-- **Your own club's work**, which only the club you manage stores — `training()`, `mentoring()`,
+- **Injuries**: `injury_types()`, `injuries()`
+- **Your own club's work**, which only the club you manage stores: `training()`, `mentoring()`,
   `tactics()`, `set_pieces()`
 
 Every field is either verified against the game or unconfirmed; ask with
@@ -67,12 +67,12 @@ you get the table anyway. Pass `strict=True` to `fmsave.open` to have one raise 
 - **Names the game renders from its own installed database.** Competitions, leagues, nations,
   cities and all but a couple of hundred grounds. fmsave ships none of these and reads nothing from
   your game install. Competitions carry `database_id`, the id every outside name source is keyed
-  on, so you can supply your own map — see [Competition names](#competition-names).
+  on, so you can supply your own map. See [Competition names](#competition-names).
 - **Links the save does not store**, such as which competition a rules block belongs to, or which
   ground a club plays at. Worked out from the fixture calendar where possible, left empty where not.
 - **Meanings for numbers the game never displayed**, such as staff job titles or the settings
   inside a tactic. These come back as raw numbers rather than as labels fmsave guessed at.
-- **What the save keeps only in part or not at all** — scores for about three quarters of a
+- **What the save keeps only in part or not at all**: scores for about three quarters of a
   career's matches, injuries older than about two years, and today's availability, line-ups, staff
   attribute values, card counts, club debt and asking prices.
 

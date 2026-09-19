@@ -45,8 +45,8 @@ A career keeps a long injury history, but not an endless one.
 
 `training()`, `mentoring()`, `tactics()`, `set_pieces()`
 
-Only the club you manage stores these. Every other club returns no rows — it is not a gap in
-fmsave, the data is not in the save.
+Only the club you manage stores these. Every other club returns no rows. It is not a gap in
+fmsave; the data is not in the save.
 
 ## What no save can tell you
 
