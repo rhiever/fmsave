@@ -113,10 +113,45 @@ def find_game_version(summary: bytes, layout: SaveSummaryLayout, file_name: str)
 class SummaryFacts:
     version: GameVersion
     summary_strings: tuple[str, ...]
+    game_date: date | None
+
+
+def read_summary_date(
+    summary: bytes, layout: SaveSummaryLayout, version: GameVersion
+) -> date | None:
+    """Read the structured summary clock, never a date-shaped byte scan.
+
+    Schema 29 stores a setup string, build string, counted division names, an eight-byte
+    manager header, manager and club names, club uid, then the date. A fresh career can have
+    this date before `game_info` has a clock. Other summary shapes remain readable for their
+    version and strings, but cannot supply a fallback date.
+    """
+    try:
+        _, offset = read_length_prefixed_string(
+            summary, layout.structured_strings_offset, layout.max_setup_string_bytes
+        )
+        stored_version, offset = read_length_prefixed_string(
+            summary, offset, layout.max_version_bytes
+        )
+        if stored_version != version.build:
+            return None
+        division_count = read_u32(summary, offset)
+        if division_count > layout.max_divisions:
+            return None
+        offset += LENGTH_PREFIX_BYTES
+        for _ in range(division_count):
+            _, offset = read_length_prefixed_string(summary, offset, layout.max_summary_name_bytes)
+        _, offset = read_length_prefixed_string(
+            summary, offset + layout.manager_header_bytes, layout.max_summary_name_bytes
+        )
+        _, offset = read_length_prefixed_string(summary, offset, layout.max_summary_name_bytes)
+        return decode_date(summary, offset + layout.club_uid_bytes)
+    except CorruptSaveError:
+        return None
 
 
 def read_summary_facts(container_index: ContainerIndex) -> SummaryFacts:
-    """Read `save_game_summary` once: the version, rejecting games other than FM26, and its strings."""
+    """Read the summary's version, strings and fallback date once, rejecting games other than FM26."""
     file_name = container_index.file_name
     summary = read_section(container_index, SAVE_SUMMARY_SECTION)
     summary_schema = section_schema(
@@ -135,7 +170,11 @@ def read_summary_facts(container_index: ContainerIndex) -> SummaryFacts:
     strings_layout = find_layout(
         SummaryStringsLayout, SAVE_SUMMARY_SECTION, summary_schema, ""
     ).layout
-    return SummaryFacts(version, read_summary_strings(summary, strings_layout))
+    return SummaryFacts(
+        version,
+        read_summary_strings(summary, strings_layout),
+        read_summary_date(summary, summary_layout, version),
+    )
 
 
 def decode_game_info(
@@ -238,7 +277,7 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
         build_number=version.build_number,
         known_build=known_build,
         db_version=facts.db_version,
-        game_date=facts.game_date,
+        game_date=facts.game_date if facts.game_date is not None else summary_facts.game_date,
         time_slot=facts.time_slot,
         save_name=container_index.save_name,
         sections=sections,

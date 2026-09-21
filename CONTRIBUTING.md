@@ -22,11 +22,16 @@ uv run pyright
 
 ## Guardrails
 
-- **No real data, anywhere.** Never commit or post real saves, save fragments, hex dumps, or real player, staff, club or competition names, uids or values. This covers code, tests, fixtures, snapshots, docs, examples, commit messages, issues and pull requests.
+- **No real data in the repository.** Never commit real saves, save fragments, hex dumps,
+  save-derived datasets or outputs, or real names, uids or values. This covers code, tests,
+  fixtures, snapshots, docs, examples, notebook outputs, messages, issues and pull requests. Keep
+  them under `.local/`, which Git ignores.
 - **Fictional examples only.** Use made-up names such as "Northbridge FC", "Alex Example" and "Example League".
 - **Tests build their own inputs.** Tests create small in-memory fragments. They never build or ship a complete save.
 - **Read-only.** fmsave never writes saves, reads game memory, connects to the network or decrypts anything. Changes that add any of these will not be accepted.
-- **Scoped export.** Examples and docs lead with squads, wages and contracts, and never advertise exporting a whole game database.
+- **Local single-player analysis is supported.** Code and output-empty notebooks may read every row
+  from your own save. Command-line exports keep the explicit `--all` gate. Do not use hidden data in
+  a shared online career unless its rules and participants allow it.
 - **No format write-ups.** Do not add prose descriptions of the save file format to the repository, issues or pull requests. Code and docstrings are enough.
 
 The commit hooks check staged files and commit messages. Never skip them.
@@ -43,4 +48,5 @@ You can report a wrong value without sharing any real data:
 2. Name the field, such as `Player.contract.end` or the `contract_end` column. `fmsave.field_status(fmsave.Player, "contract.end")` tells you whether its meaning is verified or unconfirmed.
 3. Describe what the game shows in general terms. For example: "for a few players at my club, the game shows a contract end date one year later than fmsave". Leave out names, uids and exact values.
 
-Use the bug report form for this. Never attach a save file or a screenshot.
+Use the bug report form for this. Never attach a save file or a screenshot. Maintainers will never
+request or accept a save file.

@@ -742,7 +742,7 @@ def test_healthy_counts_pass_every_gate_and_a_small_section_applies_none() -> No
         ),
         pytest.param(
             MatchStats(0, 0, 0, 0, 0, 0, 0, 0, 0),
-            list(MATCH_GATE_NAMES),
+            ["per_match_competition_in_stage_space"],
             id="a-search-that-found-nothing",
         ),
     ],
@@ -750,15 +750,23 @@ def test_healthy_counts_pass_every_gate_and_a_small_section_applies_none() -> No
 def test_the_gates_fail_one_at_a_time_when_their_counts_are_driven_past_their_bounds(
     stats: MatchStats, expected_failures: Sequence[str]
 ) -> None:
-    """Each gate fails on its own count, and a search that found nothing fails all three rather
-    than passing for want of a rate.
-    """
+    """Each gate fails on its own count; an empty search still fails the competition check."""
     results = evaluate_player_match_stats(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert failed_gate_names(results) == list(expected_failures)
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
         enforce("player_match_stats", results, strict=True)
     assert str(error_info.value).startswith("player_match_stats failed checks: ")
     assert expected_failures[0] in str(error_info.value)
+
+
+def test_historical_match_records_without_statistics_do_not_fail_statistic_checks() -> None:
+    stats = dataclasses.replace(
+        healthy_stats(), with_stats=0, minutes_in_range=0, rating_in_range=0, stats_in_range=0
+    )
+    results = evaluate_player_match_stats(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert results[0].applied and results[0].passed
+    assert all(not result.applied and result.passed for result in results[1:])
+    assert failed_gate_names(results) == []
 
 
 @pytest.mark.parametrize(

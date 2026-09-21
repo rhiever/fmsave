@@ -1013,9 +1013,10 @@ GATE_BOUNDS = GateBounds(
     names_resolved=(0.995, None),
     relation_sentinel=(0.999, None),
     second_nation_qualifier=(0.995, None),
-    # Reading the attribute bytes one position late moves this share below the bound, and one
-    # position early moves it above, so the bound stays narrow.
-    handling_above_finishing=(0.20, 0.30),
+    # Fresh database populations have a lower share than advanced careers. This is a broad
+    # plausibility check; the adjacent goalkeeper-block check detects one-byte shifts even
+    # when their handling/finishing share falls within this population-dependent range.
+    handling_above_finishing=(0.10, 0.30),
     # Handling and throwing are the first and last of six adjacent goalkeeping attributes, which
     # outfield players rate low. Reading the attribute bytes one position early or late puts an
     # outfield attribute in one of the two, so this share falls far below the bound.
@@ -1026,7 +1027,9 @@ GATE_BOUNDS = GateBounds(
     age_median=(20, 30),
     aged_in_range=(0.995, None),
     condition_sharpness_in_range=(0.999, None),
-    join_date_valid=(0.05, 0.95),
+    # Database join dates can be almost complete at career creation. Completeness is not a
+    # layout failure, so only a lower bound belongs here.
+    join_date_valid=(0.05, None),
     world_not_above_current=(0.95, None),
     home_near_current=(0.95, None),
     team_resolved=(0.98, None),

@@ -336,7 +336,7 @@ def test_a_shifted_layout_fails_with_a_message_naming_both_gates() -> None:
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
         enforce("players", results, strict=True)
     assert str(error_info.value) == (
-        "players failed checks: handling_above_finishing=0.61 (expected 0.2..0.3); "
+        "players failed checks: handling_above_finishing=0.61 (expected 0.1..0.3); "
         "with_natural_position=0.89 (expected 0.97..). "
         f"Please report it at {ISSUES_URL} with the output of fmsave validate."
     )
@@ -362,17 +362,25 @@ def test_one_record_short_of_the_minimum_fails_only_the_players_minimum_gate() -
     ("valid_join_dates", "expected_failures"),
     [
         pytest.param(1_000, [], id="lower-edge"),
-        pytest.param(19_000, [], id="upper-edge"),
+        pytest.param(19_500, [], id="fresh-save-completeness"),
+        pytest.param(20_000, [], id="all-dates-present"),
         pytest.param(990, ["join_date_valid"], id="below"),
-        pytest.param(19_010, ["join_date_valid"], id="above"),
     ],
 )
-def test_the_join_date_share_is_checked_at_both_edges(
+def test_the_join_date_share_has_a_floor_but_no_completeness_ceiling(
     valid_join_dates: int, expected_failures: list[str]
 ) -> None:
     stats = dataclasses.replace(healthy_player_stats(), with_valid_join_date=valid_join_dates)
     results = evaluate_players(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert failed_gate_names(results) == expected_failures
+
+
+@pytest.mark.parametrize("share", [0.10, 0.156, 0.25, 0.30])
+def test_fresh_and_advanced_player_attribute_distributions_pass(share: float) -> None:
+    stats = dataclasses.replace(
+        healthy_player_stats(), handling_above_finishing=round(20_000 * share)
+    )
+    assert failed_gate_names(evaluate_players(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)) == []
 
 
 def test_player_medians_are_checked_against_their_bounds() -> None:
@@ -707,7 +715,7 @@ def test_the_enforce_message_holds_no_digits_beyond_rates_and_bounds() -> None:
     for gate_name in ("handling_above_finishing", "with_natural_position"):
         assert gate_name in remainder
         remainder = remainder.replace(gate_name, "")
-    for number_text in ("0.6172", "0.2..0.3", "0.89", "0.97"):
+    for number_text in ("0.6172", "0.1..0.3", "0.89", "0.97"):
         assert number_text in remainder
         remainder = remainder.replace(number_text, "")
     assert re.search(r"\d", remainder) is None
@@ -716,14 +724,26 @@ def test_the_enforce_message_holds_no_digits_beyond_rates_and_bounds() -> None:
 
 
 @pytest.mark.parametrize(
-    ("handling_above_finishing", "outfield_goalkeeper_block_low"),
+    ("handling_above_finishing", "outfield_goalkeeper_block_low", "expected_failures"),
     [
-        pytest.param(3_600, 3_600, id="attribute bytes read one position late"),
-        pytest.param(12_200, 6_300, id="attribute bytes read one position early"),
+        pytest.param(
+            3_600,
+            3_600,
+            ["outfield_goalkeeper_block_low"],
+            id="attribute bytes read one position late",
+        ),
+        pytest.param(
+            12_200,
+            6_300,
+            ["handling_above_finishing", "outfield_goalkeeper_block_low"],
+            id="attribute bytes read one position early",
+        ),
     ],
 )
-def test_a_one_byte_attribute_shift_fails_both_attribute_gates(
-    handling_above_finishing: int, outfield_goalkeeper_block_low: int
+def test_a_one_byte_attribute_shift_still_fails_the_player_gates(
+    handling_above_finishing: int,
+    outfield_goalkeeper_block_low: int,
+    expected_failures: list[str],
 ) -> None:
     shifted_stats = dataclasses.replace(
         healthy_player_stats(),
@@ -731,10 +751,7 @@ def test_a_one_byte_attribute_shift_fails_both_attribute_gates(
         outfield_goalkeeper_block_low=outfield_goalkeeper_block_low,
     )
     results = evaluate_players(shifted_stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
-    assert failed_gate_names(results) == [
-        "handling_above_finishing",
-        "outfield_goalkeeper_block_low",
-    ]
+    assert failed_gate_names(results) == expected_failures
 
 
 @pytest.mark.parametrize(
@@ -1487,6 +1504,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "fixtures": ["fixture_stadiums_resolved"],
         "league_tables": ["table_venue_calendar_agreement"],
         "competition_rules": ["rules_linked_blocks_minimum", "rules_link_round_dates"],
+        "player_match_stats": ["per_match_minutes_in_range", "per_match_rating_in_range"],
         "stadiums": ["stadium_home_grounds_owned"],
         "finances": [
             "finance_net_identity",
@@ -1633,14 +1651,9 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # No preamble marker either, so the count fails on its floor and the parsed share for
         # want of a rate.
         "competition_rules": ["rules_markers_minimum", "rules_fully_parsed"],
-        # The search finds no per-match record, which leaves all three shares without a
-        # denominator: a layout that has moved fails here rather than reporting a career whose
-        # players have played no matches.
-        "player_match_stats": [
-            "per_match_competition_in_stage_space",
-            "per_match_minutes_in_range",
-            "per_match_rating_in_range",
-        ],
+        # An empty per-match search fails its competition check, while statistics checks
+        # stand aside because there are no statistics to judge.
+        "player_match_stats": ["per_match_competition_in_stage_space"],
         # The fragment's 101-row stadium table meets the two floors this test relaxed for it,
         # and the three shares beside them judge only the rows it does hold.
         "stadiums": [],

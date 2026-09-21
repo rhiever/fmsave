@@ -232,3 +232,18 @@ def test_the_pitch_is_not_hidden_data_or_a_database_dump() -> None:
     pitch_text = README_TEXT[: README_TEXT.index("\n## ")].casefold()
     claimed = [claim for claim in PITCH_CLAIMS if claim in pitch_text]
     assert not claimed, claimed
+
+
+def test_whole_save_analysis_keeps_the_explicit_gate_and_online_warning() -> None:
+    safety_text = readme_section("## Safety")
+    command_line_text = readme_section(COMMAND_LINE_HEADING)
+
+    assert "single-player" in safety_text
+    assert "shared online career" in safety_text
+    assert "--all" in command_line_text
+    assert "`--all` is explicit" in command_line_text
+
+
+def test_support_never_requests_or_accepts_save_files() -> None:
+    support_text = readme_section("## Support")
+    assert "not request or accept one" in support_text

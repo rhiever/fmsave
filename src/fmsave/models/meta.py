@@ -48,7 +48,8 @@ class SaveInfo:
         build_number: The numeric build.
         known_build: Whether fmsave has layout tables for this build.
         db_version: Game database version string stored in the save (unconfirmed).
-        game_date: In-game date, or None when it cannot be read (unconfirmed).
+        game_date: In-game date, falling back to the structured save summary before the first
+            Continue when the normal clock is null; None when neither is readable (unconfirmed).
         time_slot: Intra-day time slot stored with the in-game date (unconfirmed).
         save_name: The save's own name. `fmsave info` hides it unless --show-name is passed.
         sections: Every named section in file order.

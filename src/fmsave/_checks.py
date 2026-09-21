@@ -1147,10 +1147,9 @@ def evaluate_player_match_stats(
     them apart: a record read from the wrong offset carries a competition id the stage table
     never names, and minutes and a rating that can land anywhere at all.
 
-    All three apply whenever the section is large enough, including when the search found
-    nothing: an empty result leaves every one of them without a denominator, which fails rather
-    than passes, so a layout that has moved fails here rather than reporting a career whose
-    players have played no matches.
+    The competition check still fails when the search finds nothing. Minutes and ratings only
+    apply to records containing statistics: fresh saves can hold historical match records
+    without any statistics, while their competition ids still validate the record layout.
     """
     applied = _applies(bounds, game_db_bytes)
     with_stats = stats.with_stats
@@ -1161,15 +1160,17 @@ def evaluate_player_match_stats(
             bounds.per_match_competition_in_stage_space,
             applied,
         ),
-        _gate(
+        _share_gate(
             "per_match_minutes_in_range",
-            _rate(stats.minutes_in_range, with_stats),
+            stats.minutes_in_range,
+            with_stats,
             bounds.per_match_minutes_in_range,
             applied,
         ),
-        _gate(
+        _share_gate(
             "per_match_rating_in_range",
-            _rate(stats.rating_in_range, with_stats),
+            stats.rating_in_range,
+            with_stats,
             bounds.per_match_rating_in_range,
             applied,
         ),
@@ -1181,9 +1182,9 @@ def check_player_match_stats(
 ) -> ReaderCheck:
     """The per-match player stats reader's checks, record count and anomaly counts.
 
-    `records_without_statistics` counts the matches the save no longer holds the statistics of,
-    which is about two records in five on every save and is ordinary rather than a fault. The
-    rest count what a join or a bound left unsatisfied: opponents no club lists, competition ids
+    `records_without_statistics` counts matches without stored statistics; fresh careers can
+    have only these records, and they are ordinary rather than a fault. The rest count what a
+    join or a bound left unsatisfied: opponents no club lists, competition ids
     the stage table does not name, statistics holding a number no match can reach, and records
     lying before the first player's window, which belong to no player and build no row.
     """

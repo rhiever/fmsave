@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import pickle
+import struct
 import warnings
 from datetime import date, timedelta
 from pathlib import Path
@@ -23,6 +24,8 @@ from tests.fixtures.container import (
     build_container_fragment,
     default_sections,
     game_info_body,
+    length_prefixed,
+    packed_date,
     save_summary_body,
     section_body,
 )
@@ -108,6 +111,68 @@ def test_longer_database_version_shifts_later_fields(tmp_path: Path) -> None:
     assert save_info.db_version == "26.10.12+345"
     assert save_info.game_date == date(2045, 1, 1) + timedelta(days=199)
     assert save_info.time_slot == 3
+
+
+def structured_summary_body(
+    *,
+    divisions: tuple[str, ...] = ("Example Division",),
+    club_name: str = "",
+    summary_date: bytes = packed_date(188, 2025),
+) -> bytes:
+    """Invented schema-29 fields, with variable strings before its structured clock."""
+    payload = length_prefixed("EXAMPLE,SETUP") + length_prefixed("26.3.2+2329565")
+    payload += struct.pack("<I", len(divisions))
+    payload += b"".join(length_prefixed(division) for division in divisions)
+    payload += bytes(8) + length_prefixed("Alex Example") + length_prefixed(club_name)
+    payload += struct.pack("<I", 5001 if club_name else 0xFFFFFFFF) + summary_date
+    return section_body(".dat", 29, payload)
+
+
+@pytest.mark.parametrize("divisions", [(), ("Example Division", "Liga Fictícia")])
+@pytest.mark.parametrize("club_name", ["", "Northbridge FC"])
+def test_null_clock_uses_the_structured_summary_date(
+    tmp_path: Path, divisions: tuple[str, ...], club_name: str
+) -> None:
+    sections = sections_with(
+        game_info=game_info_body(game_day_of_year=1, game_year=1900, time_slot=0),
+        save_game_summary=structured_summary_body(divisions=divisions, club_name=club_name),
+    )
+    save_info = read_save_info(build_index(tmp_path, sections))
+    assert save_info.game_date == date(2025, 7, 7)
+    assert save_info.time_slot == 0
+
+
+def test_normal_clock_takes_precedence_over_the_summary_date(tmp_path: Path) -> None:
+    sections = sections_with(save_game_summary=structured_summary_body())
+    assert read_save_info(build_index(tmp_path, sections)).game_date == date(2031, 3, 1)
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        save_summary_body() + packed_date(188, 2025),
+        structured_summary_body()[:-1],
+        structured_summary_body(summary_date=packed_date(0, 2025)),
+        structured_summary_body(summary_date=packed_date(366, 2025)),
+        section_body(
+            ".dat",
+            29,
+            length_prefixed("EXAMPLE")
+            + length_prefixed("26.3.2+2329565")
+            + struct.pack("<I", 0xFFFFFFFF)
+            + packed_date(188, 2025),
+        ),
+    ],
+    ids=["date-outside-structure", "truncated", "null-date", "invalid-date", "absurd-count"],
+)
+def test_unreadable_structured_summary_leaves_a_null_clock_unset(
+    tmp_path: Path, summary: bytes
+) -> None:
+    sections = sections_with(
+        game_info=game_info_body(game_day_of_year=1, game_year=1900, time_slot=0),
+        save_game_summary=summary,
+    )
+    assert read_save_info(build_index(tmp_path, sections)).game_date is None
 
 
 @pytest.mark.parametrize("trailing_length", [14, 47, 48, 57, 58, 304])

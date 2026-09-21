@@ -102,8 +102,9 @@ fmsave validate career.fm --json
 `export` writes any of the twenty-six tables as CSV, JSON or JSON Lines, and needs a scope:
 `--club`, `--managed-club`, `--competition`, `--nation` or `--all`. Nested groups flatten to
 `contract_wage`-style columns and a coded value gives a label column plus a `_code` column, so JSON
-is the lossless format. `validate` runs every reader and reports its checks, counts and coverage,
-holding no names, uids or text from the save, so it is safe to paste into an issue.
+is the lossless format. `--all` is explicit and is for local analysis of your own single-player
+save. `validate` runs every reader and reports its checks, counts and coverage, holding no names,
+uids or text from the save, so it is safe to paste into an issue.
 
 ## Where saves live
 
@@ -116,15 +117,16 @@ If the game is running, copy the save and read the copy.
 ## Safety
 
 fmsave is read-only. It never modifies saves, makes no network connections, and does not read game
-memory. Using it to gain an advantage in shared online careers may break platform or community
-rules.
+memory. Local single-player analysis is supported. Using hidden data to gain an advantage in a
+shared online career may break platform or community rules.
 
 ## Support
 
 fmsave is a hobby project, maintained on a best-effort basis. Report problems through
-[GitHub issues](https://github.com/rhiever/fmsave/issues), and never attach save files. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for how to report a wrong value without sharing real data. To
-request removal of any content, open an issue with the rights request form.
+[GitHub issues](https://github.com/rhiever/fmsave/issues). Never attach a save file; maintainers
+will not request or accept one. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to report a wrong
+value without sharing real data. To request removal of any content, open an issue with the rights
+request form.
 
 ## Disclaimer
 

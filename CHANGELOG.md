@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-09-21
+
+### Fixed
+
+- Pre-Continue saves now use the summary date when the normal in-game clock is absent.
+- Fresh saves no longer fail reader checks for their player attribute distribution, complete join
+  dates, or match records without statistics.
+
+### Changed
+
+- Local whole-save analysis is supported for single-player careers; `--all` remains explicit,
+  save-derived data stays out of the repository, and support never accepts save uploads.
+
 ## [0.4.0] - 2026-09-18
 
 The first public release. Nothing before it was ever published, so this entry says what fmsave is rather than what changed.

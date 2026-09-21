@@ -26,14 +26,21 @@ class GameInfoLayout:
 
 @dataclass(frozen=True, slots=True)
 class SaveSummaryLayout:
-    """How to recognise the `MAJOR.MINOR.PATCH+BUILD` version string in `save_game_summary`.
+    """Version detection and the structured date in `save_game_summary`.
 
     `version_pattern` must match a whole length-prefixed string, so it carries no anchors
-    or lookarounds.
+    or lookarounds. The date follows the setup and build strings, counted division names,
+    the manager header, manager and club strings, and the club uid.
     """
 
     version_pattern: str
     max_version_bytes: int
+    structured_strings_offset: int = 8
+    max_setup_string_bytes: int = 65_536
+    max_summary_name_bytes: int = 1_024
+    max_divisions: int = 4_096
+    manager_header_bytes: int = 8
+    club_uid_bytes: int = 4
 
 
 @dataclass(frozen=True, slots=True)
