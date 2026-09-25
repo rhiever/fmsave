@@ -49,7 +49,7 @@ def test_exact_schema_match() -> None:
 def test_name_pool_layout_is_registered_for_game_db() -> None:
     match = find_layout(NamePoolLayout, "game_db", 4000, "")
     assert match.exact
-    assert match.layout.minimum_applies_from_bytes == FULL_SAVE_MINIMUM_GAME_DB_BYTES
+    assert isinstance(match.layout, NamePoolLayout)
 
 
 def test_gate_bounds_are_registered_for_game_db_with_the_full_save_threshold() -> None:
@@ -163,6 +163,7 @@ def test_build_match_is_used_when_schema_misses(monkeypatch: pytest.MonkeyPatch)
         max_db_version_bytes=48,
         build_number_offsets_after_db_version=(40, 44),
         game_date_offset_after_db_version=180,
+        late_build_number_window_after_db_version=(184, 248),
     )
     schemaless_summary = SaveSummaryLayout(
         version_pattern=r"([0-9]{1,3})\.([0-9]{1,3})", max_version_bytes=16

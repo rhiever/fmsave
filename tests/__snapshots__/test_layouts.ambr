@@ -7,10 +7,13 @@
         'build_number_offsets_after_db_version': tuple(
           34,
           38,
-          202,
         ),
         'db_version_length_offset': 8,
         'game_date_offset_after_db_version': 172,
+        'late_build_number_window_after_db_version': tuple(
+          176,
+          240,
+        ),
         'max_db_version_bytes': 64,
       }),
       'region': 'game_info',
@@ -48,8 +51,6 @@
       'build': '26.3.2+2329565',
       'layout': dict({
         'max_name_bytes': 64,
-        'minimum_applies_from_bytes': 16777216,
-        'minimum_entries_per_pool': 50000,
         'signature': b'U\xb5\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x01\x00\x00\x00\x08\x00\x00\x00\x00\x00\x00',
       }),
       'region': 'game_db',

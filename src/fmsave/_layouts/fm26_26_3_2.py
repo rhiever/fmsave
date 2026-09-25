@@ -55,8 +55,9 @@ MATCH_FILE_REGION_NAME = "match_file"
 GAME_INFO = GameInfoLayout(
     db_version_length_offset=8,
     max_db_version_bytes=64,
-    build_number_offsets_after_db_version=(34, 38, 202),
+    build_number_offsets_after_db_version=(34, 38),
     game_date_offset_after_db_version=172,
+    late_build_number_window_after_db_version=(176, 240),
 )
 
 SAVE_SUMMARY = SaveSummaryLayout(
@@ -238,8 +239,6 @@ TRAINING = TrainingLayout(
 NAME_POOLS = NamePoolLayout(
     signature=struct.pack("<6I", 46421, 0, 1024, 256, 2048, 0),
     max_name_bytes=64,
-    minimum_entries_per_pool=50_000,
-    minimum_applies_from_bytes=FULL_SAVE_MINIMUM_GAME_DB_BYTES,
 )
 
 CLUB_RECORDS = ClubRecordLayout(

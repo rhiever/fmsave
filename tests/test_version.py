@@ -247,6 +247,20 @@ def test_mismatched_build_numbers_fail_checks(tmp_path: Path) -> None:
         read_save_info(build_index(tmp_path, sections_with(game_info=body)))
 
 
+def test_late_build_number_three_bytes_earlier_still_matches(tmp_path: Path) -> None:
+    body = game_info_body(late_build_number_offset=199)
+    save_info = read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+    assert save_info.build_number == 2329565
+    assert save_info.known_build
+    assert save_info.game_date == date(2031, 3, 1)
+
+
+def test_late_build_number_past_its_window_fails_checks(tmp_path: Path) -> None:
+    body = game_info_body(late_build_number_offset=244)
+    with pytest.raises(ReaderCheckError):
+        read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+
+
 def test_game_info_decode_failure_on_unknown_build_fails_checks(tmp_path: Path) -> None:
     sections = sections_with(
         save_game_summary=save_summary_body(version="26.4.0+2400000"),

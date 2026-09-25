@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 
 import pytest
@@ -19,8 +18,6 @@ TRAILING_BYTES = b"\xff" * 16
 TEST_LAYOUT = NamePoolLayout(
     signature=NAME_POOL_SIGNATURE,
     max_name_bytes=64,
-    minimum_entries_per_pool=2,
-    minimum_applies_from_bytes=0,
 )
 
 
@@ -118,27 +115,10 @@ def test_name_at_the_cap_is_accepted() -> None:
     assert locate(game_db).first_names.name_at(game_db, 1) == name_at_cap
 
 
-def test_pool_below_the_minimum_raises_reader_check() -> None:
-    strict_layout = dataclasses.replace(TEST_LAYOUT, minimum_entries_per_pool=3)
-    with pytest.raises(ReaderCheckError):
-        locate(wrapped(example_pools()), strict_layout)
-
-
-def test_pool_minimum_is_skipped_below_the_size_threshold() -> None:
-    game_db = wrapped(example_pools())
-    strict_layout = dataclasses.replace(
-        TEST_LAYOUT, minimum_entries_per_pool=3, minimum_applies_from_bytes=len(game_db) + 1
-    )
-    assert locate(game_db, strict_layout).surnames.entry_count == 2
-
-
-def test_pool_minimum_applies_at_exactly_the_size_threshold() -> None:
-    game_db = wrapped(example_pools())
-    strict_layout = dataclasses.replace(
-        TEST_LAYOUT, minimum_entries_per_pool=3, minimum_applies_from_bytes=len(game_db)
-    )
-    with pytest.raises(ReaderCheckError):
-        locate(game_db, strict_layout)
+def test_small_pools_in_a_full_size_game_db_are_read() -> None:
+    registered_layout = find_layout(NamePoolLayout, "game_db", 4000, "").layout
+    game_db = wrapped(example_pools()) + bytes(FULL_SAVE_MINIMUM_GAME_DB_BYTES)
+    assert locate(game_db, registered_layout).common_names.entry_count == 2
 
 
 def test_truncated_last_entry_raises_corrupt() -> None:
@@ -230,7 +210,4 @@ def test_registered_layout_reads_a_small_fragment(tmp_path: Path) -> None:
             name_pools = locate_name_pools(game_db, registered_layout, career_save.info.file_name)
             assert name_pools.surnames.name_at(game_db, 1) == "Sample"
     assert registered_layout.signature == NAME_POOL_SIGNATURE
-    assert registered_layout.minimum_entries_per_pool == 50_000
     assert registered_layout.max_name_bytes == 64
-    assert registered_layout.minimum_applies_from_bytes == FULL_SAVE_MINIMUM_GAME_DB_BYTES
-    assert FULL_SAVE_MINIMUM_GAME_DB_BYTES == 16 * 1024 * 1024
