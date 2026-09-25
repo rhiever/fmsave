@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-09-25
+
+### Fixed
+
+- Saves whose last `game_info` build number sits a few bytes away from where fmsave expected no
+  longer fail with "game_info does not match build". This showed up on Windows saves, including
+  FM26 Console saves. Saves that already opened read exactly as before.
+- Saves with a smaller game database, such as FM26 Console saves, no longer fail with a name pool
+  that has "fewer than the 50000 a full save holds". That stop blocked `players()`, `contracts()`,
+  `staff()` and every other reader that resolves names. Each name entry's id and length are still
+  checked.
+
 ## [0.4.2] - 2026-09-24
 
 ### Fixed

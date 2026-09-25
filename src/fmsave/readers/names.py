@@ -86,8 +86,7 @@ def locate_name_pools(game_db: bytes, layout: NamePoolLayout, file_name: str) ->
 
     Raises:
         ReaderCheckError: The signature is missing or appears more than once, an entry id
-            differs from its index, a name is longer than the layout allows, or (on a
-            full-size `game_db`) a pool has fewer entries than the layout requires.
+            differs from its index, or a name is longer than the layout allows.
         CorruptSaveError: A pool runs past the end of `game_db`.
     """
     signature_at = game_db.find(layout.signature)
@@ -95,13 +94,10 @@ def locate_name_pools(game_db: bytes, layout: NamePoolLayout, file_name: str) ->
         raise layout_mismatch(
             file_name, "name pools not found (their signature is missing or not unique)"
         )
-    enforce_minimum = len(game_db) >= layout.minimum_applies_from_bytes
     cursor = signature_at + len(layout.signature)
     pool_indexes: list[PoolIndex] = []
     for pool_name in POOL_NAMES:
-        pool_index, cursor = _index_pool(
-            game_db, cursor, layout, file_name, pool_name, enforce_minimum=enforce_minimum
-        )
+        pool_index, cursor = _index_pool(game_db, cursor, layout, file_name, pool_name)
         pool_indexes.append(pool_index)
     first_names, surnames, common_names = pool_indexes
     return NamePools(
@@ -115,8 +111,6 @@ def _index_pool(
     layout: NamePoolLayout,
     file_name: str,
     pool_name: str,
-    *,
-    enforce_minimum: bool,
 ) -> tuple[PoolIndex, int]:
     """Walk one pool starting at its entry count; return its index and the offset after it."""
     buffer_length = len(game_db)
@@ -128,12 +122,6 @@ def _index_pool(
         raise CorruptSaveError(
             f"{section_label(file_name)}: the {pool_name} pool claims {entry_count} entries, "
             "more than the rest of the section can hold"
-        )
-    if enforce_minimum and entry_count < layout.minimum_entries_per_pool:
-        raise layout_mismatch(
-            file_name,
-            f"the {pool_name} pool has {entry_count} entries, fewer than the "
-            f"{layout.minimum_entries_per_pool} a full save holds",
         )
     entry_offsets = array(OFFSET_TYPECODE)
     record_offset = entry_offsets.append

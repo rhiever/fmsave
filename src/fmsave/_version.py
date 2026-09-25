@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import struct
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -37,6 +38,7 @@ from fmsave._package import __version__
 from fmsave._scan import (
     decode_date,
     decode_time_slot,
+    find_marker,
     read_length_prefixed_string,
     read_u16,
     read_u32,
@@ -197,7 +199,14 @@ def decode_game_info_fields(
         read_u32(game_info, version_end + offset)
         for offset in layout.build_number_offsets_after_db_version
     ]
-    if any(
+    window_start, window_end = layout.late_build_number_window_after_db_version
+    late_build_number_at = find_marker(
+        game_info,
+        struct.pack("<I", version.build_number),
+        version_end + window_start,
+        min(version_end + window_end, len(game_info)),
+    )
+    if late_build_number_at == -1 or any(
         stored_build_number != version.build_number for stored_build_number in stored_build_numbers
     ):
         raise ReaderCheckError(

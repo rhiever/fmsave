@@ -15,13 +15,15 @@ class GameInfoLayout:
     """Offsets inside `game_info`.
 
     Offsets named `*_after_db_version` count from the end of the length-prefixed
-    database version string, whose length varies.
+    database version string, whose length varies. The last build number follows a field
+    whose length varies between saves, so it is searched for in a half-open window.
     """
 
     db_version_length_offset: int
     max_db_version_bytes: int
     build_number_offsets_after_db_version: tuple[int, ...]
     game_date_offset_after_db_version: int
+    late_build_number_window_after_db_version: tuple[int, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,15 +86,12 @@ FULL_SAVE_MINIMUM_GAME_DB_BYTES = 16 * 1024 * 1024
 class NamePoolLayout:
     """How to find and check the three name pools in `game_db`.
 
-    `signature` sits immediately before the first pool's entry count. The pool minimum
-    applies only when `game_db` is at least `minimum_applies_from_bytes` long; the other
-    checks always apply.
+    `signature` sits immediately before the first pool's entry count. Pools have no minimum
+    size, since databases differ in size; every entry's id and length are checked instead.
     """
 
     signature: bytes
     max_name_bytes: int
-    minimum_entries_per_pool: int
-    minimum_applies_from_bytes: int
 
 
 @dataclass(frozen=True, slots=True)
