@@ -234,6 +234,26 @@ def test_a_repeated_stage_id_raises_a_reader_check_error() -> None:
         read_stage_index(stage_table_bytes(rows), find_stage_layout(GAME_DB_SCHEMA, ""), FILE_NAME)
 
 
+def test_a_chain_one_byte_before_the_rows_is_not_taken_for_the_table() -> None:
+    """An `FF` byte in front of the table lets the rows decode one byte early as well.
+
+    Read from there, each id is the real one times 256 with both copies still equal, and the
+    previous id still one below it, so a full chain decodes a byte before the real one. The
+    locator must keep the chain whose ids step up by one.
+    """
+    layout = find_stage_layout(GAME_DB_SCHEMA, "")
+    row_count = layout.chain_rows + 50
+    rows = [
+        stage_row_bytes(stage_id=stage_id, competition_id=None, group_id=None, round_code=None)
+        for stage_id in range(1, row_count + 1)
+    ]
+    game_db = bytes(64) + b"\xff" + stage_table_bytes(rows, leading_bytes=0)
+
+    stage_index = read_stage_index(game_db, layout, FILE_NAME)
+
+    assert [stage.id for stage in stage_index.stages] == list(range(1, row_count + 1))
+
+
 def test_a_game_db_with_no_stage_table_raises_a_reader_check_error() -> None:
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
         read_stage_index(bytes(4_000), find_stage_layout(GAME_DB_SCHEMA, ""), FILE_NAME)

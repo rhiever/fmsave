@@ -14,6 +14,7 @@ per layout, so the walk itself reads no layout fields.
 from __future__ import annotations
 
 import functools
+import itertools
 import struct
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
@@ -196,6 +197,16 @@ def _chain_starts_here(
     return True
 
 
+def _chain_id_steps(game_db: bytes, row_offset: int, scan: _StageTableScan) -> int:
+    """How many rows of the chain from here hold the id one above the row before."""
+    unpack = scan.validity_struct.unpack_from
+    stage_ids = [
+        unpack(game_db, row_offset + step * scan.row_bytes)[scan.validity_stage_id_index]
+        for step in range(scan.chain_rows)
+    ]
+    return sum(later == earlier + 1 for earlier, later in itertools.pairwise(stage_ids))
+
+
 def find_table_start(game_db: bytes, scan: _StageTableScan) -> int | None:
     """The offset of the table's first row, or None when no chain of rows is found.
 
@@ -203,6 +214,11 @@ def find_table_start(game_db: bytes, scan: _StageTableScan) -> int | None:
     the section. The first offset that starts a full chain is found one byte at a time, and the
     head is then reached by stepping back while the row before still decodes, so rows before
     the chain are kept.
+
+    A chain can also decode one byte out of step with the real rows: both copies of the id
+    shift together, so every id reads as the real one times 256 and still passes. Every offset
+    within one row of the first chain is therefore compared, and the chain whose ids most often
+    step up by one, as real stage ids do, is kept.
     """
     buffer_length = len(game_db)
     row_bytes = scan.row_bytes
@@ -215,7 +231,12 @@ def find_table_start(game_db: bytes, scan: _StageTableScan) -> int | None:
             and _row_decodes(game_db, candidate, scan, buffer_length)
             and _chain_starts_here(game_db, candidate, scan, buffer_length)
         ):
-            table_start = candidate
+            chains = [
+                offset
+                for offset in range(candidate, min(candidate + row_bytes, buffer_length))
+                if _chain_starts_here(game_db, offset, scan, buffer_length)
+            ]
+            table_start = max(chains, key=lambda offset: _chain_id_steps(game_db, offset, scan))
             while _row_decodes(game_db, table_start - row_bytes, scan, buffer_length):
                 table_start -= row_bytes
             return table_start

@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-09-24
+
+### Fixed
+
+- Saves whose stage table can also be read one byte early no longer fail with a stage id that
+  "appears in two stage rows". That misread blocked `stages()`, `competitions()`, `fixtures()`,
+  `league_tables()` and `player_match_stats()`, and it showed up on saves with many playable
+  nations. Saves that already opened read exactly as before.
+
 ## [0.4.1] - 2026-09-21
 
 ### Fixed
