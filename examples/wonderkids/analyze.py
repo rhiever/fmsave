@@ -161,31 +161,38 @@ def read_save(path: Path) -> tuple[pd.DataFrame, str]:
     return frame, game_date
 
 
-def canvas(kicker: str, title: str, subtitle: str):
+def canvas(title: str, subtitle: str, *, height: float = 15):
     import matplotlib.pyplot as plt
 
     plt.rcParams.update({"font.family": "DejaVu Sans", "text.color": FOREGROUND})
-    fig = plt.figure(figsize=(12, 15), dpi=150, facecolor=BACKGROUND)
-    fig.text(0.065, 0.957, kicker, fontsize=18, weight="bold", color=ACCENT)
-    fig.text(0.065, 0.921, title, fontsize=33, weight="bold", va="top", linespacing=1.12)
-    fig.text(0.065, 0.827, subtitle, fontsize=20, color=MUTED, va="top", linespacing=1.25)
+    fig = plt.figure(figsize=(12, height), dpi=150, facecolor=BACKGROUND)
+    title_y, subtitle_y = (0.95, 0.837) if height == 12 else (0.921, 0.827)
+    fig.text(0.065, title_y, title, fontsize=33, weight="bold", va="top", linespacing=1.12)
+    fig.text(0.065, subtitle_y, subtitle, fontsize=20, color=MUTED, va="top", linespacing=1.25)
     return fig
 
 
-def footer(fig, text: str):
+def footer(fig, text: str | None = None):
+    if text:
+        fig.text(
+            0.065,
+            0.077,
+            text,
+            fontsize=18,
+            color=MUTED,
+            va="top",
+            linespacing=1.25,
+        )
     fig.text(
         0.065,
-        0.077,
-        text,
-        fontsize=18,
+        0.012,
+        f"Source: my FM26 save, parsed with fmsave v{fmsave.__version__}",
+        fontsize=15,
         color=MUTED,
-        va="top",
-        linespacing=1.25,
     )
-    fig.text(0.065, 0.019, "Source: my FM26 save, fmsave 0.4.1", fontsize=15, color=MUTED)
     fig.text(
         0.935,
-        0.019,
+        0.012,
         "Dr. Randal S. Olson | randalolson.com",
         ha="right",
         fontsize=15,
@@ -204,17 +211,17 @@ def render_hero(ranked: pd.DataFrame, metrics: dict, output: Path):
     from matplotlib import colors, ticker
 
     fig = canvas(
-        "01 / FINDING FM26 BARGAINS",
-        "FM values these wonderkids\nfar below similar players",
+        "These wonderkids have\nsurprisingly low transfer values",
         f"{metrics['players']:,} players searched, {len(ranked):,} elite U21 prospects plotted\n"
-        "The five labeled players lead the age + CA + PA model ranking",
+        "The three labeled players lead the age + CA + PA model ranking",
+        height=12,
     )
-    ax = fig.add_axes((0.12, 0.215, 0.815, 0.525), facecolor=BACKGROUND)
+    ax = fig.add_axes((0.12, 0.17, 0.815, 0.575), facecolor=BACKGROUND)
     ax.set_box_aspect(1)
     points = ax.scatter(
         ranked.value,
         ranked.pa,
-        s=ranked.ca * 0.55,
+        s=55,
         c=ranked.age,
         cmap=colors.LinearSegmentedColormap.from_list("age", ["#b7d6d9", "#176879"]),
         norm=colors.Normalize(15, 21),
@@ -225,12 +232,12 @@ def render_hero(ranked: pd.DataFrame, metrics: dict, output: Path):
     ax.set_ylim(147, ranked.pa.max() + 3)
     ax.set_xlim(ranked.value.min() / 1.8, ranked.value.max() * 1.5)
     ax.set_xlabel(
-        "FM estimated value (save units, log scale)",
+        "Transfer value",
         fontsize=20,
         color=FOREGROUND,
         labelpad=12,
     )
-    ax.set_ylabel("Potential ability (PA, 1-200)", fontsize=22, color=FOREGROUND, labelpad=10)
+    ax.set_ylabel("Potential ability (PA)", fontsize=22, color=FOREGROUND, labelpad=10)
     ax.xaxis.set_major_formatter(
         ticker.FuncFormatter(
             lambda v, _: f"{v / 1e6:g}m" if v >= 1e6 else f"{v / 1e3:g}k" if v >= 1e3 else f"{v:g}"
@@ -242,11 +249,13 @@ def render_hero(ranked: pd.DataFrame, metrics: dict, output: Path):
     ax.set_axisbelow(True)
     for spine in ax.spines.values():
         spine.set_visible(False)
-    # Label only the first five bargains; table supplies the full top ten.
-    offsets = [(0, 40), (7, 15), (10, 8), (10, -23), (-170, 35)]
+    # Label three of the top five bargains; table supplies the full top ten.
+    offsets = [(0, 40), (7, 15), (75, 24), (10, -23), (-170, 35)]
     for i, row in ranked.head(5).iterrows():
-        label = f"{i + 1}. {row['name']}"
-        if len(label) > 23:
+        if i in (2, 3):
+            continue
+        label = row["name"]
+        if len(label) > 20:
             first, last = label.rsplit(" ", 1)
             label = f"{first}\n{last}"
         ax.annotate(
@@ -255,21 +264,17 @@ def render_hero(ranked: pd.DataFrame, metrics: dict, output: Path):
             xytext=offsets[i],
             textcoords="offset points",
             fontsize=20,
+            ha="left",
             color=FOREGROUND,
             weight="bold",
             arrowprops={"arrowstyle": "-", "color": MUTED, "lw": 0.8},
         )
-    cax = fig.add_axes((0.11, 0.124, 0.29, 0.008))
+    cax = fig.add_axes((0.385, 0.055, 0.29, 0.008))
     cb = fig.colorbar(points, cax=cax, orientation="horizontal", ticks=[15, 17, 19, 21])
     cb.outline.set_visible(False)
     cb.ax.tick_params(colors=MUTED, labelsize=18, length=0)
-    fig.text(0.11, 0.147, "Age in years", fontsize=18, color=MUTED)
-    fig.text(0.60, 0.12, "Point area =\ncurrent ability (CA)", fontsize=18, color=MUTED)
-    footer(
-        fig,
-        "Undervalued by FM's estimated value, not an asking price.\n"
-        "Exact CA and PA shown from my single-player save.",
-    )
+    fig.text(0.20, 0.052, "Age in years", fontsize=18, color=MUTED)
+    footer(fig)
     save_figure(fig, output, "01_wonderkid_chart.png")
 
 
@@ -284,18 +289,17 @@ def compact_value(value: float) -> str:
 
 def render_table(ranked: pd.DataFrame, output: Path):
     fig = canvas(
-        "02 / THE TOP TEN",
         "Ten wonderkids the\nmodel rates as bargains",
-        "Ages 15-21, fixed PA of at least 150\n"
-        "Model / FM compares predicted value with FM's estimated value",
+        "Ages 15-21, PA of at least 150\n"
+        "Predicted / actual compares the model with FM's transfer value",
     )
     left = 0.065
     fig.text(left, 0.751, "PLAYER, CLUB, AGE, POSITION", fontsize=17, color=MUTED)
     columns = [
         (0.535, "CA"),
         (0.615, "PA"),
-        (0.745, "FM VALUE"),
-        (0.89, "MODEL / FM"),
+        (0.745, "TRANSFER\nVALUE"),
+        (0.89, "PREDICTED /\nACTUAL"),
     ]
     for x, label in columns:
         fig.text(x, 0.751, label, ha="center", fontsize=17, color=MUTED)
@@ -329,14 +333,14 @@ def render_table(ranked: pd.DataFrame, output: Path):
         left,
         0.137,
         "Acc = Acceleration, Pac = Pace, Det = Determination, Pro = Professionalism\n"
-        "Attributes: 1-20. FM value: save currency units, k = thousand, m = million.",
+        "Attributes: 1-20. Transfer value in save units, k = thousand, m = million.",
         fontsize=17,
         color=MUTED,
         linespacing=1.4,
     )
     footer(
         fig,
-        "Undervalued by FM's estimated value. Actual transfer demands can differ.\n"
+        "Estimated transfer value can differ from actual transfer demands.\n"
         "CA, PA and Professionalism are hidden player data.",
     )
     save_figure(fig, output, "02_top10_table.png")

@@ -1,7 +1,7 @@
 # A local FM26 wonderkid analysis
 
-This script reads your own single-player save and produces two native 4:5 PNGs:
-a scatter chart and a top-ten table. It also writes the ranking and verification
+This script reads your own single-player save and produces two phone-friendly PNGs:
+a square scatter chart and a 4:5 top-ten table. It also writes the ranking and verification
 metrics locally. No save data or notebook output is included in this example.
 
 **Hidden-data spoilers:** the results show exact CA, PA and Professionalism. Do not
