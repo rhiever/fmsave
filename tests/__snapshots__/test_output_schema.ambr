@@ -20,6 +20,7 @@
         'parent_club_name',
         'reputation',
         'last_league_position',
+        'unique_id',
       ]),
       'ClubFacilities': list([
         'club_uid',

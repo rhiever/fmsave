@@ -194,6 +194,9 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
     for position, (reputation, last_league_position) in zip(index_order, statuses, strict=True):
         record = records[position]
         parent_club_uid = affiliates.parent_by_club_uid.get(record.uid)
+        # As with people, the next object's header closes this club's object and carries
+        # its database Unique ID. The final accepted club has no known closing header.
+        unique_id = records[position + 1].uid if position + 1 < len(records) else None
         club = Club(
             uid=record.uid,
             name=record.name,
@@ -206,6 +209,7 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
             parent_club_name=None if parent_club_uid is None else name_by_uid.get(parent_club_uid),
             reputation=reputation,
             last_league_position=last_league_position,
+            unique_id=unique_id,
         )
         clubs.append(club)
         uid_by_club_index[record.club_index] = record.uid

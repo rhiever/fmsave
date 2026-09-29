@@ -118,5 +118,7 @@ with fmsave.open("career.fm") as career_save:
     injuries = career_save.injuries().where(club_uid=club_uid)
 ```
 
+Use `Club.uid` within a save. To compare separate careers, use `Club.unique_id` when available.
+
 [What a save holds](what-a-save-holds.md) lists all twenty-seven, and is honest about what none of
 them can give you.

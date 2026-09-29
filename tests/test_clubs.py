@@ -164,7 +164,27 @@ def test_reads_every_club_with_its_fields() -> None:
         parent_club_name=None,
         reputation=6500,
         last_league_position=2,
+        unique_id=5002,
     )
+
+
+def test_club_unique_id_comes_from_the_next_header_not_its_own_uid() -> None:
+    original = read_index(example_game_db(status_records=[])).clubs
+    changed = read_index(
+        example_game_db(
+            club_records=[
+                replace(NORTHBRIDGE, uid=6001).record_bytes(),
+                SOUTHPORT.record_bytes(),
+                ATHLETIC.record_bytes(),
+            ],
+            status_records=[],
+        )
+    ).clubs
+
+    assert original[0].uid == 5001
+    assert changed[0].uid == 6001
+    assert original[0].unique_id == changed[0].unique_id == 5002
+    assert changed[-1].unique_id is None
 
 
 def test_cross_border_stub_club_has_no_reputation() -> None:
@@ -794,6 +814,7 @@ def test_clubs_export_with_nested_teams() -> None:
         {"team_id": 70002, "slot": 1, "club_uid": 5001, "is_affiliate": False},
     ]
     assert first_row["reputation"] == 6500
+    assert first_row["unique_id"] == 5002
 
 
 def test_registered_club_layouts() -> None:

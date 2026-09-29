@@ -592,7 +592,7 @@
         'competition_id_limit': 1000000,
         'competition_id_offset': 13,
         'group_id_offset': 17,
-        'max_search_bytes': 16000000,
+        'max_search_bytes': 33554432,
         'previous_stage_id_offset': 0,
         'resynchronisation_bytes': 4096,
         'round_offset': 21,
@@ -2035,7 +2035,7 @@
         ),
         'stage_table_tail_bytes': tuple(
           None,
-          16777216,
+          33554432,
         ),
         'stage_trailing_sentinel': tuple(
           0.95,

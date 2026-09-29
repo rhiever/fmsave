@@ -412,8 +412,9 @@ def test_healthy_stage_stats_pass_every_gate_and_a_small_section_applies_none() 
         pytest.param({"gaps": 9}, ["stage_walk_gaps"], id="gaps-above"),
         pytest.param({"with_competition": 6_400}, ["stage_rows_with_competition"], id="few-joins"),
         pytest.param({"bytes_after_table": 4_132_399}, [], id="older-build-career-tail"),
+        pytest.param({"bytes_after_table": 20_693_727}, [], id="continued-career-tail"),
         pytest.param(
-            {"bytes_after_table": 17_000_000}, ["stage_table_tail_bytes"], id="table-too-early"
+            {"bytes_after_table": 34_000_000}, ["stage_table_tail_bytes"], id="table-too-early"
         ),
         pytest.param({"rows": 999}, ["stage_rows_minimum"], id="too-few-rows"),
         pytest.param({"ascending_steps": 7_000}, ["stage_ids_ascending"], id="ids-not-ascending"),
@@ -592,6 +593,16 @@ def test_a_table_further_back_than_the_first_window_is_found_by_widening_it() ->
     assert len(stage_index.stages) == STAGE_ROW_COUNT
     assert stage_index.stages[0].id == 1
     assert stage_index.stats.bytes_after_table == layout.search_bytes * 2
+
+
+def test_a_table_with_twenty_megabytes_after_it_is_found() -> None:
+    layout = find_stage_layout(GAME_DB_SCHEMA, "")
+    game_db = stage_table_bytes(career_stage_rows(), trailing_bytes=20_693_727)
+
+    stage_index = read_stage_index(game_db, layout, FILE_NAME)
+
+    assert len(stage_index.stages) == STAGE_ROW_COUNT
+    assert stage_index.stats.bytes_after_table == 20_693_727
 
 
 def test_a_table_past_the_widest_window_is_not_found() -> None:

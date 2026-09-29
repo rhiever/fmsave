@@ -37,7 +37,9 @@ class Club:
     Club names are not unique: look clubs up by uid.
 
     Attributes:
-        uid: The club's id in the game database (unconfirmed).
+        uid: The id other records in this save use to refer to this club. It can differ
+            between separate careers, so use unique_id to match clubs across saves
+            (unconfirmed).
         name: Full club name (unconfirmed).
         short_name: Short club name (unconfirmed).
         nation_id: Id of the nation whose league the club plays in (unconfirmed).
@@ -57,6 +59,8 @@ class Club:
             value.
         last_league_position: League position at the end of the last completed season, or
             None when the save holds none. It is not the position in the current table.
+        unique_id: The club's Unique ID in the game database, for matching across separate
+            careers. None when it cannot be read (unconfirmed).
     """
 
     uid: int
@@ -70,6 +74,7 @@ class Club:
     parent_club_name: str | None
     reputation: int | None
     last_league_position: int | None
+    unique_id: int | None = None
 
 
 register_field_statuses(Team, unconfirmed=("team_id", "slot", "club_uid", "is_affiliate"))
@@ -78,6 +83,7 @@ register_field_statuses(
     verified=("reputation", "last_league_position"),
     unconfirmed=(
         "uid",
+        "unique_id",
         "name",
         "short_name",
         "nation_id",

@@ -843,9 +843,9 @@ STADIUM_TABLE = StadiumTableLayout(
 
 # A stage row is 33 bytes. The table starts 0.65 to 0.94 MB from the end of `game_db` on the
 # corpus saves, so the last 2 MB is searched first; one community career started on an older
-# build has 4.1 MB after its table (4.40 MB from the end to its start), so the window may double
-# to 16 MB before the table counts as missing. 200 rows is far longer than any run of look-alike
-# bytes seen before it.
+# build has 4.1 MB after its table. Another continued career has 20.7 MB after the table, so
+# the window may double to 32 MiB before the table counts as missing. 200 rows is far longer
+# than any run of look-alike bytes seen before it.
 STAGE_TABLE = StageTableLayout(
     row_bytes=33,
     previous_stage_id_offset=0,
@@ -862,7 +862,7 @@ STAGE_TABLE = StageTableLayout(
     # competitions a save holds; this limit rejects it without touching a real competition.
     competition_id_limit=1_000_000,
     search_bytes=2_000_000,
-    max_search_bytes=16_000_000,
+    max_search_bytes=32 * 1024 * 1024,
     chain_rows=200,
     resynchronisation_bytes=4_096,
 )
@@ -1103,8 +1103,8 @@ GATE_BOUNDS = GateBounds(
     # the rest, so this is a shape check rather than a sentinel.
     stage_trailing_sentinel=(0.95, None),
     # As far back as the stage table search reaches (see STAGE_TABLE): 0.63 to 0.92 MiB on the
-    # corpus saves and 3.94 MiB on a career started on an older build.
-    stage_table_tail_bytes=(None, 16 * 1024 * 1024),
+    # corpus saves, 3.94 MiB on one older-build career, and 20.7 MB on another.
+    stage_table_tail_bytes=(None, 32 * 1024 * 1024),
     competitions_minimum=(50, None),
     # The id-pair records name 91.47% to 91.52% of the stage table's competitions across two
     # careers and a live save, and no save leaves a single competition in conflict. The share

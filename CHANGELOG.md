@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-09-29
+
+### Added
+
+- `Club.unique_id` helps match clubs across separate careers. `Club.uid` still joins records within a save.
+
+### Fixed
+
+- `stages()` and its dependent readers can find stage tables further back in continued careers.
+
 ## [0.5.1] - 2026-09-28
 
 ### Added
