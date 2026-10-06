@@ -570,6 +570,7 @@ class StaffStats:
     human_found: bool
     rows: int
     list_rows: int
+    non_staff_tailed_hits: int = 0
 
 
 @dataclass(frozen=True, slots=True)

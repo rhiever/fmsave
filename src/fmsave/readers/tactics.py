@@ -273,7 +273,7 @@ def _read_selection_part(
         )
     selectors.append(_UINT32.unpack_from(section, cursor + _UINT8.size)[0])
     cursor += _UINT8.size + _UINT32.size
-    # Both observed marker variants introduce the same counted selector lists. Accept
+    # The observed marker variants introduce the same counted selector lists. Accept
     # only a known marker, then validate every list and the following order marker.
     for marker in layout.taker_markers:
         if section[cursor : cursor + len(marker)] == marker:

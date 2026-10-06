@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import struct
 from array import array
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 from fmsave._errors import CorruptSaveError, ReaderCheckError
@@ -85,16 +86,61 @@ def locate_name_pools(game_db: bytes, layout: NamePoolLayout, file_name: str) ->
     """Find the pools after their signature and index every entry, decoding no text.
 
     Raises:
-        ReaderCheckError: The signature is missing or appears more than once, an entry id
-            differs from its index, or a name is longer than the layout allows.
+        ReaderCheckError: No signature leads to valid pools, multiple valid pool groups
+            exist, an entry id differs from its index, or a name exceeds the layout's cap.
         CorruptSaveError: A pool runs past the end of `game_db`.
     """
-    signature_at = game_db.find(layout.signature)
-    if signature_at < 0 or game_db.find(layout.signature, signature_at + 1) >= 0:
-        raise layout_mismatch(
-            file_name, "name pools not found (their signature is missing or not unique)"
-        )
-    cursor = signature_at + len(layout.signature)
+    found: NamePools | None = None
+    first_error: CorruptSaveError | ReaderCheckError | None = None
+    for signature_at in _signature_candidates(game_db, layout):
+        try:
+            pools = _read_pools(game_db, signature_at + len(layout.signature), layout, file_name)
+        except (CorruptSaveError, ReaderCheckError) as error:
+            if first_error is None:
+                first_error = error
+            continue
+        if found is not None:
+            raise layout_mismatch(
+                file_name, "name pools not found (their signature is missing or not unique)"
+            )
+        found = pools
+    if found is not None:
+        return found
+    if first_error is not None:
+        raise first_error
+    raise layout_mismatch(
+        file_name, "name pools not found (their signature is missing or not unique)"
+    )
+
+
+def _signature_candidates(game_db: bytes, layout: NamePoolLayout) -> Iterator[int]:
+    """Capacity words can grow together; every candidate still needs three checked pools."""
+    signature = layout.signature
+    if layout.max_signature_scale == 1:
+        start = 0
+        while (at := game_db.find(signature, start)) >= 0:
+            yield at
+            start = at + 1
+        return
+    words = struct.unpack("<6I", signature)
+    prefix = signature[:8]
+    start = 0
+    while (at := game_db.find(prefix, start)) >= 0:
+        start = at + 1
+        if at + len(signature) > len(game_db):
+            continue
+        stored = struct.unpack_from("<6I", game_db, at)
+        scale, remainder = divmod(stored[3], words[3])
+        if (
+            remainder == 0
+            and 1 <= scale <= layout.max_signature_scale
+            and stored[2:5] == tuple(value * scale for value in words[2:5])
+            and stored[5] == words[5]
+        ):
+            yield at
+
+
+def _read_pools(game_db: bytes, cursor: int, layout: NamePoolLayout, file_name: str) -> NamePools:
     pool_indexes: list[PoolIndex] = []
     for pool_name in POOL_NAMES:
         pool_index, cursor = _index_pool(game_db, cursor, layout, file_name, pool_name)

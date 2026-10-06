@@ -116,17 +116,19 @@ class SummaryFacts:
     version: GameVersion
     summary_strings: tuple[str, ...]
     game_date: date | None
+    time_slot: int = 0
 
 
-def read_summary_date(
+def read_summary_clock(
     summary: bytes, layout: SaveSummaryLayout, version: GameVersion
-) -> date | None:
+) -> tuple[date, int] | None:
     """Read the structured summary clock, never a date-shaped byte scan.
 
     Schema 29 stores a setup string, build string, counted division names, an eight-byte
     manager header, manager and club names, club uid, then the date. A fresh career can have
-    this date before `game_info` has a clock. Other summary shapes remain readable for their
-    version and strings, but cannot supply a fallback date.
+    this date before `game_info` has a clock, and a continued career can retain an older
+    internal clock. Other summary shapes remain readable for their version and strings,
+    but cannot supply a displayed save clock.
     """
     try:
         _, offset = read_length_prefixed_string(
@@ -147,7 +149,11 @@ def read_summary_date(
             summary, offset + layout.manager_header_bytes, layout.max_summary_name_bytes
         )
         _, offset = read_length_prefixed_string(summary, offset, layout.max_summary_name_bytes)
-        return decode_date(summary, offset + layout.club_uid_bytes)
+        clock_at = offset + layout.club_uid_bytes
+        game_date = decode_date(summary, clock_at)
+        if game_date is None:
+            return None
+        return game_date, decode_time_slot(summary, clock_at)
     except CorruptSaveError:
         return None
 
@@ -172,10 +178,12 @@ def read_summary_facts(container_index: ContainerIndex) -> SummaryFacts:
     strings_layout = find_layout(
         SummaryStringsLayout, SAVE_SUMMARY_SECTION, summary_schema, ""
     ).layout
+    clock = read_summary_clock(summary, summary_layout, version)
     return SummaryFacts(
         version,
         read_summary_strings(summary, strings_layout),
-        read_summary_date(summary, summary_layout, version),
+        None if clock is None else clock[0],
+        0 if clock is None else clock[1],
     )
 
 
@@ -195,6 +203,7 @@ def decode_game_info_fields(
     db_version, version_end = read_length_prefixed_string(
         game_info, layout.db_version_length_offset, layout.max_db_version_bytes
     )
+    variable_bytes = game_info_filename_bytes(game_info, layout, version_end)
     stored_build_numbers = [
         read_u32(game_info, version_end + offset)
         for offset in layout.build_number_offsets_after_db_version
@@ -203,8 +212,8 @@ def decode_game_info_fields(
     late_build_number_at = find_marker(
         game_info,
         struct.pack("<I", version.build_number),
-        version_end + window_start,
-        min(version_end + window_end, len(game_info)),
+        version_end + variable_bytes + window_start,
+        min(version_end + variable_bytes + window_end, len(game_info)),
     )
     mismatches: list[str] = []
     if any(
@@ -219,12 +228,30 @@ def decode_game_info_fields(
             f"({' and '.join(mismatches)}), so the save layout differs from what fmsave expects. "
             f"Please report it at {ISSUES_URL}"
         )
-    date_offset = version_end + layout.game_date_offset_after_db_version
+    date_offset = version_end + variable_bytes + layout.game_date_offset_after_db_version
     return GameInfoFacts(
         db_version=db_version,
         game_date=decode_date(game_info, date_offset),
         time_slot=decode_time_slot(game_info, date_offset),
     )
+
+
+def game_info_filename_bytes(game_info: bytes, layout: GameInfoLayout, version_end: int) -> int:
+    """Walk the bounded filename list before the clock, without interpreting its strings."""
+    count_offset = layout.filename_count_offset_after_db_version
+    if count_offset is None:
+        return 0
+    count_at = version_end + count_offset
+    count = read_u32(game_info, count_at)
+    if count > layout.max_filenames:
+        raise CorruptSaveError(
+            f"game_info filename list claims {count} entries, more than {layout.max_filenames} allowed"
+        )
+    strings_start = count_at + LENGTH_PREFIX_BYTES
+    cursor = strings_start
+    for _ in range(count):
+        _, cursor = read_length_prefixed_string(game_info, cursor, layout.max_filename_bytes)
+    return cursor - strings_start
 
 
 def read_game_info_facts(
@@ -292,8 +319,14 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
         build_number=version.build_number,
         known_build=known_build,
         db_version=facts.db_version,
-        game_date=facts.game_date if facts.game_date is not None else summary_facts.game_date,
-        time_slot=facts.time_slot,
+        # The structured save summary is the displayed save clock. game_info can retain
+        # the previous simulation day's clock; use both date and slot from one source.
+        game_date=summary_facts.game_date
+        if summary_facts.game_date is not None
+        else facts.game_date,
+        time_slot=summary_facts.time_slot
+        if summary_facts.game_date is not None
+        else facts.time_slot,
         save_name=container_index.save_name,
         sections=sections,
         summary_strings=summary_facts.summary_strings,

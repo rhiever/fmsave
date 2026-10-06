@@ -139,11 +139,17 @@ def _walk_chain(
         name_bytes = payload[cursor + layout.text_offset : text_end]
         if min(name_bytes) < lowest_text_byte or max(name_bytes) > highest_text_byte:
             break
+        try:
+            name = name_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            break
+        if not name.isprintable():
+            break
         flag = payload[text_end]
         if flag not in layout.flag_values or type_id <= previous_id:
             break
         second_id: int = _SECOND_ID.unpack_from(payload, text_end + 1)[0]
-        records.append((type_id, name_bytes.decode("ascii"), flag, second_id))
+        records.append((type_id, name, flag, second_id))
         previous_id = type_id
         cursor = text_end + layout.trailer_bytes
     return records, cursor

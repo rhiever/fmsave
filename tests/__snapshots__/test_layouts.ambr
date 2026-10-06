@@ -8,12 +8,15 @@
           38,
         ),
         'db_version_length_offset': 8,
+        'filename_count_offset_after_db_version': 165,
         'game_date_offset_after_db_version': 172,
         'late_build_number_window_after_db_version': tuple(
           176,
           240,
         ),
         'max_db_version_bytes': 64,
+        'max_filename_bytes': 4096,
+        'max_filenames': 256,
       }),
       'region': 'game_info',
       'schema': 46,
@@ -50,6 +53,7 @@
       'build': '26.3.2+2329565',
       'layout': dict({
         'max_name_bytes': 64,
+        'max_signature_scale': 1024,
         'signature': b'U\xb5\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x01\x00\x00\x00\x08\x00\x00\x00\x00\x00\x00',
       }),
       'region': 'game_db',
@@ -203,6 +207,8 @@
         ),
         'current_reputation_offset': -4,
         'decode_extent': 122,
+        'edited_ability_maximum': 255,
+        'edited_attribute_maximum': 125,
         'height_offset': 121,
         'home_reputation_offset': -6,
         'left_foot_index': 24,
@@ -1123,7 +1129,7 @@
         'codes_offset': 5,
         'contract_header_search_bytes': 32768,
         'current_ability_offset': 0,
-        'discovery_selector_maximum': 458751,
+        'discovery_selector_maximum': 16777215,
         'entry_bytes': 7,
         'entry_count_offset': 13,
         'human_kind': 9,
@@ -1132,7 +1138,7 @@
         'list_only_block_search_bytes': 20000,
         'list_value_range': tuple(
           1,
-          1000000,
+          16777215,
         ),
         'named_preference_slots': tuple(
           tuple(
@@ -1192,6 +1198,9 @@
             25,
           ),
         ),
+        'non_staff_contract_kinds': tuple(
+          2,
+        ),
         'person_block_offset_after_tag': 60,
         'person_block_search_bytes': 4096,
         'potential_ability_offset': 2,
@@ -1199,6 +1208,12 @@
         'preference_range': tuple(
           1,
           20,
+        ),
+        'preference_slot_sentinels': tuple(
+          tuple(
+            2,
+            100,
+          ),
         ),
         'preferences_offset': 14,
         'r4_offset': 4,
@@ -1312,6 +1327,7 @@
         'taker_markers': tuple(
           b'\x08\x05\x02',
           b'\t\x05\x02',
+          b'\n\x05\x02',
         ),
         'team_instruction_bytes': 19,
         'trail_bytes': 4,
@@ -1381,7 +1397,7 @@
         'length_offset': 3,
         'length_range': tuple(
           3,
-          64,
+          255,
         ),
         'maximum_entries_opened': 8,
         'maximum_entries_tried': 4,
@@ -1389,7 +1405,7 @@
         'payload_prefix': b'\x03\x01',
         'text_byte_range': tuple(
           32,
-          126,
+          255,
         ),
         'text_offset': 7,
         'trailer_bytes': 5,
@@ -2195,7 +2211,7 @@
           0.05,
         ),
         'outfield_goalkeeper_block_low': tuple(
-          0.9,
+          0.8,
           None,
         ),
         'past_dated_tail_ends': tuple(
@@ -2499,12 +2515,15 @@
           38,
         ),
         'db_version_length_offset': 8,
+        'filename_count_offset_after_db_version': None,
         'game_date_offset_after_db_version': 168,
         'late_build_number_window_after_db_version': tuple(
           172,
           236,
         ),
         'max_db_version_bytes': 64,
+        'max_filename_bytes': 4096,
+        'max_filenames': 256,
       }),
       'region': 'game_info',
       'schema': 46,

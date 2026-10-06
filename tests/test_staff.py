@@ -63,7 +63,7 @@ from tests.fixtures.game_db import (
     person_block_bytes,
     player_record_bytes,
 )
-from tests.fixtures.staff import staff_object_bytes
+from tests.fixtures.staff import CAREER_STAFF_PREFERENCES, staff_object_bytes
 
 BOUNDS = find_layout(GateBounds, GAME_DB_SECTION, GAME_DB_SCHEMA, BUILD_STRING).layout
 PLAYER_LAYOUT = find_layout(
@@ -461,6 +461,34 @@ def test_allocated_staff_header_can_be_located_from_a_list_without_a_contract() 
     assert locate_listed_header(person, 30, empty_player_records(), STAFF_LAYOUT) == 0
 
 
+def test_staff_preference_sentinel_keeps_allocated_headers_readable() -> None:
+    preferences = list(CAREER_STAFF_PREFERENCES)
+    preferences[2] = 100
+    person = staff_object_bytes(
+        person_id=30, uid=2_000_000_123, identity_word=810_123, preferences=preferences
+    )
+    block, slots_ok, codes_ok, further_ok = _read_ability_block(person, 0, STAFF_LAYOUT)
+    assert block is not None and slots_ok and codes_ok and further_ok
+    assert block.unknown["preference_slot_2"] == 100
+    assert locate_listed_header(person, 30, empty_player_records(), STAFF_LAYOUT) == 0
+
+
+def test_high_person_selector_contract_is_discovered(tmp_path: Path) -> None:
+    person_id = 1_400_000
+    contract, _ = contract_bytes(
+        selector=person_id + 1,
+        team_id=NORTHBRIDGE_TEAM_A,
+        wage=700,
+        start=packed_date(1, 2030),
+        tail={"end": packed_date(1, 2032)},
+    )
+    person = staff_object_bytes(person_id=person_id, uid=810_099, contract=contract)
+    path = career_fragment(extra_staff=person).write(tmp_path / "career.bin")
+    with fmsave.open(path) as save:
+        row = person_by_uid(tuple(save.staff()), 810_099)
+    assert row.wage == 700 and row.has_contract
+
+
 @pytest.mark.parametrize(
     "override",
     [
@@ -749,7 +777,7 @@ def test_zero_staff_selectors_do_not_discard_other_members(selectors: tuple[int,
     assert set(pairs) == {(4_001, value - 1) for value in (*selectors, 50) if value}
 
 
-@pytest.mark.parametrize("selector", [1_000_001, 0xFFFFFFFF])
+@pytest.mark.parametrize("selector", [0x1000000, 0xFFFFFFFF])
 def test_zero_staff_selectors_do_not_make_invalid_nonzero_selectors_acceptable(
     selector: int,
 ) -> None:
@@ -1013,3 +1041,24 @@ def test_a_zero_ability_player_contract_is_not_an_unowned_staff_contract(tmp_pat
     assert not any(row.uid == 810_026 for row in staff)
     assert check is not None
     assert observed_gate(check, "staff_unowned_tailed_contracts") == 0
+
+
+def test_player_kind_contract_without_a_decodable_player_is_not_staff(tmp_path: Path) -> None:
+    contract, _ = contract_bytes(
+        selector=FAR_CONTRACT_PERSON_ID + 1,
+        team_id=NORTHBRIDGE_TEAM_A,
+        wage=700,
+        start=packed_date(1, 2030),
+        tail={"end": packed_date(1, 2032)},
+    )
+    person = staff_object_bytes(
+        person_id=FAR_CONTRACT_PERSON_ID, uid=FAR_CONTRACT_PERSON_UID, kind=2, contract=contract
+    )
+    path = career_fragment(extra_staff=person).write(tmp_path / "career.bin")
+    with fmsave.open(path) as save:
+        rows = tuple(save.staff())
+        check = save._reader_check(STAFF_READER)
+    assert not any(row.uid == FAR_CONTRACT_PERSON_UID for row in rows)
+    assert check is not None
+    assert observed_gate(check, "staff_unowned_tailed_contracts") == 0
+    assert check.anomalies["non_staff_tailed_hits"] == 1

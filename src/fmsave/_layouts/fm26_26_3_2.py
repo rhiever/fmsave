@@ -68,6 +68,7 @@ GAME_INFO = GameInfoLayout(
     build_number_offsets_after_db_version=(38,),
     game_date_offset_after_db_version=172,
     late_build_number_window_after_db_version=(176, 240),
+    filename_count_offset_after_db_version=165,
 )
 
 SAVE_SUMMARY = SaveSummaryLayout(
@@ -98,8 +99,8 @@ INJURY_TYPE_TABLE = InjuryTypeTableLayout(
     length_offset=3,
     text_offset=7,
     trailer_bytes=5,
-    length_range=(3, 64),
-    text_byte_range=(0x20, 0x7E),
+    length_range=(3, 255),
+    text_byte_range=(0x20, 0xFF),
     flag_values=(0, 1),
     minimum_chain_entries=2,
     maximum_entries_tried=4,
@@ -180,7 +181,7 @@ TACTICS = TacticsLayout(
     selection_slot_count=26,
     selection_end_marker=bytes.fromhex("4200"),
     list_item_lead_byte=2,
-    taker_markers=(bytes.fromhex("080502"), bytes.fromhex("090502")),
+    taker_markers=(bytes.fromhex("080502"), bytes.fromhex("090502"), bytes.fromhex("0a0502")),
     taker_list_count=10,
     order_marker=b"\x08",
     order_list_count=8,
@@ -260,6 +261,7 @@ TRAINING = TrainingLayout(
 NAME_POOLS = NamePoolLayout(
     signature=struct.pack("<6I", 46421, 0, 1024, 256, 2048, 0),
     max_name_bytes=64,
+    max_signature_scale=1024,
 )
 
 CLUB_RECORDS = ClubRecordLayout(
@@ -342,6 +344,8 @@ PLAYER_RECORDS = PlayerRecordLayout(
     attributes_offset=39,
     attribute_count=54,
     attribute_range=(1, 100),
+    edited_ability_maximum=255,
+    edited_attribute_maximum=125,
     left_foot_index=24,
     right_foot_index=25,
     transfer_value_offset=93,
@@ -1133,6 +1137,7 @@ STAFF = StaffLayout(
     kind_offset=12,
     staff_kind=1,
     human_kind=9,
+    non_staff_contract_kinds=(2,),
     uid_offset=4,
     uid_copy_offset=8,
     allocated_uid_minimum=2_000_000_000,
@@ -1171,12 +1176,13 @@ STAFF = StaffLayout(
     unnamed_preference_slots=(2, 4, 5, 7, 8, 12, 13, 16, 17, 18, 19, 20),
     # Slot 13 holds a 0..100 number rather than a 1..20 one, so it is the one slot left out.
     range_checked_preference_slots=tuple(slot for slot in range(26) if slot != 13),
+    preference_slot_sentinels=((2, 100),),
     block_40_offset=40,
     block_40_count=26,
     block_40_range=(1, 100),
     list_count=3,
-    list_value_range=(1, 1_000_000),
-    discovery_selector_maximum=0x06FFFF,
+    list_value_range=(1, 0xFFFFFF),
+    discovery_selector_maximum=0xFFFFFF,
     contract_header_search_bytes=32_768,
     person_block_offset_after_tag=60,
     person_block_search_bytes=4_096,
@@ -1204,7 +1210,9 @@ GATE_BOUNDS = GateBounds(
     # Handling and throwing are the first and last of six adjacent goalkeeping attributes, which
     # outfield players rate low. Reading the attribute bytes one position early or late puts an
     # outfield attribute in one of the two, so this share falls far below the bound.
-    outfield_goalkeeper_block_low=(0.90, None),
+    # Long careers can have more outfield players with developed goalkeeper attributes.
+    # Keep the population bound broad while one-byte shifts still fail by a wide margin.
+    outfield_goalkeeper_block_low=(0.80, None),
     with_natural_position=(0.97, None),
     height_in_range=(0.999, None),
     height_median=(170, 190),

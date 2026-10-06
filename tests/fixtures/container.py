@@ -47,6 +47,7 @@ def game_info_body(
     schema: int = 46,
     late_build_number_offset: int = 202,
     game_date_offset: int = 172,
+    filenames: tuple[str, ...] = (),
 ) -> bytes:
     """`late_build_number_offset` and `game_date_offset` count from the end of the database
     version, like the others."""
@@ -65,6 +66,10 @@ def game_info_body(
     del body[names_offset:]
     for migration_name in migration_names:
         body.extend(length_prefixed(migration_name))
+    count_at = base + game_date_offset - 7
+    struct.pack_into("<I", body, count_at, len(filenames))
+    if filenames:
+        body[count_at + 4 : count_at + 4] = b"".join(length_prefixed(name) for name in filenames)
     return bytes(body)
 
 

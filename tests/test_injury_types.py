@@ -133,6 +133,21 @@ def test_an_unprintable_text_byte_ends_a_chain() -> None:
     assert len(locate_injury_type_table(payload, LAYOUT)) == len(CAREER_INJURY_TYPES)
 
 
+def test_localized_names_and_longer_utf8_strings_are_read() -> None:
+    records = ((5, "Пример ушиба", 0, 6), (7, "Пример " * 10, 1, 9))
+    assert locate_injury_type_table(table_payload(injury_type_entries(records)), LAYOUT) == records
+
+
+@pytest.mark.parametrize("bad_byte", [0xFF, 0x80])
+def test_invalid_utf8_ends_the_chain(bad_byte: int) -> None:
+    invalid = bytearray(
+        injury_type_entry_bytes(type_id=99, name="Example Ache", flag=0, second_id=120)
+    )
+    invalid[7] = bad_byte
+    payload = table_payload(injury_type_entries(CAREER_INJURY_TYPES), bytes(invalid))
+    assert len(locate_injury_type_table(payload, LAYOUT)) == len(CAREER_INJURY_TYPES)
+
+
 def test_an_id_that_does_not_ascend_ends_a_chain() -> None:
     descending = injury_type_entry_bytes(type_id=6, name="Example Ache", flag=0, second_id=120)
     payload = table_payload(injury_type_entries(CAREER_INJURY_TYPES), descending)

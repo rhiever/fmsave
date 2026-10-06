@@ -142,9 +142,21 @@ def test_null_clock_uses_the_structured_summary_date(
     assert save_info.time_slot == 0
 
 
-def test_normal_clock_takes_precedence_over_the_summary_date(tmp_path: Path) -> None:
-    sections = sections_with(save_game_summary=structured_summary_body())
-    assert read_save_info(build_index(tmp_path, sections)).game_date == date(2031, 3, 1)
+def test_structured_summary_clock_takes_precedence_over_an_internal_clock(tmp_path: Path) -> None:
+    sections = sections_with(
+        game_info=game_info_body(game_day_of_year=187, game_year=2025, time_slot=70),
+        save_game_summary=structured_summary_body(summary_date=packed_date(188, 2025, 18)),
+    )
+    info = read_save_info(build_index(tmp_path, sections))
+    assert info.game_date == date(2025, 7, 7)
+    assert info.time_slot == 18
+
+
+def test_unrecognized_summary_keeps_both_internal_clock_fields(tmp_path: Path) -> None:
+    sections = sections_with(save_game_summary=save_summary_body() + packed_date(188, 2025, 18))
+    info = read_save_info(build_index(tmp_path, sections))
+    assert info.game_date == date(2031, 3, 1)
+    assert info.time_slot == 66
 
 
 @pytest.mark.parametrize(
@@ -299,8 +311,9 @@ def test_a_26_1_0_save_reads_its_clock_four_bytes_earlier(tmp_path: Path) -> Non
 
 def test_a_26_3_2_save_does_not_read_its_clock_at_the_26_1_0_offset(tmp_path: Path) -> None:
     body = game_info_body(game_date_offset=168, late_build_number_offset=195)
-    save_info = read_save_info(build_index(tmp_path, sections_with(game_info=body)))
-    assert save_info.game_date is None
+    # The older clock overlaps the current build's filename count, so this is malformed.
+    with pytest.raises(CorruptSaveError, match="filename list claims"):
+        read_save_info(build_index(tmp_path, sections_with(game_info=body)))
 
 
 def test_a_26_1_0_late_build_word_past_its_window_fails_checks(tmp_path: Path) -> None:
@@ -322,6 +335,52 @@ def test_late_build_number_past_its_window_fails_checks(tmp_path: Path) -> None:
     with pytest.raises(ReaderCheckError) as error_info:
         read_save_info(build_index(tmp_path, sections_with(game_info=body)))
     assert "no late build word sits inside its window" in str(error_info.value)
+
+
+@pytest.mark.parametrize(
+    "filenames", [("Example Tool.exe", "Example Tool.tmp"), ("",), ("Пример.exe",)]
+)
+def test_filename_list_shifts_the_clock_and_build_window(
+    tmp_path: Path, filenames: tuple[str, ...]
+) -> None:
+    body = game_info_body(filenames=filenames)
+    info = read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+    assert info.game_date == date(2031, 3, 1)
+    assert info.time_slot == 66
+    assert info.build_number == 2329565
+
+
+def test_filename_contents_are_not_searched_for_a_clock_or_build(tmp_path: Path) -> None:
+    # A valid-looking clock and build inside a string must not replace the structured fields.
+    build = 0x00232323  # All bytes are valid UTF-8, so this is valid stored text.
+    body = bytearray(game_info_body(filenames=("x" * 44,), build_numbers=(build, build, 1)))
+    base = 12 + len("26.2.0+0")
+    body[base + 173 : base + 177] = packed_date(60, 2055)
+    struct.pack_into("<I", body, base + 180, build)
+    summary = save_summary_body(version=f"26.9.0+{build}")
+    with (
+        pytest.warns(UnknownBuildWarning),
+        pytest.raises(ReaderCheckError, match="no late build word"),
+    ):
+        read_save_info(
+            build_index(tmp_path, sections_with(game_info=bytes(body), save_game_summary=summary))
+        )
+
+
+@pytest.mark.parametrize("kind", ["count", "length", "truncated", "encoding"])
+def test_malformed_filename_list_is_rejected(tmp_path: Path, kind: str) -> None:
+    body = bytearray(game_info_body(filenames=("Example.exe",)))
+    count_at = 12 + len("26.2.0+0") + 165
+    if kind == "count":
+        struct.pack_into("<I", body, count_at, 0xFFFFFFFF)
+    elif kind == "length":
+        struct.pack_into("<I", body, count_at + 4, 0xFFFFFFFF)
+    elif kind == "truncated":
+        del body[count_at + 9 :]
+    else:
+        body[count_at + 8] = 0xFF
+    with pytest.raises(CorruptSaveError, match="game_info is damaged"):
+        read_save_info(build_index(tmp_path, sections_with(game_info=bytes(body))))
 
 
 def test_game_info_decode_failure_on_unknown_build_fails_checks(tmp_path: Path) -> None:

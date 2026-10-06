@@ -2010,6 +2010,7 @@ def check_staff(stats: StaffStats, bounds: GateBounds, game_db_bytes: int) -> Re
                 "repeat_contracts": stats.repeat_contracts,
                 "merged_affiliate_pairs": stats.merged_affiliate_pairs,
                 "human_manager_missing": 0 if stats.human_found else 1,
+                "non_staff_tailed_hits": stats.non_staff_tailed_hits,
             }
         ),
     )

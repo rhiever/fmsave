@@ -48,9 +48,10 @@ DECOY_INJURY_TYPES: tuple[tuple[int, str, int, int], ...] = (
 
 def injury_type_entry_bytes(*, type_id: int, name: str, flag: int, second_id: int) -> bytes:
     """One record of the injury-type name table."""
+    encoded = name.encode("utf-8")
     return (
-        struct.pack("<BHI", 1, type_id, len(name))
-        + name.encode("ascii")
+        struct.pack("<BHI", 1, type_id, len(encoded))
+        + encoded
         + struct.pack("<BI", flag, second_id)
     )
 

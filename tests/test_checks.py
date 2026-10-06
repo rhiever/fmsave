@@ -762,8 +762,8 @@ def test_a_one_byte_attribute_shift_still_fails_the_player_gates(
     ("outfield_goalkeeper_block_low", "passes"),
     [
         pytest.param(18_000, True, id="every outfield player low"),
-        pytest.param(16_200, True, id="exactly at the lower edge"),
-        pytest.param(16_199, False, id="just below the lower edge"),
+        pytest.param(14_400, True, id="exactly at the lower edge"),
+        pytest.param(14_399, False, id="just below the lower edge"),
         pytest.param(0, False, id="no outfield player low"),
     ],
 )
@@ -774,7 +774,7 @@ def test_the_goalkeeper_block_gate_needs_a_high_share_of_low_outfield_players(
         healthy_player_stats(), outfield_goalkeeper_block_low=outfield_goalkeeper_block_low
     )
     assert stats.outfield_players == 18_000
-    assert BOUNDS.outfield_goalkeeper_block_low == (0.90, None)
+    assert BOUNDS.outfield_goalkeeper_block_low == (0.80, None)
     results = evaluate_players(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     expected_failures = [] if passes else ["outfield_goalkeeper_block_low"]
     assert failed_gate_names(results) == expected_failures
@@ -1274,7 +1274,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "flagged": 1,
         },
         "staff": {
-            "untailed_hits": 0,
+            "untailed_hits": 101,
             "club_record_hits": 1,
             "ambiguous_headers": 0,
             "unlocated_persons": 0,
@@ -1282,6 +1282,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "repeat_contracts": 0,
             "merged_affiliate_pairs": 0,
             "human_manager_missing": 0,
+            "non_staff_tailed_hits": 0,
         },
         "staff_lists": {"player_values_in_lists": 0, "unset_list_values": 0},
         "injury_types": {"match_entries": 1, "entries_without_magic": 1, "entries_tried": 0},

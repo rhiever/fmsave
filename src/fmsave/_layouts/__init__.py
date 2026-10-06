@@ -16,8 +16,9 @@ class GameInfoLayout:
     """Offsets inside `game_info`.
 
     Offsets named `*_after_db_version` count from the end of the length-prefixed
-    database version string, whose length varies. The last build number follows a field
-    whose length varies between saves, so it is searched for in a half-open window.
+    database version string, whose length varies. Clock and late-build offsets assume an
+    empty filename list; stored filenames shift both by their length-prefixed byte sizes.
+    The last build number follows another variable field and is searched for in a window.
     """
 
     db_version_length_offset: int
@@ -25,6 +26,9 @@ class GameInfoLayout:
     build_number_offsets_after_db_version: tuple[int, ...]
     game_date_offset_after_db_version: int
     late_build_number_window_after_db_version: tuple[int, int]
+    filename_count_offset_after_db_version: int | None = None
+    max_filenames: int = 256
+    max_filename_bytes: int = 4096
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,12 +91,14 @@ FULL_SAVE_MINIMUM_GAME_DB_BYTES = 16 * 1024 * 1024
 class NamePoolLayout:
     """How to find and check the three name pools in `game_db`.
 
-    `signature` sits immediately before the first pool's entry count. Pools have no minimum
-    size, since databases differ in size; every entry's id and length are checked instead.
+    `signature` sits immediately before the first pool's entry count. Its three capacity
+    words may scale together up to `max_signature_scale`. Pools have no minimum size,
+    since databases differ in size; every entry's id and length are checked instead.
     """
 
     signature: bytes
     max_name_bytes: int
+    max_signature_scale: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,6 +376,10 @@ class PlayerRecordLayout:
     `allocated_uid_minimum`, a distinct second word also requires `player_kind` at
     `object_kind_offset`, together with every ability, reputation and attribute check.
     The distinct word's meaning is not inferred.
+
+    Edited records may exceed the ordinary ability and attribute maxima up to the optional
+    edited maxima. They require matching identity words and the player object kind as well
+    as the complete ratings and attributes structure; no values are clamped during decoding.
     """
 
     marker: bytes
@@ -407,6 +417,8 @@ class PlayerRecordLayout:
     decode_extent: int
     position_codes: tuple[str, ...]
     attribute_field_order: tuple[str, ...]
+    edited_ability_maximum: int | None = None
+    edited_attribute_maximum: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1279,7 +1291,7 @@ class InjuryTypeTableLayout:
     One record is `lead_byte`, then the u16 type id at `id_offset`, the u32 name length at
     `length_offset`, that many text bytes at `text_offset`, and `trailer_bytes` of trailer (the
     flag byte, then the u32 second id). A record is accepted when its lead byte matches, its
-    length is inside `length_range`, every text byte is inside `text_byte_range` and its flag
+    length is inside `length_range`, its text is printable UTF-8 within `text_byte_range`, and its flag
     is one of `flag_values`; a chain of records is accepted while each record's type id is
     higher than the one before it. The table is the longest chain of at least
     `minimum_chain_entries` records, and entries are read until one holds a table: at most
@@ -1511,6 +1523,8 @@ class StaffLayout:
     person_block_offset_after_tag: int
     person_block_search_bytes: int
     list_only_block_search_bytes: int
+    preference_slot_sentinels: tuple[tuple[int, int], ...] = ()
+    non_staff_contract_kinds: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

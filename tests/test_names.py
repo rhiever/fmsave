@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import struct
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -92,6 +94,44 @@ def test_signature_twice_raises_reader_check() -> None:
     pools = example_pools()
     with pytest.raises(ReaderCheckError, match="name pools not found"):
         locate(wrapped(pools + pools))
+
+
+def scaled_signature(scale: int) -> bytes:
+    return struct.pack("<6I", 46421, 0, 1024 * scale, 256 * scale, 2048 * scale, 0)
+
+
+def test_scaled_capacity_words_read_all_three_pools() -> None:
+    layout = replace(TEST_LAYOUT, max_signature_scale=1024)
+    pools = name_pools_bytes(["Alex"], ["Example"], ["Exo"], signature=scaled_signature(7))
+    game_db = wrapped(pools)
+    found = locate(game_db, layout)
+    assert found.first_names.name_at(game_db, 0) == "Alex"
+    assert found.surnames.name_at(game_db, 0) == "Example"
+    assert found.common_names.name_at(game_db, 0) == "Exo"
+
+
+def test_scaled_signature_false_candidate_does_not_hide_valid_pools() -> None:
+    layout = replace(TEST_LAYOUT, max_signature_scale=1024)
+    fake = scaled_signature(3) + struct.pack("<III", 1, 12, 3) + b"bad"
+    pools = name_pools_bytes(["Alex"], ["Example"], ["Exo"], signature=scaled_signature(7))
+    game_db = wrapped(fake + pools)
+    assert locate(game_db, layout).first_names.name_at(game_db, 0) == "Alex"
+
+
+def test_two_valid_pool_groups_with_different_scales_are_ambiguous() -> None:
+    layout = replace(TEST_LAYOUT, max_signature_scale=1024)
+    pools = example_pools()
+    scaled = name_pools_bytes(["Alex"], ["Example"], ["Exo"], signature=scaled_signature(7))
+    with pytest.raises(ReaderCheckError, match="not unique"):
+        locate(wrapped(pools + scaled), layout)
+
+
+@pytest.mark.parametrize("words", [(7168, 1792, 2048), (7168, 1793, 14336), (0, 0, 0)])
+def test_capacity_words_must_scale_together(words: tuple[int, int, int]) -> None:
+    signature = struct.pack("<6I", 46421, 0, *words, 0)
+    pools = name_pools_bytes(["Alex"], ["Example"], ["Exo"], signature=signature)
+    with pytest.raises(ReaderCheckError, match="name pools not found"):
+        locate(wrapped(pools), replace(TEST_LAYOUT, max_signature_scale=1024))
 
 
 def test_id_that_differs_from_its_index_raises_reader_check() -> None:

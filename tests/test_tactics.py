@@ -277,7 +277,7 @@ def test_the_walk_counts_the_blocks_the_records_and_the_selectors(career_path: P
     assert routine_check.record_count == 2 * ROUTINE_COUNT
 
 
-@pytest.mark.parametrize("marker", (b"\x08\x05\x02", b"\x09\x05\x02"))
+@pytest.mark.parametrize("marker", (b"\x08\x05\x02", b"\x09\x05\x02", b"\x0a\x05\x02"))
 def test_set_piece_marker_variants_keep_the_full_tactic_and_routine_walk(marker: bytes) -> None:
     records = career_tactic_records()
     selection = selection_part_bytes(
@@ -311,7 +311,7 @@ def test_set_piece_marker_variants_keep_the_full_tactic_and_routine_walk(marker:
         walk_tactic_blocks(broken, (NORTHBRIDGE_TEAM_A,), LAYOUT, FILE_NAME)
 
 
-@pytest.mark.parametrize("marker", (b"\x0a\x05\x02", b"\x09\x04\x02", b"\x09\x05\x03"))
+@pytest.mark.parametrize("marker", (b"\x0b\x05\x02", b"\x09\x04\x02", b"\x09\x05\x03"))
 def test_unknown_set_piece_markers_remain_errors(marker: bytes) -> None:
     selection = selection_part_bytes(
         team_id=NORTHBRIDGE_TEAM_A,

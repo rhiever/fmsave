@@ -494,6 +494,73 @@ def test_out_of_range_attribute_is_rejected(attribute_index: int, bad_value: int
         locate_player_records(game_db, name_pools.end_offset, registered_player_layout(), FILE_NAME)
 
 
+@pytest.mark.parametrize("marker", [bytes.fromhex("01006c07"), packed_date(180, 2035)])
+def test_edited_player_ranges_require_a_player_kind_and_preserve_raw_values(marker: bytes) -> None:
+    candidate = dict(PLAYER_D)
+    raw = list(A_RAW_ATTRIBUTES)
+    raw[44] = 120
+    candidate.update(
+        pindex=52,
+        uid=900052,
+        object_kind=2,
+        current_ability=225,
+        potential_ability=245,
+        raw_attributes=tuple(raw),
+        marker=marker,
+    )
+    pools_bytes = name_pools_bytes([], [], [])
+    payload = pools_bytes + game_db_body([SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000)
+    db = section_body(".dat", GAME_DB_SCHEMA, payload + player_record_bytes(**candidate))
+    pools = locate_name_pools(db, registered_name_pool_layout(), FILE_NAME)
+    records = locate_player_records(db, pools.end_offset, registered_player_layout(), FILE_NAME)
+    assert list(records.uids) == [900052]
+    decoder = build_player_decoder(
+        layout=registered_player_layout(),
+        club_index=read_club_index(db, find_club_layouts(GAME_DB_SCHEMA, ""), FILE_NAME),
+        name_pools=pools,
+        clock=date(2035, 6, 29),
+        person_layout=registered_person_layout(),
+        contract_layout=registered_contract_layout(),
+        file_name=FILE_NAME,
+    )
+    # The scan and decoder must keep edited values rather than clamping them to standard maxima.
+    player, _ = decoder.decode(
+        db, records.record_offsets[0], len(db), is_last_record=True, suspension_entries=()
+    )
+    assert player.ability.current == 225 and player.ability.potential == 245
+    assert player.raw_attributes.consistency == 120
+    assert player.attributes.consistency == 24
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"current_ability": 256},
+        {"potential_ability": 256},
+        {"raw_attributes": (126,) * 54},
+        {"object_kind": 1},
+    ],
+)
+def test_edited_records_still_require_bounded_values_and_the_player_kind(
+    override: dict[str, object],
+) -> None:
+    candidate = {
+        **PLAYER_D,
+        "pindex": 52,
+        "uid": 900052,
+        "object_kind": 2,
+        "current_ability": 225,
+        "potential_ability": 245,
+        **override,
+    }
+    db = section_body(
+        ".dat", GAME_DB_SCHEMA, name_pools_bytes([], [], []) + player_record_bytes(**candidate)
+    )
+    pools = locate_name_pools(db, registered_name_pool_layout(), FILE_NAME)
+    with pytest.raises(ReaderCheckError, match="no player records"):
+        locate_player_records(db, pools.end_offset, registered_player_layout(), FILE_NAME)
+
+
 def test_marker_within_102_bytes_of_offset_zero_is_handled_cleanly() -> None:
     # A marker this close to the start of game_db makes marker_hit - 102 negative; the scan
     # must reject it without raising, and keep scanning the rest of the buffer normally.

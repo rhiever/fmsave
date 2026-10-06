@@ -80,7 +80,10 @@ def locate_player_records(
     uid_layout = _uid_layout(layout)
     header_layout = build_header_layout(layout)
     pattern = _completeness_pattern(
-        layout.rating_range, layout.ratings_count, layout.attribute_range, layout.attribute_count
+        layout.rating_range,
+        layout.ratings_count,
+        _scan_attribute_range(layout),
+        layout.attribute_count,
     )
     marker_candidates = _scan_marker_candidates(
         game_db, layout, uid_layout, header_layout, pattern, file_name
@@ -239,7 +242,11 @@ def _scan_completeness_candidates(
     minimum_run_length = layout.ratings_count + layout.attribute_count
     candidates: list[_Candidate] = []
     for run_start, run_end in _flagged_runs(
-        game_db, name_pools_end, layout.rating_range, layout.attribute_range, minimum_run_length
+        game_db,
+        name_pools_end,
+        layout.rating_range,
+        _scan_attribute_range(layout),
+        minimum_run_length,
     ):
         for match in pattern.finditer(game_db, run_start, run_end):
             record_offset = match.start() - ratings_offset
@@ -360,11 +367,32 @@ def _accept_candidate(
     header_values = header_layout.struct_object.unpack_from(game_db, header_absolute_start)
     current_ability: int = header_values[header_layout.current_ability_index]
     lowest_ability, highest_ability = layout.current_ability_range
-    if not lowest_ability <= current_ability <= highest_ability:
-        return None
     potential_ability: int = header_values[header_layout.potential_ability_index]
     lowest_potential, highest_potential = layout.potential_ability_range
-    if not lowest_potential <= potential_ability <= highest_potential:
+    raw_attributes = game_db[
+        record_offset + layout.attributes_offset : record_offset
+        + layout.attributes_offset
+        + layout.attribute_count
+    ]
+    needs_edited_ranges = (
+        current_ability > highest_ability
+        or potential_ability > highest_potential
+        or max(raw_attributes) > layout.attribute_range[1]
+    )
+    if needs_edited_ranges:
+        if (
+            layout.edited_ability_maximum is None
+            or layout.edited_attribute_maximum is None
+            or uid != uid_copy
+            or game_db[record_offset + layout.object_kind_offset] != layout.player_kind
+        ):
+            return None
+        highest_ability = layout.edited_ability_maximum
+        highest_potential = layout.edited_ability_maximum
+    if not (
+        lowest_ability <= current_ability <= highest_ability
+        and lowest_potential <= potential_ability <= highest_potential
+    ):
         return None
     reputation_bucket: int = header_values[header_layout.reputation_bucket_index]
     lowest_bucket, highest_bucket = layout.reputation_bucket_range
@@ -379,6 +407,12 @@ def _accept_candidate(
 def _byte_class(value_range: tuple[int, int]) -> bytes:
     lowest, highest = value_range
     return b"[" + re.escape(bytes((lowest,))) + b"-" + re.escape(bytes((highest,))) + b"]"
+
+
+def _scan_attribute_range(layout: PlayerRecordLayout) -> tuple[int, int]:
+    """Search a superset; edited candidates also require the independently stored player kind."""
+    lowest, highest = layout.attribute_range
+    return lowest, max(highest, layout.edited_attribute_maximum or highest)
 
 
 @functools.cache

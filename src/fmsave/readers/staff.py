@@ -200,15 +200,20 @@ def locate_contracted_header(
     inside `contract_header_search_bytes`; searching a window wide enough to hold any person
     instead costs about 25 seconds a save.
     """
+    return _contract_header_with_kind(game_db, person_id, tag_offset, layout, (layout.staff_kind,))
+
+
+def _contract_header_with_kind(
+    game_db: bytes, person_id: int, tag_offset: int, layout: StaffLayout, kinds: tuple[int, ...]
+) -> int | None:
     reader = _header_reader(layout)
-    staff_kind = layout.staff_kind
     needle = _UINT32.pack(person_id)
     search_start = max(tag_offset - layout.contract_header_search_bytes, 0)
     rfind = game_db.rfind
     hit = rfind(needle, search_start, tag_offset)
     while hit >= 0:
         values = _header_values(game_db, hit, reader, layout)
-        if values is not None and values[1] == staff_kind:
+        if values is not None and values[1] in kinds:
             return hit
         # The end is exclusive, so this still reaches a hit that overlaps the one just tried.
         hit = rfind(needle, search_start, hit + _UINT32.size - 1)
@@ -461,6 +466,7 @@ class _Discovery:
     club_record_hits: int
     unowned_tailed_hits: int
     owned_records: int
+    non_staff_tailed_hits: int
 
 
 def discover_contracts(
@@ -494,6 +500,7 @@ def discover_contracts(
     club_record_hits = 0
     unowned_tailed_hits = 0
     owned_records = 0
+    non_staff_tailed_hits = 0
     # A next accepted club header closes each of these spans. The final span ends at a
     # scan margin rather than a known closing header, so it must remain searchable.
     closed_clubs = club_index.record_spans[:-1]
@@ -526,6 +533,19 @@ def discover_contracts(
         if own_records is None:
             header = locate_contracted_header(game_db, person_id, tag_offset, staff_layout)
             if header is None:
+                if (
+                    staff_layout.non_staff_contract_kinds
+                    and _contract_header_with_kind(
+                        game_db,
+                        person_id,
+                        tag_offset,
+                        staff_layout,
+                        staff_layout.non_staff_contract_kinds,
+                    )
+                    is not None
+                ):
+                    non_staff_tailed_hits += 1
+                    continue
                 unowned_tailed_hits += 1
                 continue
             header_by_person[person_id] = header
@@ -540,6 +560,7 @@ def discover_contracts(
         club_record_hits=club_record_hits,
         unowned_tailed_hits=unowned_tailed_hits,
         owned_records=owned_records,
+        non_staff_tailed_hits=non_staff_tailed_hits,
     )
 
 
@@ -630,6 +651,7 @@ def _read_ability_block(
     lowest_preference, highest_preference = layout.preference_range
     slots_in_range = all(
         lowest_preference <= preferences[slot] <= highest_preference
+        or (slot, preferences[slot]) in layout.preference_slot_sentinels
         for slot in layout.range_checked_preference_slots
     )
     codes_at = ability_at + layout.codes_offset
@@ -945,6 +967,7 @@ def read_staff(
         human_found=human_person_id is not None,
         rows=len(rows),
         list_rows=len(list_rows),
+        non_staff_tailed_hits=discovery.non_staff_tailed_hits,
     )
     return rows, list_rows, stats
 
