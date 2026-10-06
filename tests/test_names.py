@@ -21,6 +21,7 @@ TEST_LAYOUT = NamePoolLayout(
     signature=NAME_POOL_SIGNATURE,
     max_name_bytes=64,
 )
+REGISTERED_LAYOUT = find_layout(NamePoolLayout, "game_db", 4000, "").layout
 
 
 def example_pools(id_override: dict[tuple[int, int], int] | None = None) -> bytes:
@@ -155,6 +156,63 @@ def test_name_at_the_cap_is_accepted() -> None:
     assert locate(game_db).first_names.name_at(game_db, 1) == name_at_cap
 
 
+@pytest.mark.parametrize("pool_number", [0, 1, 2])
+@pytest.mark.parametrize(
+    "name",
+    ["x" * 71, "가" * 24, "Я" * 36, "x" * 1024],
+    ids=["71-bytes", "Korean", "Cyrillic", "ceiling"],
+)
+def test_registered_layout_reads_long_names_without_losing_the_next_entry(
+    pool_number: int, name: str
+) -> None:
+    names = [["Alex", "Next"], ["Example", "Next"], ["Exo", "Next"]]
+    names[pool_number][0] = name
+    game_db = wrapped(name_pools_bytes(*names))
+    pools = locate(game_db, REGISTERED_LAYOUT)
+    pool = (pools.first_names, pools.surnames, pools.common_names)[pool_number]
+    assert pool.name_at(game_db, 0) == name
+    assert pool.name_at(game_db, 1) == "Next"
+    assert pools.end_offset == len(game_db) - len(TRAILING_BYTES)
+
+
+def test_registered_layout_rejects_names_above_the_safety_ceiling() -> None:
+    game_db = wrapped(name_pools_bytes(["Alex"], ["Example"], ["x" * 1025]))
+    with pytest.raises(ReaderCheckError, match="common names.*1025 bytes"):
+        locate(game_db, REGISTERED_LAYOUT)
+
+
+@pytest.mark.parametrize("bytes_removed", [1, 70, 74])
+def test_long_name_truncation_is_rejected(bytes_removed: int) -> None:
+    pools = name_pools_bytes(["Alex"], ["Example"], ["x" * 71])
+    with pytest.raises(CorruptSaveError, match="common names"):
+        locate(LEADING_BYTES + pools[:-bytes_removed], REGISTERED_LAYOUT)
+
+
+def test_long_name_does_not_hide_a_wrong_entry_id() -> None:
+    game_db = wrapped(
+        name_pools_bytes(["Alex"], ["Example"], ["x" * 71, "Next"], id_override={(2, 1): 9})
+    )
+    with pytest.raises(ReaderCheckError, match="entry 1.*common names.*id 9"):
+        locate(game_db, REGISTERED_LAYOUT)
+
+
+def test_long_name_invalid_utf8_is_rejected_when_resolved() -> None:
+    game_db = bytearray(wrapped(name_pools_bytes(["Alex"], ["Example"], ["x" * 71])))
+    game_db[game_db.index(b"x" * 71) + 70] = 0xFF
+    buffer = bytes(game_db)
+    pools = locate(buffer, REGISTERED_LAYOUT)
+    with pytest.raises(CorruptSaveError, match="common names.*not valid UTF-8"):
+        pools.common_names.name_at(buffer, 0)
+
+
+@pytest.mark.parametrize("claimed_length", [1024, 0xFFFFFFFF])
+def test_forged_name_length_is_rejected(claimed_length: int) -> None:
+    game_db = bytearray(LEADING_BYTES + name_pools_bytes(["Alex"], ["Example"], ["Exo"]))
+    struct.pack_into("<I", game_db, game_db.index(b"Exo") - 4, claimed_length)
+    with pytest.raises((CorruptSaveError, ReaderCheckError)):
+        locate(bytes(game_db), REGISTERED_LAYOUT)
+
+
 def test_small_pools_in_a_full_size_game_db_are_read() -> None:
     registered_layout = find_layout(NamePoolLayout, "game_db", 4000, "").layout
     game_db = wrapped(example_pools()) + bytes(FULL_SAVE_MINIMUM_GAME_DB_BYTES)
@@ -250,4 +308,3 @@ def test_registered_layout_reads_a_small_fragment(tmp_path: Path) -> None:
             name_pools = locate_name_pools(game_db, registered_layout, career_save.info.file_name)
             assert name_pools.surnames.name_at(game_db, 1) == "Sample"
     assert registered_layout.signature == NAME_POOL_SIGNATURE
-    assert registered_layout.max_name_bytes == 64

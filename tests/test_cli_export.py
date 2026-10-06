@@ -19,10 +19,13 @@ from fmsave._checks import GateResult
 from fmsave.models.players import Player
 from tests.fixtures.career import (
     ATHLETIC_NATION_ID,
+    COMMON_NAMES,
     FIRST_COMPETITION_DATABASE_ID,
     FIRST_COMPETITION_ID,
+    FIRST_NAMES,
     NORTHBRIDGE_UID,
     PLAYER_A_UID,
+    PLAYER_B_UID,
     PLAYER_D_LEGAL_NAME,
     PLAYER_D_UID,
     PLAYER_NATION_ID,
@@ -30,8 +33,12 @@ from tests.fixtures.career import (
     SECOND_COMPETITION_ID,
     SOUTHPORT_UID,
     STAGE_ROW_COUNT,
+    SURNAMES,
     career_fragment,
+    career_game_db,
 )
+from tests.fixtures.container import SectionFrame, build_container_fragment, default_sections
+from tests.fixtures.game_db import name_pools_bytes
 
 FILE_NAME = "career example.fm"
 PRIVATE_FOLDER = "Private Folder"
@@ -98,6 +105,25 @@ def test_players_all_writes_every_column_and_row(
     assert tuple(rows[0]) == export.column_names(Player)
     assert len(rows) - 1 == 4
     assert output_text.endswith("\r\n")
+
+
+def test_players_export_preserves_a_long_utf8_common_name(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    common_name = "가" * 23 + "ab"  # 71 UTF-8 bytes, matching the reported byte length.
+    old_pools = name_pools_bytes(FIRST_NAMES, SURNAMES, COMMON_NAMES)
+    new_pools = name_pools_bytes(FIRST_NAMES, SURNAMES, ["Exo", common_name])
+    game_db = career_game_db().replace(old_pools, new_pools, 1)
+    sections = [
+        SectionFrame("game_db", game_db) if section.name == "game_db" else section
+        for section in default_sections()
+    ]
+    save_path = build_container_fragment(sections).write(tmp_path / FILE_NAME)
+    exit_code, output_text, error_text = run_export(capsys, str(save_path), "players", "--all")
+    assert exit_code == cli.EXIT_OK, error_text
+    player = next(row for row in csv_records(output_text) if row["uid"] == str(PLAYER_B_UID))
+    assert player["common_name"] == common_name
+    assert player["name"] == common_name
 
 
 def test_players_club_uid_selects_that_clubs_players(

@@ -94,6 +94,8 @@ class NamePoolLayout:
     `signature` sits immediately before the first pool's entry count. Its three capacity
     words may scale together up to `max_signature_scale`. Pools have no minimum size,
     since databases differ in size; every entry's id and length are checked instead.
+    `max_name_bytes` bounds each name's byte length independently of section bounds;
+    it is a parser safety ceiling, not a verified limit on names stored by the game.
     """
 
     signature: bytes

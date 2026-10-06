@@ -260,7 +260,9 @@ TRAINING = TrainingLayout(
 
 NAME_POOLS = NamePoolLayout(
     signature=struct.pack("<6I", 46421, 0, 1024, 256, 2048, 0),
-    max_name_bytes=64,
+    # A parser safety ceiling, not a verified game limit. Names can exceed the
+    # original sample-based ceiling of 64 bytes (Refs #14).
+    max_name_bytes=1024,
     max_signature_scale=1024,
 )
 

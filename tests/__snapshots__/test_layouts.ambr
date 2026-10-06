@@ -52,7 +52,7 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
-        'max_name_bytes': 64,
+        'max_name_bytes': 1024,
         'max_signature_scale': 1024,
         'signature': b'U\xb5\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x01\x00\x00\x00\x08\x00\x00\x00\x00\x00\x00',
       }),
