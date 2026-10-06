@@ -4,6 +4,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-10-06
+
+### Fixed
+
+- Continued careers with variable metadata now open without false build or date errors, including saves using Russian localization.
+- Localized names and larger player and staff populations read without rejecting valid tables.
+- Player, staff and injury readers handle additional record variants; tactics validation accepts the broader valid range.
+
+Refs #5.
+
 ## [0.5.5] - 2026-10-04
 
 ### Added
