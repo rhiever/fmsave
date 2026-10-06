@@ -159,8 +159,16 @@ def test_name_at_the_cap_is_accepted() -> None:
 @pytest.mark.parametrize("pool_number", [0, 1, 2])
 @pytest.mark.parametrize(
     "name",
-    ["x" * 71, "가" * 24, "Я" * 36, "x" * 1024],
-    ids=["71-bytes", "Korean", "Cyrillic", "ceiling"],
+    ["x" * 71, "가" * 24, "Я" * 36, "示" * 24, "\U00020000" * 18, "示例（损伤）" * 4, "x" * 1024],
+    ids=[
+        "71-bytes",
+        "Korean",
+        "Cyrillic",
+        "Chinese",
+        "CJK-extension",
+        "fullwidth-punctuation",
+        "ceiling",
+    ],
 )
 def test_registered_layout_reads_long_names_without_losing_the_next_entry(
     pool_number: int, name: str

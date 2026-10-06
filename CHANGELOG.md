@@ -4,6 +4,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-10-06
+
+### Fixed
+
+- Name pools accept longer UTF-8 names, including names exceeding 64 bytes, while retaining entry IDs, section bounds and a 1,024-byte safety ceiling.
+- Injury labels accept Unicode space separators, including fullwidth and nonbreaking spaces used in localized text. Invalid UTF-8 and control characters remain rejected.
+
+Refs #14.
+
 ## [0.5.6] - 2026-10-06
 
 ### Fixed

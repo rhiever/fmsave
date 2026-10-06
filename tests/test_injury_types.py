@@ -138,6 +138,27 @@ def test_localized_names_and_longer_utf8_strings_are_read() -> None:
     assert locate_injury_type_table(table_payload(injury_type_entries(records)), LAYOUT) == records
 
 
+@pytest.mark.parametrize(
+    "space", ["\u00a0", "\u1680", *map(chr, range(0x2000, 0x200B)), "\u202f", "\u205f", "\u3000"]
+)
+@pytest.mark.parametrize("words", [("예시", "부상"), ("示例", "损伤")], ids=["Korean", "Chinese"])
+def test_unicode_spacing_characters_preserve_the_whole_injury_table(
+    space: str, words: tuple[str, str]
+) -> None:
+    name = space.join(words)
+    records = tuple((index, name, 0, index) for index in range(20))
+    assert locate_injury_type_table(table_payload(injury_type_entries(records)), LAYOUT) == records
+
+
+@pytest.mark.parametrize(
+    "character",
+    ["\x00", "\t", "\n", "\x7f", "\x85", "\u2028", "\u2029", "\u200b", "\u202e", "\u2066"],
+)
+def test_control_and_format_characters_still_end_an_injury_chain(character: str) -> None:
+    records = ((5, f"Example{character}Ache", 0, 6), (7, f"Example{character}Strain", 1, 9))
+    assert locate_injury_type_table(table_payload(injury_type_entries(records)), LAYOUT) == ()
+
+
 @pytest.mark.parametrize("bad_byte", [0xFF, 0x80])
 def test_invalid_utf8_ends_the_chain(bad_byte: int) -> None:
     invalid = bytearray(

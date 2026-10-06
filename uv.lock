@@ -359,7 +359,7 @@ wheels = [
 
 [[package]]
 name = "fmsave"
-version = "0.5.6"
+version = "0.5.7"
 source = { editable = "." }
 dependencies = [
     { name = "backports-zstd", marker = "python_full_version < '3.14'" },

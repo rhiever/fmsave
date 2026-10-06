@@ -20,6 +20,7 @@ from __future__ import annotations
 import functools
 import re
 import struct
+import unicodedata
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -143,7 +144,9 @@ def _walk_chain(
             name = name_bytes.decode("utf-8")
         except UnicodeDecodeError:
             break
-        if not name.isprintable():
+        if not all(
+            character.isprintable() or unicodedata.category(character) == "Zs" for character in name
+        ):
             break
         flag = payload[text_end]
         if flag not in layout.flag_values or type_id <= previous_id:
