@@ -4,6 +4,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.5.8] - 2026-10-07
+
+### Fixed
+
+- Unrecognized FM26 builds can open saves that use an already observed metadata layout, including older metadata variants, without requiring a build-specific registration.
+- Metadata detection rejects ambiguous or malformed candidates. Other readers retain their existing compatibility checks.
+
+Refs #18.
+
 ## [0.5.7] - 2026-10-06
 
 ### Fixed

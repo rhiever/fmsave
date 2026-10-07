@@ -33,6 +33,7 @@ from fmsave._layouts import (
     SummaryStringsLayout,
     find_layout,
     known_builds,
+    registered_layouts,
 )
 from fmsave._package import __version__
 from fmsave._scan import (
@@ -54,6 +55,9 @@ SCHEMA_OFFSET = 6
 LENGTH_PREFIX_BYTES = 4
 GAME_INFO_SECTION = "game_info"
 VERSION_CANDIDATE_START = re.compile(rb"(?<![0-9.])[0-9]{1,3}\.")
+MAX_MIGRATION_NAMES = 4096
+MAX_MIGRATION_NAME_BYTES = 4096
+UNSET_GAME_INFO_CLOCK = struct.pack("<HH", 1, 1900)
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,6 +258,92 @@ def game_info_filename_bytes(game_info: bytes, layout: GameInfoLayout, version_e
     return cursor - strings_start
 
 
+def game_info_migration_tail_fits(
+    game_info: bytes, build_number: int, start: int, end: int
+) -> bool:
+    """Require one build marker followed by a bounded string list ending at the section end.
+
+    A build-shaped word alone is insufficient evidence for a layout. Search only its
+    existing window, and keep checking after a marker whose following list does not fit.
+    """
+    marker = struct.pack("<I", build_number)
+    matches = 0
+    while (build_at := find_marker(game_info, marker, start, end)) != -1:
+        start = build_at + 1
+        try:
+            count = read_u32(game_info, build_at + LENGTH_PREFIX_BYTES)
+            if count > MAX_MIGRATION_NAMES:
+                continue
+            cursor = build_at + 2 * LENGTH_PREFIX_BYTES
+            for _ in range(count):
+                _, cursor = read_length_prefixed_string(game_info, cursor, MAX_MIGRATION_NAME_BYTES)
+            matches += cursor == len(game_info)
+        except CorruptSaveError:
+            continue
+    return matches == 1
+
+
+def checked_game_info_candidate(
+    game_info: bytes, layout: GameInfoLayout, version: GameVersion, file_name: str
+) -> GameInfoFacts:
+    """Check a candidate's structured clock and migration tail, including explicit null clocks."""
+    facts = decode_game_info(game_info, layout, version, file_name)
+    _, version_end = read_length_prefixed_string(
+        game_info, layout.db_version_length_offset, layout.max_db_version_bytes
+    )
+    base = version_end + game_info_filename_bytes(game_info, layout, version_end)
+    clock_at = base + layout.game_date_offset_after_db_version
+    clock_is_unset = game_info[clock_at : clock_at + 4] == UNSET_GAME_INFO_CLOCK
+    start, end = layout.late_build_number_window_after_db_version
+    if (facts.game_date is None and not clock_is_unset) or not game_info_migration_tail_fits(
+        game_info, version.build_number, base + start, min(base + end, len(game_info))
+    ):
+        raise ReaderCheckError(
+            f"{file_name}: game_info clock or migration list does not fit a verified layout "
+            f"for build {version.build}. Please report it at {ISSUES_URL}"
+        )
+    return facts
+
+
+def decode_unrecognized_game_info(
+    game_info: bytes,
+    preferred_layout: GameInfoLayout,
+    schema: int | None,
+    version: GameVersion,
+    file_name: str,
+) -> GameInfoFacts:
+    """Choose a unique observed metadata shape without declaring other readers compatible.
+
+    Only layouts registered for the same section schema are alternatives to the usual
+    selection. No date scan, version-range guess or synthesized layout is used.
+    """
+    candidates = [preferred_layout]
+    for entry in registered_layouts():
+        if (
+            entry.region == GAME_INFO_SECTION
+            and entry.schema == schema
+            and isinstance(entry.layout, GameInfoLayout)
+            and entry.layout not in candidates
+        ):
+            candidates.append(entry.layout)
+    matches: list[GameInfoFacts] = []
+    preferred_error: CorruptSaveError | ReaderCheckError | None = None
+    for candidate in candidates:
+        try:
+            matches.append(checked_game_info_candidate(game_info, candidate, version, file_name))
+        except (CorruptSaveError, ReaderCheckError) as error:
+            if candidate == preferred_layout:
+                preferred_error = error
+    if len(matches) == 1:
+        return matches[0]
+    if not matches and preferred_error is not None:
+        raise preferred_error
+    raise ReaderCheckError(
+        f"{file_name}: game_info layout is ambiguous for build {version.build}. "
+        f"Please report it at {ISSUES_URL}"
+    )
+
+
 def read_game_info_facts(
     container_index: ContainerIndex,
     section_schemas: Mapping[str, int],
@@ -267,6 +357,14 @@ def read_game_info_facts(
     )
     game_info = read_section(container_index, GAME_INFO_SECTION)
     try:
+        if not known_build:
+            return decode_unrecognized_game_info(
+                game_info,
+                layout_match.layout,
+                section_schemas.get(GAME_INFO_SECTION),
+                version,
+                file_name,
+            )
         return decode_game_info(game_info, layout_match.layout, version, file_name)
     except CorruptSaveError as error:
         if known_build and layout_match.exact:
@@ -287,8 +385,9 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
         warnings.warn(
             UnknownBuildWarning(
                 f"{file_name} was saved by FM26 build {version.build}, which fmsave {__version__} has no "
-                f"full set of layouts for. Using the {FALLBACK_BUILD} layouts where it has none of its "
-                "own; readers check their results and raise ReaderCheckError if they do not fit."
+                "full set of layouts for. Metadata is checked against observed layouts; "
+                f"other readers use the {FALLBACK_BUILD} layouts where it has none of its own. "
+                "Readers check their results and raise ReaderCheckError if they do not fit."
             ),
             skip_file_prefixes=(str(Path(fmsave.__file__).parent) + os.sep,),
         )

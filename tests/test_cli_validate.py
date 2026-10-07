@@ -10,6 +10,13 @@ import fmsave
 from fmsave import cli
 from fmsave._checks import GateResult
 from fmsave._container import ContainerIndex, read_region_frames
+from tests.fixtures.container import (
+    SectionFrame,
+    build_container_fragment,
+    default_sections,
+    game_info_body,
+    save_summary_body,
+)
 
 FILE_NAME = "career example.fm"
 REPORT_KEYS = {
@@ -107,6 +114,38 @@ def test_validate_json_prints_only_the_report_allowlist(
     assert [reader["status"] for reader in report["readers"]] == ["ok"] * len(READER_ORDER)
     for private_text in PRIVATE_TEXTS:
         assert private_text not in output_text
+
+
+def test_validate_unregistered_older_metadata_emits_reader_results(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    replacements = {
+        "save_game_summary": save_summary_body(version="26.9.0+2500000"),
+        "game_info": game_info_body(
+            build_numbers=(2245540, 2500000, 2500000),
+            game_date_offset=168,
+            late_build_number_offset=195,
+        ),
+    }
+    sections = [
+        SectionFrame(
+            section.name,
+            replacements.get(section.name, section.body),
+            section.extension,
+            section.unlisted_frames_after,
+        )
+        for section in default_sections()
+    ]
+    file_path = build_container_fragment(sections).write(tmp_path / "career.bin")
+    # The tiny database is intentionally unreadable; metadata must not prevent a report.
+    assert cli.main(["validate", str(file_path), "--json"]) == cli.EXIT_UNSUPPORTED
+    output = capsys.readouterr()
+    report = json.loads(output.out)
+    assert set(report) == REPORT_KEYS
+    assert report["build"] == "26.9.0+2500000"
+    assert report["known_build"] is False
+    assert tuple(reader["reader"] for reader in report["readers"]) == READER_ORDER
+    assert any(reader["status"] == "failed" for reader in report["readers"])
 
 
 def test_validate_text_lists_each_reader_and_the_build(

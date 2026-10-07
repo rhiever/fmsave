@@ -285,6 +285,28 @@ def test_unknown_build_prints_warning(tmp_path: Path, capsys: pytest.CaptureFixt
     assert "(unknown build)" in captured_output.out
 
 
+def test_info_json_recognizes_unregistered_older_metadata(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sections = replaced_sections(
+        save_game_summary=save_summary_body(version="26.9.0+2500000"),
+        game_info=game_info_body(
+            build_numbers=(2245540, 2500000, 2500000),
+            game_date_offset=168,
+            late_build_number_offset=195,
+        ),
+    )
+    file_path = build_container_fragment(sections).write(tmp_path / "career.bin")
+    assert cli.main(["info", str(file_path), "--json"]) == cli.EXIT_OK
+    output = capsys.readouterr()
+    report = json.loads(output.out)
+    assert report["build"] == "26.9.0+2500000"
+    assert report["known_build"] is False
+    assert report["game_date"] == "2031-03-01"
+    assert report["time_slot"] == 66
+    assert "fmsave: warning:" in output.err
+
+
 def test_unexpected_exception_exits_1(
     fragment_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

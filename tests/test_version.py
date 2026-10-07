@@ -322,6 +322,146 @@ def test_a_26_1_0_late_build_word_past_its_window_fails_checks(tmp_path: Path) -
         read_save_info(index)
 
 
+@pytest.mark.parametrize("build", ["26.1.3+2266940", "26.9.0+2500000"])
+@pytest.mark.parametrize("late_build_offset", [195, 202])
+def test_unregistered_build_recognizes_the_older_metadata_shape(
+    tmp_path: Path, build: str, late_build_offset: int
+) -> None:
+    build_number = int(build.split("+")[1])
+    sections = sections_with(
+        save_game_summary=save_summary_body(version=build),
+        game_info=game_info_body(
+            db_version="26.10.12+345",
+            build_numbers=(2245540, build_number, build_number),
+            game_date_offset=168,
+            late_build_number_offset=late_build_offset,
+        ),
+    )
+    with pytest.warns(UnknownBuildWarning):
+        info = read_save_info(build_index(tmp_path, sections))
+    assert info.build == build
+    assert not info.known_build
+    assert info.db_version == "26.10.12+345"
+    assert info.game_date == date(2031, 3, 1)
+    assert info.time_slot == 66
+
+
+@pytest.mark.parametrize("clock_offset", [168, 172])
+def test_unregistered_metadata_accepts_an_explicit_unset_clock(
+    tmp_path: Path, clock_offset: int
+) -> None:
+    sections = sections_with(
+        save_game_summary=save_summary_body(version="26.9.0+2500000"),
+        game_info=game_info_body(
+            build_numbers=(2500000, 2500000, 2500000),
+            game_date_offset=clock_offset,
+            game_day_of_year=1,
+            game_year=1900,
+            time_slot=0,
+        ),
+    )
+    with pytest.warns(UnknownBuildWarning):
+        info = read_save_info(build_index(tmp_path, sections))
+    assert info.game_date is None
+    assert info.time_slot == 0
+
+
+@pytest.mark.parametrize("clock_offset", [168, 172])
+@pytest.mark.parametrize("damage", ["count", "length", "truncated", "encoding", "extra-bytes"])
+def test_unregistered_metadata_requires_a_complete_migration_list(
+    tmp_path: Path, clock_offset: int, damage: str
+) -> None:
+    body = bytearray(
+        game_info_body(build_numbers=(2500000, 2500000, 2500000), game_date_offset=clock_offset)
+    )
+    count_at = 12 + len("26.2.0+0") + 206
+    if damage == "count":
+        struct.pack_into("<I", body, count_at, 0xFFFFFFFF)
+    elif damage == "length":
+        struct.pack_into("<I", body, count_at + 4, 0xFFFFFFFF)
+    elif damage == "truncated":
+        del body[-1:]
+    elif damage == "encoding":
+        body[count_at + 8] = 0xFF
+    else:
+        body.extend(bytes(4))
+    sections = sections_with(
+        save_game_summary=save_summary_body(version="26.9.0+2500000"), game_info=bytes(body)
+    )
+    with pytest.warns(UnknownBuildWarning), pytest.raises(ReaderCheckError):
+        read_save_info(build_index(tmp_path, sections))
+
+
+def test_unregistered_metadata_rejects_ambiguous_clocks(tmp_path: Path) -> None:
+    body = bytearray(game_info_body(build_numbers=(2500000, 2500000, 2500000)))
+    base = 12 + len("26.2.0+0")
+    # Both observed clock positions contain valid dates; the filename count remains zero.
+    body[base + 168 : base + 172] = packed_date(256, 2031)
+    sections = sections_with(
+        save_game_summary=save_summary_body(version="26.9.0+2500000"), game_info=bytes(body)
+    )
+    with pytest.warns(UnknownBuildWarning), pytest.raises(ReaderCheckError, match="ambiguous"):
+        read_save_info(build_index(tmp_path, sections))
+
+
+def test_unregistered_metadata_does_not_scan_for_an_arbitrary_clock(tmp_path: Path) -> None:
+    sections = sections_with(
+        save_game_summary=save_summary_body(version="26.9.0+2500000"),
+        game_info=game_info_body(build_numbers=(2500000, 2500000, 2500000), game_date_offset=180),
+    )
+    with pytest.warns(UnknownBuildWarning), pytest.raises(ReaderCheckError):
+        read_save_info(build_index(tmp_path, sections))
+
+
+def test_unregistered_metadata_walks_variable_filenames(tmp_path: Path) -> None:
+    sections = sections_with(
+        save_game_summary=save_summary_body(version="26.9.0+2500000"),
+        game_info=game_info_body(
+            build_numbers=(2500000, 2500000, 2500000),
+            filenames=("Example Tool.exe", "Пример.tmp", "x" * 300),
+            migration_names=("EXAMPLE_PATCH_fm26", "EXAMPLE_OTHER_PATCH"),
+        ),
+    )
+    with pytest.warns(UnknownBuildWarning):
+        info = read_save_info(build_index(tmp_path, sections))
+    assert info.game_date == date(2031, 3, 1)
+    assert info.time_slot == 66
+    assert not info.known_build
+
+
+def test_unregistered_metadata_checks_past_a_false_late_build_marker(tmp_path: Path) -> None:
+    body = bytearray(game_info_body(build_numbers=(2500000, 2500000, 2500000)))
+    base = 12 + len("26.2.0+0")
+    struct.pack_into("<II", body, base + 180, 2500000, 0xFFFFFFFF)
+    sections = sections_with(
+        save_game_summary=save_summary_body(version="26.9.0+2500000"), game_info=bytes(body)
+    )
+    with pytest.warns(UnknownBuildWarning):
+        info = read_save_info(build_index(tmp_path, sections))
+    assert info.game_date == date(2031, 3, 1)
+    assert info.time_slot == 66
+
+
+def test_unregistered_metadata_does_not_borrow_another_schema(tmp_path: Path) -> None:
+    sections = sections_with(
+        save_game_summary=save_summary_body(version="26.9.0+2500000"),
+        game_info=game_info_body(
+            build_numbers=(2500000, 2500000, 2500000), game_date_offset=168, schema=47
+        ),
+    )
+    with pytest.warns(UnknownBuildWarning), pytest.raises(ReaderCheckError):
+        read_save_info(build_index(tmp_path, sections))
+
+
+def test_unregistered_metadata_rejects_a_wrong_saved_by_build_word(tmp_path: Path) -> None:
+    sections = sections_with(
+        save_game_summary=save_summary_body(version="26.9.0+2500000"),
+        game_info=game_info_body(build_numbers=(2245540, 2245540, 2500000), game_date_offset=168),
+    )
+    with pytest.warns(UnknownBuildWarning), pytest.raises(ReaderCheckError):
+        read_save_info(build_index(tmp_path, sections))
+
+
 def test_late_build_number_three_bytes_earlier_still_matches(tmp_path: Path) -> None:
     body = game_info_body(late_build_number_offset=199)
     save_info = read_save_info(build_index(tmp_path, sections_with(game_info=body)))
