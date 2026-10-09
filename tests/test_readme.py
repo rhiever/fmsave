@@ -244,6 +244,7 @@ def test_whole_save_analysis_keeps_the_explicit_gate_and_online_warning() -> Non
     assert "`--all` is explicit" in command_line_text
 
 
-def test_support_never_requests_or_accepts_save_files() -> None:
-    support_text = readme_section("## Support")
-    assert "not request or accept one" in support_text
+def test_support_keeps_saves_out_of_issues_and_offers_email() -> None:
+    support_text = " ".join(readme_section("## Support").split())
+    assert "Do not attach or link a save file in an issue" in support_text
+    assert "email a link" in support_text

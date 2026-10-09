@@ -48,5 +48,6 @@ You can report a wrong value without sharing any real data:
 2. Name the field, such as `Player.contract.end` or the `contract_end` column. `fmsave.field_status(fmsave.Player, "contract.end")` tells you whether its meaning is verified or unconfirmed.
 3. Describe what the game shows in general terms. For example: "for a few players at my club, the game shows a contract end date one year later than fmsave". Leave out names, uids and exact values.
 
-Use the bug report form for this. Never attach a save file or a screenshot. Maintainers will never
-request or accept a save file.
+Use the bug report form for this. Do not attach or link a save file or screenshot in the issue.
+Sharing a save is optional but speeds up fixes: email a link to the address on
+[the maintainer's GitHub profile](https://github.com/rhiever) and say in the issue that you sent one.

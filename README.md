@@ -125,10 +125,10 @@ shared online career may break platform or community rules.
 ## Support
 
 fmsave is a hobby project, maintained on a best-effort basis. Report problems through
-[GitHub issues](https://github.com/rhiever/fmsave/issues). Never attach a save file; maintainers
-will not request or accept one. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to report a wrong
-value without sharing real data. To request removal of any content, open an issue with the rights
-request form.
+[GitHub issues](https://github.com/rhiever/fmsave/issues). Do not attach or link a save file in an
+issue. To share a save, email a link to the address on [my GitHub profile](https://github.com/rhiever).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to report a wrong value without sharing real data. To
+request removal of any content, open an issue with the rights request form.
 
 ## Disclaimer
 
