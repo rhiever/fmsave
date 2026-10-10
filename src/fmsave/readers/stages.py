@@ -90,7 +90,7 @@ class _StageTableScan:
     row_bytes: int
     chain_rows: int
     search_bytes: int
-    max_search_bytes: int
+    max_search_bytes: int | None
     resynchronisation_bytes: int
     lowest_stage_id: int
     highest_stage_id: int
@@ -140,7 +140,7 @@ def _stage_table_scan(layout: StageTableLayout) -> _StageTableScan:
         raise ValueError(f"chain_rows {layout.chain_rows} must be at least 1")
     if layout.competition_id_limit < 1:
         raise ValueError(f"competition_id_limit {layout.competition_id_limit} must be at least 1")
-    if layout.max_search_bytes < layout.search_bytes:
+    if layout.max_search_bytes is not None and layout.max_search_bytes < layout.search_bytes:
         raise ValueError(
             f"max_search_bytes {layout.max_search_bytes} is narrower than search_bytes "
             f"{layout.search_bytes}"
@@ -219,8 +219,9 @@ def find_table_start(game_db: bytes, scan: _StageTableScan) -> int | None:
 
     The search covers the last `search_bytes` of `game_db`, since the table sits at the end of
     the section. When no chain starts there, the window doubles until it reaches
-    `max_search_bytes`, and each doubling searches only the stretch it adds, so a save whose
-    table sits near the end pays for the first window alone and no offset is tried twice.
+    `max_search_bytes`, or the start of `game_db` when that is None, and each doubling
+    searches only the stretch it adds, so a save whose table sits near the end pays for the
+    first window alone and no offset is tried twice.
 
     The first offset that starts a full chain is found one byte at a time, and the head is then
     reached by stepping back while the row before still decodes, so rows before the chain are
@@ -239,10 +240,12 @@ def find_table_start(game_db: bytes, scan: _StageTableScan) -> int | None:
         table_start = _find_table_start_between(game_db, scan, window_start, searched_from)
         if table_start is not None:
             return table_start
-        if window_bytes >= scan.max_search_bytes:
+        if scan.max_search_bytes is not None and window_bytes >= scan.max_search_bytes:
             return None
         searched_from = window_start
-        window_bytes = min(window_bytes * 2, scan.max_search_bytes)
+        window_bytes *= 2
+        if scan.max_search_bytes is not None:
+            window_bytes = min(window_bytes, scan.max_search_bytes)
     return None
 
 
@@ -330,10 +333,12 @@ def read_stage_index(game_db: bytes, layout: StageTableLayout, file_name: str) -
     scan = _stage_table_scan(layout)
     table_start = find_table_start(game_db, scan)
     if table_start is None:
-        raise layout_mismatch(
-            file_name,
-            f"no stage table was found in the last {scan.max_search_bytes:,} bytes of game_db",
+        searched = (
+            "game_db"
+            if scan.max_search_bytes is None
+            else f"the last {scan.max_search_bytes:,} bytes of game_db"
         )
+        raise layout_mismatch(file_name, f"no stage table was found in {searched}")
     walked = _walk_rows(game_db, table_start, scan)
 
     stages: list[Stage] = []

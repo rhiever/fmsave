@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import pickle
+import struct
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -107,6 +108,7 @@ def healthy_stats(**overrides: object) -> TacticStats:
         "managed_club_exists": True,
         "club_team_count": 5,
         "header_blocks": 5,
+        "stored_blocks": 5,
         "blocks_found": 5,
         "selector_matches": True,
         "selection_selectors": 1069,
@@ -259,6 +261,7 @@ def test_the_walk_counts_the_blocks_the_records_and_the_selectors(career_path: P
     _tactics, _routines, stats = decoded_tactics(career_path)
 
     assert stats.header_blocks == 2
+    assert stats.stored_blocks == 2
     assert stats.blocks_found == 2
     assert stats.club_team_count == 2
     assert stats.selector_matches is True
@@ -510,6 +513,36 @@ def test_a_team_id_the_section_stores_twice_gets_no_block(tmp_path: Path) -> Non
     assert {row.team_id for row in routines} == {NORTHBRIDGE_TEAM_A}
 
 
+def test_a_national_team_block_counts_for_the_header_and_ends_the_club_block(
+    tmp_path: Path,
+) -> None:
+    """A manager who also runs a national team has a block the club index lists no team for."""
+    national_block = selection_part_bytes(
+        team_id=999_001,
+        label="",
+        slots=(),
+        list_a=(),
+        list_b=(),
+        single=NO_SELECTOR,
+        tactics_value=HAS_TACTICS_VALUE,
+        tactic_count=0,
+    )
+    body = bytearray(career_tactics_body())
+    count_at = body.index(struct.pack("<I", len(CAREER_TEAM_IDS)), LAYOUT.block_count_offset - 8)
+    body[count_at : count_at + 4] = struct.pack("<I", len(CAREER_TEAM_IDS) + 1)
+    with_national = bytes(body[: len(body) - 64]) + national_block + bytes(64)
+    save_path = tactics_path(tmp_path, with_national)
+
+    tactics, routines, stats = decoded_tactics(save_path)
+
+    assert (stats.header_blocks, stats.stored_blocks, stats.blocks_found) == (3, 3, 2)
+    assert {row.team_id for row in tactics} == {NORTHBRIDGE_TEAM_A}
+    assert {row.team_id for row in routines} == set(CAREER_TEAM_IDS)
+    assert len(routines) == ROUTINE_COUNT * len(CAREER_TEAM_IDS)
+    results = evaluate_tactics(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert BLOCKS_GATE_NAME not in failed_gate_names(results)
+
+
 def test_a_header_selector_that_is_not_the_human_managers_fails_the_gate(tmp_path: Path) -> None:
     save_path = tactics_path(tmp_path, career_tactics_body(selector=MANAGER_SELECTOR + 3))
 
@@ -662,6 +695,15 @@ def test_the_tables_are_read_once_and_raise_after_the_save_is_closed(career_path
         pytest.param({"selector_matches": False}, [SELECTOR_GATE_NAME], id="a foreign selector"),
         pytest.param({"blocks_found": 4}, [BLOCKS_GATE_NAME], id="a team with no block"),
         pytest.param({"header_blocks": 6}, [BLOCKS_GATE_NAME], id="a header count of its own"),
+        pytest.param(
+            {"header_blocks": 1_610_612_736}, [BLOCKS_GATE_NAME], id="a header read a byte late"
+        ),
+        pytest.param({"stored_blocks": 0}, [BLOCKS_GATE_NAME], id="no block where header ends"),
+        pytest.param(
+            {"header_blocks": 4, "stored_blocks": 4}, [BLOCKS_GATE_NAME], id="fewer than the club"
+        ),
+        # A manager who also runs national teams has their blocks too (Refs #20).
+        pytest.param({"header_blocks": 12, "stored_blocks": 12}, [], id="national teams too"),
         pytest.param({"slot_walks_complete": 3}, [SLOT_WALK_GATE_NAME], id="half the walks"),
         pytest.param({"oop_index_permutations": 3}, [INDEX_GATE_NAME], id="half the indexes"),
         pytest.param(

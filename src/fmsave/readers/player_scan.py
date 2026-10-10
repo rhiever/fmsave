@@ -361,7 +361,7 @@ def _accept_candidate(
         return None
     if uid != uid_copy and (
         uid < layout.allocated_uid_minimum
-        or game_db[record_offset + layout.object_kind_offset] != layout.player_kind
+        or game_db[record_offset + layout.object_kind_offset] not in layout.player_kinds
     ):
         return None
     header_values = header_layout.struct_object.unpack_from(game_db, header_absolute_start)
@@ -384,7 +384,7 @@ def _accept_candidate(
             layout.edited_ability_maximum is None
             or layout.edited_attribute_maximum is None
             or uid != uid_copy
-            or game_db[record_offset + layout.object_kind_offset] != layout.player_kind
+            or game_db[record_offset + layout.object_kind_offset] not in layout.player_kinds
         ):
             return None
         highest_ability = layout.edited_ability_maximum

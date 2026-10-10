@@ -1304,6 +1304,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         "mentoring": {"members_without_a_player": 2, "members_elsewhere": 0},
         "tactics": {
             "preset_tactics": 0,
+            "non_club_blocks": 0,
             "tactic_blocks_count_mismatched": 0,
             "unresolved_selectors": 5,
         },

@@ -114,26 +114,32 @@ def locate_name_pools(game_db: bytes, layout: NamePoolLayout, file_name: str) ->
 
 
 def _signature_candidates(game_db: bytes, layout: NamePoolLayout) -> Iterator[int]:
-    """Capacity words can grow together; every candidate still needs three checked pools."""
+    """Capacity words can grow together and unchecked bytes may vary; every candidate still
+    needs three checked pools."""
     signature = layout.signature
-    if layout.max_signature_scale == 1:
+    unchecked = layout.unchecked_signature_bytes
+    if layout.max_signature_scale == 1 and not unchecked:
         start = 0
         while (at := game_db.find(signature, start)) >= 0:
             yield at
             start = at + 1
         return
     words = struct.unpack("<6I", signature)
-    prefix = signature[:8]
+    prefix = signature[: min((8, *unchecked))]
     start = 0
     while (at := game_db.find(prefix, start)) >= 0:
         start = at + 1
         if at + len(signature) > len(game_db):
             continue
-        stored = struct.unpack_from("<6I", game_db, at)
+        stored_bytes = bytearray(game_db[at : at + len(signature)])
+        for byte_at in unchecked:
+            stored_bytes[byte_at] = 0
+        stored = struct.unpack("<6I", stored_bytes)
         scale, remainder = divmod(stored[3], words[3])
         if (
             remainder == 0
             and 1 <= scale <= layout.max_signature_scale
+            and stored[:2] == words[:2]
             and stored[2:5] == tuple(value * scale for value in words[2:5])
             and stored[5] == words[5]
         ):

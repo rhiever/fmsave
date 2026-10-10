@@ -184,8 +184,10 @@ def _header_values(
     if uid != other:
         if layout is None or uid < layout.allocated_uid_minimum or kind != layout.staff_kind:
             return None
-        block, slots_ok, codes_ok, further_ok = _read_ability_block(game_db, header, layout)
-        if block is None or not (slots_ok and codes_ok and further_ok):
+        # The code set is the codes observed, not a closed set (`staff_codes_in_set` is a
+        # share for that reason), so a code outside it cannot rule out a header (Refs #20).
+        block, slots_ok, _codes_ok, further_ok = _read_ability_block(game_db, header, layout)
+        if block is None or not (slots_ok and further_ok):
             return None
     return uid, kind
 

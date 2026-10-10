@@ -92,15 +92,17 @@ class NamePoolLayout:
     """How to find and check the three name pools in `game_db`.
 
     `signature` sits immediately before the first pool's entry count. Its three capacity
-    words may scale together up to `max_signature_scale`. Pools have no minimum size,
-    since databases differ in size; every entry's id and length are checked instead.
-    `max_name_bytes` bounds each name's byte length independently of section bounds;
+    words may scale together up to `max_signature_scale`. The bytes at
+    `unchecked_signature_bytes` may hold any value; they are read as zero. Pools have no
+    minimum size, since databases differ in size; every entry's id and length are checked
+    instead. `max_name_bytes` bounds each name's byte length independently of section bounds;
     it is a parser safety ceiling, not a verified limit on names stored by the game.
     """
 
     signature: bytes
     max_name_bytes: int
     max_signature_scale: int = 1
+    unchecked_signature_bytes: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -375,7 +377,7 @@ class PlayerRecordLayout:
     rejected one.
 
     Ordinary identity words match. In the allocated namespace starting at
-    `allocated_uid_minimum`, a distinct second word also requires `player_kind` at
+    `allocated_uid_minimum`, a distinct second word also requires one of `player_kinds` at
     `object_kind_offset`, together with every ability, reputation and attribute check.
     The distinct word's meaning is not inferred.
 
@@ -391,7 +393,7 @@ class PlayerRecordLayout:
     uid_copy_offset: int
     allocated_uid_minimum: int
     object_kind_offset: int
-    player_kind: int
+    player_kinds: tuple[int, ...]
     home_reputation_offset: int
     current_reputation_offset: int
     world_reputation_offset: int
@@ -1124,9 +1126,10 @@ class StageTableLayout:
 
     The table is found in the last `search_bytes` of `game_db`, at the first offset where
     `chain_rows` rows in a row all decode `row_bytes` apart. When none does, the window doubles
-    until it reaches `max_search_bytes`, searching only the stretch each doubling adds, so a
-    save whose table sits near the end pays for the first window alone. The head of that chain
-    is then reached by stepping back a row at a time. A row decodes when the byte at
+    until it reaches `max_search_bytes`, or the start of `game_db` when that is None,
+    searching only the stretch each doubling adds, so a save whose table sits near the end
+    pays for the first window alone. The head of that chain is then reached by stepping back
+    a row at a time. A row decodes when the byte at
     `zero_byte_offset` is zero, the stage id at `stage_id_offset` is repeated at
     `stage_id_copy_offset` and lies strictly between the bounds of
     `stage_id_exclusive_range`, and the word at `previous_stage_id_offset` is either that id
@@ -1151,7 +1154,7 @@ class StageTableLayout:
     stage_id_exclusive_range: tuple[int, int]
     competition_id_limit: int
     search_bytes: int
-    max_search_bytes: int
+    max_search_bytes: int | None
     chain_rows: int
     resynchronisation_bytes: int
 

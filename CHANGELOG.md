@@ -4,6 +4,17 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.5.9] - 2026-10-10
+
+### Fixed
+
+- Name pools are found when their header stores nonzero values in a field that most saves leave at zero. Every other header byte, each pool entry and the uniqueness check are still verified.
+- The stage table is found however far it sits from the end of `game_db`. Longer careers move it further back, which made stages, competitions, fixtures, league tables, competition rules, match stats, stadiums and job vacancies fail.
+- Tactics validation accepts managers who also run national teams, whose tactic blocks the section stores alongside the club's.
+- Newly generated players stored with object kind 3, and newly generated staff whose ability codes are outside the observed code set, are read instead of being dropped.
+
+Refs #20.
+
 ## [0.5.8] - 2026-10-07
 
 ### Fixed

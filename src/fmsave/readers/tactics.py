@@ -21,6 +21,7 @@ import struct
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
+from fmsave._errors import ReaderCheckError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import TacticsLayout, find_layout
 from fmsave._reader_stats import TacticStats
@@ -89,15 +90,18 @@ class TacticWalkCounts:
 
     `club_team_count` is how many teams the managed club fields, `blocks_found` how many of
     them the section stores exactly one block for, and `header_blocks` the number of blocks
-    the section header claims. `tactic_blocks` counts blocks whose stored count claims a
-    tactic record, and `tactic_blocks_count_matching` those where every record the count claims
-    was found. `preset_tactics` counts the records carrying the preset signature, which are
+    the section header claims. `stored_blocks` is how many blocks the section holds, found by
+    structure rather than by team id, which includes the blocks of any national teams the
+    manager also runs; it is 0 when the first one is not where the header ends.
+    `tactic_blocks` counts blocks whose stored count claims a tactic record, and
+    `tactic_blocks_count_matching` those where every record the count claims was found. `preset_tactics` counts the records carrying the preset signature, which are
     decoded along with the other records in the team's declared list. `routine_blocks_complete`
     counts blocks whose default runs and counted routine groups were all read completely.
     """
 
     club_team_count: int
     header_blocks: int
+    stored_blocks: int
     blocks_found: int
     tactic_blocks: int
     tactic_blocks_count_matching: int
@@ -154,6 +158,27 @@ def _block_starts(
         if first < 0 or section.find(needle, first + 1) >= 0:
             continue
         starts[team_id] = first
+    return starts
+
+
+def _stored_block_starts(section: bytes, layout: TacticsLayout, file_name: str) -> list[int]:
+    """The start of every team block the section stores, in order, found by structure.
+
+    A block is a team id, the block marker and a whole selection part, so every marker hit is
+    tried as the end of a team id and kept when the selection part after it parses. This finds
+    blocks for teams the club index does not list, such as the manager's national teams.
+    """
+    starts: list[int] = []
+    marker_at = section.find(layout.block_marker, layout.first_block_offset + _UINT32.size)
+    while marker_at >= 0:
+        block_start = marker_at - _UINT32.size
+        try:
+            _read_selection_part(section, block_start, len(section), layout, file_name)
+        except ReaderCheckError:
+            pass
+        else:
+            starts.append(block_start)
+        marker_at = section.find(layout.block_marker, marker_at + 1)
     return starts
 
 
@@ -660,15 +685,16 @@ def walk_tactic_blocks(
     _selector, header_blocks = read_tactics_header(section, layout, file_name)
     starts = _block_starts(section, club_team_ids, layout)
     ordered_starts = sorted(starts.items(), key=lambda pair: pair[1])
+    stored_starts = _stored_block_starts(section, layout, file_name)
     blocks: list[RawTacticBlock] = []
     routine_blocks_complete = 0
     tactic_blocks = 0
     tactic_blocks_count_matching = 0
     preset_tactics = 0
-    for position, (team_id, block_start) in enumerate(ordered_starts):
-        block_end = (
-            ordered_starts[position + 1][1] if position + 1 < len(ordered_starts) else len(section)
-        )
+    for team_id, block_start in ordered_starts:
+        # A block ends where the next stored block begins, whichever team that block is for:
+        # the manager's national teams have blocks too, and the club index lists none of them.
+        block_end = next((start for start in stored_starts if start > block_start), len(section))
         selection = _read_selection_part(section, block_start, block_end, layout, file_name)
         routine_names, routines_complete, records_end = _read_routines(
             section, selection.end, block_end, layout
@@ -710,6 +736,9 @@ def walk_tactic_blocks(
     counts = TacticWalkCounts(
         len(club_team_ids),
         header_blocks,
+        # Counted only when the first block sits where the header ends, so a scan that has
+        # drifted off the real blocks cannot agree with the header by accident.
+        len(stored_starts) if stored_starts[:1] == [layout.first_block_offset] else 0,
         len(blocks),
         tactic_blocks,
         tactic_blocks_count_matching,
@@ -810,6 +839,7 @@ def build_tactic_tables(
         managed_club_exists=True,
         club_team_count=counts.club_team_count,
         header_blocks=counts.header_blocks,
+        stored_blocks=counts.stored_blocks,
         blocks_found=counts.blocks_found,
         selector_matches=human_selector is not None and header_selector == human_selector,
         selection_selectors=selectors,

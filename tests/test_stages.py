@@ -413,9 +413,7 @@ def test_healthy_stage_stats_pass_every_gate_and_a_small_section_applies_none() 
         pytest.param({"with_competition": 6_400}, ["stage_rows_with_competition"], id="few-joins"),
         pytest.param({"bytes_after_table": 4_132_399}, [], id="older-build-career-tail"),
         pytest.param({"bytes_after_table": 20_693_727}, [], id="continued-career-tail"),
-        pytest.param(
-            {"bytes_after_table": 34_000_000}, ["stage_table_tail_bytes"], id="table-too-early"
-        ),
+        pytest.param({"bytes_after_table": 34_173_312}, [], id="long-career-tail"),
         pytest.param({"rows": 999}, ["stage_rows_minimum"], id="too-few-rows"),
         pytest.param({"ascending_steps": 7_000}, ["stage_ids_ascending"], id="ids-not-ascending"),
         pytest.param(
@@ -576,11 +574,35 @@ def test_rows_before_the_search_window_are_kept_by_walking_back_to_the_head() ->
     assert stage_index.stages[0].id == 1
 
 
-def small_search_layout() -> StageTableLayout:
+SMALL_MAX_SEARCH_BYTES = 40_000
+
+
+def small_search_layout(max_search_bytes: int | None = SMALL_MAX_SEARCH_BYTES) -> StageTableLayout:
     """The registered layout with its search windows scaled down, so a test pads kilobytes."""
     return dataclasses.replace(
-        find_stage_layout(GAME_DB_SCHEMA, ""), search_bytes=10_000, max_search_bytes=40_000
+        find_stage_layout(GAME_DB_SCHEMA, ""),
+        search_bytes=10_000,
+        max_search_bytes=max_search_bytes,
     )
+
+
+def test_an_uncapped_search_reaches_the_start_of_game_db() -> None:
+    """The bytes after the table grow with a career: 34.2 MB on one (Refs #20)."""
+    layout = small_search_layout(max_search_bytes=None)
+    trailing_bytes = layout.search_bytes * 37
+    game_db = stage_table_bytes(career_stage_rows(), trailing_bytes=trailing_bytes)
+
+    stage_index = read_stage_index(game_db, layout, FILE_NAME)
+
+    assert len(stage_index.stages) == STAGE_ROW_COUNT
+    assert stage_index.stats.bytes_after_table == trailing_bytes
+
+
+def test_an_uncapped_search_without_a_table_names_the_whole_section() -> None:
+    layout = small_search_layout(max_search_bytes=None)
+
+    with pytest.raises(fmsave.ReaderCheckError, match="no stage table was found in game_db"):
+        read_stage_index(b"\x01" * 50_000, layout, FILE_NAME)
 
 
 def test_a_table_further_back_than_the_first_window_is_found_by_widening_it() -> None:
@@ -607,12 +629,12 @@ def test_a_table_with_twenty_megabytes_after_it_is_found() -> None:
 
 def test_a_table_past_the_widest_window_is_not_found() -> None:
     layout = small_search_layout()
-    game_db = stage_table_bytes(career_stage_rows(), trailing_bytes=layout.max_search_bytes)
+    game_db = stage_table_bytes(career_stage_rows(), trailing_bytes=SMALL_MAX_SEARCH_BYTES)
 
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
         read_stage_index(game_db, layout, FILE_NAME)
 
-    assert f"no stage table was found in the last {layout.max_search_bytes:,} bytes" in str(
+    assert f"no stage table was found in the last {SMALL_MAX_SEARCH_BYTES:,} bytes" in str(
         error_info.value
     )
 

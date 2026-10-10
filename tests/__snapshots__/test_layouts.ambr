@@ -55,6 +55,12 @@
         'max_name_bytes': 1024,
         'max_signature_scale': 1024,
         'signature': b'U\xb5\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x01\x00\x00\x00\x08\x00\x00\x00\x00\x00\x00',
+        'unchecked_signature_bytes': tuple(
+          5,
+          6,
+          7,
+          8,
+        ),
       }),
       'region': 'game_db',
       'schema': 4000,
@@ -217,7 +223,10 @@
         'match_sharpness_offset': 106,
         'object_kind_offset': -7,
         'pindex_offset': -19,
-        'player_kind': 2,
+        'player_kinds': tuple(
+          2,
+          3,
+        ),
         'position_codes': tuple(
           'GK',
           'SW',
@@ -857,7 +866,7 @@
         'competition_id_limit': 1000000,
         'competition_id_offset': 13,
         'group_id_offset': 17,
-        'max_search_bytes': 33554432,
+        'max_search_bytes': None,
         'previous_stage_id_offset': 0,
         'resynchronisation_bytes': 4096,
         'round_offset': 21,
@@ -2390,7 +2399,7 @@
         ),
         'stage_table_tail_bytes': tuple(
           None,
-          33554432,
+          None,
         ),
         'stage_trailing_sentinel': tuple(
           0.95,

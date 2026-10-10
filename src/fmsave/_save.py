@@ -200,6 +200,7 @@ _EMPTY_TACTIC_STATS = TacticStats(
     managed_club_exists=False,
     club_team_count=0,
     header_blocks=0,
+    stored_blocks=0,
     blocks_found=0,
     selector_matches=False,
     selection_selectors=0,

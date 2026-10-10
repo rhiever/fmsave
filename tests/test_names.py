@@ -127,6 +127,39 @@ def test_two_valid_pool_groups_with_different_scales_are_ambiguous() -> None:
         locate(wrapped(pools + scaled), layout)
 
 
+def with_flag_bytes(signature: bytes, value: int) -> bytes:
+    return signature[:5] + bytes([value] * 4) + signature[9:]
+
+
+@pytest.mark.parametrize("scale", [1, 7])
+def test_unchecked_signature_bytes_may_hold_any_value(scale: int) -> None:
+    # A 26.3.2 career save stores 03 03 03 03 in signature bytes 5-8 (Refs #20).
+    signature = with_flag_bytes(scaled_signature(scale), 3)
+    pools = name_pools_bytes(["Alex"], ["Example"], ["Exo"], signature=signature)
+    game_db = wrapped(pools)
+    assert locate(game_db, REGISTERED_LAYOUT).first_names.name_at(game_db, 0) == "Alex"
+
+
+def test_signature_bytes_outside_the_unchecked_ones_are_still_checked() -> None:
+    signature = with_flag_bytes(NAME_POOL_SIGNATURE, 3)
+    pools = name_pools_bytes(["Alex"], ["Example"], ["Exo"], signature=signature)
+    with pytest.raises(ReaderCheckError, match="name pools not found"):
+        locate(wrapped(pools))
+    altered = signature[:9] + b"\x05" + signature[10:]
+    pools = name_pools_bytes(["Alex"], ["Example"], ["Exo"], signature=altered)
+    with pytest.raises(ReaderCheckError, match="name pools not found"):
+        locate(wrapped(pools), REGISTERED_LAYOUT)
+
+
+def test_two_valid_pool_groups_differing_in_unchecked_bytes_are_ambiguous() -> None:
+    pools = example_pools()
+    flagged = name_pools_bytes(
+        ["Alex"], ["Example"], ["Exo"], signature=with_flag_bytes(NAME_POOL_SIGNATURE, 3)
+    )
+    with pytest.raises(ReaderCheckError, match="not unique"):
+        locate(wrapped(pools + flagged), REGISTERED_LAYOUT)
+
+
 @pytest.mark.parametrize("words", [(7168, 1792, 2048), (7168, 1793, 14336), (0, 0, 0)])
 def test_capacity_words_must_scale_together(words: tuple[int, int, int]) -> None:
     signature = struct.pack("<6I", 46421, 0, *words, 0)

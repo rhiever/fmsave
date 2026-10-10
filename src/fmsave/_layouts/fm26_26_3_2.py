@@ -264,6 +264,8 @@ NAME_POOLS = NamePoolLayout(
     # original sample-based ceiling of 64 bytes (Refs #14).
     max_name_bytes=1024,
     max_signature_scale=1024,
+    # Zero in most saves; one 26.3.2 career save stores 03 03 03 03 here (Refs #20).
+    unchecked_signature_bytes=(5, 6, 7, 8),
 )
 
 CLUB_RECORDS = ClubRecordLayout(
@@ -328,7 +330,9 @@ PLAYER_RECORDS = PlayerRecordLayout(
     # and the complete rating/attribute structure must still match a player.
     allocated_uid_minimum=2_000_000_000,
     object_kind_offset=-7,
-    player_kind=2,
+    # Ordinary player records carry kind 2 or 3 (96,392 of 5.2 million across the corpus are
+    # 3), so an allocated player can carry either (Refs #20).
+    player_kinds=(2, 3),
     home_reputation_offset=-6,
     current_reputation_offset=-4,
     world_reputation_offset=-2,
@@ -1011,10 +1015,10 @@ STADIUM_TABLE = StadiumTableLayout(
 )
 
 # A stage row is 33 bytes. The table starts 0.65 to 0.94 MB from the end of `game_db` on the
-# corpus saves, so the last 2 MB is searched first; one community career started on an older
-# build has 4.1 MB after its table. Another continued career has 20.7 MB after the table, so
-# the window may double to 32 MiB before the table counts as missing. 200 rows is far longer
-# than any run of look-alike bytes seen before it.
+# corpus saves, so the last 2 MB is searched first. What follows the table grows as a career
+# goes on (4.1, 20.7 and 34.2 MB on longer careers, Refs #5 and #20), so no fixed window
+# holds every save: the window keeps doubling to the start of `game_db`. 200 rows is far
+# longer than any run of look-alike bytes seen before it, and the stage gates check the rows.
 STAGE_TABLE = StageTableLayout(
     row_bytes=33,
     previous_stage_id_offset=0,
@@ -1031,7 +1035,7 @@ STAGE_TABLE = StageTableLayout(
     # competitions a save holds; this limit rejects it without touching a real competition.
     competition_id_limit=1_000_000,
     search_bytes=2_000_000,
-    max_search_bytes=32 * 1024 * 1024,
+    max_search_bytes=None,
     chain_rows=200,
     resynchronisation_bytes=4_096,
 )
@@ -1276,9 +1280,9 @@ GATE_BOUNDS = GateBounds(
     # The last word is the missing value on about 98.4% of rows and carries a small number on
     # the rest, so this is a shape check rather than a sentinel.
     stage_trailing_sentinel=(0.95, None),
-    # As far back as the stage table search reaches (see STAGE_TABLE): 0.63 to 0.92 MiB on the
-    # corpus saves, 3.94 MiB on one older-build career, and 20.7 MB on another.
-    stage_table_tail_bytes=(None, 32 * 1024 * 1024),
+    # Reported, not bounded: the bytes after the table grow with the career (see STAGE_TABLE),
+    # and the other stage gates judge the rows themselves.
+    stage_table_tail_bytes=(None, None),
     competitions_minimum=(50, None),
     # The id-pair records name 91.47% to 91.52% of the stage table's competitions across two
     # careers and a live save, and no save leaves a single competition in conflict. The share
@@ -1573,9 +1577,10 @@ GATE_BOUNDS = GateBounds(
     # byte or four bytes late it names nobody at all, so only equality passes.
     tactics_manager_selector_matches=(1, 1),
     # Every team of the managed club has exactly one block on every save measured, and the
-    # header claims that same number. Reading the count four bytes late gives a
-    # team id instead, and one byte late gives 1,610,612,736, so the header agreement fails on
-    # its own; a team-id locator read one byte late matches more places than there are teams
+    # header claims as many blocks as the section stores: the club's teams, plus any national
+    # teams the manager also runs (7 on one career, Refs #20). Reading the count four bytes
+    # late gives a team id instead, and one byte late gives 1,610,612,736, so the header
+    # agreement fails on its own; a team-id locator read one byte late matches more places than there are teams
     # over the same team ids, which leaves a team without its single block.
     tactics_team_blocks_match_club=(1.0, None),
     # Every user tactic record walks its 22 slot blocks, and the eleven

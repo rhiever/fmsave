@@ -2092,8 +2092,10 @@ def evaluate_tactics(
     `tactics_team_blocks_match_club` carries the header's own claim as well as the blocks
     found, because the two fail differently: a team-id locator that has moved leaves a team
     without its single block, while a header read from the wrong offset claims a number of
-    blocks that is not the managed club's team count at all. A header that disagrees scores
-    zero here whatever the locator found.
+    blocks that is not the number the section stores at all. The header counts every team the
+    manager runs, national teams included, so it is compared with the blocks found by
+    structure and must cover at least the club's teams. A header that disagrees scores zero
+    here whatever the locator found.
 
     The record-count share checks the team's declared count independently.
     The two walk shares are judged on all stored tactic records. They are excused when the
@@ -2104,7 +2106,10 @@ def evaluate_tactics(
     """
     applied = _applies(bounds, game_db_bytes) and stats.managed_club_exists
     slots_applied = applied and (stats.tactic_blocks > 0 or stats.stored_tactics > 0)
-    blocks_found = stats.blocks_found if stats.header_blocks == stats.club_team_count else 0
+    header_agrees = (
+        stats.header_blocks == stats.stored_blocks and stats.header_blocks >= stats.club_team_count
+    )
+    blocks_found = stats.blocks_found if header_agrees else 0
     return (
         _gate(
             "tactics_manager_selector_matches",
@@ -2189,6 +2194,7 @@ def check_tactics(stats: TacticStats, bounds: GateBounds, game_db_bytes: int) ->
         FrozenMapping(
             {
                 "preset_tactics": stats.preset_tactics,
+                "non_club_blocks": stats.stored_blocks - stats.blocks_found,
                 "tactic_blocks_count_mismatched": (
                     stats.tactic_blocks - stats.tactic_blocks_count_matching
                 ),

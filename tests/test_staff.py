@@ -63,7 +63,11 @@ from tests.fixtures.game_db import (
     person_block_bytes,
     player_record_bytes,
 )
-from tests.fixtures.staff import CAREER_STAFF_PREFERENCES, staff_object_bytes
+from tests.fixtures.staff import (
+    CAREER_STAFF_CODES,
+    CAREER_STAFF_PREFERENCES,
+    staff_object_bytes,
+)
 
 BOUNDS = find_layout(GateBounds, GAME_DB_SECTION, GAME_DB_SCHEMA, BUILD_STRING).layout
 PLAYER_LAYOUT = find_layout(
@@ -425,13 +429,19 @@ def test_a_decoy_of_another_object_kind_is_ignored(tmp_path: Path) -> None:
     assert staff_check.anomalies["ambiguous_headers"] == 0
 
 
-def test_allocated_staff_header_recovers_its_contract_name_and_ability(tmp_path: Path) -> None:
+# The code set is the codes observed, not a closed set: ordinary staff carry codes outside it,
+# so an allocated header with one is still a person's (Refs #20).
+@pytest.mark.parametrize("codes", [CAREER_STAFF_CODES, (4, 29, 69, 4, 22, 27, 22, 27), (0,) * 8])
+def test_allocated_staff_header_recovers_its_contract_name_and_ability(
+    tmp_path: Path, codes: Sequence[int]
+) -> None:
     record, _tag = _far_contract_record()
     person = staff_object_bytes(
         person_id=FAR_CONTRACT_PERSON_ID,
         uid=2_000_000_123,
         identity_word=810_123,
         contract=record,
+        codes=codes,
         person_block=person_block_bytes(
             first_name_id=0,
             surname_id=1,
@@ -499,7 +509,6 @@ def test_high_person_selector_contract_is_discovered(tmp_path: Path) -> None:
         {"identity_word": 0xFFFFFFFF},
         {"sentinel": 0},
         {"current_ability": 0},
-        {"codes": (0,) * 8},
         {"preferences": (0,) * 26},
         {"block_40": (0,) * 26},
     ],

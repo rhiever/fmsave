@@ -361,15 +361,19 @@ def test_doubled_uid_mismatch_is_rejected() -> None:
     assert 900006 not in player_records.uids
 
 
+# Ordinary player records carry kind 2 or 3, so an allocated one can carry either (Refs #20).
+@pytest.mark.parametrize("object_kind", [2, 3])
 @pytest.mark.parametrize("marker", [bytes.fromhex("01006c07"), bytes(4)])
-def test_allocated_player_header_with_distinct_identity_word_is_decoded(marker: bytes) -> None:
+def test_allocated_player_header_with_distinct_identity_word_is_decoded(
+    marker: bytes, object_kind: int
+) -> None:
     record = player_record_bytes(
         **{
             **PLAYER_A,
             "pindex": 30,
             "uid": 2_000_000_123,
             "identity_word": 810_123,
-            "object_kind": 2,
+            "object_kind": object_kind,
             "marker": marker,
         }
     )
@@ -385,7 +389,7 @@ def test_allocated_player_header_with_distinct_identity_word_is_decoded(marker: 
     "override",
     [
         {"object_kind": 1},
-        {"object_kind": 3},
+        {"object_kind": 4},
         {"identity_word": 0},
         {"identity_word": 0xFFFFFFFF},
         {"current_ability": 201},

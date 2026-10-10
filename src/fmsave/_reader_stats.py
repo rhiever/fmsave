@@ -748,8 +748,10 @@ class TacticStats:
     read and both tables are empty.
 
     `club_team_count` is how many teams the managed club fields, `header_blocks` the number of
-    blocks the section header claims and `blocks_found` how many teams the section stores
-    exactly one block for. `selector_matches` is whether the section header names the same
+    blocks the section header claims, `stored_blocks` how many blocks the section holds when
+    found by structure (national teams the manager also runs included; 0 when the first is
+    not where the header ends) and `blocks_found` how many teams the section stores exactly
+    one block for. `selector_matches` is whether the section header names the same
     human manager as the `humans` section.
 
     `selection_selectors` counts every player selector the blocks store, over the selection
@@ -775,6 +777,7 @@ class TacticStats:
     managed_club_exists: bool
     club_team_count: int
     header_blocks: int
+    stored_blocks: int
     blocks_found: int
     selector_matches: bool
     selection_selectors: int
