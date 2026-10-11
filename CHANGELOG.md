@@ -2,7 +2,13 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.10] - 2026-10-10
+
+### Fixed
+
+- `finances()`, `sponsorships()` and `facilities()` no longer give a club the data of a club record stored after it that the club scan does not accept, such as a club playing in another nation's league. Such data was reported under the wrong club, or failed `finance_clubs_with_two_chains` when both clubs stored a series. Other readers are unaffected and no slower.
+
+Refs #20.
 
 ## [0.5.9] - 2026-10-10
 

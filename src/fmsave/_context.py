@@ -28,7 +28,13 @@ from fmsave._layouts import NamePoolLayout, PlayerRecordLayout, find_layout
 from fmsave.models.meta import SaveInfo
 from fmsave.name_maps import _EMPTY_COMPETITION_NAMES  # pyright: ignore[reportPrivateUsage]
 from fmsave.readers._common import GAME_DB_SECTION, SPAN_REGION
-from fmsave.readers.clubs import ClubIndex, find_club_layouts, read_club_index
+from fmsave.readers.clubs import (
+    ClubIndex,
+    ClubRecordSpan,
+    find_club_layouts,
+    own_record_spans,
+    read_club_index,
+)
 from fmsave.readers.competitions import (
     CompetitionIndex,
     build_competition_index,
@@ -52,6 +58,7 @@ from fmsave.readers.stadiums import StadiumIndex, find_stadium_layout, read_stad
 from fmsave.readers.stages import StageIndex, find_stage_layout, read_stage_index
 
 CLUB_INDEX_CACHE_KEY = "club_index"
+OWN_CLUB_RECORD_SPANS_CACHE_KEY = "own_club_record_spans"
 STAGE_INDEX_CACHE_KEY = "stage_index"
 COMPETITION_INDEX_CACHE_KEY = "competition_index"
 STADIUM_INDEX_CACHE_KEY = "stadium_index"
@@ -188,6 +195,23 @@ class SaveContext:
         layouts = find_club_layouts(save_info.section_schemas.get(GAME_DB_SECTION), save_info.build)
         with self.section(GAME_DB_SECTION) as game_db:
             return read_club_index(game_db, layouts, save_info.file_name)
+
+    def own_club_record_spans(self) -> tuple[ClubRecordSpan, ...]:
+        """The club index's record spans cut short at records the club scan did not accept,
+        found once and then cached, for the readers that search a club's own data.
+
+        Raises:
+            SaveClosedError: The context is closed.
+            ReaderCheckError: As for `club_index`.
+        """
+        return self.cached(OWN_CLUB_RECORD_SPANS_CACHE_KEY, self._build_own_club_record_spans)
+
+    def _build_own_club_record_spans(self) -> tuple[ClubRecordSpan, ...]:
+        save_info = self._info
+        layouts = find_club_layouts(save_info.section_schemas.get(GAME_DB_SECTION), save_info.build)
+        club_index = self.club_index()
+        with self.section(GAME_DB_SECTION) as game_db:
+            return own_record_spans(game_db, club_index, layouts.records)
 
     def name_pools(self) -> NamePools:
         """The three name pools, read from `game_db` once and then cached.

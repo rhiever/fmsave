@@ -13,12 +13,14 @@ fault, and it is the same population `finances()` covers.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from fmsave._layouts import FacilityByteLayout, find_layout
 from fmsave._reader_stats import FacilityStats
 from fmsave.models.common import CodedValue
 from fmsave.models.facilities import ClubFacilities, CorporateFacilities
 from fmsave.readers._common import GAME_DB_SECTION
-from fmsave.readers.clubs import ClubIndex
+from fmsave.readers.clubs import ClubIndex, ClubRecordSpan
 from fmsave.readers.finances import FinanceLayouts, locate_finance_chain, searched_record
 
 
@@ -30,6 +32,7 @@ def find_facility_layout(game_db_schema: int | None, build: str) -> FacilityByte
 def read_club_facilities(
     game_db: bytes,
     club_index: ClubIndex,
+    record_spans: Sequence[ClubRecordSpan],
     finance_layouts: FinanceLayouts,
     layout: FacilityByteLayout,
     managed_club_exists: bool,
@@ -46,12 +49,15 @@ def read_club_facilities(
     that never filled the block the rating sits in: it is returned the same way, as a zero
     labelled UNKNOWN, but counted as unset rather than out of range, so the checks judge the
     offset on the clubs that do store a rating.
+
+    `record_spans` are the spans the finance chains are searched in, as for
+    `read_club_finances`.
     """
     chain_layout = finance_layouts.chains
     offset_after_chain = layout.offset_after_chain
     lowest_value, highest_value = layout.value_range
     unset_margin = layout.unset_margin
-    span_by_club_uid = {span.club_uid: span for span in club_index.record_spans}
+    span_by_club_uid = {span.club_uid: span for span in record_spans}
     rows: list[ClubFacilities] = []
     clubs_with_series = 0
     in_range = 0

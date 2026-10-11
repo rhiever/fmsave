@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import functools
 import struct
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -357,6 +357,7 @@ def month_labels(clock: date, row_count: int, month_lag: int) -> tuple[date, ...
 def read_club_finances(
     game_db: bytes,
     club_index: ClubIndex,
+    record_spans: Sequence[ClubRecordSpan],
     clock: date,
     layouts: FinanceLayouts,
     managed_club_exists: bool,
@@ -369,6 +370,10 @@ def read_club_finances(
     empty table. Nothing here is a structural error, so this takes no file name: every value it
     reads lies inside a record the club scan has already accepted, and a record that holds no
     chain is a fact about the save rather than a layout that has moved.
+
+    Each club's chain is searched in its span from `record_spans`, which `own_record_spans`
+    cuts short at any record the club scan did not accept, so a club never takes the series
+    of a rejected club stored after it.
     """
     chain_layout = layouts.chains
     reader = _finance_row_reader(chain_layout)
@@ -378,7 +383,7 @@ def read_club_finances(
     row_bytes = chain_layout.row_bytes
     month_lag = chain_layout.month_lag
     sponsor_layout = layouts.sponsors
-    span_by_club_uid = {span.club_uid: span for span in club_index.record_spans}
+    span_by_club_uid = {span.club_uid: span for span in record_spans}
 
     months: list[FinanceMonth] = []
     sponsorships: list[Sponsorship] = []

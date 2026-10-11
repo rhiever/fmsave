@@ -15,7 +15,7 @@ from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import FacilityStats
 from fmsave._save import FACILITIES_TABLE_CACHE_KEY
 from fmsave.readers._common import GAME_DB_SECTION
-from fmsave.readers.clubs import find_club_layouts, read_club_index
+from fmsave.readers.clubs import find_club_layouts, own_record_spans, read_club_index
 from fmsave.readers.facilities import find_facility_layout, read_club_facilities
 from fmsave.readers.finances import find_finance_layouts
 from tests.fixtures.career import (
@@ -34,6 +34,7 @@ FILE_NAME = "career example.fm"
 BOUNDS = find_layout(GateBounds, GAME_DB_SECTION, GAME_DB_SCHEMA, BUILD_STRING).layout
 FINANCE_LAYOUTS = find_finance_layouts(GAME_DB_SCHEMA, BUILD_STRING)
 FACILITY_LAYOUT = find_facility_layout(GAME_DB_SCHEMA, BUILD_STRING)
+CLUB_LAYOUTS = find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING)
 FULL_SIZE_GAME_DB_BYTES = 100 * 1024 * 1024
 EXAMPLE_CLUB_UID = 4001
 # The fifteen ratings a club's own screen named, with the word it displayed for each.
@@ -107,11 +108,14 @@ def one_club_facilities(facility_byte: int) -> tuple[tuple[ClubFacilities, ...],
 
 
 def facilities_of(game_db: bytes) -> tuple[tuple[ClubFacilities, ...], FacilityStats]:
-    club_index = read_club_index(
-        game_db, find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING), FILE_NAME
-    )
+    club_index = read_club_index(game_db, CLUB_LAYOUTS, FILE_NAME)
     return read_club_facilities(
-        game_db, club_index, FINANCE_LAYOUTS, FACILITY_LAYOUT, managed_club_exists=True
+        game_db,
+        club_index,
+        own_record_spans(game_db, club_index, CLUB_LAYOUTS.records),
+        FINANCE_LAYOUTS,
+        FACILITY_LAYOUT,
+        managed_club_exists=True,
     )
 
 
@@ -227,11 +231,14 @@ def test_a_club_without_a_finance_chain_has_no_row() -> None:
         trailing_bytes=bytes(2_000),
     )
     game_db = game_db_body([record], [], gap_bytes=256)
-    club_index = read_club_index(
-        game_db, find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING), FILE_NAME
-    )
+    club_index = read_club_index(game_db, CLUB_LAYOUTS, FILE_NAME)
     rows, stats = read_club_facilities(
-        game_db, club_index, FINANCE_LAYOUTS, FACILITY_LAYOUT, managed_club_exists=True
+        game_db,
+        club_index,
+        own_record_spans(game_db, club_index, CLUB_LAYOUTS.records),
+        FINANCE_LAYOUTS,
+        FACILITY_LAYOUT,
+        managed_club_exists=True,
     )
     assert rows == ()
     assert stats == FacilityStats(clubs_with_series=0, rows=0, in_range=0, managed_club_exists=True)

@@ -1526,7 +1526,12 @@ class Save:
             managed_clubs = self.managed_clubs()
             club_index = context.club_index()
             months, sponsorships, finance_stats = read_club_finances(
-                game_db, club_index, clock, layouts, len(managed_clubs) > 0
+                game_db,
+                club_index,
+                context.own_club_record_spans(),
+                clock,
+                layouts,
+                len(managed_clubs) > 0,
             )
             game_db_length = len(game_db)
         # Both checks run before either table is built: when one fails, nothing is cached and
@@ -1593,7 +1598,12 @@ class Save:
             managed_clubs = self.managed_clubs()
             club_index = context.club_index()
             facilities, facility_stats = read_club_facilities(
-                game_db, club_index, finance_layouts, layout, len(managed_clubs) > 0
+                game_db,
+                club_index,
+                context.own_club_record_spans(),
+                finance_layouts,
+                layout,
+                len(managed_clubs) > 0,
             )
             game_db_length = len(game_db)
         facility_check = _checks.check_facilities(facility_stats, gate_bounds, game_db_length)

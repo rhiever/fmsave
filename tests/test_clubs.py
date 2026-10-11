@@ -23,6 +23,7 @@ from fmsave.readers.clubs import (
     ClubIndex,
     ClubLayouts,
     find_club_layouts,
+    own_record_spans,
     read_club_index,
     read_stub_team_ids,
 )
@@ -284,6 +285,74 @@ def test_club_with_fa_nation_zero_is_not_accepted() -> None:
     club_index = read_index(example_game_db(records_with_rovers_after_northbridge(rovers_record)))
     assert club_uids(club_index) == [5001, 5002, 5004]
     assert 70009 not in club_index.team_to_club
+
+
+# Rovers with no FA nation: the scan rejects it, but its header is a club record's all the same.
+UNACCEPTED_ROVERS = replace(ROVERS, fa_nation_id=0).record_bytes()
+
+
+def northbridge_ends(rovers_record: bytes) -> tuple[int, int, int]:
+    """Where Rovers starts, then where Northbridge's index span and its own span end."""
+    game_db = example_game_db(records_with_rovers_after_northbridge(rovers_record))
+    club_index = read_index(game_db)
+    own_spans = own_record_spans(game_db, club_index, registered_club_layouts().records)
+    northbridge = club_index.record_spans[0]
+    assert own_spans[0].record_start == northbridge.record_start
+    rovers_start = northbridge.record_start + len(NORTHBRIDGE.record_bytes())
+    return rovers_start, northbridge.record_end, own_spans[0].record_end
+
+
+def test_a_record_the_scan_does_not_accept_ends_the_own_span_before_it() -> None:
+    rovers_start, index_end, own_end = northbridge_ends(UNACCEPTED_ROVERS)
+    assert own_end == rovers_start
+    assert index_end == rovers_start + len(UNACCEPTED_ROVERS)
+
+
+def test_an_accepted_record_ends_both_spans_before_it() -> None:
+    rovers_start, index_end, own_end = northbridge_ends(ROVERS.record_bytes())
+    assert index_end == own_end == rovers_start
+
+
+def test_a_record_the_scan_does_not_accept_after_the_last_one_ends_its_own_span() -> None:
+    club_records = [*(club.record_bytes() for club in EXAMPLE_CLUBS), UNACCEPTED_ROVERS]
+    game_db = example_game_db(club_records)
+    club_index = read_index(game_db)
+    athletic = own_record_spans(game_db, club_index, registered_club_layouts().records)[-1]
+    assert athletic.record_end == athletic.record_start + len(ATHLETIC.record_bytes())
+    assert club_index.record_spans[-1].record_end > athletic.record_end
+
+
+def test_own_spans_leave_the_club_index_untouched() -> None:
+    game_db = example_game_db(records_with_rovers_after_northbridge(UNACCEPTED_ROVERS))
+    club_index = read_index(game_db)
+    own_spans = own_record_spans(game_db, club_index, registered_club_layouts().records)
+    assert [span.club_uid for span in own_spans] == [5001, 5002, 5004]
+    assert [span.team_list_end for span in own_spans] == [
+        span.team_list_end for span in club_index.record_spans
+    ]
+    assert club_uids(club_index) == [5001, 5002, 5004]
+
+
+@pytest.mark.parametrize(
+    "rovers_record",
+    [
+        pytest.param(
+            replace(ROVERS, fa_nation_id=0, club_index=1).record_bytes(),
+            id="club index an accepted record holds",
+        ),
+        pytest.param(
+            replace(ROVERS, fa_nation_id=0, name="Example\x07Rovers").record_bytes(),
+            id="name that is not printable",
+        ),
+        pytest.param(
+            UNACCEPTED_ROVERS[:12] + b"\x01" + UNACCEPTED_ROVERS[13:],
+            id="nonzero byte where a header stores zero",
+        ),
+    ],
+)
+def test_bytes_that_are_not_a_record_header_do_not_end_a_span(rovers_record: bytes) -> None:
+    _rovers_start, index_end, own_end = northbridge_ends(rovers_record)
+    assert own_end == index_end
 
 
 def patched(record: bytes, offset: int, replacement: bytes) -> bytes:

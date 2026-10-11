@@ -23,7 +23,13 @@ from fmsave._layouts import FULL_SAVE_MINIMUM_GAME_DB_BYTES, GateBounds, find_la
 from fmsave._reader_stats import FinanceStats
 from fmsave._save import FINANCES_TABLE_CACHE_KEY, SPONSORSHIPS_TABLE_CACHE_KEY
 from fmsave.readers._common import GAME_DB_SECTION
-from fmsave.readers.clubs import ClubRecordSpan, find_club_layouts, read_club_index
+from fmsave.readers.clubs import (
+    ClubIndex,
+    ClubRecordSpan,
+    find_club_layouts,
+    own_record_spans,
+    read_club_index,
+)
 from fmsave.readers.finances import (
     find_finance_layouts,
     locate_finance_chain,
@@ -119,7 +125,9 @@ def career_finance_stats(career_save: fmsave.Save) -> FinanceStats:
     context = career_save._context
     with context.section(GAME_DB_SECTION) as game_db:
         club_index = context.club_index()
-        _months, _sponsors, stats = read_club_finances(game_db, club_index, CLOCK, LAYOUTS, True)
+        _months, _sponsors, stats = read_club_finances(
+            game_db, club_index, own_spans(game_db, club_index), CLOCK, LAYOUTS, True
+        )
     return stats
 
 
@@ -186,6 +194,12 @@ def test_a_clock_on_a_months_last_day_already_holds_that_months_row(
 def test_a_clock_before_a_months_last_day_holds_the_month_before(clock: date) -> None:
     assert month_labels(clock, 1, 1) == (
         date(clock.year - (clock.month == 1), (clock.month - 2) % 12 + 1, 1),
+    )
+
+
+def own_spans(game_db: bytes, club_index: ClubIndex) -> tuple[ClubRecordSpan, ...]:
+    return own_record_spans(
+        game_db, club_index, find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING).records
     )
 
 
@@ -350,6 +364,45 @@ def one_club_game_db(trailing_bytes: bytes) -> bytes:
     return game_db_body([record], [], gap_bytes=256)
 
 
+def test_a_series_stored_by_a_record_the_club_scan_does_not_accept_is_nobodys() -> None:
+    finance_bytes = club_finance_bytes(rows=career_finance_rows(), sponsors=(), facility_byte=17)
+    northbridge = club_record_bytes(
+        club_index=1,
+        uid=EXAMPLE_CLUB_UID,
+        nation_id=3,
+        fa_nation_id=3,
+        city_id=77,
+        name="Northbridge FC",
+        short_name="Northbridge",
+        team_ids=(70001,),
+        trailing_bytes=bytes(len(finance_bytes)),
+    )
+    # No FA nation, so the scan does not accept this club, and its series must not become
+    # Northbridge's just because Northbridge is the accepted record in front of it.
+    unaccepted = club_record_bytes(
+        club_index=2,
+        uid=EXAMPLE_CLUB_UID + 1,
+        nation_id=3,
+        fa_nation_id=0,
+        city_id=78,
+        name="Example Rovers",
+        short_name="Rovers",
+        team_ids=(70002,),
+        trailing_bytes=finance_bytes,
+    )
+    game_db = game_db_body([northbridge, unaccepted], [], gap_bytes=256)
+    club_index = read_club_index(
+        game_db, find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING), FILE_NAME
+    )
+    months, sponsors, stats = read_club_finances(
+        game_db, club_index, own_spans(game_db, club_index), CLOCK, LAYOUTS, True
+    )
+    assert [club.uid for club in club_index.clubs] == [EXAMPLE_CLUB_UID]
+    assert months == ()
+    assert sponsors == ()
+    assert stats.clubs_with_series == 0
+
+
 def test_a_club_with_no_sponsor_run_still_yields_its_months() -> None:
     game_db = one_club_game_db(
         club_finance_bytes(rows=career_finance_rows(), sponsors=(), facility_byte=17)
@@ -357,7 +410,9 @@ def test_a_club_with_no_sponsor_run_still_yields_its_months() -> None:
     club_index = read_club_index(
         game_db, find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING), FILE_NAME
     )
-    months, sponsors, stats = read_club_finances(game_db, club_index, CLOCK, LAYOUTS, True)
+    months, sponsors, stats = read_club_finances(
+        game_db, club_index, own_spans(game_db, club_index), CLOCK, LAYOUTS, True
+    )
     assert len(months) == 3
     assert sponsors == ()
     assert stats.clubs_with_series == 1
@@ -375,7 +430,9 @@ def _series_stats(balances: Sequence[int]) -> FinanceStats:
     club_index = read_club_index(
         game_db, find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING), FILE_NAME
     )
-    _months, _sponsors, stats = read_club_finances(game_db, club_index, CLOCK, LAYOUTS, True)
+    _months, _sponsors, stats = read_club_finances(
+        game_db, club_index, own_spans(game_db, club_index), CLOCK, LAYOUTS, True
+    )
     return stats
 
 
@@ -766,7 +823,9 @@ def test_a_club_without_finance_bytes_yields_no_rows_and_is_not_an_error() -> No
     club_index = read_club_index(
         game_db, find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING), FILE_NAME
     )
-    months, sponsors, stats = read_club_finances(game_db, club_index, CLOCK, LAYOUTS, False)
+    months, sponsors, stats = read_club_finances(
+        game_db, club_index, own_spans(game_db, club_index), CLOCK, LAYOUTS, False
+    )
     assert months == ()
     assert sponsors == ()
     assert stats.clubs_with_series == 0
@@ -884,7 +943,9 @@ def test_empty_and_invalid_primary_lists_have_distinct_coverage_and_anomalies(em
         )
     )
     index = read_club_index(game_db, find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING), FILE_NAME)
-    _months, sponsors, stats = read_club_finances(game_db, index, CLOCK, LAYOUTS, True)
+    _months, sponsors, stats = read_club_finances(
+        game_db, index, own_spans(game_db, index), CLOCK, LAYOUTS, True
+    )
     assert sponsors == ()
     assert stats.clubs_with_sponsors == 0
     assert stats.clubs_with_empty_sponsor_lists == int(empty)
@@ -912,7 +973,9 @@ def test_an_owned_list_decodes_a_historical_ended_sponsorship() -> None:
         club_finance_bytes(rows=career_finance_rows(), sponsors=(modern_row, old_row, modern_row))
     )
     index = read_club_index(game_db, find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING), FILE_NAME)
-    _months, sponsors, stats = read_club_finances(game_db, index, CLOCK, LAYOUTS, True)
+    _months, sponsors, stats = read_club_finances(
+        game_db, index, own_spans(game_db, index), CLOCK, LAYOUTS, True
+    )
     assert len(sponsors) == 3
     assert sponsors[1].start == date(1985, 7, 1)
     assert sponsors[1].end == date(2021, 6, 30)

@@ -8,11 +8,12 @@ a private index that other readers use to join teams to clubs.
 
 from __future__ import annotations
 
+import bisect
 import functools
 import re
 import struct
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from statistics import median_low
 
 from fmsave._layouts import ClubRecordLayout, ClubStatusLayout, TeamListLayout, find_layout
@@ -343,8 +344,33 @@ def _accepted_record(
     stored_uid: int = read_uint32(game_db, record_start + layout.uid_offset)[0]
     if read_uint32(game_db, record_start + layout.uid_copy_offset)[0] != stored_uid:
         return None
+    names = _record_names(game_db, record_start, layout, buffer_length)
+    if names is None:
+        return None
+    name, short_name = names
+    stored_club_index: int = read_uint32(game_db, record_start + layout.club_index_offset)[0]
+    stored_city_id: int = read_uint32(game_db, record_start + layout.city_offset)[0]
+    return _ClubRecord(
+        record_start=record_start,
+        club_index=stored_club_index + 1,
+        uid=stored_uid + 1,
+        nation_id=nation_id,
+        fa_nation_id=fa_nation_id,
+        city_id=None if stored_city_id == MISSING_REFERENCE else stored_city_id,
+        name=name,
+        short_name=short_name,
+    )
+
+
+def _record_names(
+    game_db: bytes, record_start: int, layout: ClubRecordLayout, buffer_length: int
+) -> tuple[str, str] | None:
+    """The long and short name of a record, each 1 to `max_name_bytes` bytes of UTF-8."""
+    read_uint32 = _UINT32.unpack_from
     max_name_bytes = layout.max_name_bytes
     long_name_length_at = record_start + layout.long_name_offset
+    if long_name_length_at + _UINT32.size > buffer_length:
+        return None
     long_name_length: int = read_uint32(game_db, long_name_length_at)[0]
     if not 1 <= long_name_length <= max_name_bytes:
         return None
@@ -364,18 +390,102 @@ def _accepted_record(
         short_name = game_db[short_name_start:short_name_end].decode("utf-8")
     except UnicodeDecodeError:
         return None
-    stored_club_index: int = read_uint32(game_db, record_start + layout.club_index_offset)[0]
-    stored_city_id: int = read_uint32(game_db, record_start + layout.city_offset)[0]
-    return _ClubRecord(
-        record_start=record_start,
-        club_index=stored_club_index + 1,
-        uid=stored_uid + 1,
-        nation_id=nation_id,
-        fa_nation_id=fa_nation_id,
-        city_id=None if stored_city_id == MISSING_REFERENCE else stored_city_id,
-        name=name,
-        short_name=short_name,
+    return name, short_name
+
+
+def own_record_spans(
+    game_db: bytes, club_index: ClubIndex, layout: ClubRecordLayout
+) -> tuple[ClubRecordSpan, ...]:
+    """The club index's record spans, each cut short at the next record header the club scan
+    did not accept.
+
+    The index ends each record at the next accepted one, so the bytes of any record the scan
+    rejects in between, such as a club playing in another nation's league, sit inside the
+    span of the accepted club before it. A reader that searches a club's own data, as the
+    finance chain locator does, uses these spans so that it never takes another club's data
+    for its own. Finding those headers costs a pass over the club records, so only the readers
+    that need it pay for it.
+    """
+    spans = club_index.record_spans
+    unaccepted_starts = _unaccepted_record_starts(
+        game_db,
+        frozenset(span.record_start for span in spans),
+        frozenset(club_index.uid_by_club_index),
+        spans[0].record_start,
+        spans[-1].record_end,
+        layout,
     )
+    return tuple(
+        replace(
+            span,
+            record_end=_next_start_after(unaccepted_starts, span.record_start, span.record_end),
+        )
+        for span in spans
+    )
+
+
+@functools.cache
+def _name_length_pattern(layout: ClubRecordLayout) -> re.Pattern[bytes]:
+    """A u32 name length of 1 to `max_name_bytes`, as a header stores its long name's length.
+
+    Matches never overlap, since each is a nonzero byte and three zeros, so a scan with this
+    pattern visits every such length once.
+
+    Raises:
+        ValueError: `max_name_bytes` does not fit in the length's low byte.
+    """
+    if not 1 <= layout.max_name_bytes <= 0xFF:
+        raise ValueError(f"max_name_bytes {layout.max_name_bytes} must be 1 to 255")
+    highest_length = re.escape(bytes((layout.max_name_bytes,)))
+    return re.compile(b"[\\x01-%b]\\x00\\x00\\x00" % highest_length)
+
+
+def _unaccepted_record_starts(
+    game_db: bytes,
+    accepted_starts: frozenset[int],
+    accepted_club_indexes: frozenset[int],
+    first_start: int,
+    scan_end: int,
+    layout: ClubRecordLayout,
+) -> list[int]:
+    """The starts of the club records the scan did not accept, after `first_start` and before
+    `scan_end`, in file order.
+
+    These headers are told by shape alone: the zero byte, then a long and a short name, each
+    length-prefixed and 1 to `max_name_bytes` bytes of printable UTF-8. No nation, anchor or
+    uid copy is checked, since those are what the scan rejects these records for: clubs playing
+    in another nation's league, clubs with no nation, and clubs created during a career. A
+    header naming a club index an accepted record holds is not a record of its own.
+    """
+    buffer_length = len(game_db)
+    long_name_offset = layout.long_name_offset
+    zero_byte_offset = layout.zero_byte_offset
+    search_end = min(scan_end + long_name_offset + _UINT32.size, buffer_length)
+    starts: list[int] = []
+    for match in _name_length_pattern(layout).finditer(
+        game_db, first_start + 1 + long_name_offset, search_end
+    ):
+        record_start = match.start() - long_name_offset
+        if record_start >= scan_end:
+            break
+        if game_db[record_start + zero_byte_offset] != 0 or record_start in accepted_starts:
+            continue
+        stored_club_index: int = _UINT32.unpack_from(
+            game_db, record_start + layout.club_index_offset
+        )[0]
+        if stored_club_index + 1 in accepted_club_indexes:
+            continue
+        names = _record_names(game_db, record_start, layout, buffer_length)
+        if names is None or not all(name.isprintable() for name in names):
+            continue
+        starts.append(record_start)
+    return starts
+
+
+def _next_start_after(starts: Sequence[int], offset: int, default: int) -> int:
+    """The first of the sorted `starts` past `offset` when it comes before `default`."""
+    position = bisect.bisect_right(starts, offset)
+    return min(starts[position], default) if position < len(starts) else default
 
 
 def _read_team_list(
