@@ -235,7 +235,7 @@ FINANCE_MONTH_VALUES = (
 )
 FINANCE_MONTH_COUNT = len(FINANCE_MONTH_VALUES)
 
-# Sponsor contracts. A is running, B ended two years before the clock and so carries no annual
+# Sponsor contracts. A is running, B ended two years before the clock and carries no annual
 # value, and C is Example Athletic's one running contract.
 SPONSOR_A = {
     "sponsor_type": 4,

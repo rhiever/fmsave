@@ -2,6 +2,14 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- The `Sponsorship.annual_value` and `sponsorships()` docs no longer say an ended contract's annual value is zero. Ended contracts often keep a non-zero annual value, so filter on `end` to find running contracts.
+
+Refs #11.
+
 ## [0.5.10] - 2026-10-10
 
 ### Fixed

@@ -25,7 +25,8 @@ only adaptability.
 
 `managed_clubs()` is the club you run, and is empty between jobs. `finances()` is monthly figures
 per club, in the save's own unit. `sponsorships()` includes historical contracts, so a row
-does not necessarily describe current income. `stadiums()` holds capacities and ownership;
+does not necessarily describe current income: an ended contract can keep a non-zero annual
+value, so filter on `end` against the save's date. `stadiums()` holds capacities and ownership;
 names are available for only some grounds.
 
 Club data still has limits. The meaning of a zero corporate-facilities rating and some
