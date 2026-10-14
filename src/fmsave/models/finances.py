@@ -92,9 +92,12 @@ class Sponsorship:
         kind: What kind of sponsorship it is; every code is UNKNOWN (unconfirmed).
         start: The day the contract starts.
         end: The day it ends.
-        total_value: The contract's whole value, which is the annual value times its whole
-            years on about 19 contracts in 20.
-        annual_value: What it pays a year; zero on a contract that has ended.
+        total_value: The contract's whole value. On most running contracts it is the annual
+            value times the contract's whole years.
+        annual_value: What a running contract pays a year. A contract that has ended can
+            still carry a non-zero annual value, often equal to its total value, so neither a
+            zero nor a non-zero value says whether the contract is still running; compare
+            `end` with the save's date for that.
         unknown: Numeric fields with no known meaning (unconfirmed).
     """
 
