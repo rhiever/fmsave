@@ -207,6 +207,22 @@ def test_cross_border_stub_club_has_no_reputation() -> None:
     assert southport.teams == (Team(70003, 0, 5002, False),)
 
 
+@pytest.mark.parametrize("additional_nation", [4, 5])
+def test_cross_border_club_can_store_distinct_nation_references(additional_nation: int) -> None:
+    record = patched(SOUTHPORT.record_bytes(), 25, struct.pack("<I", additional_nation))
+    index = read_index(
+        example_game_db([NORTHBRIDGE.record_bytes(), record, ATHLETIC.record_bytes()])
+    )
+    assert club_uids(index) == [5001, 5002, 5004]
+    club = index.club_by_uid[5002]
+    assert (club.nation_id, club.fa_nation_id) == (3, 4)
+    assert club.teams == (Team(70003, 0, 5002, False),)
+    assert index.team_to_club[70003] == (5002, 0)
+    assert index.club_by_uid[5001].unique_id == 5002
+    assert index.record_spans[0].record_end == index.record_spans[1].record_start
+    assert index.club_by_uid[5004].reputation == 1200
+
+
 def test_team_ids_keep_their_stored_order() -> None:
     athletic = read_index(example_game_db()).club_by_uid[5004]
     assert athletic.teams == (
@@ -369,7 +385,9 @@ ROVERS_SHORT_NAME_TEXT_AT = 39 + 4 + len("Example Rovers") + 4
         pytest.param(12, b"\x01", id="nonzero byte before the league nation"),
         pytest.param(13, (1000).to_bytes(4, "little"), id="league nation above 999"),
         pytest.param(13, (0).to_bytes(4, "little"), id="league nation zero"),
-        pytest.param(25, (6).to_bytes(4, "little"), id="league nation copy differs"),
+        pytest.param(25, (1000).to_bytes(4, "little"), id="additional nation above 999"),
+        pytest.param(25, (0).to_bytes(4, "little"), id="additional nation zero"),
+        pytest.param(25, (0xFFFFFFFF).to_bytes(4, "little"), id="additional nation missing"),
         pytest.param(21, (1000).to_bytes(4, "little"), id="fa nation above 999"),
         pytest.param(8, (1).to_bytes(4, "little"), id="uid copy differs"),
         pytest.param(39, (0).to_bytes(4, "little"), id="empty long name"),

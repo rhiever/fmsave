@@ -336,7 +336,8 @@ def _accepted_record(
     nation_id: int = read_uint32(game_db, record_start + layout.nation_offset)[0]
     if not lowest_nation_id <= nation_id <= highest_nation_id:
         return None
-    if read_uint32(game_db, record_start + layout.nation_copy_offset)[0] != nation_id:
+    additional_nation_id: int = read_uint32(game_db, record_start + layout.nation_copy_offset)[0]
+    if not lowest_nation_id <= additional_nation_id <= highest_nation_id:
         return None
     fa_nation_id: int = read_uint32(game_db, record_start + layout.fa_nation_offset)[0]
     if not lowest_nation_id <= fa_nation_id <= highest_nation_id:

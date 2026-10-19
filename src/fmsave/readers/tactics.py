@@ -1,8 +1,9 @@
 """Walking the manager's team blocks in `tactics_man` and building the two tables from them.
 
 Most of this section is a store of line-ups for other clubs, which this reader never walks.
-What it does walk is one block per team of the managed club, found by the team's own id: the
-block holds that team's selection, its copy of every tactic the manager has, and its
+What it does walk is the stored blocks of the managed club's teams, found by team id.
+A team can have no stored block. Each block holds its team's selection, its copy of every
+tactic the manager has, and its
 set-piece routine groups.
 
 Two rules keep the walk honest. A tactic record is bounded by the **next signature**, never by
@@ -93,6 +94,9 @@ class TacticWalkCounts:
     the section header claims. `stored_blocks` is how many blocks the section holds, found by
     structure rather than by team id, which includes the blocks of any national teams the
     manager also runs; it is 0 when the first one is not where the header ends.
+    `stored_club_blocks` counts structurally located blocks naming one of the club teams.
+    A club team can have no stored block. Duplicate blocks count separately here, so the
+    team-id locator must still account for each stored block.
     `tactic_blocks` counts blocks whose stored count claims a tactic record, and
     `tactic_blocks_count_matching` those where every record the count claims was found. `preset_tactics` counts the records carrying the preset signature, which are
     decoded along with the other records in the team's declared list. `routine_blocks_complete`
@@ -102,6 +106,7 @@ class TacticWalkCounts:
     club_team_count: int
     header_blocks: int
     stored_blocks: int
+    stored_club_blocks: int
     blocks_found: int
     tactic_blocks: int
     tactic_blocks_count_matching: int
@@ -733,12 +738,22 @@ def walk_tactic_blocks(
         if routines_complete:
             routine_blocks_complete += 1
         blocks.append(RawTacticBlock(team_id, tuple(tactics), routine_names, selection.selectors))
+    stored_block_count = (
+        len(stored_starts) if stored_starts[:1] == [layout.first_block_offset] else 0
+    )
+    club_team_id_set = frozenset(club_team_ids)
+    stored_club_blocks = (
+        sum(_UINT32.unpack_from(section, start)[0] in club_team_id_set for start in stored_starts)
+        if stored_block_count
+        else 0
+    )
     counts = TacticWalkCounts(
         len(club_team_ids),
         header_blocks,
         # Counted only when the first block sits where the header ends, so a scan that has
         # drifted off the real blocks cannot agree with the header by accident.
-        len(stored_starts) if stored_starts[:1] == [layout.first_block_offset] else 0,
+        stored_block_count,
+        stored_club_blocks,
         len(blocks),
         tactic_blocks,
         tactic_blocks_count_matching,
@@ -840,6 +855,7 @@ def build_tactic_tables(
         club_team_count=counts.club_team_count,
         header_blocks=counts.header_blocks,
         stored_blocks=counts.stored_blocks,
+        stored_club_blocks=counts.stored_club_blocks,
         blocks_found=counts.blocks_found,
         selector_matches=human_selector is not None and header_selector == human_selector,
         selection_selectors=selectors,
