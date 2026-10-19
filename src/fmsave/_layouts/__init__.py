@@ -110,7 +110,8 @@ class ClubRecordLayout:
     """How to recognise club records in `game_db` and where their fields sit.
 
     A candidate record starts `anchor_offset` bytes before each `anchor` hit, and every other
-    offset counts from that start. The league nation is stored twice, as is the uid. Ranges
+    offset counts from that start. The nation reference at `nation_copy_offset` may differ
+    from both other nation references; only the uid is required to match its copy. Ranges
     are inclusive (lowest, highest). Once a record has been accepted, the scan ends at the
     first candidate `stop_gap_bytes` or more past the last accepted record start; that point
     also ends the last record.
@@ -1544,8 +1545,9 @@ class TacticsLayout:
     read by nothing: "the number of human managers" is a hypothesis with no second case to
     test, and a save with two humans is not in the corpus.
 
-    **Team blocks.** One block per team of the managed club, in ascending team id, found by
-    searching for the team's own id followed by `block_marker`; a team id those six bytes match
+    **Team blocks.** Stored blocks for teams of the managed club, in ascending team id, found
+    by searching for the team's own id followed by `block_marker`. Not every club team has a
+    stored block; a team id those six bytes match
     at several places, or none, gets no block. A block starts with that id and marker, then a
     length-prefixed selection label, then `selection_slot_count` selector words, then
     `selection_end_marker`, two selector lists, `list_item_lead_byte` and one selector,
@@ -2066,8 +2068,8 @@ class GateBounds:
     the ability block read one byte early, which the three shares beside it catch instead.
 
     Tactics: `tactics_manager_selector_matches` (1 when the section header names the same human
-    manager as `humans`), `tactics_team_blocks_match_club` (blocks found, of the managed club's
-    teams, and 0 when the header claims a different number of blocks),
+    manager as `humans`), `tactics_team_blocks_match_club` (blocks found, of structurally
+    located blocks naming managed-club teams, and 0 when the header or inventory disagrees),
     `tactic_records_count_matching` (blocks whose declared records were all found),
     `tactic_slot_walks_complete` and `tactic_oop_index_permutations` (stored tactic records whose
     22 slot blocks walked, and whose out-of-possession index bytes are a permutation, of stored

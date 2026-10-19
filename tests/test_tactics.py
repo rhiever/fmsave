@@ -109,6 +109,7 @@ def healthy_stats(**overrides: object) -> TacticStats:
         "club_team_count": 5,
         "header_blocks": 5,
         "stored_blocks": 5,
+        "stored_club_blocks": 5,
         "blocks_found": 5,
         "selector_matches": True,
         "selection_selectors": 1069,
@@ -262,6 +263,7 @@ def test_the_walk_counts_the_blocks_the_records_and_the_selectors(career_path: P
 
     assert stats.header_blocks == 2
     assert stats.stored_blocks == 2
+    assert stats.stored_club_blocks == 2
     assert stats.blocks_found == 2
     assert stats.club_team_count == 2
     assert stats.selector_matches is True
@@ -491,7 +493,10 @@ def test_user_routines_whose_tail_flags_differ_are_each_their_own_routine() -> N
     assert out_of_range_counts.routine_blocks_complete == 0
 
 
-def test_a_team_id_the_section_stores_twice_gets_no_block(tmp_path: Path) -> None:
+@pytest.mark.parametrize("optional_team", [False, True])
+def test_a_team_id_the_section_stores_twice_gets_no_block(
+    tmp_path: Path, optional_team: bool
+) -> None:
     repeated_block = selection_part_bytes(
         team_id=NORTHBRIDGE_TEAM_B,
         label="",
@@ -503,14 +508,34 @@ def test_a_team_id_the_section_stores_twice_gets_no_block(tmp_path: Path) -> Non
         tactic_count=0,
     )
     body = career_tactics_body()
-    doubled = body[: len(body) - 64] + repeated_block + bytes(64)
-    save_path = tactics_path(tmp_path, doubled)
+    doubled = bytearray(body[: len(body) - 64] + repeated_block + bytes(64))
+    struct.pack_into("<I", doubled, LAYOUT.block_count_offset, 3)
+    save_path = career_fragment(
+        staff_affiliate=optional_team, tactics_section=bytes(doubled)
+    ).write(tmp_path / "career.bin")
 
     tactics, routines, stats = decoded_tactics(save_path)
 
-    assert stats.blocks_found == stats.club_team_count - 1
+    assert stats.club_team_count == (3 if optional_team else 2)
+    assert stats.stored_club_blocks == 3
+    assert stats.blocks_found == 1
+    assert BLOCKS_GATE_NAME in failed_gate_names(
+        evaluate_tactics(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    )
     assert {row.team_id for row in tactics} == {NORTHBRIDGE_TEAM_A}
     assert {row.team_id for row in routines} == {NORTHBRIDGE_TEAM_A}
+
+
+def test_a_stray_locator_match_does_not_excuse_a_missing_stored_block(tmp_path: Path) -> None:
+    body = career_tactics_body()
+    stray = struct.pack("<I", NORTHBRIDGE_TEAM_B) + LAYOUT.block_marker + bytes(16)
+    path = tactics_path(tmp_path, body + stray)
+    _tactics, _routines, stats = decoded_tactics(path)
+    assert stats.header_blocks == stats.stored_blocks == stats.stored_club_blocks == 2
+    assert stats.blocks_found == 1
+    assert BLOCKS_GATE_NAME in failed_gate_names(
+        evaluate_tactics(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    )
 
 
 def test_a_national_team_block_counts_for_the_header_and_ends_the_club_block(
@@ -541,6 +566,39 @@ def test_a_national_team_block_counts_for_the_header_and_ends_the_club_block(
     assert len(routines) == ROUTINE_COUNT * len(CAREER_TEAM_IDS)
     results = evaluate_tactics(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert BLOCKS_GATE_NAME not in failed_gate_names(results)
+
+
+@pytest.mark.parametrize("national_team", [False, True])
+def test_club_teams_without_stored_tactics_blocks_do_not_fail_coverage(
+    tmp_path: Path, national_team: bool
+) -> None:
+    body = career_tactics_body()
+    if national_team:
+        national_block = selection_part_bytes(
+            team_id=999_001,
+            label="",
+            slots=(),
+            list_a=(),
+            list_b=(),
+            single=NO_SELECTOR,
+            tactics_value=HAS_TACTICS_VALUE,
+            tactic_count=0,
+        )
+        body = bytearray(body)
+        struct.pack_into("<I", body, LAYOUT.block_count_offset, 3)
+        body = bytes(body[:-64]) + national_block + bytes(64)
+    path = career_fragment(staff_affiliate=True, tactics_section=bytes(body)).write(
+        tmp_path / "career.bin"
+    )
+    tactics, routines, stats = decoded_tactics(path)
+    assert stats.club_team_count == 3
+    assert stats.header_blocks == stats.stored_blocks == (3 if national_team else 2)
+    assert stats.blocks_found == stats.stored_club_blocks == 2
+    assert {row.team_id for row in tactics} == {NORTHBRIDGE_TEAM_A}
+    assert {row.team_id for row in routines} == set(CAREER_TEAM_IDS)
+    assert BLOCKS_GATE_NAME not in failed_gate_names(
+        evaluate_tactics(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    )
 
 
 def test_a_header_selector_that_is_not_the_human_managers_fails_the_gate(tmp_path: Path) -> None:
@@ -699,6 +757,10 @@ def test_the_tables_are_read_once_and_raise_after_the_save_is_closed(career_path
             {"header_blocks": 1_610_612_736}, [BLOCKS_GATE_NAME], id="a header read a byte late"
         ),
         pytest.param({"stored_blocks": 0}, [BLOCKS_GATE_NAME], id="no block where header ends"),
+        pytest.param({"stored_club_blocks": 0}, [BLOCKS_GATE_NAME], id="no club block stored"),
+        pytest.param(
+            {"stored_club_blocks": 6}, [BLOCKS_GATE_NAME], id="more club blocks than club teams"
+        ),
         pytest.param(
             {"header_blocks": 4, "stored_blocks": 4}, [BLOCKS_GATE_NAME], id="fewer than the club"
         ),

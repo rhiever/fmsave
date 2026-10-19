@@ -751,8 +751,10 @@ class TacticStats:
     blocks the section header claims, `stored_blocks` how many blocks the section holds when
     found by structure (national teams the manager also runs included; 0 when the first is
     not where the header ends) and `blocks_found` how many teams the section stores exactly
-    one block for. `selector_matches` is whether the section header names the same
-    human manager as the `humans` section.
+    one block for. `stored_club_blocks` independently counts structurally located blocks
+    naming club teams, including duplicates, which the team-id locator must cover. Club
+    teams without a stored block are excluded from that count. `selector_matches` is whether
+    the section header names the same human manager as the `humans` section.
 
     `selection_selectors` counts every player selector the blocks store, over the selection
     slots, the two selector lists, the single selector, the ten set-piece lists and the eight
@@ -778,6 +780,7 @@ class TacticStats:
     club_team_count: int
     header_blocks: int
     stored_blocks: int
+    stored_club_blocks: int
     blocks_found: int
     selector_matches: bool
     selection_selectors: int

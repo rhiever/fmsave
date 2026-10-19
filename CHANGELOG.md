@@ -4,8 +4,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.5.11] - 2026-10-19
+
 ### Fixed
 
+- `clubs()` now includes clubs whose valid nation references differ, including clubs playing across borders. Their teams are available to readers that join through the club index.
+- Club unique IDs and affiliate-parent links can now resolve through previously omitted clubs.
+- `tactics()` and `set_pieces()` no longer warn or fail strict validation solely because a managed club team has no stored tactics block. Checks for malformed, duplicate, or unread blocks remain enforced.
 - The `Sponsorship.annual_value` and `sponsorships()` docs no longer say an ended contract's annual value is zero. Ended contracts often keep a non-zero annual value, so filter on `end` to find running contracts.
 
 Refs #11.

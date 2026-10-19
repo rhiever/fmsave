@@ -1729,7 +1729,8 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "injuries": [],
         "training": ["training_blocks_match_club_teams"],
         "mentoring": [],
-        "tactics": ["tactics_team_blocks_match_club", "tactic_selection_selectors_resolved"],
+        # A club team without a stored tactics block does not imply a missed block.
+        "tactics": ["tactic_selection_selectors_resolved"],
         "set_pieces": [],
         "facilities": ["facility_clubs_minimum"],
     }
