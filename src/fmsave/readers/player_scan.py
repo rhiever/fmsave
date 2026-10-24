@@ -134,15 +134,15 @@ _CLOSING_HEADER = struct.Struct("<III")
 _LAST_PERSON_ID = 0xFFFFFFFF
 
 
-def closing_unique_id(
+def closing_person_header(
     game_db: bytes,
     person_id: int,
     search_start: int,
     search_end: int,
     uid_floor: int,
     uid_ceiling: int | None,
-) -> int | None:
-    """The database Unique ID of the person whose header carries `person_id`, or None.
+) -> tuple[int, int] | None:
+    """The (offset, database Unique ID) of the unique header closing this person, or None.
 
     It is the doubled uid of the sound header that carries `person_id + 1`, the id the save's
     references use for him, and that closes his object. That header is looked for with its id
@@ -156,7 +156,7 @@ def closing_unique_id(
     needle = struct.pack("<I", person_id + 1)
     last_start = len(game_db) - _CLOSING_HEADER.size
     find = game_db.find
-    found: int | None = None
+    found: tuple[int, int] | None = None
     hit = find(needle, search_start, search_end)
     while 0 <= hit <= last_start:
         _, uid, uid_copy = _CLOSING_HEADER.unpack_from(game_db, hit)
@@ -168,9 +168,24 @@ def closing_unique_id(
         ):
             if found is not None:
                 return None
-            found = uid
+            found = (hit, uid)
         hit = find(needle, hit + 1, search_end)
     return found
+
+
+def closing_unique_id(
+    game_db: bytes,
+    person_id: int,
+    search_start: int,
+    search_end: int,
+    uid_floor: int,
+    uid_ceiling: int | None,
+) -> int | None:
+    """The database Unique ID from the unique validated closing-person header, or None."""
+    closing = closing_person_header(
+        game_db, person_id, search_start, search_end, uid_floor, uid_ceiling
+    )
+    return None if closing is None else closing[1]
 
 
 def _reject_repeated_keys(candidates: Sequence[_Candidate], file_name: str) -> None:

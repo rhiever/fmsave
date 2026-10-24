@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Generator
 from contextlib import AbstractContextManager, contextmanager
+from types import MemberDescriptorType
 from typing import cast
 
 from fmsave._container import (
@@ -68,13 +69,32 @@ def closed_save_error() -> SaveClosedError:
     return SaveClosedError("this save is closed; open it again with fmsave.open()")
 
 
+def _detached_error(error: FmsaveError) -> FmsaveError:
+    """Copy exception state without invoking its constructor or retaining exception chains."""
+    detached = BaseException.__new__(type(error))
+    detached.args = error.args
+    detached.__dict__.update(error.__dict__)
+    # Structured subclasses can keep fields in slots as well as their instance dictionary.
+    for owner in type(error).__mro__:
+        for descriptor in vars(owner).values():
+            if isinstance(descriptor, MemberDescriptorType):
+                try:
+                    value = descriptor.__get__(error, type(error))
+                except AttributeError:
+                    continue
+                descriptor.__set__(detached, value)
+    if hasattr(error, "__notes__"):
+        detached.__notes__ = error.__notes__.copy()
+    return detached
+
+
 class _FailedBuild:
     """A remembered failure: the error a cached build raised, kept under that build's key."""
 
     __slots__ = ("error",)
 
     def __init__(self, error: FmsaveError) -> None:
-        self.error = error
+        self.error = _detached_error(error)
 
 
 class SaveContext:
@@ -155,7 +175,7 @@ class SaveContext:
         if key in self._cache:
             stored = self._cache[key]
             if isinstance(stored, _FailedBuild):
-                raise stored.error
+                raise _detached_error(stored.error)
             return cast("ValueT", stored)
         try:
             value = build()

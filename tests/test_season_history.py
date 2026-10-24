@@ -446,3 +446,91 @@ def test_history_can_share_an_empty_list_without_duplicate_rows() -> None:
     )
     assert rows == ()
     assert counts.players_without_history == 2
+
+
+def test_failed_history_cache_does_not_retain_archive_traceback_frames(
+    tmp_path, monkeypatch
+) -> None:
+    import fmsave._context as context_module
+    from tests.fixtures.career import career_fragment
+
+    path = career_fragment(
+        history_archive_section=history_archive([history_unit(kind=5)]),
+        history_index_section=history_index([(0,)]),
+        player_history_selectors=(0, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF),
+    ).write(tmp_path / "malformed-history.fm")
+    reads = []
+    read_section = context_module.read_section
+
+    def count_archive(index, name):
+        if name == "player_stats_hist_dt":
+            reads.append(name)
+        return read_section(index, name)
+
+    monkeypatch.setattr(context_module, "read_section", count_archive)
+    with fmsave.open(path) as save:
+        for _ in range(3):
+            with pytest.raises(fmsave.ReaderCheckError, match="unexpected marker or kind"):
+                save.player_season_history()
+            assert save._context._loaned_sections == {}
+            failures = [
+                value
+                for value in save._context._cache.values()
+                if isinstance(value, context_module._FailedBuild)
+            ]
+            assert failures
+            for failed in failures:
+                assert failed.error.__traceback__ is None
+                assert failed.error.__cause__ is None
+                assert failed.error.__context__ is None
+    assert reads == ["player_stats_hist_dt"]
+
+
+@pytest.mark.parametrize("following_kind", [16, 1, 8])
+@pytest.mark.parametrize("has_own_person", [False, True], ids=["missing-own", "valid-own"])
+def test_person_and_history_are_not_borrowed_from_object_after_closure(
+    tmp_path,
+    following_kind,
+    has_own_person,
+) -> None:
+    from tests.fixtures.container import packed_date, section_body
+    from tests.fixtures.game_db import person_block_bytes, player_record_bytes
+    from tests.test_persons import game_db_prefix
+    from tests.test_players import PLAYER_A, closing_header_bytes
+
+    def block(first_name, surname):
+        return person_block_bytes(
+            first_name_id=first_name,
+            surname_id=surname,
+            common_name_id=0xFFFFFFFF,
+            legal_name=None,
+            birth=packed_date(60, 2005),
+            nation_id=44,
+            personality=(15, 12, 9, 20, 18, 7, 11, 3),
+            trait_bits=0,
+            relations=(),
+            history_selector=0,
+        )
+
+    own_person = block(1, 1) if has_own_person else b""
+    neighbor = block(0, 0)
+    region = player_record_bytes(
+        **{
+            **PLAYER_A,
+            "trailing": own_person + closing_header_bytes(12, 900002, following_kind) + neighbor,
+        }
+    )
+    path = index_container(
+        tmp_path,
+        [history_index([(0,)])],
+        game_db=section_body(".dat", 4000, game_db_prefix() + region),
+        archive=history_archive([history_unit(starts=1, minutes=90)]),
+    )
+    with fmsave.open(path, strict=True) as save:
+        player = save.players().by_uid(900001)
+        assert player.unique_id == 900002
+        assert player.name == ("Sam Sample" if has_own_person else None)
+        rows = save.player_season_history()
+        assert len(rows) == (1 if has_own_person else 0)
+        if rows:
+            assert rows[0].player_name == "Sam Sample"
