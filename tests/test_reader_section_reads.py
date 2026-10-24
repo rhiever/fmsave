@@ -25,8 +25,10 @@ import fmsave
 from fmsave import _context as context_module
 from fmsave._container import ContainerIndex, DirectoryEntry, FrameSpan
 from fmsave._context import SaveContext
+from fmsave.readers import season_history as season_history_module
 from fmsave.readers import season_stats as season_stats_module
 from tests.fixtures.career import career_fragment
+from tests.fixtures.season_history import history_archive, history_index, history_unit
 
 GAME_DB = "game_db"
 HUMANS = "humans"
@@ -56,6 +58,7 @@ READER_SECTION_READS: dict[str, tuple[dict[str, int], int]] = {
     "competition_rules": ({GAME_DB: 1, SPAN: 1}, 0),
     "player_match_stats": ({GAME_DB: 1}, 0),
     "player_season_stats": ({GAME_DB: 1, SPAN_FRAME: 1}, 0),
+    "player_season_history": ({GAME_DB: 1, SPAN_FRAME: 1, "player_stats_hist_dt": 1}, 0),
     "stadiums": ({GAME_DB: 1, SPAN: 1}, 0),
     "finances": ({GAME_DB: 1, HUMANS: 1, SAVE_SUMMARY: 1}, 0),
     "sponsorships": ({GAME_DB: 1, HUMANS: 1, SAVE_SUMMARY: 1}, 0),
@@ -78,7 +81,11 @@ READER_SECTION_READS: dict[str, tuple[dict[str, int], int]] = {
 @pytest.fixture(scope="module")
 def career_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """One career fragment for the whole module; every test here only reads it."""
-    return career_fragment().write(tmp_path_factory.mktemp("section reads") / "career.bin")
+    return career_fragment(
+        history_archive_section=history_archive([history_unit(starts=1, minutes=90)]),
+        history_index_section=history_index([(0,)]),
+        player_history_selectors=(0, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF),
+    ).write(tmp_path_factory.mktemp("section reads") / "career.bin")
 
 
 class ReadCounter:
@@ -116,6 +123,7 @@ class ReadCounter:
 
         monkeypatch.setattr(context_module, "read_section", counting_read_section)
         monkeypatch.setattr(season_stats_module, "read_region_frame", counting_read_region_frame)
+        monkeypatch.setattr(season_history_module, "read_region_frame", counting_read_region_frame)
         monkeypatch.setattr(context_module, "read_region_frames", counting_read_region_frames)
         monkeypatch.setattr(context_module, "read_directory_entry", counting_read_directory_entry)
 

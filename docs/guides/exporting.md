@@ -110,3 +110,27 @@ count does not apply or the denominator is zero.
 
 `training`, `mentoring`, `tactics` and `set-pieces` return data for the club you manage.
 Selecting another club returns no rows.
+
+Archived player statistics are available through `player_season_history()` and the
+`player-season-history` CLI table:
+
+```console
+fmsave export career.fm player-season-history --all --format csv -o history.csv
+```
+
+Each row has the counts and computed rates of `PlayerSeasonStats`, plus `season_year` and
+`competition_reference`. Both metadata fields are unconfirmed: the year does not yet have a
+confirmed season-start or season-end meaning, and the competition reference has no confirmed
+mapping to competition entities or database IDs. Rows keep their stored order, which may be
+nonchronological. Sort explicitly if your analysis requires an order.
+
+The archive can contain sparse imported history. Detailed counts may be 0 even when
+appearances are present; a stored 0 does not prove an event never happened. Goalkeeper
+fields use the player's current natural positions because the archive does not identify their
+past role. Team and club fields refer to the archived team. Unresolved teams keep their raw
+team reference and have empty club fields. Club and nation CLI scopes select players by their
+current membership, then export those players' historical rows, including their previous teams.
+
+A valid empty history returns an empty table. A missing or malformed archive or history index
+raises `ReaderCheckError`. Large histories can require substantial memory because the table
+keeps every decoded row.

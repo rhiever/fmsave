@@ -1988,6 +1988,25 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'archive_header': b'\x03\x01tmc.\x06\x00',
+        'footer': b'\x06\x00',
+        'index_header': b'\x03\x01tad.\x04\x00',
+        'kind_names': tuple(
+          'non_competitive',
+          'league',
+          'cup',
+          'continental',
+          'international',
+        ),
+        'selector_offset_from_block_start': -21,
+        'unit_bytes': 152,
+      }),
+      'region': 'unlisted_after_non_pl_hist_ls',
+      'schema': None,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
         'affiliate_lists_found': tuple(
           0.005,
           None,

@@ -32,6 +32,7 @@ from fmsave._layouts import (
     PlayerRecordLayout,
     RulesPreambleLayout,
     SaveSummaryLayout,
+    SeasonHistoryLayout,
     SeasonStatsLayout,
     SponsorChainLayout,
     StadiumTableLayout,
@@ -1768,6 +1769,15 @@ SEASON_STATS = SeasonStatsLayout(
     ),
 )
 
+SEASON_HISTORY = SeasonHistoryLayout(
+    archive_header=b"\x03\x01tmc.\x06\x00",
+    index_header=b"\x03\x01tad.\x04\x00",
+    unit_bytes=152,
+    footer=b"\x06\x00",
+    selector_offset_from_block_start=-21,
+    kind_names=("non_competitive", "league", "cup", "continental", "international"),
+)
+
 LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_info", schema=46, build=BUILD, layout=GAME_INFO),
     LayoutEntry(region="save_game_summary", schema=29, build=BUILD, layout=SAVE_SUMMARY),
@@ -1803,5 +1813,6 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=LEAGUE_TABLES),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=RULES_PREAMBLES),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=SEASON_STATS),
+    LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=SEASON_HISTORY),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=GATE_BOUNDS),
 )

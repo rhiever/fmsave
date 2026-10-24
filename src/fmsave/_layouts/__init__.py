@@ -1161,6 +1161,18 @@ class StageTableLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class SeasonHistoryLayout:
+    """Archive and list envelopes, plus the selector relative to a validated person block."""
+
+    archive_header: bytes
+    index_header: bytes
+    unit_bytes: int
+    footer: bytes
+    selector_offset_from_block_start: int
+    kind_names: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class SeasonStatsLayout:
     """The season-statistics section: one unlisted frame of the span region, one record per player.
 
@@ -2281,6 +2293,7 @@ type Layout = (
     | TransferWindowLayout
     | TacticsLayout
     | SeasonStatsLayout
+    | SeasonHistoryLayout
     | GateBounds
 )
 

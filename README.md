@@ -44,13 +44,14 @@ Each reader returns a `Table`: `where(...)`, `filter(...)`, `sorted_by(...)`, `f
 
 ## What else it reads
 
-27 readers in all, each returning a `Table` of records:
+28 readers in all, each returning a `Table` of records:
 
 - **People**: `players()`, `contracts()`, `suspensions()`, `staff()`, `staff_lists()`
 - **Clubs**: `clubs()`, `managed_clubs()`, `finances()`, `sponsorships()`, `facilities()`,
   `stadiums()`, `affiliates()`, `job_vacancies()`
 - **Competitions**: `stages()`, `competitions()`, `fixtures()`, `league_tables()`,
-  `competition_rules()`, `transfer_windows()`, `player_match_stats()`, `player_season_stats()`
+  `competition_rules()`, `transfer_windows()`, `player_match_stats()`, `player_season_stats()`,
+  `player_season_history()`
 - **Injuries**: `injury_types()`, `injuries()`
 - **Your own club's work**, which only the club you manage stores: `training()`, `mentoring()`,
   `tactics()`, `set_pieces()`

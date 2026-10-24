@@ -832,3 +832,16 @@ class TrainingStats:
     members: int
     members_resolved: int
     members_at_club: int
+
+
+@dataclass(frozen=True, slots=True)
+class SeasonHistoryStats:
+    """Archive and ownership counts; sparse imported statistics have no current-season gates."""
+
+    rows: int
+    archive_units: int
+    unowned_units: int
+    lists: int
+    unowned_lists: int
+    players_without_history: int
+    unresolved_teams: int

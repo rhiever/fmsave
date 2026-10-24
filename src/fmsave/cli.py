@@ -52,6 +52,7 @@ from fmsave.models.matches import PlayerMatchStats
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
+from fmsave.models.season_history import PlayerSeasonHistory
 from fmsave.models.season_stats import PlayerSeasonStats
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffList
@@ -763,6 +764,16 @@ def _player_season_stats_rows(career_save: fmsave.Save, scope: _ExportScope) -> 
     return (row for row in season_stats if row.player_uid in player_uids)
 
 
+def _player_season_history_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[object]:
+    """Keep archived lines for players selected by current club or nation membership."""
+    history = career_save.player_season_history()
+    keeps_player = _player_filter(scope)
+    if keeps_player is None:
+        return history
+    player_uids = _scoped_player_uids(career_save, keeps_player)
+    return (row for row in history if row.player_uid in player_uids)
+
+
 def _stadium_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[object]:
     """A club or nation scope keeps a ground the scope's clubs own or play their home games at.
 
@@ -966,6 +977,12 @@ _EXPORT_TABLES: dict[str, _ExportTable] = {
         _CLUB_AND_NATION_SCOPES,
         _player_season_stats_rows,
         note=_SEASON_STATS_NOTE,
+    ),
+    "player-season-history": _ExportTable(
+        PlayerSeasonHistory,
+        _CLUB_AND_NATION_SCOPES,
+        _player_season_history_rows,
+        note="club and nation scopes select players by current membership",
     ),
     "stadiums": _ExportTable(Stadium, _CLUB_AND_NATION_SCOPES, _stadium_rows),
     "finances": _ExportTable(FinanceMonth, _CLUB_AND_NATION_SCOPES, _finance_rows),

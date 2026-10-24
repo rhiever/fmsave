@@ -67,6 +67,7 @@ from tests.fixtures.injuries import (
     injury_window_row_bytes,
     match_file_body,
 )
+from tests.fixtures.season_history import history_archive, history_index
 from tests.fixtures.season_stats import ExampleRecord, season_stats_body, stat_line
 from tests.fixtures.span import (
     STAGE_RESULT_LEAD_BYTE,
@@ -752,7 +753,7 @@ def player_bytes(
     )
 
 
-def player_a_bytes() -> bytes:
+def player_a_bytes(*, history_selector: int = 0xFFFFFFFF) -> bytes:
     """At Southport: two suspensions, a full person block, two contract chain records and the
     four matches `player_a_match_records` writes at the end of his window.
     """
@@ -767,6 +768,7 @@ def player_a_bytes() -> bytes:
         scope_id=THIRD_COMPETITION_ID, issued=packed_date(306, 2030), e7=64, scope_code=5
     )
     person_block = person_block_bytes(
+        history_selector=history_selector,
         first_name_id=0,
         surname_id=0,
         common_name_id=MISSING_NAME_ID,
@@ -830,9 +832,10 @@ def player_a_bytes() -> bytes:
     )
 
 
-def player_b_bytes() -> bytes:
+def player_b_bytes(*, history_selector: int = 0xFFFFFFFF) -> bytes:
     """A free agent with a common name, a legal name and fallback contract dates only."""
     person_block = person_block_bytes(
+        history_selector=history_selector,
         first_name_id=0,
         surname_id=0,
         common_name_id=1,
@@ -856,10 +859,11 @@ def player_b_bytes() -> bytes:
     )
 
 
-def player_c_bytes() -> bytes:
+def player_c_bytes(*, history_selector: int = 0xFFFFFFFF) -> bytes:
     """A marker-less record at Northbridge, with a chain record whose tail has no end date."""
     pindex = PLAYER_C_PINDEX
     person_block = person_block_bytes(
+        history_selector=history_selector,
         first_name_id=1,
         surname_id=1,
         common_name_id=2,
@@ -891,10 +895,11 @@ def player_c_bytes() -> bytes:
     )
 
 
-def player_d_bytes() -> bytes:
+def player_d_bytes(*, history_selector: int = 0xFFFFFFFF) -> bytes:
     """A free agent of another nation, known by last name only, with a broken contract tail."""
     pindex = PLAYER_D_PINDEX
     person_block = person_block_bytes(
+        history_selector=history_selector,
         first_name_id=MISSING_NAME_ID,
         surname_id=1,
         common_name_id=MISSING_NAME_ID,
@@ -1940,6 +1945,7 @@ def career_tagged_stream() -> bytes:
 
 def career_game_db(
     *,
+    player_history_selectors: Sequence[int] = (0xFFFFFFFF,) * 4,
     duplicate_club_name: bool = False,
     game_db_results: Sequence[ExampleResult] = (),
     stadium_table: bool = True,
@@ -1962,10 +1968,10 @@ def career_game_db(
         + results_payload(game_db_results)
         + bytes(64)
         + manager_region_bytes()
-        + player_a_bytes()
-        + player_b_bytes()
-        + player_c_bytes()
-        + player_d_bytes()
+        + player_a_bytes(history_selector=player_history_selectors[0])
+        + player_b_bytes(history_selector=player_history_selectors[1])
+        + player_c_bytes(history_selector=player_history_selectors[2])
+        + player_d_bytes(history_selector=player_history_selectors[3])
         + extra_staff
         + staff_region_bytes(staff_affiliate=staff_affiliate)
         # The save keeps its stage table in the last stretch of game_db, so it goes last here.
@@ -2532,6 +2538,9 @@ def career_fragment(
     staff_affiliate: bool = False,
     extra_staff: bytes = b"",
     season_stats_section: bytes | None = None,
+    history_archive_section: bytes | None = None,
+    history_index_section: bytes | None = None,
+    player_history_selectors: Sequence[int] = (0xFFFFFFFF,) * 4,
 ) -> ContainerFragment:
     """The whole career fragment.
 
@@ -2582,6 +2591,7 @@ def career_fragment(
     selector = UNMATCHED_MANAGER_SELECTOR if manager_between_jobs else MANAGER_SELECTOR
     replacements = {
         "game_db": career_game_db(
+            player_history_selectors=player_history_selectors,
             duplicate_club_name=duplicate_club_name,
             game_db_results=game_db_results,
             stadium_table=stadium_table,
@@ -2593,6 +2603,11 @@ def career_fragment(
     }
     span = span_frames(
         [
+            *(
+                [history_index() if history_index_section is None else history_index_section]
+                if history_index_section != b""
+                else []
+            ),
             career_span_payload(
                 extra_fixtures,
                 extra_strays,
@@ -2621,6 +2636,14 @@ def career_fragment(
         )
         for section in default_sections()
     ]
+    if history_archive_section != b"":
+        sections.append(
+            SectionFrame(
+                "player_stats_hist_dt",
+                history_archive() if history_archive_section is None else history_archive_section,
+                ".cmt",
+            )
+        )
     sections.extend(
         career_club_section_frames(feeder=feeder_section, job_centre=job_centre_section)
     )

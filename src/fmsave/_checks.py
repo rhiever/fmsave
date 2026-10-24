@@ -56,6 +56,7 @@ from fmsave._reader_stats import (
     PlayerStats,
     ResultStats,
     RulesStats,
+    SeasonHistoryStats,
     SeasonStatsStats,
     StadiumStats,
     StaffStats,
@@ -100,6 +101,7 @@ TRANSFER_WINDOWS_READER = "transfer_windows"
 LEAGUE_TABLES_READER = "league_tables"
 COMPETITION_RULES_READER = "competition_rules"
 PLAYER_MATCH_STATS_READER = "player_match_stats"
+SEASON_HISTORY_READER = "player_season_history"
 SEASON_STATS_READER = "player_season_stats"
 INJURY_TYPES_READER = "injury_types"
 INJURIES_READER = "injuries"
@@ -1218,6 +1220,23 @@ def evaluate_season_stats(
             stats.lines,
             bounds.season_stats_minutes_in_range,
             applied,
+        ),
+    )
+
+
+def check_season_history(stats: SeasonHistoryStats) -> ReaderCheck:
+    """Report structural ownership counts without imposing current-season density gates."""
+    return ReaderCheck(
+        SEASON_HISTORY_READER,
+        stats.rows,
+        (),
+        FrozenMapping(
+            {
+                "unowned_archive_units": stats.unowned_units,
+                "unowned_history_lists": stats.unowned_lists,
+                "players_without_history": stats.players_without_history,
+                "unresolved_teams": stats.unresolved_teams,
+            }
         ),
     )
 
@@ -2465,7 +2484,8 @@ class ReaderValidation:
     Attributes:
         reader: The reader: "clubs", "players", "contracts", "suspensions", "managed_clubs",
             "stages", "competitions", "fixtures", "league_tables", "transfer_windows",
-            "competition_rules", "player_match_stats", "player_season_stats", "stadiums",
+            "competition_rules", "player_match_stats", "player_season_stats",
+            "player_season_history", "stadiums",
             "finances", "sponsorships", "affiliates", "job_vacancies", "staff", "staff_lists",
             "injury_types", "injuries", "training", "mentoring", "tactics", "set_pieces" or
             "facilities".
@@ -2634,6 +2654,7 @@ def validate_save(career_save: Save) -> ValidationReport:
         (COMPETITION_RULES_READER, career_save.competition_rules),
         (PLAYER_MATCH_STATS_READER, career_save.player_match_stats),
         (SEASON_STATS_READER, career_save.player_season_stats),
+        (SEASON_HISTORY_READER, career_save.player_season_history),
         (STADIUMS_READER, career_save.stadiums),
         (FINANCES_READER, career_save.finances),
         (SPONSORSHIPS_READER, career_save.sponsorships),
