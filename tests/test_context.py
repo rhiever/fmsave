@@ -225,3 +225,70 @@ def test_repr_shows_nothing_sensitive(tmp_path: Path, fragment_path: Path) -> No
         assert "Northbridge" not in description
     career_save.close()
     assert "closed" in repr(context)
+
+
+class RequiredArgumentError(fmsave.ReaderCheckError):
+    __slots__ = ("code",)
+
+    def __init__(self, message: str, *, code: int) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+@pytest.mark.parametrize("error_kind", ["ordinary", "structured", "required-argument"])
+def test_cached_failures_detach_tracebacks_and_preserve_exception_state(
+    fragment_path: Path,
+    error_kind: str,
+) -> None:
+    from fmsave._frozen import FrozenMapping
+
+    checks = (fmsave.ReaderCheck("clubs", 1, (), FrozenMapping({})),)
+    calls = []
+
+    def failing_build():
+        calls.append(1)
+        with career_save._context.section("humans") as borrowed:
+            assert borrowed == HUMANS_BODY
+            try:
+                raise ValueError("fictional cause")
+            except ValueError as cause:
+                if error_kind == "structured":
+                    error = fmsave.GateCheckError("fictional failure", checks)
+                elif error_kind == "required-argument":
+                    error = RequiredArgumentError("fictional failure", code=7)
+                else:
+                    error = fmsave.CorruptSaveError("fictional failure")
+                error.add_note("fictional note")
+                raise error from cause
+
+    with fmsave.open(fragment_path) as career_save:
+        context = career_save._context
+        seen = []
+        for _ in range(3):
+            with pytest.raises(fmsave.FmsaveError, match="fictional failure") as caught:
+                context.cached("failed", failing_build)
+            error = caught.value
+            assert all(error is not previous for previous in seen)
+            seen.append(error)
+            assert error.__notes__ == ["fictional note"]
+            if error_kind == "structured":
+                assert isinstance(error, fmsave.GateCheckError)
+                assert error.checks == checks
+                error.checks = ()
+            elif error_kind == "required-argument":
+                assert isinstance(error, RequiredArgumentError)
+                assert error.code == 7
+                error.code = 99
+            else:
+                assert isinstance(error, fmsave.CorruptSaveError)
+            stored = context._cache["failed"]
+            assert isinstance(stored, context_module._FailedBuild)
+            assert stored.error is not error
+            assert stored.error.__traceback__ is None
+            assert stored.error.__cause__ is None
+            assert stored.error.__context__ is None
+            error.add_note("caller note")
+            error.args = ("caller changed this exception",)
+            assert stored.error.__notes__ == ["fictional note"]
+            assert context._loaned_sections == {}
+        assert calls == [1]

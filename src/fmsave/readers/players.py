@@ -30,7 +30,7 @@ from fmsave.readers.persons import PersonBlockDecoder, build_person_block_decode
 from fmsave.readers.player_scan import (
     HeaderLayout,
     build_header_layout,
-    closing_unique_id,
+    closing_person_header,
     indexed_struct,
 )
 from fmsave.readers.suspensions import SuspensionEntry, player_suspensions
@@ -273,7 +273,7 @@ class PlayerDecoder:
             if is_last_record
             else _UINT32.unpack_from(game_db, record_window_end + layout.uid_offset)[0]
         )
-        unique_id = closing_unique_id(
+        closing_header = closing_person_header(
             game_db,
             pindex,
             record_offset + layout.decode_extent,
@@ -282,8 +282,10 @@ class PlayerDecoder:
             next_uid,
         )
 
+        unique_id = None if closing_header is None else closing_header[1]
+        person_window_end = record_window_end if closing_header is None else closing_header[0]
         person_window_start = record_offset + self.person_window_start_offset
-        person = self.person_decoder.decode(game_db, person_window_start, record_window_end)
+        person = self.person_decoder.decode(game_db, person_window_start, person_window_end)
         (
             name,
             first_name,

@@ -460,6 +460,7 @@ def person_block_bytes(
     trait_bits: int,
     relations: Sequence[bytes],
     clutter: bytes = DEFAULT_PERSON_BLOCK_CLUTTER,
+    history_selector: int = 0xFFFFFFFF,
 ) -> bytes:
     """A person block, in the order fmsave's reader expects: clutter, then trait bits, name
     ids, legal name, birth date, filler, nation id, personality, city filler, and the
@@ -469,6 +470,8 @@ def person_block_bytes(
     legal_name_length = len(encoded_legal_name)
 
     output = bytearray(clutter)
+    if len(clutter) >= 8:
+        struct.pack_into("<I", output, len(clutter) - 8, history_selector)
     output.extend(PERSON_BLOCK_UNIDENTIFIED_DATE)
     output.append(0)
     output.extend(struct.pack("<Q", trait_bits))

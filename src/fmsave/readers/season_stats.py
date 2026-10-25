@@ -429,3 +429,20 @@ def build_season_stats(
         repeated_keys=repeated_keys,
     )
     return tuple(rows), stats
+
+
+def decode_season_line(
+    body: bytes, offset: int, goalkeeper: bool, layout: SeasonStatsLayout
+) -> list[object]:
+    """Decode the shared statistic fields of a complete current-style line."""
+    readers = _line_readers(layout)
+    return _decode(body, offset, readers[int(goalkeeper)], layout.rating_scale)
+
+
+def season_club_fields(
+    team_id: int | None,
+    team_to_club: Mapping[int, tuple[int, int]],
+    club_by_uid: Mapping[int, Club],
+) -> tuple[int | None, str | None, str | None, int | None]:
+    """Resolve a statistics line's team without guessing a missing club."""
+    return _club_fields(team_id, team_to_club, club_by_uid)

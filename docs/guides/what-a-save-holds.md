@@ -37,7 +37,7 @@ See [Trusting a number](trust.md) before using these fields in an analysis.
 ## Competitions
 
 `stages()`, `competitions()`, `fixtures()`, `league_tables()`, `competition_rules()`,
-`transfer_windows()`, `player_match_stats()`, `player_season_stats()`
+`transfer_windows()`, `player_match_stats()`, `player_season_stats()`, `player_season_history()`
 
 Fixtures provide dates, teams, rounds and scores where fmsave can decode an unambiguous result.
 
@@ -117,3 +117,9 @@ an outside name source.
 
 The [reference](../reference/records.md) lists every record type and every field. If you are not
 sure a number means what you think it means, read [Trusting a number](trust.md) first.
+
+
+`player_season_history()` reads archived statistics for each player and team. It keeps the
+archive's order and includes an unconfirmed candidate season year and competition reference.
+Imported history can omit detailed counts. See [exporting](exporting.md) for those limits and
+for the `player-season-history` CLI table.

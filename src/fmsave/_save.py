@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Mapping, Sequence
 from types import TracebackType
-from typing import NamedTuple, Self
+from typing import NamedTuple, Self, cast
 
 from fmsave import _checks
 from fmsave._checks import GateResult, ReaderCheck
@@ -41,6 +41,7 @@ from fmsave.models.matches import PlayerMatchStats
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
+from fmsave.models.season_history import PlayerSeasonHistory
 from fmsave.models.season_stats import PlayerSeasonStats
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffList
@@ -108,6 +109,13 @@ from fmsave.readers.rules import (
     find_transfer_window_layouts,
     read_transfer_windows,
 )
+from fmsave.readers.season_history import (
+    ARCHIVE_SECTION,
+    build_history,
+    find_history_layout,
+    history_selector,
+    read_history_index,
+)
 from fmsave.readers.season_stats import (
     GOALKEEPER_POSITION,
     SeasonPlayer,
@@ -158,6 +166,8 @@ TRANSFER_WINDOWS_TABLE_CACHE_KEY = "table:transfer_windows"
 LEAGUE_TABLES_TABLE_CACHE_KEY = "table:league_tables"
 COMPETITION_RULES_TABLE_CACHE_KEY = "table:competition_rules"
 PLAYER_MATCH_STATS_TABLE_CACHE_KEY = "table:player_match_stats"
+PLAYER_SEASON_HISTORY_TABLE_CACHE_KEY = "table:player_season_history"
+HISTORY_SELECTORS_CACHE_KEY = "player_history_selectors"
 PLAYER_SEASON_STATS_TABLE_CACHE_KEY = "table:player_season_stats"
 INJURY_TYPES_TABLE_CACHE_KEY = "table:injury_types"
 INJURIES_TABLE_CACHE_KEY = "table:injuries"
@@ -1404,6 +1414,63 @@ class Save:
         self._store_reader_checks((season_check,))
         return Table(rows, PlayerSeasonStats)
 
+    def player_season_history(self) -> Table[PlayerSeasonHistory]:
+        """Archived player statistics, including completed seasons retained by the save.
+
+        Rows carry the same statistics and computed rates as `PlayerSeasonStats`, together
+        with an unconfirmed candidate season year and competition reference. Stored order
+        need not be chronological. Detailed counts may be sparse for imported history;
+        zeros are returned as stored. Goalkeeper fields use current natural positions.
+        A club or nation export scope selects players by their current membership.
+
+        The first call also reads players and clubs. Later calls return the cached table.
+        Missing archive/index structures and malformed or ambiguous ownership raise
+        `ReaderCheckError`. A valid empty history returns an empty table. Reader checks of
+        players and clubs apply as usual. Closing the save releases its cached tables.
+        """
+        return self._context.cached(
+            PLAYER_SEASON_HISTORY_TABLE_CACHE_KEY, self._read_player_season_history
+        )
+
+    def _read_player_season_history(self) -> Table[PlayerSeasonHistory]:
+        context = self._context
+        layout = find_history_layout(context.info.build)
+        if ARCHIVE_SECTION not in self._container_index.sections:
+            raise ReaderCheckError(
+                f"{context.info.file_name}: historical season statistics archive is missing"
+            )
+        index = read_history_index(self._container_index, layout)
+        with context.section(GAME_DB_SECTION):
+            players = self.players()
+            self.clubs()
+            club_index = context.club_index()
+        selectors = cast(Mapping[int, int], context.cached_value(HISTORY_SELECTORS_CACHE_KEY))
+        history_players = {
+            player.uid: SeasonPlayer(
+                player.uid,
+                player.name,
+                player.team_id,
+                GOALKEEPER_POSITION in player.natural_positions,
+            )
+            for player in players
+        }
+        with context.section(ARCHIVE_SECTION) as archive:
+            rows, stats = build_history(
+                index,
+                archive,
+                selectors,
+                history_players,
+                club_index.team_to_club,
+                club_index.club_by_uid,
+                find_season_stats_layout(context.info.build),
+                context.info.file_name,
+                layout,
+            )
+        history_check = _checks.check_season_history(stats)
+        self._enforce_checks((history_check,))
+        self._store_reader_checks((history_check,))
+        return Table(rows, PlayerSeasonHistory)
+
     def finances(self) -> Table[FinanceMonth]:
         """Every month of club money the save keeps, by club and then oldest month first.
 
@@ -2311,6 +2378,8 @@ class Save:
                 )
             no_suspension_entries: tuple[SuspensionEntry, ...] = ()
             suspension_entries_for = suspension_entries_by_position.get
+            history_layout = find_history_layout(save_info.build)
+            history_selectors: dict[int, int] = {}
             decoded_players: list[Player] = []
             decoded_contracts: list[Contract] = []
             decoded_suspensions: list[Suspension] = []
@@ -2329,6 +2398,13 @@ class Save:
                     record_window_end,
                     is_last_record=position == last_position,
                     suspension_entries=suspension_entries,
+                )
+                history_selectors[player.uid] = history_selector(
+                    game_db,
+                    decoder.person_decoder.last_block_start,
+                    record_offset,
+                    record_window_end,
+                    history_layout,
                 )
                 append_player(player)
                 if contract is not None:
@@ -2358,6 +2434,7 @@ class Save:
             ),
         )
         self._enforce_checks(reader_checks)
+        context.cached(HISTORY_SELECTORS_CACHE_KEY, lambda: FrozenMapping(history_selectors))
         return _PlayerTables(
             Table(tuple(decoded_players), Player),
             Table(tuple(decoded_contracts), Contract),

@@ -75,6 +75,7 @@ from fmsave.models.rules import (
     RulesRound,
     TransferWindow,
 )
+from fmsave.models.season_history import PlayerSeasonHistory
 from fmsave.models.season_stats import PlayerSeasonStats, SeasonStatsKind
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffAttributes, StaffList, StaffPreferences
@@ -145,6 +146,7 @@ __all__ = [
     "Personality",
     "Player",
     "PlayerMatchStats",
+    "PlayerSeasonHistory",
     "PlayerSeasonStats",
     "PlayerSuspension",
     "Positions",

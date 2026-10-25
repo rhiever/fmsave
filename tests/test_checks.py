@@ -88,6 +88,7 @@ from tests.fixtures.game_db import (
     status_record_bytes,
     suspension_entry_bytes,
 )
+from tests.fixtures.season_history import history_archive, history_index
 from tests.fixtures.span import span_frames
 from tests.fixtures.stadiums import career_stadium_rows, stadium_table_bytes
 
@@ -171,6 +172,7 @@ READER_ORDER = (
     "competition_rules",
     "player_match_stats",
     "player_season_stats",
+    "player_season_history",
     "stadiums",
     "finances",
     "sponsorships",
@@ -1004,7 +1006,10 @@ def write_counted_fragment(
             replacements.get(section.name, section.body),
             section.extension,
             (
-                (*section.unlisted_frames_after, *span_frames([career_season_stats_body()]))
+                (
+                    *section.unlisted_frames_after,
+                    *span_frames([career_season_stats_body(), history_index()]),
+                )
                 if section.name == SPAN_SECTION_NAME
                 else section.unlisted_frames_after
             ),
@@ -1014,6 +1019,7 @@ def write_counted_fragment(
     # The club, medical and setup readers each have a section of their own, and a save without
     # one is damaged rather than empty, so the fragment carries all five: a reader that never
     # ran could not show its checks standing aside.
+    sections.append(SectionFrame("player_stats_hist_dt", history_archive(), ".cmt"))
     sections.extend(career_club_section_frames())
     sections.append(SectionFrame(INJURY_MANAGER_SECTION_NAME, career_injury_manager()))
     sections.append(SectionFrame(TACTICS_SECTION_NAME, career_tactics_body()))
@@ -1071,6 +1077,7 @@ def test_validate_save_reports_every_reader_ok_with_gates_not_applied(
         # The span carries the example career's season statistics, and only two of its five
         # records are keyed to a player this fragment holds.
         "player_season_stats": 3,
+        "player_season_history": 0,
         "stadiums": 101,
         # The two clubs of this fragment carry no finance chain, so neither table has a row,
         # and the facilities rating stored behind that chain has none either.
@@ -1250,6 +1257,12 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         "player_season_stats": {
             "records_without_a_player": 3,
             "records_repeating_a_key": 0,
+            "unresolved_teams": 0,
+        },
+        "player_season_history": {
+            "unowned_archive_units": 0,
+            "unowned_history_lists": 0,
+            "players_without_history": 2,
             "unresolved_teams": 0,
         },
         "stadiums": {
@@ -1468,6 +1481,7 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered
         # These decode the players to name their rows, so the failed player pass stops them.
         "player_match_stats": "failed",
         "player_season_stats": "failed",
+        "player_season_history": "failed",
         # These read no player, so a failed player pass leaves them alone.
         "stadiums": "ok",
         "finances": "ok",
@@ -1595,7 +1609,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         ],
         "facilities": ["facility_byte_in_range", "facility_unset_ratings"],
     }
-    # A reader is failed by its own counts alone. The six reported "ok" are the ones whose every
+    # A reader is failed by its own counts alone. The seven reported "ok" are the ones whose every
     # applied gate this fragment meets, which it could not show while a reader that read another
     # reader's table was stopped by that reader's counts.
     assert {name: reader.status for name, reader in readers.items()} == {
@@ -1617,6 +1631,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "competition_rules": "failed",
         "player_match_stats": "failed",
         "player_season_stats": "failed",
+        "player_season_history": "ok",
         "stadiums": "ok",
         "finances": "failed",
         # No club record here holds a finance chain, so none was searched for a sponsor run
@@ -1714,6 +1729,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # Three of the five season records are keyed to pindexes this fragment's players do not
         # have, far below the share every save measured keeps.
         "player_season_stats": ["season_stats_records_keyed_to_players"],
+        "player_season_history": [],
         # The fragment's 101-row stadium table meets the two floors this test relaxed for it,
         # and the three shares beside them judge only the rows it does hold.
         "stadiums": [],

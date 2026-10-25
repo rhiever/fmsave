@@ -70,6 +70,16 @@ their own pages: see {doc}`table` and {doc}`enums`.
    :members:
 ```
 
+`player_season_history()`: archived rows with the same counts and rates. Candidate year and
+competition-reference meanings remain unconfirmed; stored order need not be chronological.
+See [exporting](../guides/exporting.md) for sparsity and scope details.
+
+```{eval-rst}
+.. autoclass:: fmsave.PlayerSeasonHistory
+   :members:
+   :inherited-members:
+```
+
 ## Injuries
 
 `injury_types()` and `injuries()`.

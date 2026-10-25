@@ -248,6 +248,7 @@ class PersonBlockDecoder:
     surname_cache: dict[int, str | None]
 
     # Counts for the player checks, added to as relation lists are read.
+    last_block_start: int | None = None
     relation_entry_count: int = 0
     relation_sentinel_ok_count: int = 0
     second_nation_entry_count: int = 0
@@ -260,6 +261,7 @@ class PersonBlockDecoder:
             CorruptSaveError: A validated block's relation header or entry list runs past
                 window_end, or its legal name is not valid UTF-8.
         """
+        self.last_block_start = None
         search_start = window_start + self.zero_offset_from_birth
         for zero_position in iter_marker_run_starts(
             game_db, search_start, window_end, self.marker_table, self.marker_needle
@@ -423,6 +425,7 @@ class PersonBlockDecoder:
                 remaining ^= lowest_set_bit
             traits = tuple(traits_list)
 
+        self.last_block_start = block_start_offset
         return (
             name,
             first_name,

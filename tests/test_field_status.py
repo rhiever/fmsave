@@ -322,9 +322,12 @@ def reachable_record_classes(record_class: type) -> Iterator[type]:
 
 
 def attribute_entries(model_class: type) -> dict[str, str]:
-    docstring_lines = inspect.cleandoc(model_class.__doc__ or "").splitlines()
+    inherited: dict[str, str] = {}
+    for base in reversed(model_class.__bases__):
+        inherited.update(attribute_entries(base))
+    docstring_lines = inspect.cleandoc(model_class.__dict__.get("__doc__") or "").splitlines()
     if "Attributes:" not in docstring_lines:
-        return {}
+        return inherited
     entry_parts: dict[str, list[str]] = {}
     current_parts: list[str] | None = None
     for line in docstring_lines[docstring_lines.index("Attributes:") + 1 :]:
@@ -338,7 +341,7 @@ def attribute_entries(model_class: type) -> dict[str, str]:
             entry_parts[entry_match.group(1)] = current_parts
         elif current_parts is not None:
             current_parts.append(line.strip())
-    return {entry_name: " ".join(parts) for entry_name, parts in entry_parts.items()}
+    return inherited | {entry_name: " ".join(parts) for entry_name, parts in entry_parts.items()}
 
 
 def public_record_classes() -> list[type]:

@@ -4,6 +4,21 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-24
+
+### Added
+
+- `player_season_history()` returns archived player statistics with the counts and computed rates of current-season rows. Each row carries an unconfirmed candidate season year and competition reference. Stored order may be nonchronological, and imported history may omit detailed counts.
+- `PlayerSeasonHistory` and the `player-season-history` CLI export table support the new reader. Club and nation scopes select players by current membership and retain their rows for previous teams.
+- Validation reports historical ownership counts and unresolved teams. Malformed or ambiguous history ownership raises `ReaderCheckError`.
+
+### Fixed
+
+- Missing player details stay empty when only another person's data is available. Players no longer borrow that person's name or other personal details, and archived statistics use the same ownership boundary.
+- Failed reader caches release decompressed save sections. Repeated calls raise the saved failure without decoding again.
+
+Thanks to @thaffy for the feature request. Refs #13.
+
 ## [0.5.11] - 2026-10-19
 
 ### Fixed

@@ -34,6 +34,7 @@ from fmsave.readers.player_scan import (
     _completeness_pattern,
     _flagged_runs,
     build_header_layout,
+    closing_person_header,
     closing_unique_id,
     locate_player_records,
     window_end,
@@ -900,6 +901,7 @@ def test_closing_unique_id_reads_only_a_sound_header_inside_its_bounds() -> None
     header = struct.pack("<III", 8, 700, 700)
     unsound = struct.pack("<III", 8, 700, 701)
     buffer = bytes(16) + header + bytes(16)
+    assert closing_person_header(buffer, 7, 0, len(buffer), 600, 800) == (16, 700)
     assert closing_unique_id(buffer, 7, 0, len(buffer), 600, 800) == 700
     assert closing_unique_id(buffer, 7, 0, len(buffer), 600, None) == 700
     assert closing_unique_id(buffer, 7, 0, len(buffer), 700, None) is None
