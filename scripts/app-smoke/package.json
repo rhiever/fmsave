@@ -1,0 +1,9 @@
+{
+  "name": "fmsave-app-smoke",
+  "private": true,
+  "description": "Runs the web app's reader in Pyodide under Node; see smoke.mjs.",
+  "type": "module",
+  "dependencies": {
+    "pyodide": "314.0.7"
+  }
+}

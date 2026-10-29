@@ -4,6 +4,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Added
+
+- A web app at <https://rhiever.github.io/fmsave/app/> reads a save in the browser with Pyodide and the released fmsave, so players without Python can use it. It shows the squad and every player with all attributes, CA and PA, positions, personality, contracts, and this season's stats by competition, each ranked against players in the same position. It has filters and rules on any column, a shortlist, light and dark themes, and a demo league of made-up players. It downloads the list on screen, `players.csv`, `squad.csv`, and `season-stats.csv` as CSV. The save never leaves the computer.
+- The docs build pins the web app to the newest fmsave on PyPI, and a release redeploys it once PyPI lists the new version.
+
 ## [0.6.0] - 2026-10-24
 
 ### Added
