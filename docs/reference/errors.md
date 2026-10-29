@@ -1,3 +1,9 @@
+---
+myst:
+  html_meta:
+    description: "Reference for the errors and warnings fmsave raises."
+---
+
 # Errors
 
 Every error fmsave raises on purpose is a `FmsaveError`; every warning it issues on purpose is a

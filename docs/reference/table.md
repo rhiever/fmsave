@@ -1,3 +1,9 @@
+---
+myst:
+  html_meta:
+    description: "Reference for fmsave's Table: lookups, queries, and export to pandas, polars, CSV, JSON, and JSON Lines."
+---
+
 # Table
 
 The immutable sequence every reader returns: one dataclass type per table, with lookups,

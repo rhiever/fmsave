@@ -1,3 +1,9 @@
+---
+myst:
+  html_meta:
+    description: "Reference for fmsave.open, the Save object and its readers, and validate_save."
+---
+
 # Save
 
 `fmsave.open` returns a `Save`; its reader methods hand back one `Table` each. `validate_save`

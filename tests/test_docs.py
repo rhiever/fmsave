@@ -152,3 +152,14 @@ def test_cli_reference_is_real_help_output() -> None:
         assert f"$ {command_name}" in cli_text, command_name
     parser = cli._build_parser()
     assert parser.prog in cli_text
+
+
+def test_every_docs_page_has_a_search_description() -> None:
+    docs = REFERENCE_DIR.parent
+    for page in sorted(docs.glob("**/*.md")):
+        if "_build" in page.parts:
+            continue
+        head = page.read_text(encoding="utf-8").split("\n---\n", 1)[0]
+        assert head.startswith("---\nmyst:\n  html_meta:\n    description: "), page.relative_to(
+            docs
+        )

@@ -1,3 +1,9 @@
+---
+myst:
+  html_meta:
+    description: "fmsave reads Football Manager 26 saves into Python records, DataFrames, CSV, and JSON. It is read-only, and a free web app reads saves in the browser."
+---
+
 # fmsave
 
 Read your Football Manager 26 saves from disk into Python records, DataFrames, CSV and JSON.

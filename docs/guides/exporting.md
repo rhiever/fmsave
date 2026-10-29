@@ -1,3 +1,9 @@
+---
+myst:
+  html_meta:
+    description: "Export fmsave tables from Football Manager 26 saves to pandas, polars, CSV, JSON, and JSON Lines, or use the fmsave export command."
+---
+
 # Getting data out
 
 Every reader returns a `Table`. Export nested records for another program or flat columns for
