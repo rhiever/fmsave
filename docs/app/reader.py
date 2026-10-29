@@ -2,8 +2,8 @@
 
 The app's worker runs this module in Pyodide, next to fmsave installed from PyPI. It uses
 only fmsave's public API, so it works with any released fmsave that has these readers. The
-worker calls open_save, read_players, read_stats and close_save in that order, then
-player_detail, stats_columns and write_csv on demand while the page is open.
+worker calls open_save, read_players, read_stats, and close_save in that order, then
+player_detail, stats_columns, and write_csv on demand while the page is open.
 
 Numbers cross to the page as packed little-endian float32 (or float64 for uids), one buffer
 per column, with NaN for a missing value. Dates cross as days since 1970-01-01. Text crosses

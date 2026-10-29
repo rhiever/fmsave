@@ -1,6 +1,6 @@
 // Made-up players for the demo: a two-division league in the middle of its first season.
-// Every player is drawn from demo-model.json, which holds aggregate shares, quantiles and
-// least-squares lines measured across FM26 players. No real player, club or value is in it.
+// Every player is drawn from demo-model.json, which holds aggregate shares, quantiles, and
+// least-squares lines measured across FM26 players. No real player, club, or value is in it.
 
 const DAY = 86400000;
 const TODAY = Date.UTC(2027, 0, 14) / DAY;

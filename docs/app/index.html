@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://pypi.org https://files.pythonhosted.org; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>fmsave: scout every player in your FM26 save</title>
-<meta name="description" content="Drop a Football Manager 26 save and get every player in it, with all attributes, CA and PA, this season's stats and CSV downloads. Your save never leaves your computer.">
+<meta name="description" content="Drop a Football Manager 26 save and get every player in it, with all attributes, CA and PA, this season's stats, and CSV downloads. Your save never leaves your computer.">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -48,13 +48,13 @@
   <button class="item" data-csv="view"><b>This list as shown</b><em data-csv-count="view"></em><small>The players and columns on screen, in this order.</small></button>
   <button class="item" data-csv="players"><b>players.csv</b><em>All players</em><small>Every column fmsave reads for every player.</small></button>
   <button class="item" data-csv="squad"><b>squad.csv</b><em>Your club</em><small>The same columns, for your club's players.</small></button>
-  <button class="item" data-csv="season-stats"><b>season-stats.csv</b><em>Every competition</em><small>This season's stats, one row per player, competition and team. Large.</small></button>
+  <button class="item" data-csv="season-stats"><b>season-stats.csv</b><em>Every competition</em><small>This season's stats, one row per player, competition, and team. Large.</small></button>
 </div>
 
 <main class="start" id="start">
   <section>
     <h1>Scout every player in your FM26 save</h1>
-    <p class="lede">Drop a Football Manager 26 save here. You get your squad and every player in the game world, with all attributes, CA and PA, positions, personality, contracts, this season's stats and CSV downloads. Every number is ranked against players in the same position.</p>
+    <p class="lede">Drop a Football Manager 26 save here. You get your squad and every player in the game world, with all attributes, CA and PA, positions, personality, contracts, this season's stats, and CSV downloads. Every number is ranked against players in the same position.</p>
     <div class="drop" id="drop">
       <strong id="drop-title">Drop your .fm save here</strong>
       <div class="drop-row" id="drop-actions">
@@ -72,7 +72,7 @@
     <div class="notes">
       <p><b>Your save never leaves this computer.</b> This page reads it inside your browser with <a href="../">fmsave</a>, an open-source Python reader. Nothing is uploaded and nothing is stored on a server. The page downloads only the reader and its fonts (from Google Fonts).</p>
       <p><b>Where saves live.</b> On a Mac, <code>~/Library/Application Support/Sports Interactive/Football Manager 26/games/</code>. On Windows, usually <code>Documents\Sports Interactive\Football Manager 26\games\</code>. A big save takes about half a minute to read. If the game is running, copy the save and drop the copy.</p>
-      <p><b>Play fair.</b> CA, PA and hidden attributes are shown. That is fine in your own single-player career. Using them in a shared online career may break its rules.</p>
+      <p><b>Play fair.</b> CA, PA, and hidden attributes are shown. That is fine in your own single-player career. Using them in a shared online career may break its rules.</p>
     </div>
   </section>
   <figure class="specimen">

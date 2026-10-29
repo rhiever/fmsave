@@ -7,7 +7,7 @@ Read your Football Manager 26 saves from disk into Python records, DataFrames, C
 
 No Python? [Open fmsave in your browser](https://rhiever.github.io/fmsave/app/) and drop a save on
 the page. You get your squad and every player in the save, with all attributes, CA and PA, this
-season's stats and CSV downloads. The save is read on your computer and never uploaded.
+season's stats, and CSV downloads. The save is read on your computer and never uploaded.
 
 ## Install
 

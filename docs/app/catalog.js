@@ -1,4 +1,4 @@
-// What the page knows about each column: labels, groups, colours, formats and the views that
+// What the page knows about each column: labels, groups, colours, formats, and the views that
 // show them. Keys are fmsave's own export column names.
 
 export const ATTRIBUTES = {

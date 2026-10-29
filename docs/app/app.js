@@ -1,5 +1,5 @@
 // The fmsave web app. A worker reads the save with Pyodide and fmsave and sends one packed
-// column per field; this file ranks, filters, sorts and draws them. Nothing here sends save
+// column per field; this file ranks, filters, sorts, and draws them. Nothing here sends save
 // data anywhere: the only requests are for the page's own files and the reader.
 
 import {
@@ -502,7 +502,7 @@ function buildControls() {
     groups.get(g).push(c);
   }
   $("rule-column").innerHTML = [...groups].map(([g, cols]) => `<optgroup label="${g}">${cols.map((c) => `<option value="${c.key}"${c.key === "ability_potential" ? " selected" : ""}>${esc(c.label)}</option>`).join("")}</optgroup>`).join("");
-  $("rule-hint").textContent = `Rules work on any of ${$("rule-column").options.length} columns: attributes, positions, personality, contract and season stats. "Top %" uses the same ranks as the colours.`;
+  $("rule-hint").textContent = `Rules work on any of ${$("rule-column").options.length} columns: attributes, positions, personality, contract, and season stats. "Top %" uses the same ranks as the colours.`;
   ruleHint();
   drawColumnsMenu();
   syncControls();
@@ -661,7 +661,7 @@ function wire() {
     const op = $("rule-op").value;
     const col = COLUMNS.get(key);
     const v = parseValue(col, $("rule-value").value || $("rule-value").placeholder);
-    if (Number.isNaN(v)) return toast("Type a number for the rule, such as 14, 0.35 or 5M");
+    if (Number.isNaN(v)) return toast("Type a number for the rule, such as 14, 0.35, or 5M");
     if (op === "top" && !col.rank) return toast(`${col.label} has no ranks. Use at least or at most.`);
     if (op === "top" && !(v >= 1 && v <= 100)) return toast("Top % takes a number from 1 to 100");
     state.rules.push({ key, op, value: v });
@@ -920,8 +920,8 @@ async function drawSpecimen() {
   const mean = Math.round(ranks.reduce((a, b) => a + b, 0) / ranks.length);
   const group = GROUPS[specimen.group];
   $("specimen").insertAdjacentHTML("beforeend", wheel(460, (key) => specimen.ranks[key] ?? null, [ordinal(mean), "vs " + group[0]]));
-  $("specimen-title").textContent = `Attribute ranks for ${specimen.name}, a made-up player`;
-  $("specimen-name").textContent = `${specimen.name}, ${specimen.age}, ${positions(specimen.positions)} at ${specimen.club} (made up).`;
+  $("specimen-title").textContent = `Attribute ranks for ${specimen.name}`;
+  $("specimen-name").textContent = `${specimen.name}, ${specimen.age}, ${positions(specimen.positions)} at ${specimen.club}.`;
   $("specimen-group").textContent = group[1];
 }
 
