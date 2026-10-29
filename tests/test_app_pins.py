@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import urllib.error
 from collections.abc import Mapping
 from pathlib import Path
 from types import ModuleType
@@ -122,3 +123,35 @@ def test_the_ci_smoke_check_installs_the_pyodide_the_page_pins() -> None:
     lock = json.loads((smoke / "package-lock.json").read_text(encoding="utf-8"))
     assert package["dependencies"]["pyodide"] == committed["pyodide"]
     assert lock["packages"]["node_modules/pyodide"]["version"] == committed["pyodide"]
+
+
+def test_waiting_keeps_polling_through_pypi_errors() -> None:
+    answers: list[object] = [
+        urllib.error.URLError("down"),
+        TimeoutError(),
+        project("1.2.0", {"1.2.0": [wheel("1.2.0")]}),
+    ]
+
+    def fetch() -> Mapping[str, object]:
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        assert isinstance(answer, dict)
+        return answer  # pyright: ignore[reportUnknownVariableType]
+
+    version = app_pins.wait_for_version(
+        fetch, "1.2.0", 600, sleep=lambda _: None, clock=lambda: 0.0
+    )
+    assert version == "1.2.0"
+
+
+def test_a_plain_build_leaves_fmsave_unpinned_when_pypi_is_down(tmp_path: Path) -> None:
+    def fetch() -> Mapping[str, object]:
+        raise urllib.error.URLError("down")
+
+    out = tmp_path / "pins.json"
+    status = app_pins.main(
+        [str(out), "--committed", str(COMMITTED_PINS_PATH)], fetch=fetch, sleep=lambda _: None
+    )
+    assert status == 0
+    assert set(json.loads(out.read_text(encoding="utf-8"))) == {"pyodide"}

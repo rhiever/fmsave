@@ -35,6 +35,8 @@ STAT_SKIP = frozenset(
 STAT_KINDS = ("overall", "league", "cup", "continental", "international")
 STAT_ROLLUP_COLUMNS = ("team_slot",)
 
+# Uids and money need float64: float32 is exact only up to 16,777,216.
+WIDE_COLUMNS = frozenset({"uid", "club_uid", "transfer_value", "contract_wage"})
 _EPOCH = date(1970, 1, 1)
 _state: dict[str, Any] = {}
 
@@ -235,12 +237,16 @@ def stats_columns(kind: str) -> dict[str, bytes]:
 def open_save(path: str) -> dict[str, object]:
     """Open the save at path and return what the page shows while the players load."""
     close_save()
+    _state.clear()
     started = time.monotonic()
     career_save = fmsave.open(path)
     _state["save"] = career_save
     _state["started"] = started
     info = career_save.info
-    managed = career_save.managed_clubs()
+    try:
+        managed = career_save.managed_clubs()
+    except fmsave.FmsaveError:
+        managed = ()
     club = managed[0] if managed else None
     _state["club_uid"] = None if club is None else club.club_uid
     return {
@@ -259,7 +265,7 @@ def read_players() -> dict[str, object]:
     _state["order"] = {player.uid: index for index, player in enumerate(players)}
     numbers = player_numbers(players)
     packed = {
-        name: _pack(values, "d" if name in ("uid", "club_uid") else "f")
+        name: _pack(values, "d" if name in WIDE_COLUMNS else "f")
         for name, values in numbers.items()
     }
     return {
@@ -312,6 +318,8 @@ def write_csv(name: str, path: str) -> int:
     if name == "players":
         table = players
     elif name == "squad":
+        if _state["club_uid"] is None:
+            raise AppError("This save has no managed club, so there is no squad to download.")
         table = players.where(club_uid=_state["club_uid"])
     elif name == "season-stats":
         table = _state["stats"]

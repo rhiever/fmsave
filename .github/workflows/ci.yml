@@ -134,8 +134,16 @@ jobs:
         run: uv run python -c "from pathlib import Path; from tests.fixtures.career import career_fragment; career_fragment().write(Path('example-career.fm'))"
       - name: Install the Pyodide the page pins
         run: npm ci --ignore-scripts --prefix scripts/app-smoke
-      - name: Read the example career in Pyodide
+      - name: Read the example career in Pyodide with this branch's fmsave
         run: node scripts/app-smoke/smoke.mjs dist/*.whl example-career.fm
+      # The live page runs main's reader.py with the newest fmsave on PyPI, so the reader must
+      # also work with that release, not only with the code on this branch.
+      - name: Read the example career in Pyodide with the fmsave the page loads
+        run: |
+          python3 scripts/app_pins.py released-pins.json
+          version="$(python3 -c "import json; print(json.load(open('released-pins.json'))['fmsave'])")"
+          python3 -m pip download --quiet --no-deps --only-binary=:all: --dest released "fmsave==${version}"
+          node scripts/app-smoke/smoke.mjs released/fmsave-*.whl example-career.fm
 
   test-windows:
     name: Tests (Windows, Python 3.14)

@@ -208,3 +208,30 @@ def test_the_page_allows_only_the_hosts_it_needs() -> None:
         (APP_FOLDER / name).read_text(encoding="utf-8") for name in ("app.js", "worker.js")
     )
     assert set(re.findall(r"https://([a-z.]+)", scripts)) == {"cdn.jsdelivr.net"}
+
+
+def test_money_and_uids_cross_as_float64(opened: dict[str, Any]) -> None:
+    numbers = opened["players"]["numbers"]
+    count = opened["players"]["count"]
+    for name in ("uid", "club_uid", "transfer_value", "contract_wage"):
+        assert len(numbers[name]) == 8 * count, name
+
+
+def test_opening_a_save_drops_what_the_last_one_left(career_save_path: Path) -> None:
+    reader.open_save(str(career_save_path))
+    reader.read_players()
+    reader.read_stats()
+    reader.open_save(str(career_save_path))
+    assert {"players", "stats", "stats_by_player", "order"}.isdisjoint(reader._state)
+    reader.close_save()
+    reader._state.clear()
+
+
+def test_a_save_without_a_managed_club_has_no_squad_download(
+    opened: dict[str, Any], tmp_path: Path
+) -> None:
+    del opened
+    reader._state["club_uid"] = None
+    result = reader.call("write_csv", "squad", str(tmp_path / "squad.csv"))
+    assert result == {"error": "This save has no managed club, so there is no squad to download."}
+    assert not (tmp_path / "squad.csv").exists()

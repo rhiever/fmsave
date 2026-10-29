@@ -276,7 +276,7 @@ function isStat(key) { return COLUMNS.get(key)?.stat; }
 function load(meta, count, numbers, text) {
   data = { meta, n: count, num: {}, text, stats: null, demo: state.demo };
   for (const [key, buf] of Object.entries(numbers)) {
-    data.num[key] = buf instanceof ArrayBuffer ? (key === "uid" || key === "club_uid" ? new Float64Array(buf) : new Float32Array(buf)) : buf;
+    data.num[key] = buf instanceof ArrayBuffer ? (buf.byteLength === count * 8 ? new Float64Array(buf) : new Float32Array(buf)) : buf;
   }
   const n = count;
   const group = new Uint8Array(n).fill(255);
@@ -304,6 +304,8 @@ function load(meta, count, numbers, text) {
   rankCache.clear();
   details.clear();
   data.squadUid = meta.club_uid;
+  state.selected = -1;
+  state.pendingKind = null;
   try { shortlist = new Set(JSON.parse(localStorage.getItem(shortlistKey()) || "[]")); } catch { shortlist = new Set(); }
 }
 
@@ -443,7 +445,7 @@ function compute() {
     for (const r of rules) {
       const v = r.values ? r.values[i] : NaN;
       if (r.minutes && !(r.minutes[i] >= floor)) { ok = false; break; }
-      if (r.top ? v === 255 || v < r.min : !(v >= r.min && v <= r.max)) { ok = false; break; }
+      if (r.top ? v === undefined || v === 255 || v < r.min : !(v >= r.min && v <= r.max)) { ok = false; break; }
     }
     if (ok) out.push(i);
   }
@@ -549,7 +551,8 @@ function refresh({ head = true, keepScroll = false } = {}) {
   drawRows();
   const total = state.list === "squad" ? countSquad() : state.list === "shortlist" ? shortlist.size : data.n;
   const sortCol = COLUMNS.get(state.sort.key);
-  $("list-count").textContent = `${nf.format(order.length)} of ${nf.format(total)}, sorted by ${sortCol.label.toLowerCase()}${!data.stats ? ". Season stats are still loading" : ""}`;
+  const statsNote = data.stats ? "" : data.statsFailed ? ". Season stats could not be read" : ". Season stats are still loading";
+  $("list-count").textContent = `${nf.format(order.length)} of ${nf.format(total)}, sorted by ${sortCol.label.toLowerCase()}${statsNote}`;
   $("list-title").textContent = { squad: data.meta.club || "Squad", all: "All players", shortlist: "Shortlist" }[state.list];
   for (const b of document.querySelectorAll("#tabs button")) b.setAttribute("aria-selected", b.dataset.list === state.list);
   updateCounts();
@@ -638,9 +641,9 @@ function kv(pairs) {
 }
 
 function pitch(i) {
-  const spots = [["stc", 50, 12], ["aml", 16, 30], ["amc", 50, 30], ["amr", 84, 30], ["ml", 16, 48], ["mc", 50, 48], ["mr", 84, 48], ["wbl", 16, 64], ["dm", 50, 64], ["wbr", 84, 64], ["dl", 16, 80], ["dc", 50, 80], ["dr", 84, 80], ["sw", 50, 92], ["gk", 50, 106]];
-  const W = 100, H = 116;
-  let s = `<svg class="pitch" viewBox="-4 -4 ${W + 8} ${H + 8}" role="img" aria-label="Position ratings on a pitch"><rect x="0" y="0" width="${W}" height="${H}" rx="3" fill="#f3f6f0" stroke="#dcdfd9"/><line x1="0" y1="${H / 2}" x2="${W}" y2="${H / 2}" stroke="#dcdfd9"/><circle cx="50" cy="${H / 2}" r="9" fill="none" stroke="#dcdfd9"/><rect x="25" y="${H - 18}" width="50" height="18" fill="none" stroke="#dcdfd9"/><rect x="25" y="0" width="50" height="18" fill="none" stroke="#dcdfd9"/>`;
+  const spots = [["stc", 50, 12], ["aml", 16, 34], ["amc", 50, 34], ["amr", 84, 34], ["ml", 16, 56], ["mc", 50, 56], ["mr", 84, 56], ["wbl", 16, 78], ["dm", 50, 78], ["wbr", 84, 78], ["dl", 16, 100], ["dc", 50, 100], ["dr", 84, 100], ["sw", 50, 120], ["gk", 50, 140]];
+  const W = 100, H = 152;
+  let s = `<svg class="pitch" viewBox="-4 -4 ${W + 8} ${H + 8}" role="img" aria-label="Position ratings on a pitch"><rect x="0" y="0" width="${W}" height="${H}" rx="3" fill="#f3f6f0" stroke="#dcdfd9"/><line x1="0" y1="${H / 2}" x2="${W}" y2="${H / 2}" stroke="#dcdfd9"/><circle cx="50" cy="${H / 2}" r="9" fill="none" stroke="#dcdfd9"/><rect x="22" y="${H - 22}" width="56" height="22" fill="none" stroke="#dcdfd9"/><rect x="22" y="0" width="56" height="22" fill="none" stroke="#dcdfd9"/>`;
   for (const [slot, x, y] of spots) {
     const v = value("positions_" + slot, i);
     const fill = v >= 18 ? "#0b7a5a" : v >= 15 ? "#5aa98d" : v >= 10 ? "#d9e9e1" : "#fff";
@@ -652,7 +655,7 @@ function pitch(i) {
 }
 
 function statTable(i) {
-  if (!data.stats) return `<p class="note">Season stats are still loading.</p>`;
+  if (!data.stats) return `<p class="note">${data.statsFailed ? "Season stats could not be read from this save." : "Season stats are still loading."}</p>`;
   const minutes = data.stats.num.minutes[i];
   if (Number.isNaN(minutes)) return `<p class="note">No ${KINDS.find(([k]) => k === state.statKind)[1].toLowerCase()} appearances this season.</p>`;
   const groupRows = Object.entries(STAT_GROUPS).map(([group, keys]) => {
@@ -791,7 +794,7 @@ function drawColumnsMenu() {
     groups.get(g).push(c);
   }
   $("columns-list").innerHTML = (state.extras.length ? `<p class="hint" style="margin:0 4px 8px">Added columns stay on screen in every view.</p>` : "") +
-    [...groups].map(([g, cols]) => `<h4 style="margin:10px 4px 4px;font:700 11px var(--cond);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)">${g}</h4>` +
+    [...groups].map(([g, cols]) => `<h3 style="margin:10px 4px 4px;font:700 11px var(--cond);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)">${g}</h3>` +
       cols.map((c) => `<label style="display:flex;gap:8px;align-items:center;padding:3px 4px;font-size:13px"><input type="checkbox" data-extra="${c.key}"${state.extras.includes(c.key) ? " checked" : ""}>${esc(c.label)}</label>`).join("")).join("") ||
     `<p class="hint" style="margin:4px">No column matches.</p>`;
 }
@@ -1034,6 +1037,7 @@ function begin(file) {
 }
 
 function showStart() {
+  document.body.classList.remove("in-app");
   $("start").hidden = false;
   $("app").hidden = true;
   $("tabs").hidden = true;
@@ -1042,6 +1046,7 @@ function showStart() {
 }
 
 function showApp() {
+  document.body.classList.add("in-app");
   $("start").hidden = true;
   $("app").hidden = false;
   $("tabs").hidden = false;
@@ -1049,7 +1054,8 @@ function showApp() {
   $("docs-link").hidden = matchMedia("(max-width: 760px)").matches;
   const m = data.meta;
   $("meta").innerHTML = [m.save && `<b>${esc(m.save)}</b>`, m.club && esc(m.club), m.date && esc(day(Date.parse(m.date) / DAY))].filter(Boolean).join(" · ");
-  for (const b of $("csv-menu").querySelectorAll("[data-csv]")) b.hidden = data.demo && b.dataset.csv !== "view";
+  const noSquad = data.squadUid === null || data.squadUid === undefined;
+  for (const b of $("csv-menu").querySelectorAll("[data-csv]")) b.hidden = (data.demo && b.dataset.csv !== "view") || (noSquad && b.dataset.csv === "squad");
   document.querySelector('#tabs [data-list="squad"]').hidden = data.squadUid === null || data.squadUid === undefined;
   state.list = data.squadUid === null || data.squadUid === undefined ? "all" : "squad";
   squadCount = null;
@@ -1099,6 +1105,12 @@ worker.onmessage = ({ data: msg }) => {
     } else if (msg.request === "open") {
       showStart();
       showError(msg.text);
+    } else if (msg.request === "stats" && data && !data.stats) {
+      data.statsFailed = true;
+      refresh({ head: false, keepScroll: true });
+      toast(msg.text, 6000);
+    } else if (msg.request === "detail") {
+      details.delete(msg.uid);
     } else if (msg.request === "csv") {
       const b = $("csv-menu").querySelector(`[data-csv="${msg.name}"]`);
       if (b) { b.disabled = false; b.querySelector("em").textContent = "Try again"; }
@@ -1320,3 +1332,5 @@ wire();
 wireStart();
 drawPanel();
 worker.postMessage({ type: "boot" });
+// A shareable link straight into the made-up players: /app/#demo
+if (location.hash === "#demo") startDemo();

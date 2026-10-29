@@ -8,7 +8,8 @@ The Pyodide version comes from docs/app/pins.json, which is committed and change
 fmsave is pinned to the newest release on PyPI that has a pure-Python wheel, so the page
 never asks for a version PyPI does not have yet. With --wait-for, the script waits until
 PyPI lists that version and pins it: the release workflow uses this to redeploy the page
-with the version it has just published.
+with the version it has just published. If PyPI does not answer a plain build, the pins
+leave fmsave out and the page installs the newest release itself.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import argparse
 import json
 import sys
 import time
+import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -25,6 +27,9 @@ from typing import cast
 PYPI_URL = "https://pypi.org/pypi/fmsave/json"
 COMMITTED_PINS = Path(__file__).resolve().parents[1] / "docs" / "app" / "pins.json"
 POLL_SECONDS = 15.0
+FETCH_ATTEMPTS = 4
+# What a PyPI outage or a bad response looks like from urllib and json.
+FETCH_ERRORS = (urllib.error.URLError, TimeoutError, OSError, ValueError)
 USER_AGENT = "fmsave-docs-build"
 
 type Fetch = Callable[[], Mapping[str, object]]
@@ -92,21 +97,45 @@ def wait_for_version(
     """Poll PyPI until it lists version with a loadable wheel, or fail after timeout seconds."""
     deadline = clock() + timeout
     while True:
-        if version in loadable_versions(fetch()):
-            return version
+        try:
+            if version in loadable_versions(fetch()):
+                return version
+        except FETCH_ERRORS as error:
+            print(f"app_pins: PyPI did not answer ({error}); trying again", file=sys.stderr)
         if clock() >= deadline:
             raise PinError(f"PyPI did not list fmsave {version} within {timeout:.0f} seconds")
         sleep(POLL_SECONDS)
 
 
-def pins(committed: Mapping[str, object], fmsave_version: str) -> dict[str, object]:
+def fetch_with_retries(
+    fetch: Fetch, *, sleep: Callable[[float], None] = time.sleep
+) -> Mapping[str, object] | None:
+    """PyPI's project data, or None when PyPI does not answer after a few tries."""
+    for attempt in range(FETCH_ATTEMPTS):
+        try:
+            return fetch()
+        except FETCH_ERRORS as error:
+            print(f"app_pins: PyPI did not answer ({error})", file=sys.stderr)
+            if attempt + 1 < FETCH_ATTEMPTS:
+                sleep(POLL_SECONDS)
+    return None
+
+
+def pins(committed: Mapping[str, object], fmsave_version: str | None) -> dict[str, object]:
     pyodide = committed.get("pyodide")
     if not isinstance(pyodide, str) or not pyodide:
         raise PinError("docs/app/pins.json needs a pyodide version")
+    if fmsave_version is None:
+        return {"pyodide": pyodide}
     return {"pyodide": pyodide, "fmsave": fmsave_version}
 
 
-def main(argv: Sequence[str] | None = None, *, fetch: Fetch = fetch_pypi) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    fetch: Fetch = fetch_pypi,
+    sleep: Callable[[float], None] = time.sleep,
+) -> int:
     parser = argparse.ArgumentParser(description="Write the version pins the web app loads.")
     parser.add_argument("out", type=Path, help="where to write the pins, in the built site")
     parser.add_argument("--wait-for", metavar="VERSION", help="wait until PyPI lists VERSION")
@@ -115,17 +144,21 @@ def main(argv: Sequence[str] | None = None, *, fetch: Fetch = fetch_pypi) -> int
     args = parser.parse_args(argv)
     committed = cast(Mapping[str, object], json.loads(args.committed.read_text(encoding="utf-8")))
     try:
+        version: str | None
         if args.wait_for:
-            version = wait_for_version(fetch, args.wait_for, args.timeout)
+            version = wait_for_version(fetch, args.wait_for, args.timeout, sleep=sleep)
         else:
-            version = latest_version(fetch())
+            project = fetch_with_retries(fetch, sleep=sleep)
+            # With PyPI down, the docs still deploy: the page then installs the newest
+            # fmsave itself, unpinned, until the next build pins it again.
+            version = None if project is None else latest_version(project)
         written = pins(committed, version)
     except PinError as error:
         print(f"app_pins: {error}", file=sys.stderr)
         return 1
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(written, indent=2) + "\n", encoding="utf-8")
-    print(f"app_pins: Pyodide {written['pyodide']}, fmsave {written['fmsave']}")
+    print(f"app_pins: Pyodide {written['pyodide']}, fmsave {written.get('fmsave', 'unpinned')}")
     return 0
 
 

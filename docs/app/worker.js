@@ -66,10 +66,19 @@ async function openSave(file) {
     const players = call("read_players");
     const numbers = packed(players.numbers);
     postMessage({ type: "players", count: players.count, seconds: players.seconds, numbers, text: players.text }, Object.values(numbers));
+  } catch (error) {
+    unmount();
+    throw error;
+  }
+  // The players are on screen by now, so a stats failure is reported on its own and the
+  // page keeps working without stats.
+  try {
     postMessage({ type: "stage", stage: "stats" });
     const stats = call("read_stats");
     const statNumbers = packed(stats.numbers);
     postMessage({ type: "stats", kind: stats.kind, seconds: stats.seconds, numbers: statNumbers }, Object.values(statNumbers));
+  } catch (error) {
+    postMessage({ type: "error", request: "stats", text: error.safe ? error.message : "Season stats could not be read from this save." });
   } finally {
     unmount();
   }
@@ -107,6 +116,6 @@ onmessage = async ({ data }) => {
       : data.type === "boot" || !reader
         ? "The reader could not load. Check your connection and reload the page."
         : "Something went wrong in the reader. Reload the page and try again.";
-    postMessage({ type: "error", request: data.type, name: data.name, text });
+    postMessage({ type: "error", request: data.type, name: data.name, uid: data.uid, text });
   }
 };

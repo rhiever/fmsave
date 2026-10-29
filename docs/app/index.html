@@ -25,7 +25,7 @@
 </svg>
 
 <header class="bar">
-  <a class="brand" href="./" aria-label="fmsave, start again"><span class="mark" aria-hidden="true"></span>fmsave</a>
+  <a class="brand" href="./" aria-label="fmsave, start again"><span class="mark" aria-hidden="true"></span><span class="brand-word">fmsave</span></a>
   <nav class="tabs" id="tabs" role="tablist" aria-label="Player lists" hidden>
     <button role="tab" data-list="squad" aria-selected="false">Squad <span class="count" data-count="squad"></span></button>
     <button role="tab" data-list="all" aria-selected="true">All players <span class="count" data-count="all"></span></button>
@@ -103,16 +103,16 @@
   </div>
   <div class="body">
     <aside class="rail" id="rail" aria-label="Filters">
-      <h4>Search</h4>
+      <h2 class="h4">Search</h2>
       <input type="search" id="search" placeholder="Name or club" autocomplete="off" spellcheck="false">
-      <h4>Position</h4>
+      <h2 class="h4">Position</h2>
       <div class="chips" id="positions"></div>
-      <h4>Age</h4>
+      <h2 class="h4">Age</h2>
       <div class="pair">
         <label>From<input type="number" id="age-min" min="14" max="50" inputmode="numeric"></label>
         <label>To<input type="number" id="age-max" min="14" max="50" inputmode="numeric"></label>
       </div>
-      <h4>Rules</h4>
+      <h2 class="h4">Rules</h2>
       <div id="rules"></div>
       <form class="add-rule" id="add-rule">
         <select id="rule-column" aria-label="Column"></select>
@@ -127,10 +127,10 @@
         <button class="plain" type="submit">Add rule</button>
       </form>
       <p class="hint" id="rule-hint"></p>
-      <h4>Stats from</h4>
+      <h2 class="h4">Stats from</h2>
       <select id="stat-kind"></select>
       <p class="hint" id="floor-hint">Stat ranks, and rules on per-90 and percentage stats, count players with 450 minutes or more in that competition.</p>
-      <h4>Clear</h4>
+      <h2 class="h4">Clear</h2>
       <button class="link" id="clear">Clear all filters</button>
     </aside>
     <section class="list" aria-labelledby="list-title">
