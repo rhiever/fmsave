@@ -47,6 +47,8 @@ exclude_patterns = ["_build", "app", "Thumbs.db", ".DS_Store"]
 
 html_theme = "furo"
 html_static_path = ["_static"]
+# A plain-text summary of fmsave for AI agents, served at the site root.
+html_extra_path = ["llms.txt"]
 html_title = f"fmsave {version}"
 
 
@@ -64,7 +66,10 @@ def copy_web_app(app: Sphinx, exception: BaseException | None) -> None:
     source = Path(__file__).parent / "app"
     target = Path(app.outdir) / "app"
     shutil.copytree(
-        source, target, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__")
+        source,
+        target,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns("__pycache__", "og-card.html"),
     )
     digest = hashlib.sha256()
     for path in sorted(source.glob("*")):

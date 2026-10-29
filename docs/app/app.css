@@ -280,6 +280,7 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: rgb(var(--men)
 .stages p.done { color: var(--ink-2); }
 .stages p.done::before { background: rgb(var(--phy)); border-color: rgb(var(--phy)); }
 .stages time { font: 700 14px var(--cond); color: var(--ink-2); }
+.noscript { margin: 0; padding: 14px 20px; background: var(--select); font-weight: 600; text-align: center; }
 .error { margin: 0; padding: 10px 12px; border-radius: 7px; background: rgba(var(--tec), 0.12); color: var(--error-ink); font-weight: 600; }
 .specimen { display: grid; justify-items: center; gap: 14px; margin: 0; }
 .specimen svg { width: min(100%, 460px); height: auto; }

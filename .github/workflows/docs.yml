@@ -46,6 +46,14 @@ jobs:
       - run: uv sync --locked --group docs
       - name: Build docs
         run: uv run --group docs sphinx-build -W --keep-going -b html docs docs/_build/html
+      # The link-preview image is a screenshot of a committed HTML card, since the repository
+      # holds no binary files. A failure only loses the preview, so it warns instead.
+      - name: Render the web app's link-preview image
+        run: |
+          google-chrome --headless=new --no-sandbox --disable-gpu --hide-scrollbars \
+            --window-size=1200,630 --virtual-time-budget=5000 \
+            --screenshot=docs/_build/html/app/og.png "file://${GITHUB_WORKSPACE}/docs/app/og-card.html" \
+            || echo "::warning::Could not render docs/_build/html/app/og.png"
       - name: Pin the web app to fmsave on PyPI
         env:
           WAIT_FOR_VERSION: ${{ inputs.wait-for-version }}

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 import importlib.util
+import json
 import math
 import re
 import sys
@@ -264,3 +265,23 @@ def test_combined_rows_add_counts_and_weight_the_rating(career_save_path: Path) 
 
 def test_a_read_error_from_disk_gets_a_message_about_the_save_changing() -> None:
     assert "saved over it" in reader.friendly_error(OSError(29, "I/O error"))
+
+
+def test_the_page_describes_itself_to_search_engines_and_link_previews() -> None:
+    page = (APP_FOLDER / "index.html").read_text(encoding="utf-8")
+    base = "https://rhiever.github.io/fmsave/app/"
+    assert f'<link rel="canonical" href="{base}">' in page
+    for name in ("og:title", "og:description", "og:image", "og:url"):
+        assert f'property="{name}"' in page, name
+    assert f'content="{base}og.png"' in page
+    assert '<meta name="twitter:card" content="summary_large_image">' in page
+    data = re.search(r'<script type="application/ld\+json">(.*?)</script>', page, re.DOTALL)
+    assert data is not None
+    assert json.loads(data.group(1))["url"] == base
+    assert (APP_FOLDER / "og-card.html").is_file()
+
+
+def test_llms_txt_points_agents_at_the_web_app() -> None:
+    text = (APP_FOLDER.parent / "llms.txt").read_text(encoding="utf-8")
+    assert text.startswith("# fmsave\n\n> ")
+    assert "https://rhiever.github.io/fmsave/app/" in text

@@ -1,0 +1,29 @@
+# fmsave
+
+> fmsave reads Football Manager 26 save files (.fm) into Python records, pandas and polars DataFrames, CSV, and JSON. It is read-only: it never modifies a save, makes no network connections, and does not read game memory. It needs Python 3.12 or newer and is on PyPI as `fmsave`. A free web app runs the same reader in the browser for people without Python.
+
+Install with `pip install fmsave`, or try it without installing with `uvx fmsave info path/to/career.fm`. The fmsave library supports local, single-player analysis. Using hidden data such as potential ability in a shared online career may break that career's rules.
+
+## Web app
+
+- [fmsave web app](https://rhiever.github.io/fmsave/app/): drop an FM26 save to see every player with all attributes, CA and PA, positions, personality, contracts, and this season's stats, ranked against players in the same position, with CSV downloads. The save is read in the browser and never uploaded.
+- [Web app demo](https://rhiever.github.io/fmsave/app/#demo): the same app with a made-up league, for trying it without a save.
+
+## Guides
+
+- [Your squad](https://rhiever.github.io/fmsave/guides/squad.html): from a save file to a sorted squad with attributes, contracts, and filters.
+- [Getting data out](https://rhiever.github.io/fmsave/guides/exporting.html): DataFrames, CSV, JSON, and the `fmsave export` command.
+- [What a save holds](https://rhiever.github.io/fmsave/guides/what-a-save-holds.html): the readers and their coverage limits.
+- [Trusting a number](https://rhiever.github.io/fmsave/guides/trust.html): how to tell a verified field from an unconfirmed one.
+
+## Reference
+
+- [Opening a save](https://rhiever.github.io/fmsave/reference/save.html): `fmsave.open` and the readers on a career save.
+- [Records](https://rhiever.github.io/fmsave/reference/records.html): every record type and field.
+- [Tables](https://rhiever.github.io/fmsave/reference/table.html): filtering, sorting, and exporting results.
+- [Command line](https://rhiever.github.io/fmsave/reference/cli.html): `fmsave info`, `fmsave export`, and `fmsave validate`.
+
+## Optional
+
+- [Release notes](https://rhiever.github.io/fmsave/changelog.html)
+- [Source code and issues](https://github.com/rhiever/fmsave)
