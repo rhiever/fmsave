@@ -110,3 +110,14 @@ jobs:
           path: dist/
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  docs:
+    name: Redeploy the docs and web app
+    needs: publish
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/docs.yml # zizmor: ignore[self-repository]
+    with:
+      wait-for-version: ${{ inputs.version }}

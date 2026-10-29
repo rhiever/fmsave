@@ -113,6 +113,30 @@ jobs:
       - name: Build docs
         run: uv run --group docs sphinx-build -W --keep-going -b html docs docs/_build/html
 
+  web-app:
+    name: Web app reader in Pyodide
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.13"
+          python-version: "3.12"
+          enable-cache: false
+      - run: uv sync --locked
+      - name: Build the wheel
+        run: uv build --wheel
+      - name: Write the example career
+        run: uv run python -c "from pathlib import Path; from tests.fixtures.career import career_fragment; career_fragment().write(Path('example-career.fm'))"
+      - name: Install the Pyodide the page pins
+        run: npm ci --ignore-scripts --prefix scripts/app-smoke
+      - name: Read the example career in Pyodide
+        run: node scripts/app-smoke/smoke.mjs dist/*.whl example-career.fm
+
   test-windows:
     name: Tests (Windows, Python 3.14)
     needs: test

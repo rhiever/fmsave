@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://pypi.org https://files.pythonhosted.org; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>fmsave: scout every player in your FM26 save</title>
+<meta name="description" content="Drop a Football Manager 26 save and get every player in it, with all attributes, CA and PA, this season's stats and CSV downloads. Your save never leaves your computer.">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sofia+Sans+Condensed:wght@500;600;700;800&family=Sofia+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="app.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<svg width="0" height="0" class="sr" aria-hidden="true">
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 17l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11m-5-5l5 5 5-5M5 20h14"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5M12 18v-6m-3 3l3-3 3 3"/></symbol>
+  <symbol id="i-cols" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM9.5 5v14M14.5 5v14"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+</svg>
+
+<header class="bar">
+  <a class="brand" href="./" aria-label="fmsave, start again"><span class="mark" aria-hidden="true"></span>fmsave</a>
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Player lists" hidden>
+    <button role="tab" data-list="squad" aria-selected="false">Squad <span class="count" data-count="squad"></span></button>
+    <button role="tab" data-list="all" aria-selected="true">All players <span class="count" data-count="all"></span></button>
+    <button role="tab" data-list="shortlist" aria-selected="false">Shortlist <span class="count" data-count="shortlist"></span></button>
+  </nav>
+  <div class="meta" id="meta"></div>
+  <div class="bar-actions" id="bar-actions" hidden>
+    <button class="ghost" id="csv-button" popovertarget="csv-menu"><svg class="icon"><use href="#i-down"/></svg><span><span class="label-long">Download </span>CSV</span></button>
+    <button class="ghost" id="another"><svg class="icon"><use href="#i-file"/></svg><span class="label-long">Open another save</span><span class="sr">Open another save</span></button>
+  </div>
+  <a class="ghost" id="docs-link" href="../">Docs</a>
+</header>
+
+<div class="menu" id="csv-menu" popover>
+  <button class="item" data-csv="view"><b>This list as shown</b><em data-csv-count="view"></em><small>The players and columns on screen, in this order.</small></button>
+  <button class="item" data-csv="players"><b>players.csv</b><em>All players</em><small>Every column fmsave reads for every player.</small></button>
+  <button class="item" data-csv="squad"><b>squad.csv</b><em>Your club</em><small>The same columns, for your club's players.</small></button>
+  <button class="item" data-csv="season-stats"><b>season-stats.csv</b><em>Every competition</em><small>This season's stats, one row per player, competition and team. Large.</small></button>
+</div>
+
+<main class="start" id="start">
+  <section>
+    <h1>Scout every player in your FM26 save</h1>
+    <p class="lede">Drop a Football Manager 26 save here. You get your squad and every player in the game world, with all attributes, CA and PA, positions, personality, contracts, this season's stats and CSV downloads. Every number is ranked against players in the same position.</p>
+    <div class="drop" id="drop">
+      <strong id="drop-title">Drop your .fm save here</strong>
+      <div class="drop-row" id="drop-actions">
+        <button class="solid" id="pick"><svg class="icon"><use href="#i-file"/></svg>Choose a save</button>
+        <button class="link" id="demo">Or look around with made-up players</button>
+      </div>
+      <div class="stages" id="stages" role="list" hidden>
+        <p role="listitem" data-stage="boot">Loading the reader<time></time></p>
+        <p role="listitem" data-stage="open">Opening the save<time></time></p>
+        <p role="listitem" data-stage="players">Reading every player<time></time></p>
+        <p role="listitem" data-stage="stats">Reading this season's stats<time></time></p>
+      </div>
+      <p class="error" id="error" role="alert" hidden></p>
+      <p class="status wait" id="reader-status"><span class="dot"></span><span>Getting the reader ready</span></p>
+    </div>
+    <div class="notes">
+      <p><b>Your save never leaves this computer.</b> This page reads it inside your browser with <a href="../">fmsave</a>, an open-source Python reader. Nothing is uploaded and nothing is stored on a server. The page only downloads the reader itself.</p>
+      <p><b>Where saves live.</b> On a Mac, <code>~/Library/Application Support/Sports Interactive/Football Manager 26/games/</code>. On Windows, usually <code>Documents\Sports Interactive\Football Manager 26\games\</code>. A big save takes about half a minute to read. If the game is running, copy the save and drop the copy.</p>
+      <p><b>Play fair.</b> CA, PA and hidden attributes are shown. That is fine in your own single-player career. Using them in a shared online career may break its rules.</p>
+    </div>
+  </section>
+  <figure class="specimen">
+    <svg id="specimen" viewBox="0 0 460 460" role="img" aria-labelledby="specimen-title"><title id="specimen-title">A percentile wheel for a made-up striker</title></svg>
+    <div class="legend" aria-hidden="true">
+      <span><i style="background:rgb(var(--tec))"></i>Technical</span>
+      <span><i style="background:rgb(var(--men))"></i>Mental</span>
+      <span><i style="background:rgb(var(--phy))"></i>Physical</span>
+      <span><i style="background:rgb(var(--gk))"></i>Goalkeeping</span>
+      <span><i style="background:rgb(var(--hid))"></i>Hidden</span>
+    </div>
+    <figcaption><b>Alex Example, 19, striker (made up).</b> Each of the 52 wedges is one attribute, as long as its rank among strikers in the save. Long wedges are where a player beats their peers.</figcaption>
+  </figure>
+</main>
+
+<div class="app" id="app" hidden>
+  <div class="subbar">
+    <div class="views-scroll"><div class="seg" id="views" role="tablist" aria-label="Columns to show"></div></div>
+    <label class="ctl compare-label push"><span>Rank against</span>
+      <select id="compare"><option value="position">same position</option><option value="all">all players</option></select>
+    </label>
+    <label class="ctl highlight">Highlight top <input type="range" id="highlight" min="5" max="50" step="5" value="20"><output id="highlight-out">20%</output></label>
+    <button class="plain" id="columns-button" popovertarget="columns-menu"><svg class="icon"><use href="#i-cols"/></svg>Columns</button>
+  </div>
+  <div class="statbar" id="statbar" hidden>
+    <div class="seg" id="stat-groups" aria-label="Stat group"></div>
+    <div class="seg" id="stat-mode" aria-label="Totals or per 90">
+      <button data-mode="total" aria-pressed="false">Totals</button>
+      <button data-mode="p90" aria-pressed="true">Per 90</button>
+    </div>
+    <label class="ctl">Competition <select id="stat-kind-bar"></select></label>
+  </div>
+  <div class="body">
+    <aside class="rail" id="rail" aria-label="Filters">
+      <h4>Search</h4>
+      <input type="search" id="search" placeholder="Name or club" autocomplete="off" spellcheck="false">
+      <h4>Position</h4>
+      <div class="chips" id="positions"></div>
+      <h4>Age</h4>
+      <div class="pair">
+        <label>From<input type="number" id="age-min" min="14" max="50" inputmode="numeric"></label>
+        <label>To<input type="number" id="age-max" min="14" max="50" inputmode="numeric"></label>
+      </div>
+      <h4>Rules</h4>
+      <div id="rules"></div>
+      <form class="add-rule" id="add-rule">
+        <select id="rule-column" aria-label="Column"></select>
+        <div class="pair">
+          <select id="rule-op" aria-label="Comparison">
+            <option value="ge">at least</option>
+            <option value="le">at most</option>
+            <option value="top">in top %</option>
+          </select>
+          <input type="text" id="rule-value" aria-label="Value" placeholder="14" inputmode="decimal" autocomplete="off">
+        </div>
+        <button class="plain" type="submit">Add rule</button>
+      </form>
+      <p class="hint" id="rule-hint"></p>
+      <h4>Stats from</h4>
+      <select id="stat-kind"></select>
+      <p class="hint" id="floor-hint">Stat ranks, and rules on per-90 and percentage stats, count players with 450 minutes or more in that competition.</p>
+      <h4>Clear</h4>
+      <button class="link" id="clear">Clear all filters</button>
+    </aside>
+    <section class="list" aria-labelledby="list-title">
+      <div class="listhead">
+        <h2 id="list-title">All players</h2>
+        <span id="list-count" aria-live="polite"></span>
+        <button class="plain filters-button" id="filters-button" aria-controls="rail"><svg class="icon"><use href="#i-filter"/></svg>Filters</button>
+      </div>
+      <div class="grid" id="grid" role="table" aria-labelledby="list-title" tabindex="0">
+        <div class="thead" id="thead" role="row"></div>
+        <div class="rows" id="rows" role="rowgroup"></div>
+      </div>
+    </section>
+    <aside class="panel" id="panel" aria-label="Player" aria-live="polite"></aside>
+  </div>
+</div>
+
+<div class="menu" id="columns-menu" popover>
+  <input type="search" id="columns-search" placeholder="Find a column" autocomplete="off" style="width:100%;margin-bottom:6px">
+  <div id="columns-list" style="max-height:min(60vh,520px);overflow:auto"></div>
+</div>
+
+<input type="file" id="file" accept=".fm" hidden>
+<div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

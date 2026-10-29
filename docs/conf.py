@@ -1,5 +1,10 @@
 """Sphinx configuration for fmsave documentation."""
 
+import shutil
+from pathlib import Path
+
+from sphinx.application import Sphinx
+
 from fmsave import __version__
 
 project = "fmsave"
@@ -37,8 +42,19 @@ autodoc_member_order = "bysource"
 autodoc_typehints = "description"
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+exclude_patterns = ["_build", "app", "Thumbs.db", ".DS_Store"]
 
 html_theme = "furo"
 html_static_path = ["_static"]
 html_title = f"fmsave {version}"
+
+
+def copy_web_app(app: Sphinx, exception: BaseException | None) -> None:
+    """Copy the web app in docs/app to /app/ in the built site, as it is."""
+    if exception is None and app.builder.format == "html":
+        source = Path(__file__).parent / "app"
+        shutil.copytree(source, Path(app.outdir) / "app", dirs_exist_ok=True)
+
+
+def setup(app: Sphinx) -> None:
+    app.connect("build-finished", copy_web_app)

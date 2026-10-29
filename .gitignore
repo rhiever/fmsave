@@ -28,3 +28,6 @@ oom-*
 
 # Docs
 docs/_build/
+
+# The web app smoke check installs Pyodide here.
+scripts/app-smoke/node_modules/
