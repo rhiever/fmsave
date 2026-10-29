@@ -45,10 +45,10 @@
 </header>
 
 <div class="menu" id="csv-menu" popover>
-  <button class="item" data-csv="view"><b>This list as shown</b><em data-csv-count="view"></em><small>The players and columns on screen, in this order.</small></button>
+  <button class="item" data-csv="view"><b>This list as shown</b><em data-csv-count="view"></em><small>The players and columns on screen in their current order.</small></button>
   <button class="item" data-csv="players"><b>players.csv</b><em>All players</em><small>Every column fmsave reads for every player.</small></button>
-  <button class="item" data-csv="squad"><b>squad.csv</b><em>Your club</em><small>The same columns, for your club's players.</small></button>
-  <button class="item" data-csv="season-stats"><b>season-stats.csv</b><em>Every competition</em><small>This season's stats, one row per player, competition, and team. Large.</small></button>
+  <button class="item" data-csv="squad"><b>squad.csv</b><em>Your club</em><small>The same columns for your club's players.</small></button>
+  <button class="item" data-csv="season-stats"><b>season-stats.csv</b><em>Every competition</em><small>This season's stats with 1 row per player, competition, and team. The file is large.</small></button>
 </div>
 
 <main class="start" id="start">
@@ -70,7 +70,7 @@
       <p class="status wait" id="reader-status"><span class="dot"></span><span>Getting the reader ready</span></p>
     </div>
     <div class="notes">
-      <p><b>Your save never leaves this computer.</b> This page reads it inside your browser with <a href="../">fmsave</a>, an open-source Python reader. Nothing is uploaded and nothing is stored on a server. The page downloads only the reader and its fonts (from Google Fonts).</p>
+      <p><b>Your save never leaves this computer.</b> This page reads it inside your browser with <a href="../">fmsave</a>, an open source Python reader. Nothing is uploaded and nothing is stored on a server. The page downloads only the reader and its fonts (from Google Fonts).</p>
       <p><b>Where saves live.</b> On a Mac, <code>~/Library/Application Support/Sports Interactive/Football Manager 26/games/</code>. On Windows, usually <code>Documents\Sports Interactive\Football Manager 26\games\</code>. A big save takes about half a minute to read. If the game is running, copy the save and drop the copy.</p>
       <p><b>Play fair.</b> CA, PA, and hidden attributes are shown. That is fine in your own single-player career. Using them in a shared online career may break its rules.</p>
     </div>
@@ -84,7 +84,7 @@
       <span><i style="background:rgb(var(--gk))"></i>Goalkeeping</span>
       <span><i style="background:rgb(var(--hid))"></i>Hidden</span>
     </div>
-    <figcaption><b id="specimen-name">A made-up player.</b> Each of the 52 wedges is one attribute, and its length is the player's rank among <span id="specimen-group">players in the same position</span> in the league. Long wedges are where a player beats their peers.</figcaption>
+    <figcaption><b id="specimen-name">A made-up player.</b> Each of the 52 wedges is an attribute, and its length is the player's rank among <span id="specimen-group">players in the same position</span> in the league. Long wedges are where a player beats their peers.</figcaption>
   </figure>
 </main>
 
@@ -134,7 +134,7 @@
       <p class="hint" id="rule-hint"></p>
       <h2 class="h4">Stats from</h2>
       <select id="stat-kind"></select>
-      <p class="hint" id="floor-hint">Stat ranks, and rules on per-90 and percentage stats, count players with 450 minutes or more in that competition.</p>
+      <p class="hint" id="floor-hint">Stat ranks count only players with at least 450 minutes in that competition, and so do rules on per-90 and percentage stats.</p>
       <h2 class="h4">Clear</h2>
       <button class="link" id="clear">Clear all filters</button>
     </aside>

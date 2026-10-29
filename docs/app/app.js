@@ -388,7 +388,7 @@ function statTable(i) {
     return `<tr><td>${esc(COLUMNS.get(k).label)}</td><td>${shown(k, i) || "-"}</td><td>${Number.isNaN(rate) ? "" : rate.toFixed(2)}</td><td class="r">${p === null ? "" : `<span class="rank"><i style="width:${p}%"></i></span>${p}`}</td></tr>`;
   }).join("")).join("");
   return `<table class="stat-table"><thead><tr><th></th><th>Total</th><th>Per 90</th><th>Rank</th></tr></thead><tbody>${body}</tbody></table>` +
-    note(`Ranks are percentiles among ${groupLabel(i)} with ${minuteFloor()}+ minutes in this competition. Players with more than one team in a competition, such as a reserve side, show the total.`);
+    note(`Ranks are percentiles among ${groupLabel(i)} with at least ${minuteFloor()} minutes in this competition. A player with 2 or more teams in a competition, such as a reserve side, shows the combined total.`);
 }
 
 function panelBody(i) {
@@ -459,7 +459,7 @@ function drawPanel() {
   const tabs = [["attributes", "Attributes"], ["positions", "Positions"], ["stats", "Stats"], ["personality", "Personality"], ["contract", "Contract"]];
   redraw(panel, "data-panel-focus", () => {
     panel.innerHTML = `<button class="plain panel-close" id="panel-close" data-panel-focus="close"><svg class="icon"><use href="#i-back"/></svg>Back to the list</button>
-      <div class="ph"><div><h3 class="pn">${esc(data.text.name[i])}</h3><div class="pm">${n.age[i]} · ${esc(positions(data.text.natural_positions[i]))} · ${esc(data.text.club_name[i] || "No club")}</div></div>
+      <div class="ph"><div><h3 class="pn">${esc(data.text.name[i])}</h3><div class="pm">${n.age[i]}, ${esc(positions(data.text.natural_positions[i]))}, ${esc(data.text.club_name[i] || "No club")}</div></div>
       <div class="ph-side">${starButton(i).replace("<button ", '<button data-panel-focus="star" ')}</div></div>
       <div class="hero"><div class="big"><div><small>CURRENT</small><b>${n.ability_current[i]}</b></div><div class="pa"><small>POTENTIAL</small><b>${n.ability_potential[i]}</b></div></div>
       <svg class="wheel" viewBox="0 0 190 190" role="img" aria-label="Attribute ranks, average ${mean ?? "unknown"} percentile">${wheel(190, rankOf, [mean === null ? "" : ordinal(mean), "vs " + (state.compare === "position" ? GROUPS[data.group[i]]?.[0] || "all" : "all")])}</svg></div>
@@ -548,7 +548,7 @@ function syncControls() {
   pressed("stat-mode", "data-mode", state.statMode);
   for (const id of ["stat-kind", "stat-kind-bar"]) $(id).value = state.wantedKind;
   $("statbar").hidden = state.view !== "stats";
-  $("floor-hint").textContent = `Stat ranks, and rules on per-90 and percentage stats, count players with ${minuteFloor()} minutes or more in that competition. The floor is lower early in a season.`;
+  $("floor-hint").textContent = `Stat ranks count only players with at least ${minuteFloor()} minutes in that competition, and so do rules on per-90 and percentage stats. The minimum is lower early in a season.`;
 }
 
 // Only the competition asked for last is shown, whatever order the answers arrive in.
@@ -557,7 +557,7 @@ function setStatKind(kind) {
   syncControls();
   if (state.demo) { applyStats(kind, state.demo.stats(kind)); return; }
   send({ type: "stats", kind });
-  toast(`Loading ${kindLabel(kind).toLowerCase()} stats`);
+  toast(`Loading ${kindLabel(kind).toLowerCase()} stats.`);
 }
 function applyStats(kind, numbers) {
   if (kind !== state.wantedKind) return;
@@ -661,9 +661,9 @@ function wire() {
     const op = $("rule-op").value;
     const col = COLUMNS.get(key);
     const v = parseValue(col, $("rule-value").value || $("rule-value").placeholder);
-    if (Number.isNaN(v)) return toast("Type a number for the rule, such as 14, 0.35, or 5M");
-    if (op === "top" && !col.rank) return toast(`${col.label} has no ranks. Use at least or at most.`);
-    if (op === "top" && !(v >= 1 && v <= 100)) return toast("Top % takes a number from 1 to 100");
+    if (Number.isNaN(v)) return toast("Type a number for the rule, such as 14, 0.35, or 5M.");
+    if (op === "top" && !col.rank) return toast(`${col.label} has no ranks. Use "at least" or "at most".`);
+    if (op === "top" && !(v >= 1 && v <= 100)) return toast("Top % takes a number from 1 to 100.");
     state.rules.push({ key, op, value: v });
     $("rule-value").value = "";
     drawRules();
@@ -728,7 +728,7 @@ function viewCsv() {
     lines.push([shortlist.has(data.num.uid[i]) ? "yes" : "", ...cells].join(","));
   }
   // A byte order mark tells Excel the file is UTF-8, so accented names open correctly.
-  return new Blob(["﻿" + lines.join("\n") + "\n"], { type: "text/csv" });
+  return new Blob(["\ufeff" + lines.join("\n") + "\n"], { type: "text/csv" });
 }
 
 function download(blob, name) {
@@ -781,7 +781,7 @@ function onWorkerMessage({ data: msg }) {
     case "stats": {
       const first = !data.stats;
       applyStats(msg.kind, msg.numbers);
-      if (!first && msg.kind === state.wantedKind) toast(`${kindLabel(msg.kind)} stats loaded`, 1600);
+      if (!first && msg.kind === state.wantedKind) toast(`${kindLabel(msg.kind)} stats loaded.`, 1600);
       break;
     }
     case "detail":
@@ -883,7 +883,7 @@ function showApp({ keep = false } = {}) {
   setChrome(true);
   if (keep) return;
   const m = data.meta;
-  $("meta").innerHTML = [m.save && `<b>${esc(m.save)}</b>`, m.club && esc(m.club), m.date && esc(day(Date.parse(m.date) / DAY))].filter(Boolean).join(" · ");
+  $("meta").innerHTML = [m.save && `<b>${esc(m.save)}</b>`, m.club && esc(m.club), m.date && esc(day(Date.parse(m.date) / DAY))].filter(Boolean).join(", ");
   for (const b of $("csv-menu").querySelectorAll("[data-csv]")) b.hidden = (state.demo && b.dataset.csv !== "view") || (!hasSquad() && b.dataset.csv === "squad");
   $("tabs").querySelector('[data-list="squad"]').hidden = !hasSquad();
   state.list = hasSquad() ? "squad" : "all";
@@ -909,7 +909,7 @@ async function startDemo() {
   load(world.meta, world.count, world.num, world.text);
   loadStats("overall", world.stats("overall"));
   showApp();
-  toast("Made-up players. Drop a real save to see your own.", 4000);
+  toast("These are made-up players. Drop a real save to see your own.", 4000);
 }
 
 // The start screen's wheel is a made-up young attacker from the demo league.
