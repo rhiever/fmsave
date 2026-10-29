@@ -50,6 +50,7 @@ EXPECTED_READERS = (
     "competition_rules",
     "player_match_stats",
     "player_season_stats",
+    "player_season_history",
     "stadiums",
     "finances",
     "sponsorships",
