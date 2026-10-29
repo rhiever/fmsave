@@ -41,6 +41,7 @@ attributes, the 8 personality attributes, current and potential ability, reputat
 value, condition, traits, his contract and any unserved ban. Records and tables are immutable and
 keep working after the save is closed. Use `uid` for joins within a save and `unique_id` to
 match database people or clubs across careers; created people can reuse deleted people's IDs.
+Club uid 0 is valid. Use `is not None` to check whether a club reference resolved.
 
 Each reader returns a `Table`: `where(...)`, `filter(...)`, `sorted_by(...)`, `find(name=...)`,
 `by_uid(...)`, `by_id(...)` and `coverage`, plus `to_dicts()`, `to_columns()`, `to_pandas()`,

@@ -154,7 +154,9 @@ with fmsave.open("career.fm") as career_save:
     injuries = career_save.injuries().where(club_uid=club_uid)
 ```
 
-Use `uid` to join records within a save. To match players, staff or clubs across careers started
+Club uid 0 is valid; use `is not None` to check whether a club reference resolved.
+
+Use `uid` to join records within a save. To match players, staff, or clubs across careers started
 from the same database, use `unique_id` when available. The game can reuse a deleted person's
 ID for a new person, so check identity before treating it as a lasting match.
 

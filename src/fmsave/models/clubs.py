@@ -47,10 +47,8 @@ class Club:
     Club names are not unique: look clubs up by uid.
 
     Attributes:
-        uid: The id other records in this save use to refer to this club. It is not the
-            game's Unique ID (that is unique_id): it is one more than the Unique ID of the club
-            stored just before it, so it can differ between separate careers. Use unique_id to
-            match clubs across saves (unconfirmed).
+        uid: fmsave's join key for this club within the save. The value 0 is valid. Use
+            unique_id to match clubs across careers (unconfirmed).
         name: Full club name (unconfirmed).
         short_name: Short club name (unconfirmed).
         nation_id: Save-local id of the nation whose league the club plays in (unconfirmed).
@@ -66,10 +64,9 @@ class Club:
             of this club's teams among its affiliate teams, else None (unconfirmed).
         parent_club_name: Denormalised full name of parent_club_uid; None wherever
             parent_club_uid is (unconfirmed).
-        reputation: Club reputation from 1 to 10000, or None when the save holds no valid
-            value.
+        reputation: Club reputation from 1 to 10000, or None when it cannot be read.
         last_league_position: League position at the end of the last completed season, or
-            None when the save holds none. It is not the position in the current table.
+            None when it cannot be read. It is not the position in the current table.
         unique_id: The club's Unique ID in the game database, for matching across separate
             careers. None when it cannot be read (unconfirmed).
         gender: The club's stored gender code, or None when no team list parses. Unknown

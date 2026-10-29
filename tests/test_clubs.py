@@ -1015,7 +1015,9 @@ def test_registered_club_layouts() -> None:
     assert status_layout.search_window_bytes == 262_144
     assert status_layout.maximum_leading_misses == 16
     club_layouts = registered_club_layouts()
-    assert club_layouts == ClubLayouts(record_layout, team_list_layout, status_layout)
+    assert club_layouts == ClubLayouts(
+        record_layout, team_list_layout, status_layout, club_layouts.table
+    )
 
 
 @pytest.fixture

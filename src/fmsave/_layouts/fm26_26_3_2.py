@@ -11,6 +11,7 @@ from fmsave._layouts import (
     AffiliateGroupLayout,
     ClubRecordLayout,
     ClubStatusLayout,
+    ClubTableLayout,
     CompetitionIdPairLayout,
     ContractLayout,
     FacilityByteLayout,
@@ -287,6 +288,40 @@ CLUB_RECORDS = ClubRecordLayout(
     nation_id_range=(0, 999),
     max_name_bytes=255,
     stop_gap_bytes=64 * 1024,
+)
+
+CLUB_TABLE = ClubTableLayout(
+    header_bytes=5,
+    count_range=(1, 200_000),
+    ordinary_variant=0,
+    extended_variant=12,
+    extended_prefix_bytes=4,
+    prefix_bytes=26,
+    max_name_bytes=16_384,
+    after_names=(RecordStep(0, 8), RecordStep(1, 4)),
+    base_finance_tag=0,
+    full_finance_tag=1,
+    empty_finance_tag=2,
+    base_finance_bytes=45,
+    full_finance=(
+        RecordStep(0, 70),
+        *((RecordStep(0, 235), RecordStep(1, 8), RecordStep(1, 8)) * 4),
+        RecordStep(0, 67),
+        RecordStep(1, 230),
+        RecordStep(4, 49),
+        RecordStep(0, 71),
+        RecordStep(1, 19),
+        RecordStep(0, 67),
+    ),
+    after_finance=(
+        RecordStep(1, 25),
+        RecordStep(1, 12),
+        RecordStep(0, 9),
+        *((RecordStep(1, 4),) * 5),
+        RecordStep(1, 16),
+        RecordStep(2, 28),
+    ),
+    max_entries=100_000,
 )
 
 # A null date is day 1 of 1900; the float anchor is 1.0.
@@ -1829,6 +1864,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="save_game_summary", schema=29, build=BUILD, layout=SUMMARY_STRINGS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=NAME_POOLS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CLUB_RECORDS),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CLUB_TABLE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TEAM_LISTS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CLUB_STATUSES),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=PLAYER_RECORDS),

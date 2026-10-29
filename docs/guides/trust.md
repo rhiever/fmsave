@@ -71,6 +71,9 @@ for reader in report.readers:
     # "players" "ok" 124310
 ```
 
+Club uid 0 is valid. A club reference is missing when it is `None`, so use `is not None`
+to keep valid references in filters.
+
 A reader's status is `ok`, `failed` (a check did not pass) or `error` (it raised).
 Each `ReaderValidation` also carries `gates`, `coverage` and `anomalies`.
 Passing checks is useful evidence, but does not confirm every field's meaning or guarantee full

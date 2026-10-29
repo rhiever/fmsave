@@ -1073,6 +1073,27 @@ class RecordStep:
 
 
 @dataclass(frozen=True, slots=True)
+class ClubTableLayout:
+    """The counted club table and the steps bounding its variable-length records."""
+
+    header_bytes: int
+    count_range: tuple[int, int]
+    ordinary_variant: int
+    extended_variant: int
+    extended_prefix_bytes: int
+    prefix_bytes: int
+    max_name_bytes: int
+    after_names: tuple[RecordStep, ...]
+    base_finance_tag: int
+    full_finance_tag: int
+    empty_finance_tag: int
+    base_finance_bytes: int
+    full_finance: tuple[RecordStep, ...]
+    after_finance: tuple[RecordStep, ...]
+    max_entries: int
+
+
+@dataclass(frozen=True, slots=True)
 class NationTableLayout:
     """How to find the nation table in `game_db` and walk its records.
 
@@ -2315,6 +2336,7 @@ type Layout = (
     | SummaryStringsLayout
     | NamePoolLayout
     | ClubRecordLayout
+    | ClubTableLayout
     | TeamListLayout
     | ClubStatusLayout
     | PlayerRecordLayout

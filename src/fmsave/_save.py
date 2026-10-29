@@ -333,8 +333,9 @@ class Save:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
-            ReaderCheckError: No club record is accepted, a club uid or club index appears
-                in two records, or a team id is listed twice (by one club or by two).
+            ReaderCheckError: The club table cannot be read completely, no club record is
+                accepted, a club uid or club index appears in two records, or a team id is
+                listed twice (by one club or by two).
 
         Warns:
             ReaderCheckWarning: On a full-size save, the club records fall outside the checks'

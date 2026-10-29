@@ -42,8 +42,10 @@ See [Trusting a number](trust.md) before using these fields in an analysis.
 
 ## Nations
 
-`nations()` pairs each save-local nation id with its game database id. Other tables' nation
-fields join to `Nation.nation_id`; `Nation.database_id` joins to an external name map.
+Player and club nation fields use ids within that save. `nations()` gives the matching
+game database id for looking up a nation in an external list. Join a nation field to
+`Nation.nation_id`, then use `Nation.database_id` as the key in your own nation-name map.
+Nation names are not stored in the save.
 
 ## Competitions
 
