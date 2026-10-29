@@ -24,7 +24,11 @@ def test_nations_use_save_local_ids_and_database_ids() -> None:
     assert fmsave.field_status(fmsave.Nation, "database_id") == "unconfirmed"
 
 
-@pytest.mark.parametrize("data", [b"", nation_table_bytes()[:-1], nation_table_bytes() * 2])
+@pytest.mark.parametrize(
+    "data",
+    [b"", nation_table_bytes()[:-1], nation_table_bytes() * 2],
+    ids=("missing", "truncated", "ambiguous"),
+)
 def test_missing_truncated_or_ambiguous_tables_emit_no_nations(data: bytes) -> None:
     rows, stats = read_nations(data, LAYOUT)
     assert rows == ()
