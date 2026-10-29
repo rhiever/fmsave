@@ -53,7 +53,12 @@ def copy_web_app(app: Sphinx, exception: BaseException | None) -> None:
     """Copy the web app in docs/app to /app/ in the built site, as it is."""
     if exception is None and app.builder.format == "html":
         source = Path(__file__).parent / "app"
-        shutil.copytree(source, Path(app.outdir) / "app", dirs_exist_ok=True)
+        shutil.copytree(
+            source,
+            Path(app.outdir) / "app",
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
 
 
 def setup(app: Sphinx) -> None:

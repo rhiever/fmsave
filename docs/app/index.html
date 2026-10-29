@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://pypi.org https://files.pythonhosted.org; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>fmsave: scout every player in your FM26 save</title>
 <meta name="description" content="Drop a Football Manager 26 save and get every player in it, with all attributes, CA and PA, this season's stats and CSV downloads. Your save never leaves your computer.">
@@ -10,6 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sofia+Sans+Condensed:wght@500;600;700;800&family=Sofia+Sans:wght@400;500;600;700&display=swap">
+<script src="theme.js"></script>
 <link rel="stylesheet" href="app.css">
 <script type="module" src="app.js"></script>
 </head>
@@ -22,21 +24,24 @@
   <symbol id="i-cols" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM9.5 5v14M14.5 5v14"/></symbol>
   <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></symbol>
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.5 1.5M17.2 17.2l1.5 1.5M5.3 18.7l1.5-1.5M17.2 6.8l1.5-1.5"/></symbol>
 </svg>
 
 <header class="bar">
   <a class="brand" href="./" aria-label="fmsave, start again"><span class="mark" aria-hidden="true"></span><span class="brand-word">fmsave</span></a>
   <nav class="tabs" id="tabs" role="tablist" aria-label="Player lists" hidden>
     <button role="tab" data-list="squad" aria-selected="false">Squad <span class="count" data-count="squad"></span></button>
-    <button role="tab" data-list="all" aria-selected="true">All players <span class="count" data-count="all"></span></button>
+    <button role="tab" data-list="all" aria-selected="true"><span class="long">All players</span><span class="short">All</span> <span class="count" data-count="all"></span></button>
     <button role="tab" data-list="shortlist" aria-selected="false">Shortlist <span class="count" data-count="shortlist"></span></button>
   </nav>
   <div class="meta" id="meta"></div>
-  <div class="bar-actions" id="bar-actions" hidden>
-    <button class="ghost" id="csv-button" popovertarget="csv-menu"><svg class="icon"><use href="#i-down"/></svg><span><span class="label-long">Download </span>CSV</span></button>
-    <button class="ghost" id="another"><svg class="icon"><use href="#i-file"/></svg><span class="label-long">Open another save</span><span class="sr">Open another save</span></button>
+  <div class="bar-end">
+    <button class="ghost" id="csv-button" popovertarget="csv-menu" hidden><svg class="icon"><use href="#i-down"/></svg><span class="label-long">Download CSV</span><span class="sr">Download CSV</span></button>
+    <button class="ghost" id="another" hidden><svg class="icon"><use href="#i-file"/></svg><span class="label-long">Open another save</span><span class="sr">Open another save</span></button>
+    <a class="ghost" id="docs-link" href="../">Docs</a>
+    <button class="ghost square theme-toggle" id="theme-toggle" aria-label="Switch to dark mode" title="Switch to dark mode"><svg class="icon i-moon"><use href="#i-moon"/></svg><svg class="icon i-sun"><use href="#i-sun"/></svg></button>
   </div>
-  <a class="ghost" id="docs-link" href="../">Docs</a>
 </header>
 
 <div class="menu" id="csv-menu" popover>
@@ -103,6 +108,7 @@
   </div>
   <div class="body">
     <aside class="rail" id="rail" aria-label="Filters">
+      <div class="rail-head"><button class="plain" id="rail-close"><svg class="icon"><use href="#i-x"/></svg>Close</button></div>
       <h2 class="h4">Search</h2>
       <input type="search" id="search" placeholder="Name or club" autocomplete="off" spellcheck="false">
       <h2 class="h4">Position</h2>
@@ -120,7 +126,7 @@
           <select id="rule-op" aria-label="Comparison">
             <option value="ge">at least</option>
             <option value="le">at most</option>
-            <option value="top">in top %</option>
+            <option value="top">top %</option>
           </select>
           <input type="text" id="rule-value" aria-label="Value" placeholder="14" inputmode="decimal" autocomplete="off">
         </div>
@@ -149,8 +155,8 @@
 </div>
 
 <div class="menu" id="columns-menu" popover>
-  <input type="search" id="columns-search" placeholder="Find a column" autocomplete="off" style="width:100%;margin-bottom:6px">
-  <div id="columns-list" style="max-height:min(60vh,520px);overflow:auto"></div>
+  <input type="search" class="menu-search" id="columns-search" placeholder="Find a column" autocomplete="off" aria-label="Find a column">
+  <div class="columns-list" id="columns-list"></div>
 </div>
 
 <input type="file" id="file" accept=".fm" hidden>

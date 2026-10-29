@@ -109,23 +109,23 @@ function minuteFloor() {
 const isRate = (key) => /_per_90$|_percent$|_per_shot$|^average_rating$/.test(key);
 
 const COLUMNS = new Map();
-function def(key, props) { COLUMNS.set(key, { key, width: 40, fmt: "int", hue: null, rank: true, ...props }); }
+function def(key, props) { COLUMNS.set(key, { key, width: 44, fmt: "int", hue: null, rank: true, ...props }); }
 
 def("name", { label: "Name", abbr: "Player", group: "Player", fmt: "text", width: 150, rank: false, align: "l" });
-def("age", { label: "Age", abbr: "Age", group: "Player", width: 32, rank: false });
-def("natural_positions", { label: "Position", abbr: "Pos", group: "Player", fmt: "pos", width: 74, rank: false, align: "l", short: true });
+def("age", { label: "Age", abbr: "Age", group: "Player", width: 36, rank: false });
+def("natural_positions", { label: "Position", abbr: "Pos", group: "Player", fmt: "pos", width: 76, rank: false, align: "l", short: true });
 def("accomplished_positions", { label: "Also plays", abbr: "Also plays", group: "Player", fmt: "pos", width: 110, rank: false, align: "l" });
 def("club_name", { label: "Club", abbr: "Club", group: "Player", fmt: "text", width: 150, rank: false, align: "l" });
 def("height_cm", { label: "Height (cm)", abbr: "Hgt", group: "Player", width: 44 });
 def("birth_date", { label: "Date of birth", abbr: "Born", group: "Player", fmt: "date", width: 92, rank: false });
-def("ability_current", { label: "Current ability", abbr: "CA", group: "Ability", width: 36 });
-def("ability_potential", { label: "Potential ability", abbr: "PA", group: "Ability", width: 36 });
+def("ability_current", { label: "Current ability", abbr: "CA", group: "Ability", width: 40 });
+def("ability_potential", { label: "Potential ability", abbr: "PA", group: "Ability", width: 40 });
 for (const [key, abbr, label] of [["reputation_current", "Rep", "Current reputation"], ["reputation_home", "Home rep", "Home reputation"], ["reputation_world", "World rep", "World reputation"]]) {
   def(key, { label, abbr, group: "Reputation", hue: "sta", width: 52 });
 }
 for (const [group, list] of Object.entries(ATTRIBUTES)) {
   for (const [name, abbr, label] of list) {
-    def("attributes_" + name, { label, abbr, group, fmt: "attr", hue: GROUP_HUE[group], width: 31, lower: LOWER_IS_BETTER.has("attributes_" + name) });
+    def("attributes_" + name, { label, abbr, group, fmt: "attr", hue: GROUP_HUE[group], width: 32, lower: LOWER_IS_BETTER.has("attributes_" + name) });
   }
 }
 def("left_foot", { label: "Left foot", abbr: "L foot", group: "Physical", fmt: "attr", hue: "phy", width: 44 });
@@ -584,7 +584,6 @@ function updateCounts() {
 // ---------- Percentile wheel ----------
 
 const WHEEL_ORDER = Object.entries(ATTRIBUTES).flatMap(([group, list]) => list.map(([name, , label]) => [group, "attributes_" + name, label]));
-const HUE_RGB = { tec: "200,54,31", men: "43,79,214", phy: "11,122,90", gk: "212,147,15", hid: "122,91,181" };
 
 function wheel(size, pctOf, centre) {
   const c = size / 2, R = size / 2 - 2, r0 = size * 0.14, step = (2 * Math.PI) / WHEEL_ORDER.length;
@@ -594,11 +593,10 @@ function wheel(size, pctOf, centre) {
     const p = pctOf(key);
     const a0 = k * step - Math.PI / 2 + 0.012, a1 = (k + 1) * step - Math.PI / 2 - 0.012;
     const rr = r0 + (R - r0) * (p === null ? 0 : Math.max(p, 2) / 100);
-    const rgb = HUE_RGB[GROUP_HUE[group]];
-    paths += `<path d="M${pt(a0, r0)}L${pt(a0, R)}A${R},${R} 0 0 1 ${pt(a1, R)}L${pt(a1, r0)}Z" fill="#eef0ec"/>`;
-    if (p !== null) paths += `<path d="M${pt(a0, r0)}L${pt(a0, rr)}A${rr},${rr} 0 0 1 ${pt(a1, rr)}L${pt(a1, r0)}Z" fill="rgb(${rgb})"><title>${esc(label)}: ${ordinal(p)} percentile</title></path>`;
+    paths += `<path class="w-track" d="M${pt(a0, r0)}L${pt(a0, R)}A${R},${R} 0 0 1 ${pt(a1, R)}L${pt(a1, r0)}Z"/>`;
+    if (p !== null) paths += `<path d="M${pt(a0, r0)}L${pt(a0, rr)}A${rr},${rr} 0 0 1 ${pt(a1, rr)}L${pt(a1, r0)}Z" style="fill:rgb(var(--${GROUP_HUE[group]}))"><title>${esc(label)}: ${ordinal(p)} percentile</title></path>`;
   });
-  return `${paths}<circle cx="${c}" cy="${c}" r="${r0 - 2}" fill="#fff"/><text x="${c}" y="${c - size * 0.012}" text-anchor="middle" font-family="Sofia Sans Condensed, sans-serif" font-weight="800" font-size="${size * 0.07}" fill="#121619">${esc(centre[0])}</text><text x="${c}" y="${c + size * 0.05}" text-anchor="middle" font-family="Sofia Sans, sans-serif" font-size="${Math.max(11, size * 0.042)}" fill="#545b62">${esc(centre[1])}</text>`;
+  return `${paths}<circle class="w-hole" cx="${c}" cy="${c}" r="${r0 - 2}"/><text class="w-big" x="${c}" y="${c - size * 0.012}" text-anchor="middle" font-size="${Math.max(15, size * 0.075)}">${esc(centre[0])}</text><text class="w-small" x="${c}" y="${c + size * 0.06}" text-anchor="middle" font-size="${Math.max(11, size * 0.045)}">${esc(centre[1])}</text>`;
 }
 
 // ---------- Player panel ----------
@@ -655,13 +653,13 @@ function kv(pairs) {
 function pitch(i) {
   const spots = [["stc", 50, 12], ["aml", 16, 34], ["amc", 50, 34], ["amr", 84, 34], ["ml", 16, 56], ["mc", 50, 56], ["mr", 84, 56], ["wbl", 16, 78], ["dm", 50, 78], ["wbr", 84, 78], ["dl", 16, 100], ["dc", 50, 100], ["dr", 84, 100], ["sw", 50, 120], ["gk", 50, 140]];
   const W = 100, H = 152;
-  let s = `<svg class="pitch" viewBox="-4 -4 ${W + 8} ${H + 8}" role="img" aria-label="Position ratings on a pitch"><rect x="0" y="0" width="${W}" height="${H}" rx="3" fill="#f3f6f0" stroke="#dcdfd9"/><line x1="0" y1="${H / 2}" x2="${W}" y2="${H / 2}" stroke="#dcdfd9"/><circle cx="50" cy="${H / 2}" r="9" fill="none" stroke="#dcdfd9"/><rect x="22" y="${H - 22}" width="56" height="22" fill="none" stroke="#dcdfd9"/><rect x="22" y="0" width="56" height="22" fill="none" stroke="#dcdfd9"/>`;
+  let s = `<svg class="pitch" viewBox="-4 -4 ${W + 8} ${H + 8}" role="img" aria-label="Position ratings on a pitch"><rect class="p-field" x="0" y="0" width="${W}" height="${H}" rx="3"/><line class="p-line" x1="0" y1="${H / 2}" x2="${W}" y2="${H / 2}"/><circle class="p-line" cx="50" cy="${H / 2}" r="9"/><rect class="p-line" x="22" y="${H - 22}" width="56" height="22"/><rect class="p-line" x="22" y="0" width="56" height="22"/>`;
   for (const [slot, x, y] of spots) {
     const v = value("positions_" + slot, i);
-    const fill = v >= 18 ? "#0b7a5a" : v >= 15 ? "#5aa98d" : v >= 10 ? "#d9e9e1" : "#fff";
-    const ink = v >= 15 ? "#fff" : v >= 10 ? "#121619" : "#8a9097";
+    const fill = v >= 18 ? "p-top" : v >= 15 ? "p-good" : v >= 10 ? "p-ok" : "p-low";
+    const ink = v >= 15 ? " on" : v >= 10 ? " mid" : "";
     const label = POSITION_SLOTS.find(([k]) => k === slot)[1];
-    s += `<g><title>${esc(label)}: ${v}</title><circle cx="${x}" cy="${y}" r="6.4" fill="${fill}" stroke="${v >= 10 ? "none" : "#c9cdc6"}"/><text x="${x}" y="${y + 2.3}" text-anchor="middle" font-family="Sofia Sans Condensed, sans-serif" font-weight="800" font-size="6.4" fill="${ink}">${v}</text><text x="${x}" y="${y + 11.5}" text-anchor="middle" font-family="Sofia Sans, sans-serif" font-size="3.6" fill="#545b62">${esc(label)}</text></g>`;
+    s += `<g><title>${esc(label)}: ${v}</title><circle class="${fill}" cx="${x}" cy="${y}" r="6.6"/><text class="p-num${ink}" x="${x}" y="${y + 2.4}" text-anchor="middle" font-size="6.6">${v}</text><text class="p-label" x="${x}" y="${y + 11.8}" text-anchor="middle" font-size="3.9">${esc(label)}</text></g>`;
   }
   return s + "</svg>";
 }
@@ -759,12 +757,13 @@ function drawPanel() {
   }
   panel.innerHTML = `<button class="plain panel-close" id="panel-close"><svg class="icon"><use href="#i-back"/></svg>Back to the list</button>
     <div class="ph"><div><h3 class="pn">${esc(name)}</h3><div class="pm">${n.age[i]} · ${esc(positions(data.text.natural_positions[i]))} · ${esc(data.text.club_name[i] || "No club")}</div></div>
-    <div style="display:flex;gap:10px;align-items:flex-start"><div class="keys"><kbd>J</kbd> <kbd>K</kbd> next player<br><kbd>S</kbd> shortlist</div><button class="star" data-star="${i}" aria-pressed="${starred}" aria-label="${starred ? "Remove from" : "Add to"} shortlist"><svg class="icon"><use href="#i-star"/></svg></button></div></div>
-    <div class="hero"><div><div class="big"><div><small>CURRENT</small><b>${n.ability_current[i]}</b></div><div class="pa"><small>POTENTIAL</small><b>${n.ability_potential[i]}</b></div></div>
-    <div class="facts">${facts.map(([k, v]) => `<span>${k} <b>${esc(v)}</b></span>`).join("")}</div></div>
+    <div class="ph-side"><button class="star" data-star="${i}" aria-pressed="${starred}" aria-label="${starred ? "Remove from" : "Add to"} shortlist"><svg class="icon"><use href="#i-star"/></svg></button></div></div>
+    <div class="hero"><div class="big"><div><small>CURRENT</small><b>${n.ability_current[i]}</b></div><div class="pa"><small>POTENTIAL</small><b>${n.ability_potential[i]}</b></div></div>
     <svg class="wheel" viewBox="0 0 190 190" role="img" aria-label="Attribute ranks, average ${attrMean ?? "unknown"} percentile">${wheel(190, (key) => { const p = rk[key]?.[i]; return p === undefined || p === 255 ? null : p; }, [attrMean === null ? "" : ordinal(attrMean), "vs " + (state.compare === "position" ? GROUPS[data.group[i]]?.[0] || "all" : "all")])}</svg></div>
+    <dl class="facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
     <div class="ptabs" role="tablist">${tabs.map(([id, label]) => `<button role="tab" data-ptab="${id}" aria-selected="${id === state.panelTab}">${label}</button>`).join("")}</div>
-    ${body}`;
+    ${body}
+    <p class="keys"><kbd>J</kbd> and <kbd>K</kbd> move through the list. <kbd>S</kbd> adds to your shortlist.</p>`;
 }
 
 // ---------- Controls ----------
@@ -811,10 +810,10 @@ function drawColumnsMenu() {
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(c);
   }
-  $("columns-list").innerHTML = (state.extras.length ? `<p class="hint" style="margin:0 4px 8px">Added columns stay on screen in every view.</p>` : "") +
-    [...groups].map(([g, cols]) => `<h3 style="margin:10px 4px 4px;font:700 11px var(--cond);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)">${g}</h3>` +
-      cols.map((c) => `<label style="display:flex;gap:8px;align-items:center;padding:3px 4px;font-size:13px"><input type="checkbox" data-extra="${c.key}"${state.extras.includes(c.key) ? " checked" : ""}>${esc(c.label)}</label>`).join("")).join("") ||
-    `<p class="hint" style="margin:4px">No column matches.</p>`;
+  $("columns-list").innerHTML = (state.extras.length ? `<p class="hint">Added columns stay on screen in every view.</p>` : "") +
+    ([...groups].map(([g, cols]) => `<h3>${g}</h3>` +
+      cols.map((c) => `<label><input type="checkbox" data-extra="${c.key}"${state.extras.includes(c.key) ? " checked" : ""}>${esc(c.label)}</label>`).join("")).join("") ||
+    `<p class="hint">No column matches.</p>`);
 }
 
 function drawRules() {
@@ -848,7 +847,33 @@ function toast(text, ms = 2600) {
   toastTimer = setTimeout(() => { t.hidden = true; }, ms);
 }
 
+// Popovers open just below the button that opened them, kept inside the window.
+function anchorMenu(menu, button) {
+  const place = () => {
+    const r = button.getBoundingClientRect();
+    const width = Math.min(menu.offsetWidth || 300, innerWidth - 16);
+    menu.style.left = Math.max(8, Math.min(r.right - width, innerWidth - width - 8)) + "px";
+    menu.style.top = r.bottom + 6 + "px";
+    menu.style.maxHeight = Math.max(160, innerHeight - r.bottom - 16) + "px";
+  };
+  menu.addEventListener("beforetoggle", (e) => { if (e.newState === "open") place(); });
+  menu.addEventListener("toggle", (e) => { if (e.newState === "open") place(); });
+  window.addEventListener("resize", () => { if (menu.matches(":popover-open")) place(); });
+}
+
+function syncThemeButton() {
+  const label = window.fmsaveTheme?.current() === "dark" ? "Switch to light mode" : "Switch to dark mode";
+  $("theme-toggle").setAttribute("aria-label", label);
+  $("theme-toggle").title = label;
+}
+
 function wire() {
+  anchorMenu($("csv-menu"), $("csv-button"));
+  anchorMenu($("columns-menu"), $("columns-button"));
+  syncThemeButton();
+  $("theme-toggle").addEventListener("click", () => { window.fmsaveTheme?.toggle(); syncThemeButton(); });
+  new MutationObserver(syncThemeButton).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  $("rail-close").addEventListener("click", () => { $("rail").classList.remove("open"); $("filters-button").focus(); });
   $("tabs").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-list]");
     if (!b) return;
@@ -1056,7 +1081,9 @@ function showStart() {
   $("start").hidden = false;
   $("app").hidden = true;
   $("tabs").hidden = true;
-  $("bar-actions").hidden = true;
+  $("csv-button").hidden = true;
+  $("another").hidden = true;
+  $("docs-link").classList.remove("in-app");
   $("meta").textContent = "";
 }
 
@@ -1065,8 +1092,9 @@ function showApp() {
   $("start").hidden = true;
   $("app").hidden = false;
   $("tabs").hidden = false;
-  $("bar-actions").hidden = false;
-  $("docs-link").hidden = matchMedia("(max-width: 760px)").matches;
+  $("csv-button").hidden = false;
+  $("another").hidden = false;
+  $("docs-link").classList.add("in-app");
   const m = data.meta;
   $("meta").innerHTML = [m.save && `<b>${esc(m.save)}</b>`, m.club && esc(m.club), m.date && esc(day(Date.parse(m.date) / DAY))].filter(Boolean).join(" · ");
   const noSquad = data.squadUid === null || data.squadUid === undefined;
