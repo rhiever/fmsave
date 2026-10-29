@@ -50,6 +50,7 @@ from fmsave.models.league_tables import LeagueTable
 from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import PlayerMatchStats
 from fmsave.models.meta import SaveInfo
+from fmsave.models.nations import Nation
 from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
 from fmsave.models.season_history import PlayerSeasonHistory
@@ -720,6 +721,13 @@ def _league_table_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterabl
     )
 
 
+def _nation_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[object]:
+    nations = career_save.nations()
+    if scope.nation_id is None:
+        return nations
+    return nations.where(nation_id=scope.nation_id)
+
+
 def _transfer_window_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[object]:
     """Every window the save holds. A window belongs to no club, competition or nation fmsave
     can read, so the table takes no scope of its own.
@@ -965,6 +973,7 @@ _EXPORT_TABLES: dict[str, _ExportTable] = {
     "managed-clubs": _ExportTable(ManagedClub, _CLUB_SCOPES, _managed_club_rows),
     "stages": _ExportTable(Stage, _COMPETITION_SCOPES, _stage_rows),
     "competitions": _ExportTable(Competition, _COMPETITION_SCOPES, _competition_rows),
+    "nations": _ExportTable(Nation, frozenset({_NATION_SCOPE, _EVERY_ROW_SCOPE}), _nation_rows),
     "fixtures": _ExportTable(Fixture, _EVERY_SCOPE, _fixture_rows),
     "league-tables": _ExportTable(LeagueTable, _EVERY_SCOPE, _league_table_rows),
     "transfer-windows": _ExportTable(TransferWindow, _EVERY_ROW_ONLY, _transfer_window_rows),

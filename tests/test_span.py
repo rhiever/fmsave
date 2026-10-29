@@ -249,7 +249,7 @@ def test_a_clock_window_that_crosses_a_high_byte_finds_kick_off_years_on_both_si
 @pytest.mark.parametrize(
     ("home_team_id", "away_team_id"),
     [
-        pytest.param(0, AWAY_TEAM_IDS[0], id="home-team-id-zero"),
+        pytest.param(3_000_000, AWAY_TEAM_IDS[0], id="home-team-id-above-the-range"),
         pytest.param(HOME_TEAM_IDS[0], 3_000_000, id="away-team-id-above-the-range"),
     ],
 )
@@ -260,6 +260,29 @@ def test_a_team_id_outside_the_range_is_not_accepted(home_team_id: int, away_tea
 
     assert records.fixtures == ()
     assert records.fixture_candidates > 0
+
+
+@pytest.mark.parametrize(
+    ("home_team_id", "away_team_id"),
+    [
+        pytest.param(0, AWAY_TEAM_IDS[0], id="home-team-0"),
+        pytest.param(HOME_TEAM_IDS[0], 0, id="away-team-0"),
+    ],
+)
+def test_team_0_is_a_fixture_team_like_any_other(home_team_id: int, away_team_id: int) -> None:
+    blob = example_fixture_blob(0, home_team_id=home_team_id, away_team_id=away_team_id)
+
+    records = scan([blob])
+
+    assert [(f.home_team_id, f.away_team_id) for f in records.fixtures] == [
+        (home_team_id, away_team_id)
+    ]
+
+
+def test_a_result_for_team_0_is_kept() -> None:
+    records = scan([example_result_record(home_team_id=0)])
+
+    assert [result.home_team_id for result in records.results] == [0]
 
 
 def test_a_wrong_locator_byte_is_not_accepted() -> None:
@@ -642,7 +665,7 @@ def test_a_result_record_keeps_no_span_offset() -> None:
         pytest.param({"lead_byte": 0x02}, id="a-decoy-lead-byte"),
         pytest.param({"home_goals": 41}, id="more-goals-than-the-maximum"),
         pytest.param({"away_goals": 41}, id="more-away-goals-than-the-maximum"),
-        pytest.param({"home_team_id": 0}, id="a-home-team-id-below-the-range"),
+        pytest.param({"home_team_id": 3_000_000}, id="a-home-team-id-above-the-range"),
         pytest.param({"away_team_id": 3_000_000}, id="an-away-team-id-above-the-range"),
     ],
 )
@@ -917,7 +940,7 @@ def test_filtered_middle_references_and_years_still_frame_the_known_later_row() 
     payload = continuation_payload(
         middles=[
             continuation_fixture(year=1905),
-            continuation_fixture(home=0),
+            continuation_fixture(home=3_000_000),
             continuation_fixture(),
         ]
     )

@@ -23,6 +23,8 @@ TABLE_RECORD_TYPES = (
     fmsave.ManagedClub,
     fmsave.Stage,
     fmsave.Competition,
+    fmsave.Nation,
+    fmsave.PlayerSeasonHistory,
     fmsave.Fixture,
     fmsave.LeagueTable,
     fmsave.TransferWindow,

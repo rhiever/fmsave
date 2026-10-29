@@ -44,12 +44,14 @@ EXPECTED_READERS = (
     "managed_clubs",
     "stages",
     "competitions",
+    "nations",
     "fixtures",
     "league_tables",
     "transfer_windows",
     "competition_rules",
     "player_match_stats",
     "player_season_stats",
+    "player_season_history",
     "stadiums",
     "finances",
     "sponsorships",
@@ -68,9 +70,7 @@ EXPECTED_READERS = (
 # Readers whose ranges the recorded baselines do not hold yet. The baselines are written by a
 # separate tool against the whole corpus, so a reader added since they were last written has no
 # range to be compared with, and its own checks are what bound it until they are written again.
-# `injuries` is the reader the ranges still call `injury_history`, so its range is recorded under
-# a name no report carries; it comes out of here when the ranges are written again.
-READERS_WITHOUT_RECORDED_RANGES: frozenset[str] = frozenset()
+READERS_WITHOUT_RECORDED_RANGES: frozenset[str] = frozenset({"nations"})
 # Columns whose recorded ranges the output schema has since left behind, either because the
 # column was renamed or removed or because an empty cell in it now means something the recorded
 # rate was not measured against. A rename or a removal bumps the schema version and is recorded
@@ -103,6 +103,7 @@ def within_tolerance(observed: float, expected: float, tolerance: float) -> bool
 
 
 @pytest.mark.corpus_full
+@pytest.mark.timeout(900)
 def test_validation_reports_every_reader_ok(corpus_saves: dict[str, fmsave.Save]) -> None:
     """Every reader returns its table, and every check that applies passes."""
     mismatches = CorpusMismatches()

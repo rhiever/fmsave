@@ -67,6 +67,7 @@ from tests.fixtures.injuries import (
     injury_window_row_bytes,
     match_file_body,
 )
+from tests.fixtures.nations import nation_table_bytes
 from tests.fixtures.season_history import history_archive, history_index
 from tests.fixtures.season_stats import ExampleRecord, season_stats_body, stat_line
 from tests.fixtures.span import (
@@ -1972,6 +1973,7 @@ def career_game_db(
         + player_b_bytes(history_selector=player_history_selectors[1])
         + player_c_bytes(history_selector=player_history_selectors[2])
         + player_d_bytes(history_selector=player_history_selectors[3])
+        + nation_table_bytes()
         + extra_staff
         + staff_region_bytes(staff_affiliate=staff_affiliate)
         # The save keeps its stage table in the last stretch of game_db, so it goes last here.

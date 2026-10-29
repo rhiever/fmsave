@@ -1,9 +1,9 @@
 """Club records, their team lists, and the club-status table in `game_db`.
 
-Club records are found by scanning for their anchor bytes and checking every candidate. They
-sit back to back, so a record runs to the next accepted one. Each record holds a team list;
-a separate status table holds each club's reputation and last league position. The result is
-a private index that other readers use to join teams to clubs.
+A counted-table walk authenticates record bounds and identities, including the initial club.
+The anchor scan locates candidates and supports small fragments. Team references are read
+from their walked positions; a separate status table supplies reputation and league position.
+The resulting index is shared by readers that join through clubs.
 """
 
 from __future__ import annotations
@@ -16,11 +16,20 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from statistics import median_low
 
-from fmsave._layouts import ClubRecordLayout, ClubStatusLayout, TeamListLayout, find_layout
+from fmsave._layouts import (
+    FULL_SAVE_MINIMUM_GAME_DB_BYTES,
+    ClubRecordLayout,
+    ClubStatusLayout,
+    ClubTableLayout,
+    TeamListLayout,
+    find_layout,
+)
 from fmsave._reader_stats import ClubStats
 from fmsave._scan import decode_date
-from fmsave.models.clubs import Club, Team
+from fmsave.models.clubs import Club, ClubGender, Team
+from fmsave.models.common import CodedValue
 from fmsave.readers._common import GAME_DB_SECTION, MISSING_REFERENCE, layout_mismatch
+from fmsave.readers.club_table import ClubTableRecord, club_record, walk_club_table
 
 _UINT32 = struct.Struct("<I")
 _UINT16 = struct.Struct("<H")
@@ -40,6 +49,7 @@ class ClubLayouts:
     records: ClubRecordLayout
     team_lists: TeamListLayout
     statuses: ClubStatusLayout
+    table: ClubTableLayout
 
 
 def find_club_layouts(game_db_schema: int | None, build: str) -> ClubLayouts:
@@ -48,6 +58,7 @@ def find_club_layouts(game_db_schema: int | None, build: str) -> ClubLayouts:
         records=find_layout(ClubRecordLayout, GAME_DB_SECTION, game_db_schema, build).layout,
         team_lists=find_layout(TeamListLayout, GAME_DB_SECTION, game_db_schema, build).layout,
         statuses=find_layout(ClubStatusLayout, GAME_DB_SECTION, game_db_schema, build).layout,
+        table=find_layout(ClubTableLayout, GAME_DB_SECTION, game_db_schema, build).layout,
     )
 
 
@@ -62,12 +73,14 @@ class ClubRecordSpan:
             starts, or where the club scan ended for the last record.
         team_list_end: Offset of the affiliated-team count byte, just past the club's own team
             ids; None when no team list parsed.
+        table_bound: Whether the counted table established this record's exact bounds.
     """
 
     club_uid: int
     record_start: int
     record_end: int
     team_list_end: int | None
+    table_bound: bool = False
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -78,9 +91,9 @@ class ClubIndex:
 
     Attributes:
         clubs: Every accepted club, in ascending club index.
-        uid_by_club_index: The club uid for each club index (the stored index plus 1). Club
-            indexes are unique.
-        club_by_uid: The club for each uid (the stored uid plus 1). Uids are unique.
+        uid_by_club_index: The club uid for each save-local club index. Index 0 is valid,
+            and indexes are unique.
+        club_by_uid: The club for each fmsave join key, including 0. Keys are unique.
         team_to_club: (club uid, slot) of the club record storing each team id. Team ids are
             exactly as stored, with no +1, unlike club indexes and uids. Each team id is
             stored by one club record in one slot.
@@ -113,7 +126,7 @@ class ClubIndex:
 
 @dataclass(frozen=True, slots=True)
 class _ClubRecord:
-    """The fixed fields of one accepted club record, in the public +1 id space."""
+    """Validated club fields and optional bounds from the counted table."""
 
     record_start: int
     club_index: int
@@ -123,6 +136,8 @@ class _ClubRecord:
     city_id: int | None
     name: str
     short_name: str
+    closing_header_at: int | None = None
+    team_counts_start: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,9 +151,10 @@ class _TeamList:
     team_ids: tuple[int, ...]
     affiliate_team_ids: tuple[int, ...]
     affiliate_count_offset: int | None
+    gender: int | None
 
 
-_NO_TEAM_LIST = _TeamList((), (), None)
+_NO_TEAM_LIST = _TeamList((), (), None, None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,17 +183,29 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
     """Read every club record, its team list and its status into a ClubIndex.
 
     Raises:
-        ReaderCheckError: No club record is accepted, a club uid or club index appears in two
-            records, or a team id is listed twice (by one club or by two).
+        ReaderCheckError: The counted table is missing on a full-size save, invalid, or
+            ambiguous; no club record is accepted; a club uid or club index appears in two
+            records; or a team id is listed twice (by one club or by two).
     """
     records, scan_end = _scan_club_records(game_db, layouts.records)
+    records = _bind_club_table(game_db, records, layouts, file_name)
     if not records:
         raise layout_mismatch(file_name, "no club records found")
     _reject_repeated_club_keys(records, file_name)
     record_ends = [next_record.record_start for next_record in records[1:]]
     record_ends.append(scan_end)
+    record_ends = [
+        end if record.closing_header_at is None else record.closing_header_at
+        for record, end in zip(records, record_ends, strict=True)
+    ]
     team_lists = [
-        _read_team_list(game_db, record.record_start, record_end, layouts.team_lists)
+        _read_team_list(
+            game_db,
+            record.record_start,
+            record_end,
+            layouts.team_lists,
+            counts_start=record.team_counts_start,
+        )
         for record, record_end in zip(records, record_ends, strict=True)
     ]
     teams_by_record = [
@@ -190,6 +218,7 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
     statuses, normal_status_count, confirmed_status_count = _read_statuses(
         game_db, [records[position] for position in index_order], layouts.statuses
     )
+    unique_ids = _footer_unique_ids(game_db, records, record_ends, layouts.records)
 
     clubs: list[Club] = []
     uid_by_club_index: dict[int, int] = {}
@@ -200,9 +229,6 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
     for position, (reputation, last_league_position) in zip(index_order, statuses, strict=True):
         record = records[position]
         parent_club_uid = affiliates.parent_by_club_uid.get(record.uid)
-        # As with people, the next object's header closes this club's object and carries
-        # its database Unique ID. The final accepted club has no known closing header.
-        unique_id = records[position + 1].uid if position + 1 < len(records) else None
         club = Club(
             uid=record.uid,
             name=record.name,
@@ -215,7 +241,12 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
             parent_club_name=None if parent_club_uid is None else name_by_uid.get(parent_club_uid),
             reputation=reputation,
             last_league_position=last_league_position,
-            unique_id=unique_id,
+            unique_id=unique_ids[position],
+            gender=(
+                None
+                if (gender := team_lists[position].gender) is None
+                else CodedValue.from_raw(ClubGender, gender)
+            ),
         )
         clubs.append(club)
         uid_by_club_index[record.club_index] = record.uid
@@ -238,6 +269,7 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
             record_start=record.record_start,
             record_end=record_end,
             team_list_end=team_list.affiliate_count_offset,
+            table_bound=record.closing_header_at is not None,
         )
         for record, record_end, team_list in zip(records, record_ends, team_lists, strict=True)
     )
@@ -252,6 +284,139 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         stub_team_ids=read_stub_team_ids(game_db, layouts.statuses),
         record_spans=record_spans,
     )
+
+
+def _footer_unique_ids(
+    game_db: bytes,
+    records: Sequence[_ClubRecord],
+    record_ends: Sequence[int],
+    layout: ClubRecordLayout,
+) -> list[int | None]:
+    """The database Unique ID of each record, in file order, read from the header after it.
+
+    As with people, the next object's header closes this club's object: its club index and
+    uid words hold this club's own stored club index and Unique ID. That header is the next
+    accepted record's when its club index follows on from this one, and otherwise the first
+    header the scan did not accept before it. The Unique ID counts only when the closing
+    header's club index is this club's, so a header the shape search misses gives None rather
+    than a neighbouring club's id.
+    """
+    read_uint32 = _UINT32.unpack_from
+    buffer_length = len(game_db)
+    accepted_starts = frozenset(record.record_start for record in records)
+    accepted_club_indexes = frozenset(record.club_index for record in records)
+    unique_ids: list[int | None] = []
+    for position, (record, record_end) in enumerate(zip(records, record_ends, strict=True)):
+        closing_at: int | None = (
+            record_end if record.closing_header_at is None else record.closing_header_at
+        )
+        is_followed_on = (
+            position + 1 < len(records)
+            and records[position + 1].club_index == record.club_index + 1
+        )
+        if record.closing_header_at is None and not is_followed_on:
+            unaccepted_starts = _unaccepted_record_starts(
+                game_db,
+                accepted_starts,
+                accepted_club_indexes,
+                record.record_start,
+                record_end,
+                layout,
+            )
+            closing_at = unaccepted_starts[0] if unaccepted_starts else None
+        if (
+            closing_at is None
+            or closing_at + layout.uid_offset + _UINT32.size > buffer_length
+            or read_uint32(game_db, closing_at + layout.club_index_offset)[0] != record.club_index
+        ):
+            unique_ids.append(None)
+        else:
+            unique_ids.append(read_uint32(game_db, closing_at + layout.uid_offset)[0])
+    return unique_ids
+
+
+def _bind_club_table(
+    game_db: bytes, records: list[_ClubRecord], layouts: ClubLayouts, file_name: str
+) -> list[_ClubRecord]:
+    """Authenticate a counted table before admitting its initial club and footer bounds."""
+    record_layout, table_layout = layouts.records, layouts.table
+    prefix_end = (
+        records[0].record_start + record_layout.anchor_offset + len(record_layout.anchor)
+        if records
+        else len(game_db)
+    )
+    anchor_distance = record_layout.anchor_offset - record_layout.zero_byte_offset
+    headers: set[int] = set()
+    hit = game_db.find(record_layout.anchor, 0, prefix_end)
+    while hit >= 0:
+        for extra in (0, table_layout.extended_prefix_bytes):
+            body = hit - anchor_distance - extra
+            head = body - table_layout.header_bytes
+            if head < 0 or game_db[head + _UINT32.size] != 0:
+                continue
+            variant = table_layout.extended_variant if extra else table_layout.ordinary_variant
+            if game_db[body] != variant:
+                continue
+            row = club_record(game_db, body, table_layout)
+            if row is None:
+                continue
+            count = _UINT32.unpack_from(game_db, head)[0]
+            plausible_count = table_layout.count_range[0] <= count <= table_layout.count_range[1]
+            closes_at_first_header = bool(records and row.footer_start == records[0].record_start)
+            if (plausible_count or closes_at_first_header) and row.unique_id not in (
+                0,
+                MISSING_REFERENCE,
+            ):
+                headers.add(head)
+        hit = game_db.find(record_layout.anchor, hit + 1, prefix_end)
+    if not headers:
+        if len(game_db) >= FULL_SAVE_MINIMUM_GAME_DB_BYTES:
+            raise layout_mismatch(file_name, "no complete club table was found")
+        return records
+    tables: list[tuple[ClubTableRecord, ...]] = []
+    for head in sorted(headers):
+        rows = walk_club_table(game_db, head, table_layout)
+        if rows is None:
+            continue
+        table_end = rows[-1].footer_start + 3 * _UINT32.size
+        if all(
+            rows[0].body_start <= record.record_start + record_layout.zero_byte_offset < table_end
+            for record in records
+        ):
+            tables.append(rows)
+    if len(tables) != 1:
+        raise layout_mismatch(file_name, "club table framing is invalid or ambiguous")
+    rows = tables[0]
+    bounded: list[_ClubRecord] = []
+    for ordinal, row in enumerate(rows):
+        extra = (
+            table_layout.extended_prefix_bytes
+            if game_db[row.body_start] == table_layout.extended_variant
+            else 0
+        )
+        start = row.body_start + extra - record_layout.zero_byte_offset
+        if ordinal and (
+            extra
+            or not game_db.startswith(record_layout.anchor, start + record_layout.anchor_offset)
+        ):
+            continue
+        uid = 0 if ordinal == 0 else rows[ordinal - 1].unique_id + 1
+        record = _accepted_record(
+            game_db, start, record_layout, row.footer_start, identity=(ordinal, uid)
+        )
+        if record is None:
+            if ordinal == 0:
+                raise layout_mismatch(file_name, "the initial club has invalid fields")
+            continue
+        bounded.append(
+            replace(
+                record,
+                record_start=row.body_start if ordinal == 0 else start,
+                closing_header_at=row.footer_start,
+                team_counts_start=row.team_counts_start,
+            )
+        )
+    return bounded
 
 
 def _reject_repeated_club_keys(records: Sequence[_ClubRecord], file_name: str) -> None:
@@ -328,7 +493,12 @@ def _scan_club_records(game_db: bytes, layout: ClubRecordLayout) -> tuple[list[_
 
 
 def _accepted_record(
-    game_db: bytes, record_start: int, layout: ClubRecordLayout, buffer_length: int
+    game_db: bytes,
+    record_start: int,
+    layout: ClubRecordLayout,
+    buffer_length: int,
+    *,
+    identity: tuple[int, int] | None = None,
 ) -> _ClubRecord | None:
     """Check one candidate whose fixed header lies inside the buffer; None when it fails."""
     read_uint32 = _UINT32.unpack_from
@@ -342,19 +512,21 @@ def _accepted_record(
     fa_nation_id: int = read_uint32(game_db, record_start + layout.fa_nation_offset)[0]
     if not lowest_nation_id <= fa_nation_id <= highest_nation_id:
         return None
-    stored_uid: int = read_uint32(game_db, record_start + layout.uid_offset)[0]
-    if read_uint32(game_db, record_start + layout.uid_copy_offset)[0] != stored_uid:
-        return None
+    if identity is None:
+        stored_uid: int = read_uint32(game_db, record_start + layout.uid_offset)[0]
+        if read_uint32(game_db, record_start + layout.uid_copy_offset)[0] != stored_uid:
+            return None
+        stored_club_index = read_uint32(game_db, record_start + layout.club_index_offset)[0]
+        identity = (stored_club_index + 1, stored_uid + 1)
     names = _record_names(game_db, record_start, layout, buffer_length)
     if names is None:
         return None
     name, short_name = names
-    stored_club_index: int = read_uint32(game_db, record_start + layout.club_index_offset)[0]
     stored_city_id: int = read_uint32(game_db, record_start + layout.city_offset)[0]
     return _ClubRecord(
         record_start=record_start,
-        club_index=stored_club_index + 1,
-        uid=stored_uid + 1,
+        club_index=identity[0],
+        uid=identity[1],
         nation_id=nation_id,
         fa_nation_id=fa_nation_id,
         city_id=None if stored_city_id == MISSING_REFERENCE else stored_city_id,
@@ -397,17 +569,15 @@ def _record_names(
 def own_record_spans(
     game_db: bytes, club_index: ClubIndex, layout: ClubRecordLayout
 ) -> tuple[ClubRecordSpan, ...]:
-    """The club index's record spans, each cut short at the next record header the club scan
-    did not accept.
+    """Spans confined to each club's own data, for readers such as the finance locator.
 
-    The index ends each record at the next accepted one, so the bytes of any record the scan
-    rejects in between, such as a club playing in another nation's league, sit inside the
-    span of the accepted club before it. A reader that searches a club's own data, as the
-    finance chain locator does, uses these spans so that it never takes another club's data
-    for its own. Finding those headers costs a pass over the club records, so only the readers
-    that need it pay for it.
+    Authenticated table spans already end at their own footers. Legacy fragments instead
+    end each span at the next accepted record, so an unaccepted record can lie inside it.
+    Clip only those legacy spans at the first intervening record header.
     """
     spans = club_index.record_spans
+    if all(span.table_bound for span in spans):
+        return spans
     unaccepted_starts = _unaccepted_record_starts(
         game_db,
         frozenset(span.record_start for span in spans),
@@ -417,7 +587,9 @@ def own_record_spans(
         layout,
     )
     return tuple(
-        replace(
+        span
+        if span.table_bound
+        else replace(
             span,
             record_end=_next_start_after(unaccepted_starts, span.record_start, span.record_end),
         )
@@ -490,9 +662,19 @@ def _next_start_after(starts: Sequence[int], offset: int, default: int) -> int:
 
 
 def _read_team_list(
-    game_db: bytes, record_start: int, record_end: int, layout: TeamListLayout
+    game_db: bytes,
+    record_start: int,
+    record_end: int,
+    layout: TeamListLayout,
+    *,
+    counts_start: int | None = None,
 ) -> _TeamList:
     """Parse the record's team list from its date anchor, then from each float anchor."""
+    if counts_start is not None:
+        return (
+            _parse_team_list(game_db, counts_start - layout.counts_offset, record_end, layout)
+            or _NO_TEAM_LIST
+        )
     triple_at = game_db.find(layout.null_date_triple, record_start, record_end)
     if triple_at >= 0:
         team_list = _parse_team_list(game_db, triple_at, record_end, layout)
@@ -639,10 +821,13 @@ def _parse_team_list(
         if not lowest_team_id <= team_id <= highest_team_id:
             return None
     affiliate_count_offset = team_ids_start + team_ids_struct.size
+    gender_at = team_count_at + layout.gender_offset_from_team_count
+    gender = game_db[gender_at] if team_list_start <= gender_at < record_end else None
     return _TeamList(
         team_ids,
         _parse_affiliate_team_ids(game_db, affiliate_count_offset, record_end, layout),
         affiliate_count_offset,
+        gender,
     )
 
 
@@ -679,6 +864,9 @@ def _read_statuses(
     found_first_status = False
     leading_misses = 0
     for record in records_in_index_order:
+        if record.club_index == 0:
+            statuses.append(_NO_STATUS)
+            continue
         stored_uid = record.uid - 1
         uid_pair = pack_uid_pair(stored_uid, stored_uid)
         search_end = cursor + window_span if found_first_status else buffer_length

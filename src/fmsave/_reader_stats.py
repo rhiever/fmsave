@@ -162,6 +162,22 @@ class CompetitionStats:
 
 
 @dataclass(frozen=True, slots=True)
+class NationStats:
+    """What the nation-table search counted over `game_db`.
+
+    `candidates` counts the places where the table's row count, its zero byte and a record's
+    opening byte stand together, and `tables` those from which every record walked into a
+    whole table. Rows are read only when `tables` is exactly 1: `rows` counts them, and
+    `database_id_copies` those whose closing header repeats the database id in its third word.
+    """
+
+    candidates: int
+    tables: int
+    rows: int
+    database_id_copies: int
+
+
+@dataclass(frozen=True, slots=True)
 class FixtureStats:
     """What building the fixture calendar counted.
 

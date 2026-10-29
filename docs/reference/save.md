@@ -20,7 +20,7 @@ runs every reader at once and reports how each fared, without raising or warning
 ```{eval-rst}
 .. autoclass:: fmsave.Save
    :members: info, closed, clubs, players, contracts, suspensions, managed_clubs, stages,
-       competitions, fixtures, stadiums, transfer_windows, injury_types, injuries, affiliates,
+       competitions, nations, fixtures, stadiums, transfer_windows, injury_types, injuries, affiliates,
        job_vacancies, league_tables, competition_rules, player_match_stats,
        player_season_stats, player_season_history, finances, sponsorships, facilities, staff, staff_lists, tactics,
        set_pieces, training, mentoring, close

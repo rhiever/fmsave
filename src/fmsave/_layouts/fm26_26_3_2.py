@@ -11,6 +11,7 @@ from fmsave._layouts import (
     AffiliateGroupLayout,
     ClubRecordLayout,
     ClubStatusLayout,
+    ClubTableLayout,
     CompetitionIdPairLayout,
     ContractLayout,
     FacilityByteLayout,
@@ -28,8 +29,10 @@ from fmsave._layouts import (
     MatchRecordLayout,
     MatchSummaryLayout,
     NamePoolLayout,
+    NationTableLayout,
     PersonBlockLayout,
     PlayerRecordLayout,
+    RecordStep,
     RulesPreambleLayout,
     SaveSummaryLayout,
     SeasonHistoryLayout,
@@ -281,9 +284,44 @@ CLUB_RECORDS = ClubRecordLayout(
     nation_copy_offset=25,
     city_offset=29,
     long_name_offset=39,
-    nation_id_range=(1, 999),
-    max_name_bytes=64,
+    # Nation ids count from 0, and nation 0 holds real clubs.
+    nation_id_range=(0, 999),
+    max_name_bytes=255,
     stop_gap_bytes=64 * 1024,
+)
+
+CLUB_TABLE = ClubTableLayout(
+    header_bytes=5,
+    count_range=(1, 200_000),
+    ordinary_variant=0,
+    extended_variant=12,
+    extended_prefix_bytes=4,
+    prefix_bytes=26,
+    max_name_bytes=16_384,
+    after_names=(RecordStep(0, 8), RecordStep(1, 4)),
+    base_finance_tag=0,
+    full_finance_tag=1,
+    empty_finance_tag=2,
+    base_finance_bytes=45,
+    full_finance=(
+        RecordStep(0, 70),
+        *((RecordStep(0, 235), RecordStep(1, 8), RecordStep(1, 8)) * 4),
+        RecordStep(0, 67),
+        RecordStep(1, 230),
+        RecordStep(4, 49),
+        RecordStep(0, 71),
+        RecordStep(1, 19),
+        RecordStep(0, 67),
+    ),
+    after_finance=(
+        RecordStep(1, 25),
+        RecordStep(1, 12),
+        RecordStep(0, 9),
+        *((RecordStep(1, 4),) * 5),
+        RecordStep(1, 16),
+        RecordStep(2, 28),
+    ),
+    max_entries=100_000,
 )
 
 # A null date is day 1 of 1900; the float anchor is 1.0.
@@ -298,6 +336,7 @@ TEAM_LISTS = TeamListLayout(
     second_entry_bytes=12,
     second_entry_lead_byte=0x01,
     filler_bytes=9,
+    gender_offset_from_team_count=-1,
     team_count_range=(1, 8),
     team_id_range=(1, 3_000_000),
     # At most 3 affiliated teams have been seen on one club; the cap leaves room for more.
@@ -681,7 +720,7 @@ MATCH_RECORDS = MatchRecordLayout(
     header_bytes=15,
     record_bytes=54,
     owner_back_offset=30,
-    team_id_range=(1, 2_999_999),
+    team_id_range=(0, 2_999_999),
     competition_id_range=(1, 65_535),
     years_before_clock=4,
     years_after_clock=1,
@@ -816,7 +855,7 @@ FIXTURE_CALENDAR = FixtureCalendarLayout(
     match_rules_template_bytes=3,
     r47_54_offset=47,
     played_offset=55,
-    team_id_range=(1, 2_999_999),
+    team_id_range=(0, 2_999_999),
     years_before_clock=7,
     years_after_clock=8,
     round_index_none_value=255,
@@ -886,7 +925,7 @@ STAGE_RESULTS = StageResultLayout(
     away_goals_offset=21,
     r22_offset=22,
     # The team ids share the fixture calendar's range, since they name the same teams.
-    team_id_range=(1, 2_999_999),
+    team_id_range=(0, 2_999_999),
     # Far above any score a match has ever finished on, so this turns away noise rather than
     # any real result.
     goals_maximum=40,
@@ -920,7 +959,7 @@ LEAGUE_TABLES = LeagueTableLayout(
     points_offset=14,
     flag_offset=16,
     unplayed_key=0xFFFFFFFF,
-    team_id_range=(1, 2_999_999),
+    team_id_range=(0, 2_999_999),
     # The first head byte counts the block's place in its own table, 0 to n-1, and starts
     # again at the next table. Splitting there rather than on the distance between blocks
     # leaves at most 0.3% of groups holding one club twice, against 15% or more under a
@@ -1084,6 +1123,40 @@ COMPETITION_ID_PAIRS = CompetitionIdPairLayout(
         (55, 6),
         (60, 7),
     ),
+)
+
+# The nation table holds 251 rows on every save measured, written from three installed database
+# versions, and exactly one candidate walks on each of them. Many other tables in `game_db` close
+# their records with the same three words and open with the same count and zero byte, and some
+# hold about as many rows, so neither the closing headers nor the count tell this table apart:
+# the record walk does. A walk is also what puts each closing header at its own record's end,
+# since a record can hold a run of bytes shaped like another row's closing header. The search is
+# a literal one on the count and opening bytes, which keeps it to one fast pass over the section.
+#
+# The longest record measured is under 4 KB and no count in any record reaches 100, so the
+# ceilings below reject garbage early without coming near a real record.
+NATION_TABLE = NationTableLayout(
+    row_count=251,
+    record_opening_byte=0,
+    record_steps=(
+        RecordStep(count_bytes=0, lead_bytes=4),
+        RecordStep(count_bytes=2, lead_bytes=4),
+        RecordStep(count_bytes=4, lead_bytes=4),
+        RecordStep(count_bytes=2, lead_bytes=1, strings=4, tail_bytes=20),
+        RecordStep(count_bytes=0, lead_bytes=48),
+        RecordStep(count_bytes=4, lead_bytes=25),
+        RecordStep(count_bytes=4, lead_bytes=12),
+        RecordStep(count_bytes=4, lead_bytes=14),
+        RecordStep(count_bytes=0, lead_bytes=24),
+        RecordStep(count_bytes=1, lead_bytes=5),
+        RecordStep(count_bytes=4, lead_bytes=28),
+        RecordStep(count_bytes=4, lead_bytes=28),
+        RecordStep(count_bytes=4, lead_bytes=12),
+        RecordStep(count_bytes=0, lead_bytes=54),
+    ),
+    max_entries=100_000,
+    max_string_bytes=1_024,
+    database_id_range=(1, 2**31 - 1),
 )
 
 # The tag is stored byte-reversed, so the bytes `csed` are the tag `desc`. Confirmed by walking
@@ -1299,6 +1372,13 @@ GATE_BOUNDS = GateBounds(
     # such as one whose database id another competition also claims, which would put a
     # different competition's name on it.
     competition_names_within_database_ids=(None, 1.0),
+    # Exactly one candidate walks into a whole nation table on every save measured. None
+    # means the record shape has moved; two would leave nothing to say which one holds the
+    # save's nations, so either way no row is read and this fails.
+    nation_tables_found=(1, 1),
+    # The third word of every closing header repeats the database id on every row of every
+    # save measured. A closing header read a word out would leave almost no row matching.
+    nation_database_id_copies=(0.99, None),
     # Around 99,000 to 137,000 records in the calendar on every save measured, holding 98.7%
     # to 99.3% of the fixture records in the span. The floor sits far below the smallest, so a
     # young career whose calendar is a fraction of these clears it, while a locator that broke
@@ -1784,6 +1864,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="save_game_summary", schema=29, build=BUILD, layout=SUMMARY_STRINGS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=NAME_POOLS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CLUB_RECORDS),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CLUB_TABLE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TEAM_LISTS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CLUB_STATUSES),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=PLAYER_RECORDS),
@@ -1798,6 +1879,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STADIUM_TABLE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STAGE_TABLE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=COMPETITION_ID_PAIRS),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=NATION_TABLE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TAGGED_STREAM),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TRANSFER_WINDOWS),
     LayoutEntry(region="humans", schema=21, build=BUILD, layout=HUMANS),

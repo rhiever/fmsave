@@ -53,6 +53,7 @@ from fmsave._reader_stats import (
     LeagueTableStats,
     ManagedStats,
     MatchStats,
+    NationStats,
     PlayerStats,
     ResultStats,
     RulesStats,
@@ -95,6 +96,7 @@ CONTRACTS_READER = "contracts"
 SUSPENSIONS_READER = "suspensions"
 MANAGED_CLUBS_READER = "managed_clubs"
 STAGES_READER = "stages"
+NATIONS_READER = "nations"
 COMPETITIONS_READER = "competitions"
 FIXTURES_READER = "fixtures"
 TRANSFER_WINDOWS_READER = "transfer_windows"
@@ -615,6 +617,22 @@ def evaluate_competitions(
     )
 
 
+def evaluate_nations(
+    stats: NationStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """Require one complete table and matching database id copies on full-size saves."""
+    applied = _applies(bounds, game_db_bytes)
+    return (
+        _gate("nation_tables_found", stats.tables, bounds.nation_tables_found, applied),
+        _gate(
+            "nation_database_id_copies",
+            _rate(stats.database_id_copies, stats.rows),
+            bounds.nation_database_id_copies,
+            applied and stats.rows > 0,
+        ),
+    )
+
+
 def evaluate_fixtures(
     stats: FixtureStats, bounds: GateBounds, span_bytes: int
 ) -> tuple[GateResult, ...]:
@@ -996,6 +1014,16 @@ def check_competitions(
         stats.competitions,
         evaluate_competitions(stats, bounds, game_db_bytes),
         FrozenMapping({"database_id_conflicts": stats.database_id_conflicts}),
+    )
+
+
+def check_nations(stats: NationStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The nation reader's checks and record count."""
+    return ReaderCheck(
+        NATIONS_READER,
+        stats.rows,
+        evaluate_nations(stats, bounds, game_db_bytes),
+        FrozenMapping({"tables_found": stats.tables}),
     )
 
 
@@ -2648,6 +2676,7 @@ def validate_save(career_save: Save) -> ValidationReport:
         (MANAGED_CLUBS_READER, career_save.managed_clubs),
         (STAGES_READER, career_save.stages),
         (COMPETITIONS_READER, career_save.competitions),
+        (NATIONS_READER, career_save.nations),
         (FIXTURES_READER, career_save.fixtures),
         (LEAGUE_TABLES_READER, career_save.league_tables),
         (TRANSFER_WINDOWS_READER, career_save.transfer_windows),

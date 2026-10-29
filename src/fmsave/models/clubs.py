@@ -3,8 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import IntEnum
 
 from fmsave._status import register_field_statuses
+from fmsave.models.common import CodedValue
+
+
+class ClubGender(IntEnum):
+    """The gender code stored for a club."""
+
+    UNKNOWN = -1
+    MEN = 0
+    WOMEN = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,13 +47,12 @@ class Club:
     Club names are not unique: look clubs up by uid.
 
     Attributes:
-        uid: The id other records in this save use to refer to this club. It can differ
-            between separate careers, so use unique_id to match clubs across saves
-            (unconfirmed).
+        uid: fmsave's join key for this club within the save. The value 0 is valid. Use
+            unique_id to match clubs across careers (unconfirmed).
         name: Full club name (unconfirmed).
         short_name: Short club name (unconfirmed).
-        nation_id: Id of the nation whose league the club plays in (unconfirmed).
-        fa_nation_id: Id of the nation whose football association the club belongs to. It
+        nation_id: Save-local id of the nation whose league the club plays in (unconfirmed).
+        fa_nation_id: Save-local id of the nation whose football association the club belongs to. It
             differs from nation_id for a club that plays in another nation's league
             (unconfirmed).
         city_id: Id of the club's city, or None when the save stores the missing-id marker
@@ -55,12 +64,13 @@ class Club:
             of this club's teams among its affiliate teams, else None (unconfirmed).
         parent_club_name: Denormalised full name of parent_club_uid; None wherever
             parent_club_uid is (unconfirmed).
-        reputation: Club reputation from 1 to 10000, or None when the save holds no valid
-            value.
+        reputation: Club reputation from 1 to 10000, or None when it cannot be read.
         last_league_position: League position at the end of the last completed season, or
-            None when the save holds none. It is not the position in the current table.
+            None when it cannot be read. It is not the position in the current table.
         unique_id: The club's Unique ID in the game database, for matching across separate
             careers. None when it cannot be read (unconfirmed).
+        gender: The club's stored gender code, or None when no team list parses. Unknown
+            codes keep their raw value (unconfirmed).
     """
 
     uid: int
@@ -75,6 +85,7 @@ class Club:
     reputation: int | None
     last_league_position: int | None
     unique_id: int | None = None
+    gender: CodedValue[ClubGender] | None = None
 
 
 register_field_statuses(Team, unconfirmed=("team_id", "slot", "club_uid", "is_affiliate"))
@@ -84,6 +95,7 @@ register_field_statuses(
     unconfirmed=(
         "uid",
         "unique_id",
+        "gender",
         "name",
         "short_name",
         "nation_id",

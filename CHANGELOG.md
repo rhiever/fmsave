@@ -4,11 +4,26 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-28
+
 ### Added
 
-- A web app at <https://rhiever.github.io/fmsave/app/> reads a save in the browser with Pyodide and the released fmsave, so players without Python can use it. It shows the squad and every player with all attributes, CA and PA, positions, personality, contracts, and this season's stats by competition, each ranked against players in the same position. It has filters and rules on any column, a shortlist, light and dark themes, and a demo league of made-up players. It downloads the list on screen, `players.csv`, `squad.csv`, and `season-stats.csv` as CSV. The save never leaves the computer.
-- The docs build pins the web app to the newest fmsave on PyPI, and a release redeploys it once PyPI lists the new version.
-- The web app and docs pages have link previews for social sites and chat apps, page descriptions and canonical URLs for search engines, and the docs site serves a `sitemap.xml`. The web app also has structured data, and the docs site serves `llms.txt`, a plain-text summary of fmsave for AI agents.
+- A [web app](https://rhiever.github.io/fmsave/app/) reads your save in the browser, with squad and player views, filters, shortlists, and CSV downloads. No Python installation is needed, and your save stays on your computer.
+- The web app uses the latest published fmsave release.
+- Shared links to the web app and docs include page previews. The docs also provide a sitemap and `llms.txt`.
+- `nations()` pairs save-local nation IDs with game database IDs for looking up names in an external list. The `nations` CLI export provides the same table.
+- `Club.gender` identifies men's and women's clubs. Unknown codes retain their original value in exports.
+
+### Fixed
+
+- Valid clubs at the start of the club list are included, with their database IDs and team links. Club uid 0 is valid; use `is not None` when checking whether a club reference resolved.
+- Club team lists use the club's recorded teams, fixing missing or incorrect squad links.
+- Clubs with long names are included.
+- `Club.unique_id` matches the game's club database ID. Re-export club IDs saved with earlier versions.
+- `clubs()` includes clubs whose nation ID is 0. Their players, contracts, staff, and fixtures join to them.
+- Fixtures, match records, and league tables include rows involving team 0, a national team.
+
+Thanks to @kdr6989 for the report.
 
 ## [0.6.0] - 2026-10-24
 

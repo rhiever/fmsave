@@ -41,6 +41,7 @@ attributes, the 8 personality attributes, current and potential ability, reputat
 value, condition, traits, his contract and any unserved ban. Records and tables are immutable and
 keep working after the save is closed. Use `uid` for joins within a save and `unique_id` to
 match database people or clubs across careers; created people can reuse deleted people's IDs.
+Club uid 0 is valid. Use `is not None` to check whether a club reference resolved.
 
 Each reader returns a `Table`: `where(...)`, `filter(...)`, `sorted_by(...)`, `find(name=...)`,
 `by_uid(...)`, `by_id(...)` and `coverage`, plus `to_dicts()`, `to_columns()`, `to_pandas()`,
@@ -48,7 +49,7 @@ Each reader returns a `Table`: `where(...)`, `filter(...)`, `sorted_by(...)`, `f
 
 ## What else it reads
 
-28 readers in all, each returning a `Table` of records:
+29 readers in all, each returning a `Table` of records:
 
 - **People**: `players()`, `contracts()`, `suspensions()`, `staff()`, `staff_lists()`
 - **Clubs**: `clubs()`, `managed_clubs()`, `finances()`, `sponsorships()`, `facilities()`,
@@ -56,6 +57,7 @@ Each reader returns a `Table`: `where(...)`, `filter(...)`, `sorted_by(...)`, `f
 - **Competitions**: `stages()`, `competitions()`, `fixtures()`, `league_tables()`,
   `competition_rules()`, `transfer_windows()`, `player_match_stats()`, `player_season_stats()`,
   `player_season_history()`
+- **Nations**: `nations()` pairs save-local nation ids with game database ids.
 - **Injuries**: `injury_types()`, `injuries()`
 - **Your own club's work**, which only the club you manage stores: `training()`, `mentoring()`,
   `tactics()`, `set_pieces()`
@@ -106,7 +108,7 @@ fmsave export career.fm players --nation 7 --columns name,age,club_name,contract
 fmsave validate career.fm --json
 ```
 
-`export` writes any of the 27 tables as CSV, JSON or JSON Lines, and needs a scope:
+`export` writes any of the 29 tables as CSV, JSON, or JSON Lines, and needs a scope:
 `--club`, `--managed-club`, `--competition`, `--nation` or `--all`. Nested groups flatten to
 `contract_wage`-style columns and a coded value gives a label column plus a `_code` column, so JSON
 is the lossless format. `--all` is explicit and is for local analysis of your own single-player
