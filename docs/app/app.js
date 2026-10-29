@@ -111,21 +111,21 @@ const isRate = (key) => /_per_90$|_percent$|_per_shot$|^average_rating$/.test(ke
 const COLUMNS = new Map();
 function def(key, props) { COLUMNS.set(key, { key, width: 40, fmt: "int", hue: null, rank: true, ...props }); }
 
-def("name", { label: "Name", abbr: "Player", group: "Player", fmt: "text", width: 190, rank: false, align: "l" });
-def("age", { label: "Age", abbr: "Age", group: "Player", width: 38, rank: false });
-def("natural_positions", { label: "Position", abbr: "Pos", group: "Player", fmt: "pos", width: 104, rank: false, align: "l" });
+def("name", { label: "Name", abbr: "Player", group: "Player", fmt: "text", width: 150, rank: false, align: "l" });
+def("age", { label: "Age", abbr: "Age", group: "Player", width: 32, rank: false });
+def("natural_positions", { label: "Position", abbr: "Pos", group: "Player", fmt: "pos", width: 74, rank: false, align: "l", short: true });
 def("accomplished_positions", { label: "Also plays", abbr: "Also plays", group: "Player", fmt: "pos", width: 110, rank: false, align: "l" });
 def("club_name", { label: "Club", abbr: "Club", group: "Player", fmt: "text", width: 150, rank: false, align: "l" });
 def("height_cm", { label: "Height (cm)", abbr: "Hgt", group: "Player", width: 44 });
 def("birth_date", { label: "Date of birth", abbr: "Born", group: "Player", fmt: "date", width: 92, rank: false });
-def("ability_current", { label: "Current ability", abbr: "CA", group: "Ability", width: 40 });
-def("ability_potential", { label: "Potential ability", abbr: "PA", group: "Ability", width: 40 });
+def("ability_current", { label: "Current ability", abbr: "CA", group: "Ability", width: 36 });
+def("ability_potential", { label: "Potential ability", abbr: "PA", group: "Ability", width: 36 });
 for (const [key, abbr, label] of [["reputation_current", "Rep", "Current reputation"], ["reputation_home", "Home rep", "Home reputation"], ["reputation_world", "World rep", "World reputation"]]) {
   def(key, { label, abbr, group: "Reputation", hue: "sta", width: 52 });
 }
 for (const [group, list] of Object.entries(ATTRIBUTES)) {
   for (const [name, abbr, label] of list) {
-    def("attributes_" + name, { label, abbr, group, fmt: "attr", hue: GROUP_HUE[group], width: 38, lower: LOWER_IS_BETTER.has("attributes_" + name) });
+    def("attributes_" + name, { label, abbr, group, fmt: "attr", hue: GROUP_HUE[group], width: 31, lower: LOWER_IS_BETTER.has("attributes_" + name) });
   }
 }
 def("left_foot", { label: "Left foot", abbr: "L foot", group: "Physical", fmt: "attr", hue: "phy", width: 44 });
@@ -238,6 +238,16 @@ function ordinal(n) {
 const ROLE_OF = { GK: ["GK", ""], SW: ["SW", ""], DL: ["D", "L"], DC: ["D", "C"], DR: ["D", "R"], WBL: ["WB", "L"], WBR: ["WB", "R"], DM: ["DM", ""], ML: ["M", "L"], MC: ["M", "C"], MR: ["M", "R"], AML: ["AM", "L"], AMC: ["AM", "C"], AMR: ["AM", "R"], STC: ["ST", "C"], ST: ["ST", "C"] };
 const ROLE_ORDER = ["GK", "SW", "D", "WB", "DM", "M", "AM", "ST"];
 const posCache = new Map();
+// The table's narrow form drops the brackets: "M/AM L, ST C".
+function shortPositions(text) {
+  const key = "short:" + text;
+  let out = posCache.get(key);
+  if (out === undefined) {
+    out = positions(text).replace(/ \(([RLC]+)\)/g, " $1");
+    posCache.set(key, out);
+  }
+  return out;
+}
 function positions(text) {
   if (!text) return "";
   let out = posCache.get(text);
@@ -486,7 +496,9 @@ function viewCols() {
     cols = STAT_GROUPS[state.statGroup].map((k) => (state.statMode === "p90" && k !== "apps" && column(k + "_per_90") ? k + "_per_90" : k));
     if (state.statMode === "p90" && !cols.includes("minutes")) cols = ["minutes", ...cols];
   }
-  const all = [...LEAD, ...cols, ...state.extras.filter((k) => !cols.includes(k) && !LEAD.includes(k))];
+  // On a phone, CA and PA come before the position so they stay on screen.
+  const lead = matchMedia("(max-width: 760px)").matches ? ["name", "ability_current", "ability_potential", "age", "natural_positions"] : LEAD;
+  const all = [...lead, ...cols, ...state.extras.filter((k) => !cols.includes(k) && !LEAD.includes(k))];
   return all.map((k) => COLUMNS.get(k)).filter(Boolean);
 }
 
@@ -508,8 +520,8 @@ function drawHead() {
 
 function cell(c, i, ranksFor) {
   const v = value(c.key, i);
-  const text = format(c, v);
-  const cls = "td" + (c.align === "l" ? " l" : "") + (c.key === "name" ? " name stick" : "") + (c.key === "ability_current" || c.key === "ability_potential" ? " ab" : "") + (c.fmt === "pos" || c.key === "club_name" ? " dim" : "") + (text === "" ? " nil" : "");
+  const text = c.short ? (v ? shortPositions(v) : "") : format(c, v);
+  const cls = "td" + (c.short ? " pos" : "") + (c.align === "l" ? " l" : "") + (c.key === "name" ? " name stick" : "") + (c.key === "ability_current" || c.key === "ability_potential" ? " ab" : "") + (c.fmt === "pos" || c.key === "club_name" ? " dim" : "") + (text === "" ? " nil" : "");
   const style = c.key === "name" ? ` style="left:30px"` : "";
   if (text === "") return `<div class="${cls}" role="cell"${style}>-</div>`;
   const r = ranksFor ? ranksFor[i] : 255;
@@ -657,7 +669,7 @@ function pitch(i) {
 function statTable(i) {
   if (!data.stats) return `<p class="note">${data.statsFailed ? "Season stats could not be read from this save." : "Season stats are still loading."}</p>`;
   const minutes = data.stats.num.minutes[i];
-  if (Number.isNaN(minutes)) return `<p class="note">No ${KINDS.find(([k]) => k === state.statKind)[1].toLowerCase()} appearances this season.</p>`;
+  if (Number.isNaN(minutes)) return `<p class="note">${state.statKind === "overall" ? "No appearances this season." : `No ${KINDS.find(([k]) => k === state.statKind)[1].toLowerCase()} appearances this season.`}</p>`;
   const groupRows = Object.entries(STAT_GROUPS).map(([group, keys]) => {
     const rows = keys.map((k) => {
       const col = COLUMNS.get(k);
@@ -777,9 +789,15 @@ function buildColumnChoices() {
     groups.get(g).push(c);
   }
   $("rule-column").innerHTML = [...groups].map(([g, cols]) => `<optgroup label="${g === "Stats" ? "Season stats" : g}">${cols.filter((c) => c.fmt !== "text" && c.fmt !== "pos" && c.fmt !== "label" && c.fmt !== "flag").map((c) => `<option value="${c.key}"${c.key === "ability_potential" ? " selected" : ""}>${esc(c.label)}</option>`).join("")}</optgroup>`).join("");
+  ruleHint();
   const ruleable = $("rule-column").options.length;
   $("rule-hint").textContent = `Rules work on any of ${ruleable} columns: attributes, positions, personality, contract and season stats. "In top %" uses the same ranks as the colours.`;
   drawColumnsMenu();
+}
+
+function ruleHint() {
+  const c = COLUMNS.get($("rule-column").value);
+  if (c) $("rule-value").placeholder = c.fmt === "date" ? "2027" : c.fmt === "money" ? "5M" : c.fmt === "attr" ? "14" : c.stat ? "0.3" : "150";
 }
 
 function drawColumnsMenu() {
@@ -876,10 +894,7 @@ function wire() {
   for (const [id, key] of [["age-min", "ageMin"], ["age-max", "ageMax"]]) {
     $(id).addEventListener("input", (e) => { state[key] = e.target.value === "" ? null : Number(e.target.value); refresh({ head: false }); });
   }
-  $("rule-column").addEventListener("change", (e) => {
-    const c = COLUMNS.get(e.target.value);
-    $("rule-value").placeholder = c.fmt === "date" ? "2027" : c.fmt === "money" ? "5M" : c.fmt === "attr" ? "14" : c.stat ? "0.3" : "150";
-  });
+  $("rule-column").addEventListener("change", ruleHint);
   $("add-rule").addEventListener("submit", (e) => {
     e.preventDefault();
     const key = $("rule-column").value;
@@ -1334,3 +1349,4 @@ drawPanel();
 worker.postMessage({ type: "boot" });
 // A shareable link straight into the made-up players: /app/#demo
 if (location.hash === "#demo") startDemo();
+window.addEventListener("hashchange", () => { if (location.hash === "#demo" && !state.demo) startDemo(); });
