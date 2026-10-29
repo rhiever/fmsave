@@ -919,10 +919,32 @@ async function drawSpecimen() {
   const ranks = Object.values(specimen.ranks);
   const mean = Math.round(ranks.reduce((a, b) => a + b, 0) / ranks.length);
   const group = GROUPS[specimen.group];
-  $("specimen").insertAdjacentHTML("beforeend", wheel(460, (key) => specimen.ranks[key] ?? null, [ordinal(mean), "vs " + group[0]]));
+  $("specimen").insertAdjacentHTML("beforeend", wheel(460, (key) => specimen.ranks[key] ?? null, [ordinal(mean), "vs " + group[0]], { hover: true }));
+  hoverSpecimen(specimen, group[1]);
   $("specimen-title").textContent = `Attribute ranks for ${specimen.name}`;
   $("specimen-name").textContent = `${specimen.name}, ${specimen.age}, ${positions(specimen.positions)} at ${specimen.club}.`;
   $("specimen-group").textContent = group[1];
+}
+
+// Pointing at a wedge of the start screen's wheel names its attribute, value, and rank.
+function hoverSpecimen(specimen, groupName) {
+  const svg = $("specimen");
+  const tip = $("specimen-tip");
+  const show = (e) => {
+    const key = e.target.closest?.("[data-key]")?.dataset.key;
+    if (!key) return hide();
+    const box = svg.parentElement.getBoundingClientRect();
+    tip.innerHTML = `<b>${esc(COLUMNS.get(key).label)} ${specimen.values[key]}</b>${ordinal(specimen.ranks[key])} percentile among ${groupName}`;
+    tip.style.left = e.clientX - box.left + "px";
+    tip.style.top = e.clientY - box.top + "px";
+    tip.hidden = false;
+    svg.dataset.active = key;
+    for (const path of svg.querySelectorAll("[data-key]")) path.classList.toggle("on", path.dataset.key === key);
+  };
+  const hide = () => { tip.hidden = true; delete svg.dataset.active; };
+  svg.addEventListener("pointermove", show);
+  svg.addEventListener("pointerdown", show);
+  svg.addEventListener("pointerleave", hide);
 }
 
 function wireStart() {
