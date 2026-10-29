@@ -166,6 +166,7 @@ READER_ORDER = (
     "managed_clubs",
     "stages",
     "competitions",
+    "nations",
     "fixtures",
     "league_tables",
     "transfer_windows",
@@ -1065,6 +1066,7 @@ def test_validate_save_reports_every_reader_ok_with_gates_not_applied(
         "managed_clubs": 1,
         "stages": STAGE_ROW_COUNT,
         "competitions": EXAMPLE_COMPETITION_COUNT,
+        "nations": 0,
         # This fragment's span carries no fixture records and no table blocks at all.
         "fixtures": 0,
         # This fragment holds no tagged stream at all, so there is no window to decode.
@@ -1181,6 +1183,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         },
         "stages": {"walk_gaps": 0, "rejected_competition_ids": 1},
         "competitions": {"database_id_conflicts": 0},
+        "nations": {"tables_found": 0},
         "fixtures": {
             "stray_records": 0,
             "cache_records_excluded": 0,
@@ -1406,6 +1409,7 @@ def test_a_failing_reader_is_reported_failed_and_the_others_still_run(
         "managed_clubs",
         "stages",
         "competitions",
+        "nations",
         "fixtures",
         "transfer_windows",
     ):
@@ -1474,6 +1478,7 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered
         "managed_clubs": "ok",
         "stages": "ok",
         "competitions": "ok",
+        "nations": "ok",
         "fixtures": "ok",
         "transfer_windows": "ok",
         "league_tables": "ok",
@@ -1572,6 +1577,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         for name, reader in readers.items()
         if any(not gate.applied for gate in reader.gates)
     } == {
+        "nations": ["nation_database_id_copies"],
         "fixtures": ["fixture_stadiums_resolved"],
         "league_tables": ["double_round_robin_divisions", "table_venue_calendar_agreement"],
         "competition_rules": ["rules_linked_blocks_minimum", "rules_link_round_dates"],
@@ -1620,6 +1626,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "managed_clubs": "ok",
         "stages": "failed",
         "competitions": "failed",
+        "nations": "failed",
         # This fragment's span holds no fixture record and no table block at all, both of which
         # have to fail once the gates apply rather than report a career with no matches and no
         # tables of its own.
@@ -1693,6 +1700,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
             "competition_database_ids_mapped",
             "competition_names_within_database_ids",
         ],
+        "nations": ["nation_tables_found"],
         # An empty calendar misses the record floor, holds no stray to separate from it, and
         # leaves all three shares without a denominator, so every fixture gate fails instead
         # of passing for want of a rate. The result gates go the same way: this fragment holds

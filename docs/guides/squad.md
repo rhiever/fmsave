@@ -143,7 +143,7 @@ formats, the flattening rules, and doing the same job from the command line.
 
 ## The rest of the club
 
-The squad is 1 of 27 tables. The same club uid opens the others:
+The squad is 1 of 29 tables. The same club uid opens the others:
 
 ```python
 with fmsave.open("career.fm") as career_save:

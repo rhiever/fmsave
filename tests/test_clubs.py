@@ -173,6 +173,7 @@ def test_reads_every_club_with_its_fields() -> None:
         reputation=6500,
         last_league_position=2,
         unique_id=5001,
+        gender=fmsave.CodedValue.from_raw(fmsave.ClubGender, 17),
     )
 
 
@@ -466,7 +467,7 @@ ROVERS_SHORT_NAME_TEXT_AT = 39 + 4 + len("Example Rovers") + 4
         pytest.param(21, (1000).to_bytes(4, "little"), id="fa nation above 999"),
         pytest.param(8, (1).to_bytes(4, "little"), id="uid copy differs"),
         pytest.param(39, (0).to_bytes(4, "little"), id="empty long name"),
-        pytest.param(39, (65).to_bytes(4, "little"), id="long name above 64 bytes"),
+        pytest.param(39, (256).to_bytes(4, "little"), id="long name above 255 bytes"),
         pytest.param(ROVERS_LONG_NAME_TEXT_AT + 1, b"\xff", id="invalid utf-8 long name"),
         pytest.param(ROVERS_SHORT_NAME_TEXT_AT + 1, b"\xc3", id="invalid utf-8 short name"),
         pytest.param(
@@ -996,7 +997,7 @@ def test_registered_club_layouts() -> None:
     assert record_layout.anchor_offset == 17
     assert record_layout.long_name_offset == 39
     assert record_layout.nation_id_range == (0, 999)
-    assert record_layout.max_name_bytes == 64
+    assert record_layout.max_name_bytes == 255
     assert record_layout.stop_gap_bytes == 65_536
     team_list_layout = team_list_match.layout
     assert team_list_layout.null_date_triple == NULL_DATE * 3
@@ -1101,3 +1102,38 @@ def test_stub_team_objects_require_sound_headers_dates_and_unique_ordinals() -> 
     assert read_stub_team_ids(stub(102, kind=10), layout) == frozenset()
     assert read_stub_team_ids(stub(102, dates=bytes(12)), layout) == frozenset()
     assert read_stub_team_ids(good[:-1], layout) == frozenset()
+
+
+@pytest.mark.parametrize("name", ["Example " + "a" * 247, "Example " + "é" * 123 + "x"])
+def test_clubs_accept_names_up_to_255_utf8_bytes(name: str) -> None:
+    assert len(name.encode("utf-8")) == 255
+    record = replace(ROVERS, name=name).record_bytes()
+    index = read_index(example_game_db(records_with_rovers_after_northbridge(record)))
+    assert index.club_by_uid[ROVERS.uid].name == name
+
+
+def test_clubs_reject_names_above_255_utf8_bytes() -> None:
+    record = replace(ROVERS, name="a" * 256).record_bytes()
+    index = read_index(example_game_db(records_with_rovers_after_northbridge(record)))
+    assert ROVERS.uid not in index.club_by_uid
+
+
+@pytest.mark.parametrize(("raw", "label"), [(0, "men"), (1, "women"), (7, "unknown")])
+def test_club_gender_is_read_before_the_team_count(raw: int, label: str) -> None:
+    record = bytearray(ROVERS.record_bytes())
+    team_list_start = ROVERS.names_end() + 16
+    # Dates, five floats and their padding, two counted arrays, then the gender flag.
+    team_count_at = team_list_start + 37 + 1 + 25 + 1 + 12 + 9
+    record[team_count_at - 1] = raw
+    index = read_index(example_game_db(records_with_rovers_after_northbridge(bytes(record))))
+    gender = index.club_by_uid[ROVERS.uid].gender
+    assert gender is not None
+    assert gender.label_text == label
+    assert gender.raw == raw
+    assert fmsave.field_status(Club, "gender") == "unconfirmed"
+
+
+def test_club_gender_is_missing_when_no_team_list_parses() -> None:
+    record = replace(ROVERS, team_ids=()).record_bytes()
+    index = read_index(example_game_db(records_with_rovers_after_northbridge(record)))
+    assert index.club_by_uid[ROVERS.uid].gender is None

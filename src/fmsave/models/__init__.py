@@ -1,7 +1,7 @@
 """Public record types."""
 
 from fmsave.models.affiliates import AffiliateGroup
-from fmsave.models.clubs import Club, Team
+from fmsave.models.clubs import Club, ClubGender, Team
 from fmsave.models.common import CodedValue, ContractEndSource, TransferValueState
 from fmsave.models.competitions import Competition, CompetitionRound, Stage
 from fmsave.models.contracts import (
@@ -34,6 +34,7 @@ from fmsave.models.league_tables import (
 from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import MatchPosition, PlayerMatchStats
 from fmsave.models.meta import SaveInfo, SectionInfo
+from fmsave.models.nations import Nation
 from fmsave.models.players import (
     Ability,
     Attributes,
@@ -77,6 +78,7 @@ __all__ = [
     "ClauseKind",
     "Club",
     "ClubFacilities",
+    "ClubGender",
     "CodedValue",
     "Competition",
     "CompetitionRound",
@@ -104,6 +106,7 @@ __all__ = [
     "MatchSide",
     "Mentality",
     "MentoringGroup",
+    "Nation",
     "Personality",
     "Player",
     "PlayerMatchStats",

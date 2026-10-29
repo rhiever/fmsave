@@ -29,6 +29,8 @@ label, and the status types that say whether a field's meaning is verified.
 ```{eval-rst}
 .. autoclass:: fmsave.ClauseKind
    :members:
+.. autoclass:: fmsave.ClubGender
+   :members:
 .. autoclass:: fmsave.CompetitionRound
    :members:
 .. autoclass:: fmsave.ContractEndSource

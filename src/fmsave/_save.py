@@ -39,6 +39,7 @@ from fmsave.models.league_tables import LeagueTable
 from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import PlayerMatchStats
 from fmsave.models.meta import SaveInfo
+from fmsave.models.nations import Nation
 from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
 from fmsave.models.season_history import PlayerSeasonHistory
@@ -95,6 +96,7 @@ from fmsave.readers.matches import (
     find_match_record_layout,
     locate_match_records,
 )
+from fmsave.readers.nations import find_nation_table_layout, read_nations
 from fmsave.readers.player_scan import window_end
 from fmsave.readers.players import build_player_decoder, collect_player_stats
 from fmsave.readers.results import (
@@ -160,6 +162,7 @@ CONTRACTS_TABLE_CACHE_KEY = "table:contracts"
 SUSPENSIONS_TABLE_CACHE_KEY = "table:suspensions"
 MANAGED_CLUBS_TABLE_CACHE_KEY = "table:managed_clubs"
 STAGES_TABLE_CACHE_KEY = "table:stages"
+NATIONS_TABLE_CACHE_KEY = "table:nations"
 COMPETITIONS_TABLE_CACHE_KEY = "table:competitions"
 FIXTURES_TABLE_CACHE_KEY = "table:fixtures"
 TRANSFER_WINDOWS_TABLE_CACHE_KEY = "table:transfer_windows"
@@ -509,6 +512,25 @@ class Save:
         """
         context = self._context
         return context.cached(COMPETITIONS_TABLE_CACHE_KEY, self._read_competitions)
+
+    def nations(self) -> Table[Nation]:
+        """Every save-local nation id paired with its game database id.
+
+        Join other tables' nation fields to `Nation.nation_id`, then use `database_id`
+        with an external name map. The save stores no nation names. The first call reads
+        the table; later calls return the cached table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed after opening.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: A check fails on a strict save.
+
+        Warns:
+            ReaderCheckWarning: A full-size save has no unambiguous nation table or its
+                database id copies disagree.
+        """
+        return self._context.cached(NATIONS_TABLE_CACHE_KEY, self._read_nations)
 
     def fixtures(self) -> Table[Fixture]:
         """Matches recovered from the fixture calendar, in date and kick-off order.
@@ -2287,6 +2309,18 @@ class Save:
         self._enforce_checks((competition_check,))
         self._store_reader_checks((competition_check,))
         return Table(competition_index.competitions, Competition)
+
+    def _read_nations(self) -> Table[Nation]:
+        context = self._context
+        info = context.info
+        layout = find_nation_table_layout(info.section_schemas.get(GAME_DB_SECTION), info.build)
+        with context.section(GAME_DB_SECTION) as game_db:
+            nations, stats = read_nations(game_db, layout)
+            game_db_length = len(game_db)
+        check = _checks.check_nations(stats, self._gate_bounds(), game_db_length)
+        self._enforce_checks((check,))
+        self._store_reader_checks((check,))
+        return Table(nations, Nation)
 
     def _read_transfer_windows(self) -> Table[TransferWindow]:
         context = self._context

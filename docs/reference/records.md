@@ -48,6 +48,15 @@ their own pages: see {doc}`table` and {doc}`enums`.
 .. autoclass:: fmsave.JobVacancy
 ```
 
+## Nations
+
+`nations()` pairs each save-local `nation_id` with its game `database_id`. Join other
+tables' nation fields to `nation_id`, then use `database_id` with an external name map.
+
+```{eval-rst}
+.. autoclass:: fmsave.Nation
+```
+
 ## Competitions
 
 `stages()`, `competitions()`, `fixtures()`, `league_tables()`, `transfer_windows()`,

@@ -19,7 +19,8 @@ from statistics import median_low
 from fmsave._layouts import ClubRecordLayout, ClubStatusLayout, TeamListLayout, find_layout
 from fmsave._reader_stats import ClubStats
 from fmsave._scan import decode_date
-from fmsave.models.clubs import Club, Team
+from fmsave.models.clubs import Club, ClubGender, Team
+from fmsave.models.common import CodedValue
 from fmsave.readers._common import GAME_DB_SECTION, MISSING_REFERENCE, layout_mismatch
 
 _UINT32 = struct.Struct("<I")
@@ -136,9 +137,10 @@ class _TeamList:
     team_ids: tuple[int, ...]
     affiliate_team_ids: tuple[int, ...]
     affiliate_count_offset: int | None
+    gender: int | None
 
 
-_NO_TEAM_LIST = _TeamList((), (), None)
+_NO_TEAM_LIST = _TeamList((), (), None, None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,6 +216,11 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
             reputation=reputation,
             last_league_position=last_league_position,
             unique_id=unique_ids[position],
+            gender=(
+                None
+                if (gender := team_lists[position].gender) is None
+                else CodedValue.from_raw(ClubGender, gender)
+            ),
         )
         clubs.append(club)
         uid_by_club_index[record.club_index] = record.uid
@@ -684,10 +691,13 @@ def _parse_team_list(
         if not lowest_team_id <= team_id <= highest_team_id:
             return None
     affiliate_count_offset = team_ids_start + team_ids_struct.size
+    gender_at = team_count_at + layout.gender_offset_from_team_count
+    gender = game_db[gender_at] if team_list_start <= gender_at < record_end else None
     return _TeamList(
         team_ids,
         _parse_affiliate_team_ids(game_db, affiliate_count_offset, record_end, layout),
         affiliate_count_offset,
+        gender,
     )
 
 

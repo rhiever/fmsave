@@ -3,8 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import IntEnum
 
 from fmsave._status import register_field_statuses
+from fmsave.models.common import CodedValue
+
+
+class ClubGender(IntEnum):
+    """The gender code stored for a club."""
+
+    UNKNOWN = -1
+    MEN = 0
+    WOMEN = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,8 +53,8 @@ class Club:
             match clubs across saves (unconfirmed).
         name: Full club name (unconfirmed).
         short_name: Short club name (unconfirmed).
-        nation_id: Id of the nation whose league the club plays in (unconfirmed).
-        fa_nation_id: Id of the nation whose football association the club belongs to. It
+        nation_id: Save-local id of the nation whose league the club plays in (unconfirmed).
+        fa_nation_id: Save-local id of the nation whose football association the club belongs to. It
             differs from nation_id for a club that plays in another nation's league
             (unconfirmed).
         city_id: Id of the club's city, or None when the save stores the missing-id marker
@@ -62,6 +72,8 @@ class Club:
             None when the save holds none. It is not the position in the current table.
         unique_id: The club's Unique ID in the game database, for matching across separate
             careers. None when it cannot be read (unconfirmed).
+        gender: The club's stored gender code, or None when no team list parses. Unknown
+            codes keep their raw value (unconfirmed).
     """
 
     uid: int
@@ -76,6 +88,7 @@ class Club:
     reputation: int | None
     last_league_position: int | None
     unique_id: int | None = None
+    gender: CodedValue[ClubGender] | None = None
 
 
 register_field_statuses(Team, unconfirmed=("team_id", "slot", "club_uid", "is_affiliate"))
@@ -85,6 +98,7 @@ register_field_statuses(
     unconfirmed=(
         "uid",
         "unique_id",
+        "gender",
         "name",
         "short_name",
         "nation_id",

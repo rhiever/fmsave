@@ -9,11 +9,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - A web app at <https://rhiever.github.io/fmsave/app/> reads a save in the browser with Pyodide and the released fmsave, so players without Python can use it. It shows the squad and every player with all attributes, CA and PA, positions, personality, contracts, and this season's stats by competition, each ranked against players in the same position. It has filters and rules on any column, a shortlist, light and dark themes, and a demo league of made-up players. It downloads the list on screen, `players.csv`, `squad.csv`, and `season-stats.csv` as CSV. The save never leaves the computer.
 - The docs build pins the web app to the newest fmsave on PyPI, and a release redeploys it once PyPI lists the new version.
 - The web app and docs pages have link previews for social sites and chat apps, page descriptions and canonical URLs for search engines, and the docs site serves a `sitemap.xml`. The web app also has structured data, and the docs site serves `llms.txt`, a plain-text summary of fmsave for AI agents.
+- `Club.gender` exposes men, women, and unknown stored codes, with the original code preserved in exports.
+- `nations()` and the `nations` CLI export pair save-local nation ids with game database ids for external name maps.
 
 ### Fixed
 
+- Club names up to 255 UTF-8 bytes are accepted, restoring clubs dropped by the previous 64-byte limit.
 - `Club.unique_id` now holds the club's own Unique ID from the game database. It was one too high for most clubs, and clubs stored just before a record the club scan skips got another club's ID. Values saved from earlier versions will not match the new ones.
-- `clubs()` now includes clubs whose nation id is 0, the first nation in the game database. Their players, contracts, staff and fixtures now join to them.
+- `clubs()` now includes clubs whose nation id is 0, the nation at index 0 in the save. Their players, contracts, staff, and fixtures now join to them.
 - `fixtures()` now includes the fixtures of team 0, a national team.
 
 Thanks to @kdr6989 for the report.

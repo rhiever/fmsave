@@ -9,7 +9,7 @@ myst:
 A save holds players, clubs and competitions across the game world. The available history
 varies by career; it is not a complete archive of every match or injury.
 
-27 readers get at it. Each one returns a `Table` of records, and each one reads the save
+29 readers get at it. Each one returns a `Table` of records, and each one reads the save
 you point it at and nothing else.
 
 ## People
@@ -39,6 +39,11 @@ Club data still has limits. The meaning of a zero corporate-facilities rating an
 sponsorship amounts is unconfirmed. Some finance histories still fail continuity checks.
 Passing the reader checks does not confirm every field's meaning.
 See [Trusting a number](trust.md) before using these fields in an analysis.
+
+## Nations
+
+`nations()` pairs each save-local nation id with its game database id. Other tables' nation
+fields join to `Nation.nation_id`; `Nation.database_id` joins to an external name map.
 
 ## Competitions
 

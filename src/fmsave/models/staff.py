@@ -116,7 +116,7 @@ class Staff:
         legal_name: The stored legal name (unconfirmed).
         birth_date: Date of birth (unconfirmed).
         age: Age at the save's in-game date (unconfirmed).
-        nation_id: Nation id (unconfirmed).
+        nation_id: Save-local nation id (unconfirmed).
         club_uid: Uid of the club the person works for.
         club_name: Denormalised full name of club_uid.
         team_id: The team his contract registers him with, None without a contract.

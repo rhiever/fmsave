@@ -52,6 +52,7 @@ READER_SECTION_READS: dict[str, tuple[dict[str, int], int]] = {
     "managed_clubs": ({GAME_DB: 1, HUMANS: 1, SAVE_SUMMARY: 1}, 0),
     "stages": ({GAME_DB: 1}, 0),
     "competitions": ({GAME_DB: 1}, 0),
+    "nations": ({GAME_DB: 1}, 0),
     "fixtures": ({GAME_DB: 1, SPAN: 1}, 0),
     "league_tables": ({GAME_DB: 1, SPAN: 1}, 0),
     "transfer_windows": ({GAME_DB: 1}, 0),

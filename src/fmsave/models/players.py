@@ -295,9 +295,9 @@ class Player:
         birth_date: Date of birth (unconfirmed).
         age: Age at the save's in-game clock date, or None when birth_date or the clock
             date is unreadable (unconfirmed).
-        nation_id: Id of the player's primary nation (unconfirmed).
-        second_nation_ids: Ids of the player's other eligible nations.
-        home_grown_nation_ids: Ids of nations the player is considered home grown for.
+        nation_id: Save-local id of the player's primary nation (unconfirmed).
+        second_nation_ids: Save-local ids of the player's other eligible nations.
+        home_grown_nation_ids: Save-local ids of nations the player is considered home grown for.
         home_grown_club_uids: Uids of clubs the player is considered home grown for, in
             relation-list order; an entry is None when its club index does not resolve, but
             still keeps its position. They are Club.uid values and carry its status
@@ -312,8 +312,8 @@ class Player:
             None for a free agent or an unresolved team (unconfirmed).
         club_name: Denormalised full name of club_uid (unconfirmed).
         club_short_name: Denormalised short name of club_uid (unconfirmed).
-        club_nation_id: Denormalised league nation id of club_uid (unconfirmed).
-        club_fa_nation_id: Denormalised FA nation id of club_uid (unconfirmed).
+        club_nation_id: Denormalised save-local league nation id of club_uid (unconfirmed).
+        club_fa_nation_id: Denormalised save-local FA nation id of club_uid (unconfirmed).
         club_reputation: Denormalised reputation of club_uid.
         club_last_league_position: Denormalised last completed season league position of
             club_uid.

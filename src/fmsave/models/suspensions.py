@@ -57,7 +57,7 @@ class PlayerSuspension:
             map is supplied, because the save stores no competition names. A competition the
             game itself created during the career has a database id no name source outside
             the save carries, so some rows stay unnamed even with a full map (unconfirmed).
-        nation_id: Id of the nation whose competitions the ban covers, in the same id space
+        nation_id: Save-local id of the nation whose competitions the ban covers, in the same id space
             as `Club.nation_id` and `Player.nation_id`. None unless the scope is NATION.
         issued_date: Date the ban was issued.
     """
@@ -97,7 +97,7 @@ class Suspension:
             map is supplied, because the save stores no competition names. A competition the
             game itself created during the career has a database id no name source outside
             the save carries, so some rows stay unnamed even with a full map (unconfirmed).
-        nation_id: Id of the nation whose competitions the ban covers, in the same id space
+        nation_id: Save-local id of the nation whose competitions the ban covers, in the same id space
             as `Club.nation_id` and `Player.nation_id`. None unless the scope is NATION.
         issued_date: Date the ban was issued.
         unknown: Numeric fields with no known meaning (unconfirmed).

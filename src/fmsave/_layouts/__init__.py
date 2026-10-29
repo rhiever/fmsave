@@ -145,7 +145,8 @@ class TeamListLayout:
     that each begin with `second_entry_lead_byte`, then `filler_bytes` bytes, then the team
     count and that many u32 team ids. Right after those ids comes the affiliated-team list:
     a count within `affiliate_count_range` and that many u32 team ids, each a team another
-    club record stores. Ranges are inclusive (lowest, highest).
+    club record stores. `gender_offset_from_team_count` locates the club gender byte relative
+    to the team count. Ranges are inclusive (lowest, highest).
     """
 
     null_date_triple: bytes
@@ -158,6 +159,7 @@ class TeamListLayout:
     second_entry_bytes: int
     second_entry_lead_byte: int
     filler_bytes: int
+    gender_offset_from_team_count: int
     team_count_range: tuple[int, int]
     team_id_range: tuple[int, int]
     affiliate_count_range: tuple[int, int]
@@ -1056,6 +1058,48 @@ class CompetitionIdPairLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class RecordStep:
+    """One step of a record walk: an optional entry count, then that many entries.
+
+    `count_bytes` is the width of the little-endian count the step opens with (1, 2 or 4), or 0
+    for a step of exactly one entry. An entry is `lead_bytes` bytes, then `strings` strings that
+    are each a u32 byte length followed by that many bytes, then `tail_bytes` bytes.
+    """
+
+    count_bytes: int
+    lead_bytes: int
+    strings: int = 0
+    tail_bytes: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class NationTableLayout:
+    """How to find the nation table in `game_db` and walk its records.
+
+    The table is a u32 count of `row_count` rows and a zero byte, then that many records back
+    to back. A record opens with the byte `record_opening_byte`, is walked by `record_steps` in
+    order, and is closed by a header of three u32 words: the record's own row position, its
+    database id, and a third word that repeats the id on every save measured. No count may
+    exceed `max_entries` and no string `max_string_bytes`; both are parser safety ceilings,
+    not limits the game is known to keep. A database id counts only inside the inclusive
+    `database_id_range`.
+
+    Every place in `game_db` where the row count, the zero byte and the opening byte stand
+    together is a candidate, and the whole table is walked from each one. A walk succeeds only
+    when every record steps cleanly, every closing header holds its own row position and every
+    database id is in range and distinct. Rows are read only when exactly one walk succeeds,
+    because two would leave nothing to say which of them holds the save's nations.
+    """
+
+    row_count: int
+    record_opening_byte: int
+    record_steps: tuple[RecordStep, ...]
+    max_entries: int
+    max_string_bytes: int
+    database_id_range: tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
 class StadiumTableLayout:
     """Where the stadium table sits in `game_db`, and where a stadium row's fields sit.
 
@@ -1817,6 +1861,11 @@ class GateBounds:
     because no save stores a competition name and the share is zero until a reader supplies a
     map; the upper bound is what holds a name to the only key it may arrive through.
 
+    Nations: `nation_tables_found` (candidate tables whose every record walked, which must be
+    exactly one for any row to be read) and `nation_database_id_copies` (rows whose closing
+    header repeats the database id in its third word, of rows). The share is not applied when
+    no row was read, since the count beside it is what fails then.
+
     Fixtures: `fixtures_minimum` (records in the run kept as the calendar),
     `fixture_cluster_share` (that run, of every fixture record in the span),
     `fixture_strays_minimum` (records the span holds outside that run),
@@ -2174,6 +2223,8 @@ class GateBounds:
     competition_database_ids_mapped: BoundPair
     competition_database_id_conflicts: BoundPair
     competition_names_within_database_ids: BoundPair
+    nation_tables_found: BoundPair
+    nation_database_id_copies: BoundPair
     fixtures_minimum: BoundPair
     fixture_cluster_share: BoundPair
     fixture_strays_minimum: BoundPair
@@ -2278,6 +2329,7 @@ type Layout = (
     | StadiumTableLayout
     | StageTableLayout
     | CompetitionIdPairLayout
+    | NationTableLayout
     | HumansLayout
     | InjuryTypeTableLayout
     | InjuryManagerLayout

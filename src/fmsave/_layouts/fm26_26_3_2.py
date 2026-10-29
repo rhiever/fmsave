@@ -28,8 +28,10 @@ from fmsave._layouts import (
     MatchRecordLayout,
     MatchSummaryLayout,
     NamePoolLayout,
+    NationTableLayout,
     PersonBlockLayout,
     PlayerRecordLayout,
+    RecordStep,
     RulesPreambleLayout,
     SaveSummaryLayout,
     SeasonHistoryLayout,
@@ -283,7 +285,7 @@ CLUB_RECORDS = ClubRecordLayout(
     long_name_offset=39,
     # Nation ids count from 0, and nation 0 holds real clubs.
     nation_id_range=(0, 999),
-    max_name_bytes=64,
+    max_name_bytes=255,
     stop_gap_bytes=64 * 1024,
 )
 
@@ -299,6 +301,7 @@ TEAM_LISTS = TeamListLayout(
     second_entry_bytes=12,
     second_entry_lead_byte=0x01,
     filler_bytes=9,
+    gender_offset_from_team_count=-1,
     team_count_range=(1, 8),
     team_id_range=(1, 3_000_000),
     # At most 3 affiliated teams have been seen on one club; the cap leaves room for more.
@@ -1087,6 +1090,40 @@ COMPETITION_ID_PAIRS = CompetitionIdPairLayout(
     ),
 )
 
+# The nation table holds 251 rows on every save measured, written from three installed database
+# versions, and exactly one candidate walks on each of them. Many other tables in `game_db` close
+# their records with the same three words and open with the same count and zero byte, and some
+# hold about as many rows, so neither the closing headers nor the count tell this table apart:
+# the record walk does. A walk is also what puts each closing header at its own record's end,
+# since a record can hold a run of bytes shaped like another row's closing header. The search is
+# a literal one on the count and opening bytes, which keeps it to one fast pass over the section.
+#
+# The longest record measured is under 4 KB and no count in any record reaches 100, so the
+# ceilings below reject garbage early without coming near a real record.
+NATION_TABLE = NationTableLayout(
+    row_count=251,
+    record_opening_byte=0,
+    record_steps=(
+        RecordStep(count_bytes=0, lead_bytes=4),
+        RecordStep(count_bytes=2, lead_bytes=4),
+        RecordStep(count_bytes=4, lead_bytes=4),
+        RecordStep(count_bytes=2, lead_bytes=1, strings=4, tail_bytes=20),
+        RecordStep(count_bytes=0, lead_bytes=48),
+        RecordStep(count_bytes=4, lead_bytes=25),
+        RecordStep(count_bytes=4, lead_bytes=12),
+        RecordStep(count_bytes=4, lead_bytes=14),
+        RecordStep(count_bytes=0, lead_bytes=24),
+        RecordStep(count_bytes=1, lead_bytes=5),
+        RecordStep(count_bytes=4, lead_bytes=28),
+        RecordStep(count_bytes=4, lead_bytes=28),
+        RecordStep(count_bytes=4, lead_bytes=12),
+        RecordStep(count_bytes=0, lead_bytes=54),
+    ),
+    max_entries=100_000,
+    max_string_bytes=1_024,
+    database_id_range=(1, 2**31 - 1),
+)
+
 # The tag is stored byte-reversed, so the bytes `csed` are the tag `desc`. Confirmed by walking
 # every marker of every save measured under each direction: read reversed the stream yields
 # the tags the format names (`stdt`, `endt`, `dyom`, `mont`, `year`, `wnCT`) and read as stored
@@ -1300,6 +1337,13 @@ GATE_BOUNDS = GateBounds(
     # such as one whose database id another competition also claims, which would put a
     # different competition's name on it.
     competition_names_within_database_ids=(None, 1.0),
+    # Exactly one candidate walks into a whole nation table on every save measured. None
+    # means the record shape has moved; two would leave nothing to say which one holds the
+    # save's nations, so either way no row is read and this fails.
+    nation_tables_found=(1, 1),
+    # The third word of every closing header repeats the database id on every row of every
+    # save measured. A closing header read a word out would leave almost no row matching.
+    nation_database_id_copies=(0.99, None),
     # Around 99,000 to 137,000 records in the calendar on every save measured, holding 98.7%
     # to 99.3% of the fixture records in the span. The floor sits far below the smallest, so a
     # young career whose calendar is a fraction of these clears it, while a locator that broke
@@ -1799,6 +1843,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STADIUM_TABLE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STAGE_TABLE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=COMPETITION_ID_PAIRS),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=NATION_TABLE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TAGGED_STREAM),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TRANSFER_WINDOWS),
     LayoutEntry(region="humans", schema=21, build=BUILD, layout=HUMANS),

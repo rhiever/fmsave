@@ -1549,3 +1549,18 @@ def test_staff_columns_accept_an_unknown_key_and_reject_an_unread_one(
     assert exit_code == cli.EXIT_USAGE
     assert output_text == ""
     assert "fmsave: error: unknown columns: unknown_role" in error_text
+
+
+def test_nations_export_all_and_save_local_scope(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(capsys, str(save_path), "nations", "--all")
+    assert exit_code == cli.EXIT_OK, error_text
+    records = csv_records(output_text)
+    assert len(records) == 251
+    assert records[0] == {"nation_id": "0", "database_id": "900000"}
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "nations", "--nation", "0"
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert csv_records(output_text) == [records[0]]
