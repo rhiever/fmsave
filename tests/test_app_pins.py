@@ -155,3 +155,11 @@ def test_a_plain_build_leaves_fmsave_unpinned_when_pypi_is_down(tmp_path: Path) 
     )
     assert status == 0
     assert set(json.loads(out.read_text(encoding="utf-8"))) == {"pyodide"}
+
+
+def test_a_release_that_is_not_the_newest_leaves_the_newest_pinned() -> None:
+    releases = {"1.2.0": [wheel("1.2.0")], "1.3.0rc1": [wheel("1.3.0rc1")]}
+    version = app_pins.wait_for_version(
+        lambda: project("1.2.0", releases), "1.3.0rc1", 600, sleep=lambda _: None, clock=lambda: 0.0
+    )
+    assert version == "1.2.0"

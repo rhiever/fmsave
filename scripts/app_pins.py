@@ -94,12 +94,17 @@ def wait_for_version(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> str:
-    """Poll PyPI until it lists version with a loadable wheel, or fail after timeout seconds."""
+    """Poll PyPI until it lists version, then pin PyPI's latest; fail after timeout seconds.
+
+    Pinning the latest rather than version itself means a pre-release or an older backport
+    never replaces a newer stable release on the page.
+    """
     deadline = clock() + timeout
     while True:
         try:
-            if version in loadable_versions(fetch()):
-                return version
+            project = fetch()
+            if version in loadable_versions(project):
+                return latest_version(project)
         except FETCH_ERRORS as error:
             print(f"app_pins: PyPI did not answer ({error}); trying again", file=sys.stderr)
         if clock() >= deadline:

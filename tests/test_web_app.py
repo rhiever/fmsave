@@ -60,9 +60,18 @@ def test_the_reader_sends_every_attribute_position_and_personality_field() -> No
 
 
 def test_the_page_knows_every_attribute_the_reader_sends() -> None:
-    page = (APP_FOLDER / "app.js").read_text(encoding="utf-8")
+    catalog = (APP_FOLDER / "catalog.js").read_text(encoding="utf-8")
     for name in (*reader.ATTRIBUTES, *reader.POSITIONS, *reader.PERSONALITY):
-        assert f'["{name}",' in page, name
+        assert f'["{name}",' in catalog, name
+
+
+def test_the_page_lists_the_per_90_columns_fmsave_has() -> None:
+    catalog = (APP_FOLDER / "catalog.js").read_text(encoding="utf-8")
+    listed = re.search(r"const PER_90 = \[(.*?)\];", catalog, re.DOTALL)
+    assert listed is not None
+    page = set(re.findall(r'"([a-z_]+)"', listed.group(1)))
+    fmsave_rates = {n.removesuffix("_per_90") for n in reader.stat_names() if n.endswith("_per_90")}
+    assert page == fmsave_rates - {"headers_lost"}
 
 
 def test_stat_names_are_the_numeric_season_stats_columns() -> None:
@@ -118,13 +127,13 @@ def test_overall_stats_line_up_with_the_players(opened: dict[str, Any]) -> None:
     assert math.isnan(minutes[uids.index(PLAYER_B_UID)])
 
 
-def test_a_player_with_two_teams_gets_the_row_with_more_minutes(opened: dict[str, Any]) -> None:
+def test_a_player_with_two_teams_gets_their_rows_added_up(opened: dict[str, Any]) -> None:
     del opened
     reader.read_stats()
     uids = unpack(_uids(), "d")
     league = reader.stats_columns("league")
     minutes = unpack(league["minutes"])
-    assert minutes[uids.index(PLAYER_A_UID)] == 1080
+    assert minutes[uids.index(PLAYER_A_UID)] == 1080 + 90
     rows = [
         row
         for row in reader._state["stats"]
@@ -204,9 +213,7 @@ def test_the_page_allows_only_the_hosts_it_needs() -> None:
         "pypi.org",
         "files.pythonhosted.org",
     }
-    scripts = "".join(
-        (APP_FOLDER / name).read_text(encoding="utf-8") for name in ("app.js", "worker.js")
-    )
+    scripts = "".join(path.read_text(encoding="utf-8") for path in APP_FOLDER.glob("*.js"))
     assert set(re.findall(r"https://([a-z.]+)", scripts)) == {"cdn.jsdelivr.net"}
 
 
@@ -235,3 +242,25 @@ def test_a_save_without_a_managed_club_has_no_squad_download(
     result = reader.call("write_csv", "squad", str(tmp_path / "squad.csv"))
     assert result == {"error": "This save has no managed club, so there is no squad to download."}
     assert not (tmp_path / "squad.csv").exists()
+
+
+def test_combined_rows_add_counts_and_weight_the_rating(career_save_path: Path) -> None:
+    with fmsave.open(career_save_path) as career_save:
+        rows = [
+            r
+            for r in career_save.player_season_stats()
+            if r.player_uid == PLAYER_A_UID and r.kind == "league"
+        ]
+    total = reader.combined(rows)
+    assert total.minutes == sum(r.minutes for r in rows)
+    assert total.goals == sum(r.goals for r in rows)
+    assert total.team_id is None and total.club_uid is None
+    rated = [(r.average_rating, r.rated_appearances) for r in rows if r.average_rating]
+    if rated:
+        expected = sum(a * n for a, n in rated) / sum(n for _, n in rated)
+        assert total.average_rating == pytest.approx(expected)
+    assert reader.combined(rows[:1]) is rows[0]
+
+
+def test_a_read_error_from_disk_gets_a_message_about_the_save_changing() -> None:
+    assert "saved over it" in reader.friendly_error(OSError(29, "I/O error"))

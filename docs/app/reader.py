@@ -13,6 +13,7 @@ as plain lists.
 from __future__ import annotations
 
 import dataclasses
+import gc
 import math
 import time
 from array import array
@@ -34,6 +35,8 @@ STAT_SKIP = frozenset(
 )
 STAT_KINDS = ("overall", "league", "cup", "continental", "international")
 STAT_ROLLUP_COLUMNS = ("team_slot",)
+# Stored fields that describe a row rather than count something, so they are not added up.
+STAT_IDENTITY = frozenset({*STAT_SKIP, *STAT_ROLLUP_COLUMNS, "average_rating"})
 
 # Uids and money need float64: float32 is exact only up to 16,777,216.
 WIDE_COLUMNS = frozenset({"uid", "club_uid", "transfer_value", "contract_wage"})
@@ -62,6 +65,11 @@ def friendly_error(error: BaseException) -> str:
         return "The save changed while it was being read. Wait for the game to finish saving."
     if isinstance(error, fmsave.FmsaveError):
         return f"fmsave could not read this save ({type(error).__name__})."
+    if isinstance(error, OSError):
+        return (
+            "The save could not be read from disk, perhaps because the game saved over it. "
+            "Open it again, or copy the save and open the copy."
+        )
     if isinstance(error, MemoryError):
         return "The browser ran out of memory reading this save. Close other tabs and try again."
     return f"Something went wrong reading this save ({type(error).__name__})."
@@ -207,26 +215,45 @@ def stat_names() -> list[str]:
     ]
 
 
+def combined(rows: Sequence[Any]) -> Any:
+    """One row for a player with rows for several teams, such as a reserve side and the senior
+    side: every count added up, the rating weighted by rated appearances, and no team.
+
+    fmsave computes the per-90 and percentage columns from the counts, so they follow.
+    """
+    if len(rows) == 1:
+        return rows[0]
+    totals: dict[str, object] = {"team_id": None, "club_uid": None, "club_name": None}
+    totals |= {"club_short_name": None, "team_slot": None}
+    for field in dataclasses.fields(rows[0]):
+        if field.name in STAT_IDENTITY:
+            continue
+        values = [getattr(row, field.name) for row in rows]
+        present = [v for v in values if v is not None]
+        totals[field.name] = sum(present) if present else None
+    rated = [(row.average_rating, row.rated_appearances) for row in rows if row.average_rating]
+    weight = sum(n for _, n in rated)
+    totals["average_rating"] = sum(r * n for r, n in rated) / weight if weight else None
+    return dataclasses.replace(rows[0], **totals)
+
+
 def stats_columns(kind: str) -> dict[str, bytes]:
     """One packed column per stat for one competition kind, aligned to the player order.
 
-    A player with rows for more than one team in that kind gets the row with the most minutes,
-    which is the team they played for most this season. A player with no row gets NaN.
+    A player with rows for more than one team in that kind gets them added up. A player with
+    no row gets NaN.
     """
     if kind not in STAT_KINDS:
         raise AppError("Unknown competition.")
-    stats = _state["stats"]
+    if "stats" not in _state:
+        raise AppError("Season stats could not be read from this save.")
     order: dict[int, int] = _state["order"]
-    chosen: dict[int, Any] = {}
-    for row in stats:
-        if row.kind != kind:
-            continue
+    grouped: dict[int, list[Any]] = {}
+    for row in _state["stats"]:
         index = order.get(row.player_uid)
-        if index is None:
-            continue
-        best = chosen.get(index)
-        if best is None or (row.minutes or 0) > (best.minutes or 0):
-            chosen[index] = row
+        if row.kind == kind and index is not None:
+            grouped.setdefault(index, []).append(row)
+    chosen = {index: combined(rows) for index, rows in grouped.items()}
     names = stat_names()
     blank = (None,) * len(names)
     get = _getter(*names)
@@ -238,6 +265,8 @@ def open_save(path: str) -> dict[str, object]:
     """Open the save at path and return what the page shows while the players load."""
     close_save()
     _state.clear()
+    # WebAssembly memory never shrinks, so the last save is collected before the next is read.
+    gc.collect()
     started = time.monotonic()
     career_save = fmsave.open(path)
     _state["save"] = career_save
@@ -322,6 +351,8 @@ def write_csv(name: str, path: str) -> int:
             raise AppError("This save has no managed club, so there is no squad to download.")
         table = players.where(club_uid=_state["club_uid"])
     elif name == "season-stats":
+        if "stats" not in _state:
+            raise AppError("Season stats could not be read from this save.")
         table = _state["stats"]
     else:
         raise AppError("Unknown download.")

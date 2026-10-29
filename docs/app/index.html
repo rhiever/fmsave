@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://pypi.org https://files.pythonhosted.org; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://pypi.org https://files.pythonhosted.org; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>fmsave: scout every player in your FM26 save</title>
 <meta name="description" content="Drop a Football Manager 26 save and get every player in it, with all attributes, CA and PA, this season's stats and CSV downloads. Your save never leaves your computer.">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -65,19 +65,18 @@
         <p role="listitem" data-stage="boot">Loading the reader<time></time></p>
         <p role="listitem" data-stage="open">Opening the save<time></time></p>
         <p role="listitem" data-stage="players">Reading every player<time></time></p>
-        <p role="listitem" data-stage="stats">Reading this season's stats<time></time></p>
       </div>
       <p class="error" id="error" role="alert" hidden></p>
       <p class="status wait" id="reader-status"><span class="dot"></span><span>Getting the reader ready</span></p>
     </div>
     <div class="notes">
-      <p><b>Your save never leaves this computer.</b> This page reads it inside your browser with <a href="../">fmsave</a>, an open-source Python reader. Nothing is uploaded and nothing is stored on a server. The page only downloads the reader itself.</p>
+      <p><b>Your save never leaves this computer.</b> This page reads it inside your browser with <a href="../">fmsave</a>, an open-source Python reader. Nothing is uploaded and nothing is stored on a server. The page downloads only the reader and its fonts (from Google Fonts).</p>
       <p><b>Where saves live.</b> On a Mac, <code>~/Library/Application Support/Sports Interactive/Football Manager 26/games/</code>. On Windows, usually <code>Documents\Sports Interactive\Football Manager 26\games\</code>. A big save takes about half a minute to read. If the game is running, copy the save and drop the copy.</p>
       <p><b>Play fair.</b> CA, PA and hidden attributes are shown. That is fine in your own single-player career. Using them in a shared online career may break its rules.</p>
     </div>
   </section>
   <figure class="specimen">
-    <svg id="specimen" viewBox="0 0 460 460" role="img" aria-labelledby="specimen-title"><title id="specimen-title">A percentile wheel for a made-up striker</title></svg>
+    <svg id="specimen" viewBox="0 0 460 460" role="img" aria-labelledby="specimen-title"><title id="specimen-title">A percentile wheel for a made-up player</title></svg>
     <div class="legend" aria-hidden="true">
       <span><i style="background:rgb(var(--tec))"></i>Technical</span>
       <span><i style="background:rgb(var(--men))"></i>Mental</span>
@@ -85,7 +84,7 @@
       <span><i style="background:rgb(var(--gk))"></i>Goalkeeping</span>
       <span><i style="background:rgb(var(--hid))"></i>Hidden</span>
     </div>
-    <figcaption><b>Alex Example, 19, striker (made up).</b> Each of the 52 wedges is one attribute, as long as its rank among strikers in the save. Long wedges are where a player beats their peers.</figcaption>
+    <figcaption><b id="specimen-name">A made-up player.</b> Each of the 52 wedges is one attribute, as long as its rank among <span id="specimen-group">players in the same position</span> in its league. Long wedges are where a player beats their peers.</figcaption>
   </figure>
 </main>
 
@@ -99,7 +98,7 @@
     <button class="plain" id="columns-button" popovertarget="columns-menu"><svg class="icon"><use href="#i-cols"/></svg>Columns</button>
   </div>
   <div class="statbar" id="statbar" hidden>
-    <div class="seg" id="stat-groups" aria-label="Stat group"></div>
+    <div class="views-scroll"><div class="seg" id="stat-groups" aria-label="Stat group"></div></div>
     <div class="seg" id="stat-mode" aria-label="Totals or per 90">
       <button data-mode="total" aria-pressed="false">Totals</button>
       <button data-mode="p90" aria-pressed="true">Per 90</button>
@@ -141,16 +140,17 @@
     </aside>
     <section class="list" aria-labelledby="list-title">
       <div class="listhead">
-        <h2 id="list-title">All players</h2>
+        <h2 id="list-title" tabindex="-1">All players</h2>
         <span id="list-count" aria-live="polite"></span>
-        <button class="plain filters-button" id="filters-button" aria-controls="rail"><svg class="icon"><use href="#i-filter"/></svg>Filters</button>
+        <button class="plain filters-button" id="filters-button" aria-controls="rail" aria-expanded="false"><svg class="icon"><use href="#i-filter"/></svg>Filters</button>
       </div>
       <div class="grid" id="grid" role="table" aria-labelledby="list-title" tabindex="0">
         <div class="thead" id="thead" role="row"></div>
         <div class="rows" id="rows" role="rowgroup"></div>
       </div>
     </section>
-    <aside class="panel" id="panel" aria-label="Player" aria-live="polite"></aside>
+    <aside class="panel" id="panel" aria-label="Player"></aside>
+    <p class="sr" id="announce" aria-live="polite"></p>
   </div>
 </div>
 
