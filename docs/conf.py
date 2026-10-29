@@ -47,7 +47,11 @@ exclude_patterns = ["_build", "app", "Thumbs.db", ".DS_Store"]
 
 html_theme = "furo"
 html_static_path = ["_static"]
+# A plain-text summary of fmsave for AI agents, served at the site root.
+html_extra_path = ["llms.txt"]
 html_title = f"fmsave {version}"
+# Gives every page a canonical URL and lets the build write sitemap.xml.
+html_baseurl = "https://rhiever.github.io/fmsave/"
 
 
 WEB_APP_ENTRY_POINTS = ("theme.js", "app.css", "app.js")
@@ -64,7 +68,10 @@ def copy_web_app(app: Sphinx, exception: BaseException | None) -> None:
     source = Path(__file__).parent / "app"
     target = Path(app.outdir) / "app"
     shutil.copytree(
-        source, target, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__")
+        source,
+        target,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns("__pycache__", "og-card.html"),
     )
     digest = hashlib.sha256()
     for path in sorted(source.glob("*")):
@@ -78,5 +85,22 @@ def copy_web_app(app: Sphinx, exception: BaseException | None) -> None:
     page.write_text(html, encoding="utf-8")
 
 
+def write_sitemap(app: Sphinx, exception: BaseException | None) -> None:
+    """Write sitemap.xml listing every docs page and the web app, for search engines."""
+    if exception is not None or app.builder.format != "html":
+        return
+    base = app.config.html_baseurl
+    pages = sorted(app.builder.get_target_uri(name) for name in app.env.found_docs)
+    urls = [base + ("" if page == "index.html" else page) for page in pages] + [base + "app/"]
+    entries = "".join(f"  <url><loc>{url}</loc></url>\n" for url in urls)
+    sitemap = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"{entries}</urlset>\n"
+    )
+    (Path(app.outdir) / "sitemap.xml").write_text(sitemap, encoding="utf-8")
+
+
 def setup(app: Sphinx) -> None:
     app.connect("build-finished", copy_web_app)
+    app.connect("build-finished", write_sitemap)

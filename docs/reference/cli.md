@@ -1,3 +1,9 @@
+---
+myst:
+  html_meta:
+    description: "Reference for the fmsave command line: info, export, and validate."
+---
+
 # CLI
 
 The `fmsave` command line: `info`, `export` and `validate`. Each block below is the real

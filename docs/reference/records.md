@@ -1,3 +1,9 @@
+---
+myst:
+  html_meta:
+    description: "Reference for every record type fmsave reads from a Football Manager 26 save and its fields."
+---
+
 # Records
 
 The dataclass each reader's `Table` holds, grouped by the reader family that produces it.

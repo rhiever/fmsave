@@ -1,3 +1,9 @@
+---
+myst:
+  html_meta:
+    description: "What a Football Manager 26 save holds and what fmsave's 27 readers return, with the limits of each."
+---
+
 # What a save holds
 
 A save holds players, clubs and competitions across the game world. The available history

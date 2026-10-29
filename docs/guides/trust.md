@@ -1,3 +1,9 @@
+---
+myst:
+  html_meta:
+    description: "How to tell whether an fmsave field is verified or unconfirmed, how often it is present, and whether its reader passed its checks."
+---
+
 # Trusting a number
 
 Check a field's status, coverage and reader checks before relying on it. These answer different

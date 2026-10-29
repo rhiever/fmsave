@@ -1,3 +1,9 @@
+---
+myst:
+  html_meta:
+    description: "Reference for fmsave's enums, the CodedValue wrapper, and the field status types."
+---
+
 # Enums
 
 The enums a record's fields carry, the `CodedValue` wrapper that pairs a stored number with its
