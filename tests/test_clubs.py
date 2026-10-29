@@ -172,7 +172,7 @@ def test_reads_every_club_with_its_fields() -> None:
         parent_club_name=None,
         reputation=6500,
         last_league_position=2,
-        unique_id=5002,
+        unique_id=5001,
     )
 
 
@@ -191,8 +191,75 @@ def test_club_unique_id_comes_from_the_next_header_not_its_own_uid() -> None:
 
     assert original[0].uid == 5001
     assert changed[0].uid == 6001
-    assert original[0].unique_id == changed[0].unique_id == 5002
+    assert original[0].unique_id == changed[0].unique_id == 5001
     assert changed[-1].unique_id is None
+
+
+def test_club_unique_id_is_the_stored_uid_of_the_next_header_without_the_added_1() -> None:
+    clubs = read_index(
+        example_game_db(
+            club_records=[NORTHBRIDGE.record_bytes(), replace(SOUTHPORT, uid=7000).record_bytes()],
+            status_records=[],
+        )
+    ).clubs
+    assert clubs[1].uid == 7000
+    assert clubs[0].unique_id == 6999
+
+
+# A club with the club index after Northbridge's that the scan does not accept, for having no FA
+# nation. Its header still closes Northbridge's record.
+UNACCEPTED_SECOND_CLUB = replace(
+    SOUTHPORT, uid=6000, fa_nation_id=0xFFFFFFFF, float_anchor_only=False
+).record_bytes()
+
+
+def test_club_unique_id_comes_from_a_header_the_scan_does_not_accept() -> None:
+    club_index = read_index(
+        example_game_db(
+            club_records=[
+                NORTHBRIDGE.record_bytes(),
+                UNACCEPTED_SECOND_CLUB,
+                ROVERS.record_bytes(),
+                ATHLETIC.record_bytes(),
+            ],
+            status_records=[],
+        )
+    )
+    assert club_uids(club_index) == [5001, 5003, 5004]
+    assert club_index.club_by_uid[5001].unique_id == 5999
+    assert club_index.club_by_uid[5003].unique_id == 5003
+
+
+def test_club_unique_id_is_none_when_the_next_header_closes_another_club() -> None:
+    unaccepted_fifth_club = replace(
+        ROVERS, club_index=5, uid=6100, fa_nation_id=0xFFFFFFFF
+    ).record_bytes()
+    club_index = read_index(
+        example_game_db(
+            club_records=[
+                NORTHBRIDGE.record_bytes(),
+                unaccepted_fifth_club,
+                ATHLETIC.record_bytes(),
+            ],
+            status_records=[],
+        )
+    )
+    assert club_uids(club_index) == [5001, 5004]
+    assert club_index.club_by_uid[5001].unique_id is None
+
+
+def test_last_club_unique_id_comes_from_a_header_the_scan_does_not_accept_after_it() -> None:
+    unaccepted_fifth_club = replace(
+        ROVERS, club_index=5, uid=6100, fa_nation_id=0xFFFFFFFF
+    ).record_bytes()
+    club_index = read_index(
+        example_game_db(
+            club_records=[*(club.record_bytes() for club in EXAMPLE_CLUBS), unaccepted_fifth_club],
+            status_records=[],
+        )
+    )
+    assert club_uids(club_index) == [5001, 5002, 5004]
+    assert club_index.club_by_uid[5004].unique_id == 6099
 
 
 def test_cross_border_stub_club_has_no_reputation() -> None:
@@ -218,7 +285,7 @@ def test_cross_border_club_can_store_distinct_nation_references(additional_natio
     assert (club.nation_id, club.fa_nation_id) == (3, 4)
     assert club.teams == (Team(70003, 0, 5002, False),)
     assert index.team_to_club[70003] == (5002, 0)
-    assert index.club_by_uid[5001].unique_id == 5002
+    assert index.club_by_uid[5001].unique_id == 5001
     assert index.record_spans[0].record_end == index.record_spans[1].record_start
     assert index.club_by_uid[5004].reputation == 1200
 
@@ -296,15 +363,24 @@ def test_valid_rovers_record_is_accepted_and_clubs_follow_club_index_order() -> 
     assert club_index.club_by_uid[5004].reputation == 1200
 
 
-def test_club_with_fa_nation_zero_is_not_accepted() -> None:
-    rovers_record = replace(ROVERS, fa_nation_id=0).record_bytes()
+def test_club_whose_nations_are_all_nation_zero_is_accepted() -> None:
+    rovers_record = replace(ROVERS, nation_id=0, fa_nation_id=0).record_bytes()
+    club_index = read_index(example_game_db(records_with_rovers_after_northbridge(rovers_record)))
+    assert club_uids(club_index) == [5001, 5002, 5003, 5004]
+    rovers = club_index.club_by_uid[5003]
+    assert (rovers.nation_id, rovers.fa_nation_id) == (0, 0)
+    assert club_index.team_to_club[70009] == (5003, 0)
+
+
+def test_club_with_no_fa_nation_is_not_accepted() -> None:
+    rovers_record = replace(ROVERS, fa_nation_id=0xFFFFFFFF).record_bytes()
     club_index = read_index(example_game_db(records_with_rovers_after_northbridge(rovers_record)))
     assert club_uids(club_index) == [5001, 5002, 5004]
     assert 70009 not in club_index.team_to_club
 
 
 # Rovers with no FA nation: the scan rejects it, but its header is a club record's all the same.
-UNACCEPTED_ROVERS = replace(ROVERS, fa_nation_id=0).record_bytes()
+UNACCEPTED_ROVERS = replace(ROVERS, fa_nation_id=0xFFFFFFFF).record_bytes()
 
 
 def northbridge_ends(rovers_record: bytes) -> tuple[int, int, int]:
@@ -353,11 +429,11 @@ def test_own_spans_leave_the_club_index_untouched() -> None:
     "rovers_record",
     [
         pytest.param(
-            replace(ROVERS, fa_nation_id=0, club_index=1).record_bytes(),
+            replace(ROVERS, fa_nation_id=0xFFFFFFFF, club_index=1).record_bytes(),
             id="club index an accepted record holds",
         ),
         pytest.param(
-            replace(ROVERS, fa_nation_id=0, name="Example\x07Rovers").record_bytes(),
+            replace(ROVERS, fa_nation_id=0xFFFFFFFF, name="Example\x07Rovers").record_bytes(),
             id="name that is not printable",
         ),
         pytest.param(
@@ -384,9 +460,8 @@ ROVERS_SHORT_NAME_TEXT_AT = 39 + 4 + len("Example Rovers") + 4
     [
         pytest.param(12, b"\x01", id="nonzero byte before the league nation"),
         pytest.param(13, (1000).to_bytes(4, "little"), id="league nation above 999"),
-        pytest.param(13, (0).to_bytes(4, "little"), id="league nation zero"),
+        pytest.param(13, (0xFFFFFFFF).to_bytes(4, "little"), id="league nation missing"),
         pytest.param(25, (1000).to_bytes(4, "little"), id="additional nation above 999"),
-        pytest.param(25, (0).to_bytes(4, "little"), id="additional nation zero"),
         pytest.param(25, (0xFFFFFFFF).to_bytes(4, "little"), id="additional nation missing"),
         pytest.param(21, (1000).to_bytes(4, "little"), id="fa nation above 999"),
         pytest.param(8, (1).to_bytes(4, "little"), id="uid copy differs"),
@@ -908,7 +983,7 @@ def test_clubs_export_with_nested_teams() -> None:
         {"team_id": 70002, "slot": 1, "club_uid": 5001, "is_affiliate": False},
     ]
     assert first_row["reputation"] == 6500
-    assert first_row["unique_id"] == 5002
+    assert first_row["unique_id"] == 5001
 
 
 def test_registered_club_layouts() -> None:
@@ -920,7 +995,7 @@ def test_registered_club_layouts() -> None:
     assert record_layout.anchor == b"\xff\xff\xff\xff"
     assert record_layout.anchor_offset == 17
     assert record_layout.long_name_offset == 39
-    assert record_layout.nation_id_range == (1, 999)
+    assert record_layout.nation_id_range == (0, 999)
     assert record_layout.max_name_bytes == 64
     assert record_layout.stop_gap_bytes == 65_536
     team_list_layout = team_list_match.layout

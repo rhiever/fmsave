@@ -37,9 +37,10 @@ class Club:
     Club names are not unique: look clubs up by uid.
 
     Attributes:
-        uid: The id other records in this save use to refer to this club. It can differ
-            between separate careers, so use unique_id to match clubs across saves
-            (unconfirmed).
+        uid: The id other records in this save use to refer to this club. It is not the
+            game's Unique ID (that is unique_id): it is one more than the Unique ID of the club
+            stored just before it, so it can differ between separate careers. Use unique_id to
+            match clubs across saves (unconfirmed).
         name: Full club name (unconfirmed).
         short_name: Short club name (unconfirmed).
         nation_id: Id of the nation whose league the club plays in (unconfirmed).

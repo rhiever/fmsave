@@ -10,6 +10,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - The docs build pins the web app to the newest fmsave on PyPI, and a release redeploys it once PyPI lists the new version.
 - The web app and docs pages have link previews for social sites and chat apps, page descriptions and canonical URLs for search engines, and the docs site serves a `sitemap.xml`. The web app also has structured data, and the docs site serves `llms.txt`, a plain-text summary of fmsave for AI agents.
 
+### Fixed
+
+- `Club.unique_id` now holds the club's own Unique ID from the game database. It was one too high for most clubs, and clubs stored just before a record the club scan skips got another club's ID. Values saved from earlier versions will not match the new ones.
+- `clubs()` now includes clubs whose nation id is 0, the first nation in the game database. Their players, contracts, staff and fixtures now join to them.
+- `fixtures()` now includes the fixtures of team 0, a national team.
+
+Thanks to @kdr6989 for the report.
+
 ## [0.6.0] - 2026-10-24
 
 ### Added

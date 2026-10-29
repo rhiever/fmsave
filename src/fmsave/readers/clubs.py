@@ -190,6 +190,7 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
     statuses, normal_status_count, confirmed_status_count = _read_statuses(
         game_db, [records[position] for position in index_order], layouts.statuses
     )
+    unique_ids = _footer_unique_ids(game_db, records, record_ends, layouts.records)
 
     clubs: list[Club] = []
     uid_by_club_index: dict[int, int] = {}
@@ -200,9 +201,6 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
     for position, (reputation, last_league_position) in zip(index_order, statuses, strict=True):
         record = records[position]
         parent_club_uid = affiliates.parent_by_club_uid.get(record.uid)
-        # As with people, the next object's header closes this club's object and carries
-        # its database Unique ID. The final accepted club has no known closing header.
-        unique_id = records[position + 1].uid if position + 1 < len(records) else None
         club = Club(
             uid=record.uid,
             name=record.name,
@@ -215,7 +213,7 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
             parent_club_name=None if parent_club_uid is None else name_by_uid.get(parent_club_uid),
             reputation=reputation,
             last_league_position=last_league_position,
-            unique_id=unique_id,
+            unique_id=unique_ids[position],
         )
         clubs.append(club)
         uid_by_club_index[record.club_index] = record.uid
@@ -252,6 +250,53 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         stub_team_ids=read_stub_team_ids(game_db, layouts.statuses),
         record_spans=record_spans,
     )
+
+
+def _footer_unique_ids(
+    game_db: bytes,
+    records: Sequence[_ClubRecord],
+    record_ends: Sequence[int],
+    layout: ClubRecordLayout,
+) -> list[int | None]:
+    """The database Unique ID of each record, in file order, read from the header after it.
+
+    As with people, the next object's header closes this club's object: its club index and
+    uid words hold this club's own stored club index and Unique ID. That header is the next
+    accepted record's when its club index follows on from this one, and otherwise the first
+    header the scan did not accept before it. The Unique ID counts only when the closing
+    header's club index is this club's, so a header the shape search misses gives None rather
+    than a neighbouring club's id.
+    """
+    read_uint32 = _UINT32.unpack_from
+    buffer_length = len(game_db)
+    accepted_starts = frozenset(record.record_start for record in records)
+    accepted_club_indexes = frozenset(record.club_index for record in records)
+    unique_ids: list[int | None] = []
+    for position, (record, record_end) in enumerate(zip(records, record_ends, strict=True)):
+        closing_at: int | None = record_end
+        is_followed_on = (
+            position + 1 < len(records)
+            and records[position + 1].club_index == record.club_index + 1
+        )
+        if not is_followed_on:
+            unaccepted_starts = _unaccepted_record_starts(
+                game_db,
+                accepted_starts,
+                accepted_club_indexes,
+                record.record_start,
+                record_end,
+                layout,
+            )
+            closing_at = unaccepted_starts[0] if unaccepted_starts else None
+        if (
+            closing_at is None
+            or closing_at + layout.uid_offset + _UINT32.size > buffer_length
+            or read_uint32(game_db, closing_at + layout.club_index_offset)[0] != record.club_index
+        ):
+            unique_ids.append(None)
+        else:
+            unique_ids.append(read_uint32(game_db, closing_at + layout.uid_offset)[0])
+    return unique_ids
 
 
 def _reject_repeated_club_keys(records: Sequence[_ClubRecord], file_name: str) -> None:

@@ -77,7 +77,7 @@
         'max_name_bytes': 64,
         'nation_copy_offset': 25,
         'nation_id_range': tuple(
-          1,
+          0,
           999,
         ),
         'nation_offset': 13,
@@ -756,7 +756,7 @@
         'role_code_offset': 23,
         'tag_offset': 13,
         'team_id_range': tuple(
-          1,
+          0,
           2999999,
         ),
         'years_after_clock': 1,
@@ -1489,7 +1489,7 @@
         'stadium_ordinal_offset': -7,
         'stage_id_offset': -11,
         'team_id_range': tuple(
-          1,
+          0,
           2999999,
         ),
         'years_after_clock': 8,
@@ -1521,7 +1521,7 @@
         'sentinel_value': 1,
         'stage_id_offset': 5,
         'team_id_range': tuple(
-          1,
+          0,
           2999999,
         ),
         'zero_byte_offset': 15,
@@ -1559,7 +1559,7 @@
         'stored_index_head_byte': 0,
         'team_id_offset': -23,
         'team_id_range': tuple(
-          1,
+          0,
           2999999,
         ),
         'unplayed_key': 4294967295,

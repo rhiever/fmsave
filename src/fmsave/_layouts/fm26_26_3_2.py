@@ -281,7 +281,8 @@ CLUB_RECORDS = ClubRecordLayout(
     nation_copy_offset=25,
     city_offset=29,
     long_name_offset=39,
-    nation_id_range=(1, 999),
+    # Nation ids count from 0, and nation 0 holds real clubs.
+    nation_id_range=(0, 999),
     max_name_bytes=64,
     stop_gap_bytes=64 * 1024,
 )
@@ -681,7 +682,7 @@ MATCH_RECORDS = MatchRecordLayout(
     header_bytes=15,
     record_bytes=54,
     owner_back_offset=30,
-    team_id_range=(1, 2_999_999),
+    team_id_range=(0, 2_999_999),
     competition_id_range=(1, 65_535),
     years_before_clock=4,
     years_after_clock=1,
@@ -816,7 +817,7 @@ FIXTURE_CALENDAR = FixtureCalendarLayout(
     match_rules_template_bytes=3,
     r47_54_offset=47,
     played_offset=55,
-    team_id_range=(1, 2_999_999),
+    team_id_range=(0, 2_999_999),
     years_before_clock=7,
     years_after_clock=8,
     round_index_none_value=255,
@@ -886,7 +887,7 @@ STAGE_RESULTS = StageResultLayout(
     away_goals_offset=21,
     r22_offset=22,
     # The team ids share the fixture calendar's range, since they name the same teams.
-    team_id_range=(1, 2_999_999),
+    team_id_range=(0, 2_999_999),
     # Far above any score a match has ever finished on, so this turns away noise rather than
     # any real result.
     goals_maximum=40,
@@ -920,7 +921,7 @@ LEAGUE_TABLES = LeagueTableLayout(
     points_offset=14,
     flag_offset=16,
     unplayed_key=0xFFFFFFFF,
-    team_id_range=(1, 2_999_999),
+    team_id_range=(0, 2_999_999),
     # The first head byte counts the block's place in its own table, 0 to n-1, and starts
     # again at the next table. Splitting there rather than on the distance between blocks
     # leaves at most 0.3% of groups holding one club twice, against 15% or more under a

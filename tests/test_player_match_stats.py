@@ -455,7 +455,7 @@ def test_only_matches_dated_inside_the_window_around_the_clock_are_found(
 @pytest.mark.parametrize(
     ("opponent_team_id", "expected_records"),
     [
-        pytest.param(0, 0, id="team-0-rejected"),
+        pytest.param(0, 1, id="team-0-kept"),
         pytest.param(1, 1, id="the-lowest-team-kept"),
         pytest.param(2_999_999, 1, id="the-highest-team-kept"),
         pytest.param(3_000_000, 0, id="past-the-highest-rejected"),
@@ -1096,7 +1096,7 @@ def test_zero_count_in_unrelated_fields_is_not_proof_of_empty_history() -> None:
 def test_an_impossible_count_with_invalid_header_ids_is_not_a_claimed_list() -> None:
     framed = bytearray(match_list_bytes(match_bytes()))
     framed[8:12] = (0xFF003001).to_bytes(4, "little")
-    framed[17:21] = bytes(4)
+    framed[17:21] = (3_000_000).to_bytes(4, "little")
     records = locate_match_records(
         buffer_with_records(390, bytes(framed)),
         synthetic_player_records((200,)),

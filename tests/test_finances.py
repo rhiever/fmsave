@@ -383,7 +383,7 @@ def test_a_series_stored_by_a_record_the_club_scan_does_not_accept_is_nobodys() 
         club_index=2,
         uid=EXAMPLE_CLUB_UID + 1,
         nation_id=3,
-        fa_nation_id=0,
+        fa_nation_id=0xFFFFFFFF,
         city_id=78,
         name="Example Rovers",
         short_name="Rovers",
