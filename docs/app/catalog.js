@@ -111,40 +111,40 @@ export const TOKEN_GROUP = new Map(GROUPS.flatMap(([, , tokens], g) => tokens.ma
 
 export const COLUMNS = new Map();
 function def(key, props) {
-  COLUMNS.set(key, { key, width: 44, fmt: "int", hue: null, rank: true, lower: LOWER_IS_BETTER.has(key) || LOWER_IS_BETTER.has(key.replace(/_per_90$/, "")), ...props });
+  COLUMNS.set(key, { key, width: 48, fmt: "int", hue: null, rank: true, lower: LOWER_IS_BETTER.has(key) || LOWER_IS_BETTER.has(key.replace(/_per_90$/, "")), ...props });
 }
 
-def("name", { label: "Name", abbr: "Player", group: "Player", fmt: "text", width: 150, rank: false, align: "l" });
-def("age", { label: "Age", abbr: "Age", group: "Player", width: 36, rank: false });
-def("natural_positions", { label: "Position", abbr: "Pos", group: "Player", fmt: "pos", width: 76, rank: false, align: "l", short: true });
-def("accomplished_positions", { label: "Also plays", abbr: "Also plays", group: "Player", fmt: "pos", width: 110, rank: false, align: "l" });
-def("club_name", { label: "Club", abbr: "Club", group: "Player", fmt: "text", width: 150, rank: false, align: "l" });
+def("name", { label: "Name", abbr: "Player", group: "Player", fmt: "text", width: 170, rank: false, align: "l" });
+def("age", { label: "Age", abbr: "Age", group: "Player", width: 40, rank: false });
+def("natural_positions", { label: "Position", abbr: "Pos", group: "Player", fmt: "pos", width: 86, rank: false, align: "l", short: true });
+def("accomplished_positions", { label: "Also plays", abbr: "Also plays", group: "Player", fmt: "pos", width: 120, rank: false, align: "l" });
+def("club_name", { label: "Club", abbr: "Club", group: "Player", fmt: "text", width: 170, rank: false, align: "l" });
 def("height_cm", { label: "Height (cm)", abbr: "Hgt", group: "Player" });
-def("birth_date", { label: "Date of birth", abbr: "Born", group: "Player", fmt: "date", width: 92, rank: false });
-def("ability_current", { label: "Current ability", abbr: "CA", group: "Ability", width: 40 });
-def("ability_potential", { label: "Potential ability", abbr: "PA", group: "Ability", width: 40 });
+def("birth_date", { label: "Date of birth", abbr: "Born", group: "Player", fmt: "date", width: 100, rank: false });
+def("ability_current", { label: "Current ability", abbr: "CA", group: "Ability", width: 46 });
+def("ability_potential", { label: "Potential ability", abbr: "PA", group: "Ability", width: 46 });
 for (const [key, abbr, label] of [["reputation_current", "Rep", "Current reputation"], ["reputation_home", "Home rep", "Home reputation"], ["reputation_world", "World rep", "World reputation"]]) {
-  def(key, { label, abbr, group: "Reputation", hue: "sta", width: 52 });
+  def(key, { label, abbr, group: "Reputation", hue: "sta", width: 58 });
 }
 for (const [group, list] of Object.entries(ATTRIBUTES)) {
-  for (const [name, abbr, label] of list) def("attributes_" + name, { label, abbr, group, fmt: "attr", hue: GROUP_HUE[group], width: 32 });
+  for (const [name, abbr, label] of list) def("attributes_" + name, { label, abbr, group, fmt: "attr", hue: GROUP_HUE[group], width: 36 });
 }
 def("left_foot", { label: "Left foot", abbr: "L foot", group: "Physical", fmt: "attr", hue: "phy" });
 def("right_foot", { label: "Right foot", abbr: "R foot", group: "Physical", fmt: "attr", hue: "phy" });
-for (const [name, abbr, label] of POSITION_SLOTS) def("positions_" + name, { label: "Rating at " + label, abbr, group: "Positions", fmt: "attr", hue: "sta", width: 40 });
-for (const [name, abbr, label] of PERSONALITY) def("personality_" + name, { label, abbr, group: "Personality", fmt: "attr", hue: "hid", width: 38 });
-def("transfer_value", { label: "Transfer value", abbr: "Value", group: "Contract", fmt: "money", width: 64 });
-def("contract_wage", { label: "Wage per week", abbr: "Wage", group: "Contract", fmt: "money", width: 60 });
-def("contract_start", { label: "Contract start", abbr: "Start", group: "Contract", fmt: "date", width: 92, rank: false });
-def("contract_end", { label: "Contract end", abbr: "Expires", group: "Contract", fmt: "date", width: 92, rank: false });
-def("contract_squad_status", { label: "Squad status", abbr: "Status", group: "Contract", fmt: "label", width: 130, rank: false, align: "l" });
-def("contract_kind", { label: "Contract type", abbr: "Type", group: "Contract", fmt: "label", width: 84, rank: false, align: "l" });
+for (const [name, abbr, label] of POSITION_SLOTS) def("positions_" + name, { label: "Rating at " + label, abbr, group: "Positions", fmt: "attr", hue: "sta", width: 46 });
+for (const [name, abbr, label] of PERSONALITY) def("personality_" + name, { label, abbr, group: "Personality", fmt: "attr", hue: "hid", width: 40 });
+def("transfer_value", { label: "Transfer value", abbr: "Value", group: "Contract", fmt: "money", width: 70 });
+def("contract_wage", { label: "Wage per week", abbr: "Wage", group: "Contract", fmt: "money", width: 66 });
+def("contract_start", { label: "Contract start", abbr: "Start", group: "Contract", fmt: "date", width: 100, rank: false });
+def("contract_end", { label: "Contract end", abbr: "Expires", group: "Contract", fmt: "date", width: 100, rank: false });
+def("contract_squad_status", { label: "Squad status", abbr: "Status", group: "Contract", fmt: "label", width: 140, rank: false, align: "l" });
+def("contract_kind", { label: "Contract type", abbr: "Type", group: "Contract", fmt: "label", width: 92, rank: false, align: "l" });
 def("on_loan", { label: "On loan", abbr: "Loan", group: "Contract", fmt: "flag", rank: false });
-def("loan_parent_club_name", { label: "On loan from", abbr: "Loaned from", group: "Contract", fmt: "text", width: 140, rank: false, align: "l" });
-def("loan_end", { label: "Loan end", abbr: "Loan end", group: "Contract", fmt: "date", width: 92, rank: false });
-def("club_join_date", { label: "Joined club", abbr: "Joined", group: "Contract", fmt: "date", width: 92, rank: false });
-def("raw_condition", { label: "Condition", abbr: "Cond", group: "Contract", fmt: "hundredths", width: 48 });
-def("raw_match_sharpness", { label: "Match sharpness", abbr: "Sharp", group: "Contract", fmt: "hundredths", width: 48 });
+def("loan_parent_club_name", { label: "On loan from", abbr: "Loaned from", group: "Contract", fmt: "text", width: 150, rank: false, align: "l" });
+def("loan_end", { label: "Loan end", abbr: "Loan end", group: "Contract", fmt: "date", width: 100, rank: false });
+def("club_join_date", { label: "Joined club", abbr: "Joined", group: "Contract", fmt: "date", width: 100, rank: false });
+def("raw_condition", { label: "Condition", abbr: "Cond", group: "Contract", fmt: "hundredths", width: 54 });
+def("raw_match_sharpness", { label: "Match sharpness", abbr: "Sharp", group: "Contract", fmt: "hundredths", width: 54 });
 
 function statFormat(key) {
   if (key.endsWith("_percent")) return "pct";
@@ -153,11 +153,11 @@ function statFormat(key) {
   return "int";
 }
 for (const [key, [abbr, label]] of Object.entries(STAT_NAMES)) {
-  def(key, { label, abbr, group: "Stats", fmt: statFormat(key), hue: "sta", width: 58, stat: true });
+  def(key, { label, abbr, group: "Stats", fmt: statFormat(key), hue: "sta", width: 66, stat: true });
 }
 for (const key of PER_90) {
   const [abbr, label] = STAT_NAMES[key];
-  def(key + "_per_90", { label: label + " per 90", abbr: abbr + "/90", group: "Stats", fmt: "dec2", hue: "sta", width: 58, stat: true });
+  def(key + "_per_90", { label: label + " per 90", abbr: abbr + "/90", group: "Stats", fmt: "dec2", hue: "sta", width: 66, stat: true });
 }
 
 export const isText = (col) => col.fmt === "text" || col.fmt === "pos" || col.fmt === "label";

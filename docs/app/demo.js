@@ -229,6 +229,7 @@ export async function buildDemo(modelUrl = new URL("demo-model.json", import.met
     club: clubNames[players[index].club],
     group: players[index].group,
     positions: text.natural_positions[index],
+    values: Object.fromEntries(attributeNames.map((name) => ["attributes_" + name, num["attributes_" + name][index]])),
     ranks: Object.fromEntries(attributeNames.map((name) => {
       const key = "attributes_" + name;
       const mine = num[key][index];

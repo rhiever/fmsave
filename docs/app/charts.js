@@ -5,18 +5,21 @@ import { ATTRIBUTES, GROUP_HUE, POSITION_SLOTS, esc, ordinal } from "./catalog.j
 
 export const WHEEL_ORDER = Object.entries(ATTRIBUTES).flatMap(([group, list]) => list.map(([name, , label]) => [group, "attributes_" + name, label]));
 
-// rankOf(key) gives a percentile from 0 to 99, or null when the player has none.
-export function wheel(size, rankOf, [big, small]) {
+// rankOf(key) gives a percentile from 0 to 99, or null when the player has none. With hover,
+// each wedge carries its attribute in data-key for the caller's own tooltip, instead of a title.
+export function wheel(size, rankOf, [big, small], { hover = false } = {}) {
   const c = size / 2, R = size / 2 - 2, r0 = size * 0.14, step = (2 * Math.PI) / WHEEL_ORDER.length;
   const pt = (a, r) => `${(c + r * Math.cos(a)).toFixed(1)},${(c + r * Math.sin(a)).toFixed(1)}`;
   const wedge = (a0, a1, r) => `M${pt(a0, r0)}L${pt(a0, r)}A${r},${r} 0 0 1 ${pt(a1, r)}L${pt(a1, r0)}Z`;
   const paths = WHEEL_ORDER.map(([group, key, label], k) => {
     const p = rankOf(key);
     const a0 = k * step - Math.PI / 2 + 0.012, a1 = (k + 1) * step - Math.PI / 2 - 0.012;
-    const track = `<path class="w-track" d="${wedge(a0, a1, R)}"/>`;
+    const tag = hover ? ` data-key="${key}"` : "";
+    const track = `<path class="w-track"${tag} d="${wedge(a0, a1, R)}"/>`;
     if (p === null || p === undefined) return track;
     const r = r0 + (R - r0) * (Math.max(p, 2) / 100);
-    return `${track}<path d="${wedge(a0, a1, r)}" style="fill:rgb(var(--${GROUP_HUE[group]}))"><title>${esc(label)}: ${ordinal(p)} percentile</title></path>`;
+    const title = hover ? "" : `<title>${esc(label)}: ${ordinal(p)} percentile</title>`;
+    return `${track}<path${tag} d="${wedge(a0, a1, r)}" style="fill:rgb(var(--${GROUP_HUE[group]}))">${title}</path>`;
   });
   return `${paths.join("")}<circle class="w-hole" cx="${c}" cy="${c}" r="${r0 - 2}"/>` +
     `<text class="w-big" x="${c}" y="${c - size * 0.012}" text-anchor="middle" font-size="${Math.max(15, size * 0.075)}">${esc(big)}</text>` +
