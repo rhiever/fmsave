@@ -20,7 +20,7 @@ mkdir -p ~/fmsave-fuzz-corpus
 uv run --with atheris python fuzz/fuzz_container.py ~/fmsave-fuzz-corpus -max_total_time=600
 ```
 
-Seed inputs come only from the test fixture builders in `tests/fixtures/`, and every run adds
+Seed inputs come only from the synthetic test builders in `tests/`, and every run adds
 them. A crash is saved as a `crash-*` file, which git ignores. To replay one:
 
 ```sh
@@ -29,3 +29,17 @@ uv run --with atheris python fuzz/fuzz_container.py crash-<id>
 
 `tests/test_fuzz_harness.py` runs the same per-input function on the seeds and on seeded
 random bytes without atheris, so the harness is checked on every platform.
+
+## Experimental FM27 inputs
+
+The default harness still rejects FM27. Add `--experimental-fm27` to enable the preview
+metadata and readers and include a fictional FM27 seed that reaches the raw span parser:
+
+```sh
+uv run --with atheris python fuzz/fuzz_container.py --experimental-fm27 ~/fmsave-fuzz-corpus
+```
+
+The harness consumes the flag before calling libFuzzer. Replaying an FM27 crash also needs
+this flag. FM27 reads stay strict, and the harness retains its 16 MiB total declared
+output cap and 4 MiB per-frame cap. The raw span result exposes fixture and rules collections;
+it is not a table and has no length of its own.

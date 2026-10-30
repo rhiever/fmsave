@@ -11,6 +11,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import warnings
+from functools import partial
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -50,20 +51,26 @@ READER_NAMES = (
 )
 
 
-def seed_inputs() -> list[bytes]:
+def seed_inputs(*, experimental_fm27: bool = False) -> list[bytes]:
     """Starting inputs, built only by the test fixture builders."""
     from tests.fixtures.career import career_fragment
     from tests.fixtures.container import build_container_fragment
 
-    return [
+    seeds = [
         build_container_fragment().content,
         career_fragment().content,
         career_fragment(duplicate_club_name=True).content,
         career_fragment(manager_between_jobs=True).content,
     ]
+    if experimental_fm27:
+        from tests.test_fm27_span_integration import span_fragment
+
+        with tempfile.TemporaryDirectory() as directory:
+            seeds.append(span_fragment(Path(directory)).read_bytes())
+    return seeds
 
 
-def run_one_input(data: bytes) -> None:
+def run_one_input(data: bytes, *, experimental_fm27: bool = False) -> None:
     """Read `data` as a save with every reader; only fmsave.FmsaveError is swallowed.
 
     fmsave is imported here, not at module level, so the fuzzer can instrument it first.
@@ -82,14 +89,21 @@ def run_one_input(data: bytes) -> None:
             warnings.simplefilter("ignore", fmsave.UnknownBuildWarning)
             try:
                 container_index = read_index(input_path, limits)
-                save_info = read_save_info(container_index)
+                save_info = read_save_info(container_index, experimental_fm27=experimental_fm27)
             except fmsave.FmsaveError:
                 return
-            with fmsave.Save(container_index, save_info) as career_save:
+            with fmsave.Save(
+                container_index, save_info, strict=save_info.game == "FM27"
+            ) as career_save:
                 repr(career_save.info)
                 for reader_name in READER_NAMES:
                     try:
-                        len(getattr(career_save, reader_name)())
+                        result = getattr(career_save, reader_name)()
+                        if reader_name == "experimental_span":
+                            len(result.fixtures)
+                            len(result.rules)
+                        else:
+                            len(result)
                     except fmsave.FmsaveError:
                         pass
 
@@ -102,15 +116,17 @@ def main() -> None:
         import fmsave  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
     arguments = list(sys.argv)
+    experimental_fm27 = "--experimental-fm27" in arguments[1:]
+    arguments = [argument for argument in arguments if argument != "--experimental-fm27"]
     inputs = [argument for argument in arguments[1:] if not argument.startswith("-")]
     if all(Path(argument).is_dir() for argument in inputs):
         # libFuzzer writes new inputs to the first folder given, so the seeds go last.
         # Individual input files (such as a crash to replay) run on their own.
         seed_folder = Path(tempfile.mkdtemp(prefix="fmsave-fuzz-seeds-"))
-        for seed_number, seed in enumerate(seed_inputs()):
+        for seed_number, seed in enumerate(seed_inputs(experimental_fm27=experimental_fm27)):
             (seed_folder / f"seed-{seed_number}").write_bytes(seed)
         arguments.append(str(seed_folder))
-    atheris.Setup(arguments, run_one_input)  # pyright: ignore[reportUnknownMemberType]
+    atheris.Setup(arguments, partial(run_one_input, experimental_fm27=experimental_fm27))  # pyright: ignore[reportUnknownMemberType]
     atheris.Fuzz()  # pyright: ignore[reportUnknownMemberType]
 
 

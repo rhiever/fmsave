@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import random
 from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
 import pytest
 
 import fmsave
 import fmsave._container
+from fmsave.readers.fm27_span import Fm27Span
 from fuzz.fuzz_container import READER_NAMES, run_one_input, seed_inputs
 from tests.fixtures.container import FILE_MAGIC
 
@@ -101,3 +104,101 @@ def test_other_exceptions_escape_from_readers(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(fmsave.Save, "players", raise_error(KeyError("boom")))
     with pytest.raises(KeyError):
         run_one_input(SEEDS[1])
+
+
+@pytest.mark.parametrize("experimental", [False, True])
+def test_fm27_span_parser_is_reached_only_with_explicit_opt_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, experimental: bool
+) -> None:
+    import fmsave._save
+    from tests.test_fm27_span_integration import span_fragment
+
+    parsed: list[Fm27Span] = []
+    original = fmsave._save.read_fm27_span
+
+    def recording_parser(*args: Any, **kwargs: Any) -> Fm27Span:
+        result = original(*args, **kwargs)
+        parsed.append(result)
+        return result
+
+    monkeypatch.setattr(fmsave._save, "read_fm27_span", recording_parser)
+    run_one_input(span_fragment(tmp_path).read_bytes(), experimental_fm27=experimental)
+    assert len(parsed) == int(experimental)
+    if experimental:
+        assert len(parsed[0].fixtures) == 2
+        assert parsed[0].fixtures[1].home_goals == 2
+        assert len(parsed[0].rules) == 1
+
+
+@pytest.mark.parametrize("cap", ["TOTAL_DECOMPRESSED_CAP", "FRAME_DECOMPRESSED_CAP"])
+def test_fm27_opt_in_retains_fuzz_decompression_caps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: str
+) -> None:
+    import fmsave._save
+    import fuzz.fuzz_container as harness
+    from tests.test_fm27_span_integration import span_fragment
+
+    monkeypatch.setattr(harness, cap, 32)
+    monkeypatch.setattr(
+        fmsave._save, "read_fm27_span", raise_error(AssertionError("parser must not be reached"))
+    )
+    run_one_input(span_fragment(tmp_path).read_bytes(), experimental_fm27=True)
+
+
+def test_fm27_parser_unexpected_errors_escape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import fmsave._save
+    from tests.test_fm27_span_integration import span_fragment
+
+    monkeypatch.setattr(fmsave._save, "read_fm27_span", raise_error(RuntimeError("boom")))
+    with pytest.raises(RuntimeError, match="boom"):
+        run_one_input(span_fragment(tmp_path).read_bytes(), experimental_fm27=True)
+
+
+@pytest.mark.parametrize("experimental", [False, True])
+def test_fuzz_cli_forwards_opt_in_and_supplies_a_reachable_fm27_seed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, experimental: bool
+) -> None:
+    import shutil
+    import sys
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    import fmsave._save
+    import fuzz.fuzz_container as harness
+
+    parsed: list[Fm27Span] = []
+    original = fmsave._save.read_fm27_span
+
+    def recording_parser(*args: Any, **kwargs: Any) -> Fm27Span:
+        result = original(*args, **kwargs)
+        parsed.append(result)
+        return result
+
+    def setup(arguments: list[str], callback: Callable[[bytes], None]) -> None:
+        assert "--experimental-fm27" not in arguments
+        seed_folder = Path(arguments[-1])
+        try:
+            seeds = sorted(seed_folder.iterdir())
+            assert len(seeds) == len(SEEDS) + int(experimental)
+            for seed in seeds:
+                callback(seed.read_bytes())
+        finally:
+            shutil.rmtree(seed_folder)
+
+    monkeypatch.setattr(fmsave._save, "read_fm27_span", recording_parser)
+    monkeypatch.setitem(
+        sys.modules,
+        "atheris",
+        SimpleNamespace(instrument_imports=nullcontext, Setup=setup, Fuzz=lambda: None),
+    )
+    arguments = ["fuzz_container.py", str(tmp_path)]
+    if experimental:
+        arguments.append("--experimental-fm27")
+    monkeypatch.setattr(sys, "argv", arguments)
+    harness.main()
+    assert len(parsed) == int(experimental)
+    if experimental:
+        assert len(parsed[0].fixtures) == 2
+        assert len(parsed[0].rules) == 1
