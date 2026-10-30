@@ -1753,10 +1753,17 @@ def evaluate_sponsorships(
     A nonempty list with valid rows and an explicitly counted empty list both establish
     coverage. Missing prefixes and invalid positive lists remain uncovered. The existing
     share and count bounds apply to that coverage, including when every list is empty.
+    Builds that require valid owned lists apply that structural check regardless of
+    save size or coverage. Other builds report rejections without changing their gates.
     """
     applied = _applies(bounds, game_db_bytes)
     decoded_lists = stats.clubs_with_sponsors + stats.clubs_with_empty_sponsor_lists
-    return (
+    structural = (
+        (_gate("sponsor_lists_rejected", stats.sponsor_lists_rejected, (None, 0), True),)
+        if stats.sponsor_lists_strict
+        else ()
+    )
+    return structural + (
         _gate(
             "finance_clubs_with_sponsors",
             _rate(decoded_lists, stats.clubs_with_series),
@@ -2140,6 +2147,7 @@ def check_sponsorships(stats: FinanceStats, bounds: GateBounds, game_db_bytes: i
         evaluate_sponsorships(stats, bounds, game_db_bytes),
         FrozenMapping(
             {
+                "sponsor_lists_rejected": stats.sponsor_lists_rejected,
                 "clubs_without_sponsors": stats.clubs_with_series - stats.clubs_with_sponsors,
                 "clubs_with_empty_sponsor_lists": stats.clubs_with_empty_sponsor_lists,
                 "clubs_without_sponsor_lists": stats.clubs_with_series

@@ -24,7 +24,6 @@ SHARED = (
     ("game_db", 4000, observed.TAGGED_STREAM),
     ("game_db", 4000, observed.TRANSFER_WINDOWS),
     ("game_db", 4000, observed.FINANCE_CHAINS),
-    ("game_db", 4000, observed.SPONSOR_CHAINS),
     ("game_db", 4000, observed.FACILITY_BYTE),
     ("humans", 24, observed.HUMANS),
     ("feeder_man", 5, observed.AFFILIATE_GROUPS),
@@ -100,3 +99,11 @@ def test_fm27_match_whitelist_requires_proven_absence_not_unobserved_rows() -> N
     assert cache.medical_row_lead_byte == 3
     assert cache.nullable_suffix_first_marker == b"\x01\x04"
     assert cache.nullable_suffix_first_date_offset == 38
+
+
+def test_fm27_sponsor_boundary_does_not_enable_unknown_schemas_or_builds() -> None:
+    layout_type = type(observed.SPONSOR_CHAINS)
+    assert find_layout(layout_type, "game_db", 4000, BUILD).exact
+    for schema, build in ((4001, BUILD), (4000, "27.0.1+3000001")):
+        with pytest.raises(UnsupportedGameError):
+            find_layout(layout_type, "game_db", schema, build)

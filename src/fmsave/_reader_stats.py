@@ -497,7 +497,9 @@ class FinanceStats:
 
     `clubs_with_sponsors` counts the clubs with a series that also hold a sponsor run, and
     `sponsor_rows` the rows those runs hold. `clubs_with_empty_sponsor_lists` counts primary
-    lists whose prefix decoded correctly and whose stored count explicitly says zero. `managed_club_exists` says whether the save lists a
+    lists whose prefix decoded correctly and whose stored count explicitly says zero.
+    `sponsor_lists_rejected` counts structurally owned lists with invalid or truncated rows;
+    these are reported separately from absent prefixes. `managed_club_exists` says whether the save lists a
     managed club, which is what decides whether the series floor applies at all.
     """
 
@@ -514,6 +516,8 @@ class FinanceStats:
     managed_club_exists: bool
     clubs_with_empty_sponsor_lists: int = 0
     opening_balance_steps: int = 0
+    sponsor_lists_rejected: int = 0
+    sponsor_lists_strict: bool = False
 
 
 @dataclass(frozen=True, slots=True)

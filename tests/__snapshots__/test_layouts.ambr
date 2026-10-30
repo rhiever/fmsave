@@ -658,6 +658,7 @@
         'enum18_offset': 18,
         'flag10_maximum': 1,
         'flag10_offset': 10,
+        'minimum_row_days': 1,
         'prefix_count_offset': 71,
         'prefix_date_offsets': tuple(
           25,
@@ -691,6 +692,7 @@
             b'\x00\x00\x00\x00',
           ),
         ),
+        'reject_invalid_lists': False,
         'row_bytes': 25,
         'start_offset': 2,
         'tag': 2,
@@ -5182,6 +5184,7 @@
         'enum18_offset': 18,
         'flag10_maximum': 1,
         'flag10_offset': 10,
+        'minimum_row_days': -1,
         'prefix_count_offset': 71,
         'prefix_date_offsets': tuple(
           25,
@@ -5215,6 +5218,7 @@
             b'\x00\x00\x00\x00',
           ),
         ),
+        'reject_invalid_lists': True,
         'row_bytes': 25,
         'start_offset': 2,
         'tag': 2,

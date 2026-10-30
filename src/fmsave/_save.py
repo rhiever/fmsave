@@ -1600,9 +1600,10 @@ class Save:
 
         The clubs are the ones `finances()` keeps a series for, in the same order, and each
         club's contracts keep the order the save stores them in. **The list keeps contracts that
-        have ended**, and an ended contract's `annual_value` is often non-zero, so a club's
-        current sponsorship income is the sum of `annual_value` over the rows whose `end` is
-        after the save's date, not over every row.
+        have ended**, and an ended contract's `annual_value` can remain non-zero. Dates and
+        values are retained as stored. Filtering by `end` alone has not been established to
+        reproduce the game's displayed sponsorship income. An invalid structurally located
+        FM27 list raises `ReaderCheckError`, regardless of save size.
 
         Every `type` code is UNKNOWN: the save groups its sponsorships into about twenty kinds
         and no displayed label has pinned one of those codes. Money is a whole number in the

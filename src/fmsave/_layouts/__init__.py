@@ -286,6 +286,8 @@ class SponsorChainLayout:
     b19_offset: int
     annual_offset: int
     value_maximum: int
+    minimum_row_days: int = 1
+    reject_invalid_lists: bool = False
 
 
 @dataclass(frozen=True, slots=True)
