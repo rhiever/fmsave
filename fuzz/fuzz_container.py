@@ -46,6 +46,7 @@ READER_NAMES = (
     "set_pieces",
     "training",
     "mentoring",
+    "experimental_span",
 )
 
 
