@@ -167,6 +167,7 @@ class PlayerDecoder:
     team_fields: Mapping[int, _TeamFields]
     contract_decoder: ContractDecoder
     date_cache: dict[int, date | None] = field(default_factory=_new_date_cache)
+    edited_attribute_records: int = 0
 
     def decode(
         self,
@@ -241,6 +242,8 @@ class PlayerDecoder:
 
         attributes_start = record_offset + layout.attributes_offset
         raw_attribute_bytes = game_db[attributes_start : attributes_start + layout.attribute_count]
+        if max(raw_attribute_bytes) > layout.attribute_range[1]:
+            self.edited_attribute_records += 1
         scaled_attribute_bytes = raw_attribute_bytes.translate(self.scale_table)
         raw_attributes = Attributes(*self.attribute_struct.unpack(raw_attribute_bytes))
         attributes = Attributes(*self.attribute_struct.unpack(scaled_attribute_bytes))
@@ -472,6 +475,7 @@ def collect_player_stats(
     return PlayerStats(
         records=len(players),
         markerless=markerless_count,
+        edited_attributes=decoder.edited_attribute_records,
         with_person_block=with_person_block,
         with_resolved_name=with_resolved_name,
         relation_entries=person_decoder.relation_entry_count,

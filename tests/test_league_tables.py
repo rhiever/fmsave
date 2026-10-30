@@ -30,6 +30,7 @@ from fmsave.models.league_tables import (
 from fmsave.readers._common import GAME_DB_SECTION, SPAN_REGION
 from fmsave.readers.league_tables import (
     build_league_tables,
+    drop_superseded_groups,
     group_blocks,
     resolve_group_competitions,
     started_calendar_divisions,
@@ -50,6 +51,7 @@ from tests.fixtures.career import (
     SOUTHPORT_UID,
     TABLE_HEAD_BYTES,
     TABLE_VOTE_FIXTURES,
+    UNREADABLE_SLOT_COUNT,
     VENUE_EARLIER_SEASON_FIXTURES,
     VENUE_FIXTURES,
     VENUE_RESULTS,
@@ -60,8 +62,10 @@ from tests.fixtures.career import (
     ExampleResult,
     career_fragment,
     division_table_blocks,
+    earlier_state_table_blocks,
     out_of_range_table_blocks,
     stored_index_head_bytes,
+    unreadable_slot_table_blocks,
 )
 
 FILE_NAME = "career example.fm"
@@ -193,6 +197,7 @@ def healthy_stats() -> LeagueTableStats:
     return LeagueTableStats(
         blocks=HEALTHY_BLOCKS,
         duplicate_blocks=HEALTHY_DUPLICATE_BLOCKS,
+        superseded_blocks=HEALTHY_GROUPS // 10,
         block_candidates=100 * HEALTHY_BLOCKS,
         groups=HEALTHY_GROUPS,
         groups_resolved=HEALTHY_GROUPS,
@@ -204,6 +209,7 @@ def healthy_stats() -> LeagueTableStats:
         in_sync_tables=HEALTHY_GROUPS // 5,
         venue_slots_decided=HEALTHY_VENUE_SLOTS,
         venue_slots_agreeing=HEALTHY_VENUE_SLOTS,
+        unreadable_match_slots=HEALTHY_VENUE_SLOTS // 100,
     )
 
 
@@ -577,6 +583,127 @@ def test_repeated_block_content_is_dropped_before_the_groups_are_built(tmp_path:
     assert tables[0].rows[0].unknown["head_minus_19_00"] == TABLE_HEAD_BYTES[0]
 
 
+def test_a_table_holding_only_an_earlier_state_of_a_row_kept_elsewhere_is_dropped(
+    tmp_path: Path,
+) -> None:
+    """The save keeps older states of a row beside the current one, and they are not copies.
+
+    An older state differs from the row it became in its counters, so it survives the content
+    deduplication, and its stored index is its place at that earlier time, so it breaks off
+    into a table of its own that reports the club first. It is told apart by holding the same
+    club over the same rounds with fewer matches played, every one of them identical in the
+    same slot of the row that is kept.
+    """
+    career_path = write_career(tmp_path, extra_table_groups=(earlier_state_table_blocks(),))
+
+    with fmsave.open(career_path) as career_save:
+        tables = career_save.league_tables()
+        _tables, stats = built_from(career_save)
+
+    assert [table.club_count for table in tables] == [GROUP_A_CLUB_COUNT, GROUP_B_CLUB_COUNT]
+    assert stats.superseded_blocks == 1
+    assert stats.blocks == DEFAULT_BLOCK_COUNT
+    assert stats.groups == 2
+    anomalies = check_league_tables(stats, BOUNDS, SMALL_SPAN_BYTES).anomalies
+    assert anomalies["superseded_blocks"] == 1
+    assert anomalies["rejected_block_candidates"] == stats.block_candidates - (
+        DEFAULT_BLOCK_COUNT + 1
+    )
+
+
+def test_a_one_club_table_whose_match_the_kept_row_does_not_hold_is_kept(
+    tmp_path: Path,
+) -> None:
+    """A club in two tables of one competition is not proof one is stale: a club is in several
+    groups at once, so only a row whose every match the other row holds identically is dropped.
+    """
+    different_match = earlier_state_table_blocks(goals_for=4)
+    career_path = write_career(tmp_path, extra_table_groups=(different_match,))
+
+    with fmsave.open(career_path) as career_save:
+        tables = career_save.league_tables()
+        _tables, stats = built_from(career_save)
+
+    assert [table.club_count for table in tables] == [GROUP_A_CLUB_COUNT, GROUP_B_CLUB_COUNT, 1]
+    assert tables[2].rows[0].team_id == NORTHBRIDGE_TEAM_A
+    assert stats.superseded_blocks == 0
+
+
+def test_a_larger_table_of_earlier_states_is_kept_and_only_a_one_club_one_is_dropped() -> None:
+    """The save stores some whole tables as they stood partway through a season.
+
+    Every row of such a table is an earlier state of a row the current table holds, but the
+    table is a record of its own, so only a table of one club is ever dropped as superseded.
+    """
+    won = RawTableRow(
+        key=SOUTHPORT_TEAM,
+        played=1,
+        won=1,
+        drawn=0,
+        lost=0,
+        goals_for=2,
+        goals_against=0,
+        points=3,
+        flag=0,
+    )
+    unplayed = dataclasses.replace(won, key=TABLE_LAYOUT.unplayed_key, played=0, won=0)
+
+    def block(team_id: int, played: int, stored_index: int) -> RawTableBlock:
+        total = dataclasses.replace(unplayed, played=played, won=played)
+        return RawTableBlock(
+            span_offset=0,
+            team_id=team_id,
+            head_bytes=tuple(stored_index_head_bytes(stored_index)),
+            aggregates=(total,) * 5,
+            rounds_per_venue=1,
+            matches=(won, won if played == 2 else unplayed),
+        )
+
+    current = (block(NORTHBRIDGE_TEAM_A, 2, 0), block(ATHLETIC_TEAM_A, 2, 1))
+    halfway = (block(NORTHBRIDGE_TEAM_A, 1, 0), block(ATHLETIC_TEAM_A, 1, 1))
+    one_club = (block(ATHLETIC_TEAM_A, 1, 1),)
+
+    kept, superseded = drop_superseded_groups([current, halfway, one_club], TABLE_LAYOUT)
+
+    assert kept == (current, halfway)
+    assert superseded == 1
+
+
+def test_a_slot_whose_counters_describe_no_one_match_is_blanked_and_counted(
+    tmp_path: Path,
+) -> None:
+    """A played slot is kept only when it counts one match with one result its score bears out.
+
+    The span holds slots that count two meetings, name a result the score contradicts or score
+    more goals than any match has had. Their numbers cannot be read as one match, so every
+    field but the slot's place and side is left empty, as for a slot never played, and each one
+    is counted.
+    """
+    career_path = write_career(tmp_path, extra_table_groups=(unreadable_slot_table_blocks(),))
+
+    with fmsave.open(career_path) as career_save:
+        tables = career_save.league_tables()
+        _tables, stats = built_from(career_save)
+
+    readable, *unreadable = tables[2].rows[0].matches
+    assert readable.opponent_team_id == NORTHBRIDGE_TEAM_A
+    assert (readable.goals_for, readable.goals_against) == (2, 2)
+    assert readable.outcome is MatchOutcome.DRAW
+    assert readable.points == 1
+    assert len(unreadable) == UNREADABLE_SLOT_COUNT
+    for match_row in unreadable:
+        assert match_row.home_or_away is not None
+        assert match_row.opponent_team_id is None
+        assert match_row.opponent_club_uid is None
+        assert match_row.goals_for is None
+        assert match_row.goals_against is None
+        assert match_row.outcome is None
+        assert match_row.points is None
+    assert stats.unreadable_match_slots == UNREADABLE_SLOT_COUNT
+    anomalies = check_league_tables(stats, BOUNDS, SMALL_SPAN_BYTES).anomalies
+    assert anomalies["unreadable_match_slots"] == UNREADABLE_SLOT_COUNT
+
+
 def test_a_table_ends_where_its_stored_index_stops_counting_on() -> None:
     """The index each block keeps of its place in its table is what separates two tables.
 
@@ -785,6 +912,7 @@ def test_the_build_counts_exactly_what_the_checks_read(tmp_path: Path) -> None:
     assert dataclasses.replace(stats, block_candidates=0) == LeagueTableStats(
         blocks=DEFAULT_BLOCK_COUNT,
         duplicate_blocks=0,
+        superseded_blocks=0,
         block_candidates=0,
         groups=2,
         groups_resolved=1,
@@ -796,6 +924,7 @@ def test_the_build_counts_exactly_what_the_checks_read(tmp_path: Path) -> None:
         in_sync_tables=0,
         venue_slots_decided=0,
         venue_slots_agreeing=0,
+        unreadable_match_slots=0,
     )
     assert stats.block_candidates >= stats.blocks
     reader_check = check_league_tables(stats, BOUNDS, SMALL_SPAN_BYTES)
@@ -803,11 +932,13 @@ def test_the_build_counts_exactly_what_the_checks_read(tmp_path: Path) -> None:
     assert reader_check.record_count == 2
     assert dict(reader_check.anomalies) == {
         "duplicate_blocks": 0,
+        "superseded_blocks": 0,
         "rejected_block_candidates": stats.block_candidates - DEFAULT_BLOCK_COUNT,
         "unresolved_groups": 1,
         "blocks_outside_resolved_groups": GROUP_B_CLUB_COUNT,
         "team_ids_out_of_range": 0,
         "unresolved_teams": 0,
+        "unreadable_match_slots": 0,
         "in_sync_tables": 0,
         "venue_slots_decided": 0,
         "started_calendar_divisions": 0,
@@ -1020,7 +1151,7 @@ def test_healthy_stats_pass_every_gate_and_a_small_span_applies_none() -> None:
             id="the-slot-parity-is-the-wrong-way-round",
         ),
         pytest.param(
-            LeagueTableStats(0, 0, 0, 0, 0, 0, 0, 0, 0, DIVISION_FLOOR, 0, 0, 0),
+            LeagueTableStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, DIVISION_FLOOR, 0, 0, 0, 0),
             list(GATE_NAMES_AN_EMPTY_DECODE_FAILS),
             id="a-decode-that-found-nothing",
         ),

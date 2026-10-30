@@ -881,6 +881,10 @@ function showStart() {
 }
 function showApp({ keep = false } = {}) {
   setChrome(true);
+  // A file asked for before another save was opened is dropped on arrival, so its button starts over.
+  for (const b of $("csv-menu").querySelectorAll("[data-csv]")) {
+    if (b.dataset.csv in CSV_LABELS) { b.disabled = false; b.querySelector("em").textContent = CSV_LABELS[b.dataset.csv]; }
+  }
   if (keep) return;
   const m = data.meta;
   $("meta").innerHTML = [m.save && `<b>${esc(m.save)}</b>`, m.club && esc(m.club), m.date && esc(day(Date.parse(m.date) / DAY))].filter(Boolean).join(", ");

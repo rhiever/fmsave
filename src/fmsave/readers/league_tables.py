@@ -24,6 +24,14 @@ tables that survive are the right shape -- dozens of them are divisions whose cl
 each other twice -- and at most 0.3% still hold one club twice, where two adjacent tables
 happen to chain their indexes.
 
+**The span also keeps older states of a row.** Its counters differ from the row it became, so
+it is not a copy, and its stored index is its place at that earlier time, so it breaks off into
+a table of its own, most often of one club, which reports a stale record in first place. On the
+saves measured that is a tenth to nearly half of all tables. A one-club table whose row holds
+the same club over the same rounds as a row kept elsewhere, with fewer matches played and every
+one of them identical in the same slot, is dropped and counted. A larger table of such states
+is kept: some are whole tables the save stores as they stood partway through a season.
+
 Nothing in a table names its competition. It is voted for from the fixture calendar: the
 competitions each member club plays in are tallied over the table, and the most covered one
 names it if it covers at least half the members, so a competition one member of twelve plays in
@@ -34,8 +42,8 @@ table the vote cannot settle keeps `competition_id` None and is still returned, 
 corpus is about one table in a thousand.
 
 **That headline overshoots the 85% the spec expects, and it must be read beside the shape of
-the tables.** The vote settles almost every table on the saves measured, but a third to nearly
-a half of tables hold a single block, and a one-block table meets the
+the tables.** The vote settles almost every table on the saves measured, but a fifth to over
+a quarter of tables hold a single block, and a one-block table meets the
 half-the-members rule on a majority of one, so it resolves whatever the calendar says. Over the
 tables of two blocks or more the share is 0.998 or better. That is the figure that
 shows the vote is sound rather than merely permissive, and a minimum size for the vote is worth
@@ -52,6 +60,12 @@ fifth of a percent agree on every save measured, against that same fifth of a pe
 the parity been the other way round. Out-of-step tables are left out, because a table that does
 not account for a season is compared against the wrong meetings; over every table the agreement
 falls to about 0.91.
+
+**A played slot is read only where it counts one match whose result its score bears out.** Some
+slots count two meetings at once, name a result their own score contradicts, or score hundreds
+of goals. They sit almost all in rows whose slots do not add up to the row's totals, and no slot
+of a row whose slots do add up fails, so the rule turns away noise rather than real results. A
+slot it turns away keeps its place and side with every other field empty, and is counted.
 
 Every join goes through an index another reader already built, and an id that does not resolve
 leaves its fields empty and is counted rather than guessed.
@@ -152,6 +166,57 @@ def group_blocks(
     return tuple(groups)
 
 
+def _is_earlier_state(
+    block: RawTableBlock, later: RawTableBlock, layout: LeagueTableLayout
+) -> bool:
+    """Whether `block` is `later`'s row as it stood before `later` played its latest matches.
+
+    Both hold the same club over the same rounds, `later` has played more, and every match
+    `block` holds is held identically in the same slot of `later`. A club in another stage of
+    one competition, or in last season's table, holds other matches in its slots, so it is
+    never taken for an earlier state.
+    """
+    if later.team_id != block.team_id or later.rounds_per_venue != block.rounds_per_venue:
+        return False
+    if later.aggregates[_TOTAL].played <= block.aggregates[_TOTAL].played:
+        return False
+    played_slots = [
+        (slot, row) for slot, row in enumerate(block.matches) if row.key != layout.unplayed_key
+    ]
+    return bool(played_slots) and all(later.matches[slot] == row for slot, row in played_slots)
+
+
+def drop_superseded_groups(
+    groups: Sequence[Sequence[RawTableBlock]], layout: LeagueTableLayout
+) -> tuple[tuple[tuple[RawTableBlock, ...], ...], int]:
+    """The groups less the one-club tables whose row is an earlier state of a row kept elsewhere.
+
+    The span keeps older states of a row beside the current one. An older state is not a copy,
+    since its counters differ, so `distinct_blocks` keeps it, and its stored index is its place
+    at that earlier time, so it breaks off into a table of its own, most often of one club,
+    which then reports a stale record in first place. Only a table of one club is dropped: no
+    competition has a table of one, so it can hold nothing the later row does not. A larger
+    table made of earlier states is kept, because some are whole tables the save stores as
+    they stood partway through a season, with every club at the same number of matches. An
+    earlier state always has fewer matches played, so the latest state of a row is never the
+    one dropped. Returns the kept groups, in order, and how many blocks were dropped.
+    """
+    blocks_by_team: dict[int, list[RawTableBlock]] = {}
+    for group in groups:
+        for block in group:
+            blocks_by_team.setdefault(block.team_id, []).append(block)
+    kept: list[tuple[RawTableBlock, ...]] = []
+    superseded_blocks = 0
+    for group in groups:
+        if len(group) == 1 and any(
+            _is_earlier_state(group[0], other, layout) for other in blocks_by_team[group[0].team_id]
+        ):
+            superseded_blocks += 1
+            continue
+        kept.append(tuple(group))
+    return tuple(kept), superseded_blocks
+
+
 def competition_counts_by_team(fixtures: Sequence[Fixture]) -> dict[int, Counter[int]]:
     """How often each team id appears in each competition, from the fixture calendar.
 
@@ -236,15 +301,13 @@ def _split(row: RawTableRow) -> LeagueTableSplit:
     )
 
 
-def _outcome(row: RawTableRow) -> MatchOutcome | None:
-    """WIN, DRAW or LOSS from the row's own counters, or None when they name no single result."""
-    if row.won == 1:
+def _outcome(row: RawTableRow) -> MatchOutcome:
+    """WIN, DRAW or LOSS from the counters of a slot `_is_one_match` accepted, which name one."""
+    if row.won:
         return MatchOutcome.WIN
-    if row.drawn == 1:
+    if row.drawn:
         return MatchOutcome.DRAW
-    if row.lost == 1:
-        return MatchOutcome.LOSS
-    return None
+    return MatchOutcome.LOSS
 
 
 def _venue(slot: int, layout: LeagueTableLayout) -> MatchSide | None:
@@ -267,14 +330,41 @@ def _venue(slot: int, layout: LeagueTableLayout) -> MatchSide | None:
     return MatchSide.HOME if slot % 2 == home_slot_parity else MatchSide.AWAY
 
 
+def _is_one_match(row: RawTableRow, layout: LeagueTableLayout) -> bool:
+    """Whether a played slot counts one match whose result its own score bears out.
+
+    Every slot of a row whose slots add up to its totals passes this on the saves measured.
+    The slots that fail sit almost all in rows whose slots do not add up: they count two
+    meetings at once, name a result their score contradicts, or score hundreds of goals.
+    """
+    if row.played != 1 or row.won + row.drawn + row.lost != 1:
+        return False
+    if max(row.goals_for, row.goals_against) > layout.match_goals_maximum:
+        return False
+    if row.won:
+        return row.goals_for > row.goals_against
+    if row.lost:
+        return row.goals_for < row.goals_against
+    return row.goals_for == row.goals_against
+
+
 def _match_rows(
     block: RawTableBlock, club_index: ClubIndex, layout: LeagueTableLayout
-) -> tuple[LeagueTableMatch, ...]:
-    """One entry per match slot, keeping the slots the club never played."""
+) -> tuple[tuple[LeagueTableMatch, ...], int]:
+    """One entry per match slot, keeping the slots never played, and how many were unreadable.
+
+    A played slot that `_is_one_match` turns away keeps its place and side with every other
+    field empty, as a slot never played does, and is counted rather than reported as a match.
+    """
     matches: list[LeagueTableMatch] = []
+    unreadable = 0
     for slot, row in enumerate(block.matches):
         venue = _venue(slot, layout)
-        if row.key == layout.unplayed_key:
+        played = row.key != layout.unplayed_key
+        readable = played and _is_one_match(row, layout)
+        if played and not readable:
+            unreadable += 1
+        if not readable:
             matches.append(
                 LeagueTableMatch(
                     slot=slot,
@@ -305,7 +395,7 @@ def _match_rows(
                 points=row.points,
             )
         )
-    return tuple(matches)
+    return tuple(matches), unreadable
 
 
 def _club_pair(one_team_id: int, other_team_id: int) -> tuple[int, int]:
@@ -474,6 +564,7 @@ class _GroupCounts:
 
     team_id_in_range: int
     team_resolved: int
+    unreadable_match_slots: int
 
 
 def _rows_for(
@@ -483,6 +574,7 @@ def _rows_for(
     rows: list[LeagueTableRow] = []
     team_id_in_range = 0
     team_resolved = 0
+    unreadable_match_slots = 0
     for position, block in enumerate(group, start=1):
         team_id = block.team_id
         if lowest_team_id <= team_id <= highest_team_id:
@@ -491,6 +583,8 @@ def _rows_for(
         if club_uid is not None:
             team_resolved += 1
         total = block.aggregates[_TOTAL]
+        matches, unreadable = _match_rows(block, club_index, layout)
+        unreadable_match_slots += unreadable
         rows.append(
             LeagueTableRow(
                 position=position,
@@ -511,13 +605,13 @@ def _rows_for(
                 first_half=_split(block.aggregates[_FIRST_HALF]),
                 second_half=_split(block.aggregates[_SECOND_HALF]),
                 rounds_per_venue=block.rounds_per_venue,
-                matches=_match_rows(block, club_index, layout),
+                matches=matches,
                 unknown=FrozenMapping(
                     dict(zip(LeagueTableRow.UNKNOWN_KEYS, block.head_bytes, strict=True))
                 ),
             )
         )
-    return tuple(rows), _GroupCounts(team_id_in_range, team_resolved)
+    return tuple(rows), _GroupCounts(team_id_in_range, team_resolved, unreadable_match_slots)
 
 
 def _is_double_round_robin_division(
@@ -593,7 +687,7 @@ def build_league_tables(
     further pass over the span.
     """
     kept_blocks, duplicate_blocks = distinct_blocks(span_records.table_blocks)
-    groups = group_blocks(kept_blocks, layout)
+    groups, superseded_blocks = drop_superseded_groups(group_blocks(kept_blocks, layout), layout)
     resolved = resolve_group_competitions(groups, competition_counts_by_team(fixtures))
     name_for = competition_index.name_for
 
@@ -602,11 +696,13 @@ def build_league_tables(
     blocks_in_resolved_groups = 0
     team_id_in_range = 0
     team_resolved = 0
+    unreadable_match_slots = 0
     double_round_robin_divisions = 0
     for position, group in enumerate(groups):
         rows, counts = _rows_for(group, club_index, layout)
         team_id_in_range += counts.team_id_in_range
         team_resolved += counts.team_resolved
+        unreadable_match_slots += counts.unreadable_match_slots
         competition_id = resolved[position]
         if competition_id is not None:
             groups_resolved += 1
@@ -624,8 +720,9 @@ def build_league_tables(
 
     venue_agreement = _venue_agreement(tables, fixtures, layout)
     stats = LeagueTableStats(
-        blocks=len(kept_blocks),
+        blocks=len(kept_blocks) - superseded_blocks,
         duplicate_blocks=duplicate_blocks,
+        superseded_blocks=superseded_blocks,
         block_candidates=span_records.table_block_candidates,
         groups=len(groups),
         groups_resolved=groups_resolved,
@@ -637,5 +734,6 @@ def build_league_tables(
         in_sync_tables=venue_agreement.in_sync_tables,
         venue_slots_decided=venue_agreement.slots_decided,
         venue_slots_agreeing=venue_agreement.slots_agreeing,
+        unreadable_match_slots=unreadable_match_slots,
     )
     return tuple(tables), stats

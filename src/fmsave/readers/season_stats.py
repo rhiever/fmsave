@@ -22,7 +22,7 @@ import struct
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
-from fmsave._container import ContainerIndex, read_region_frame, region_frame_heads
+from fmsave._container import ContainerIndex, read_chosen_region_frames, region_frame_heads
 from fmsave._errors import ReaderCheckError
 from fmsave._layouts import SeasonStatsLayout, find_layout
 from fmsave._reader_stats import SeasonStatsStats
@@ -220,8 +220,7 @@ def read_season_stats_section(
         raise _mismatch(file_name, "no frame of the span holds the season statistics section")
     walked: list[tuple[bytes, SeasonStatsWalk]] = []
     first_error: ReaderCheckError | None = None
-    for span in candidates:
-        body = read_region_frame(container_index, SPAN_REGION, span)
+    for body in read_chosen_region_frames(container_index, SPAN_REGION, candidates):
         try:
             walked.append((body, walk_season_stats(body, layout, file_name)))
         except ReaderCheckError as error:

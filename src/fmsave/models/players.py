@@ -4,6 +4,7 @@ Person fields (name, birth date, nationality, home-grown ids, personality and tr
 from each player's person block; they stay None or empty when no block validates. Adjusted
 and raw attributes share one coverage row per attribute, so one Attributes class serves both
 `attributes` (the 1 to 20 display scale) and `raw_attributes` (the 1 to 100 raw scale).
+A record edited past those scales keeps its edited values, up to 125 raw, which read 25.
 """
 
 from __future__ import annotations

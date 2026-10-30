@@ -1166,8 +1166,17 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
     }
     assert readers["managed_clubs"].gates == ()
     assert {name: dict(reader.anomalies) for name, reader in readers.items()} == {
-        "clubs": {"unlinked_affiliate_teams": 0},
-        "players": {"markerless_players": 1, "unresolved_teams": 1},
+        "clubs": {
+            "unlinked_affiliate_teams": 0,
+            "extended_table_rows": 0,
+            "unanchored_table_rows": 0,
+            "rejected_table_rows": 0,
+        },
+        "players": {
+            "markerless_players": 1,
+            "unresolved_teams": 1,
+            "edited_attribute_players": 0,
+        },
         "contracts": {
             "past_dated_tail_ends": 1,
             "unparsed_tails": 1,
@@ -1226,11 +1235,13 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         },
         "league_tables": {
             "duplicate_blocks": 0,
+            "superseded_blocks": 0,
             "rejected_block_candidates": 0,
             "unresolved_groups": 0,
             "blocks_outside_resolved_groups": 0,
             "team_ids_out_of_range": 0,
             "unresolved_teams": 0,
+            "unreadable_match_slots": 0,
             "in_sync_tables": 0,
             "venue_slots_decided": 0,
             "started_calendar_divisions": 0,
@@ -1508,7 +1519,11 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered
     assert readers["contracts"].gates == (failing_gate("tails_parsed"),)
     assert tuple(gate.name for gate in readers["players"].gates) == PLAYER_GATE_NAMES
     assert readers["players"].record_count == 2
-    assert dict(readers["players"].anomalies) == {"markerless_players": 1, "unresolved_teams": 1}
+    assert dict(readers["players"].anomalies) == {
+        "markerless_players": 1,
+        "unresolved_teams": 1,
+        "edited_attribute_players": 0,
+    }
 
 
 def test_a_reader_error_is_reported_without_its_message(tmp_path: Path) -> None:

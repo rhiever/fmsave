@@ -7,7 +7,7 @@ import pytest
 
 import fmsave
 from fmsave._checks import check_season_stats, enforce, evaluate_season_stats
-from fmsave._container import ContainerIndex, read_index
+from fmsave._container import ContainerIndex, ContainerLimits, read_index
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import SeasonStatsStats
 from fmsave.checks import validate_save
@@ -499,6 +499,19 @@ def test_two_frames_that_both_walk_raise(tmp_path: Path) -> None:
 def test_a_lone_frame_that_does_not_walk_raises_its_own_error(tmp_path: Path) -> None:
     with pytest.raises(fmsave.ReaderCheckError, match="footer"):
         read_season_stats_section(span_index(tmp_path, example_body()[:-1]), LAYOUT)
+
+
+def test_frames_that_carry_the_header_count_against_the_total_cap(tmp_path: Path) -> None:
+    frame_bytes = 64 * 1024
+    broken = example_body()[:-1]
+    padded = broken + bytes(frame_bytes - len(broken))
+    path = span_index(tmp_path, *[padded] * 4).path
+    declared_total = sum(entry.decompressed_size for entry in read_index(path).entries)
+    index = read_index(
+        path, ContainerLimits(total_decompressed_cap=declared_total + 2 * frame_bytes)
+    )
+    with pytest.raises(fmsave.CorruptSaveError, match="total decompression cap"):
+        read_season_stats_section(index, LAYOUT)
 
 
 def overall_row(**values: float) -> PlayerSeasonStats:

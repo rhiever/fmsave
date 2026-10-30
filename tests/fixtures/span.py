@@ -226,7 +226,7 @@ def table_row_bytes(
 ) -> bytes:
     """One 17-byte table row: the key, the counters written as the save stores them.
 
-    `played` is written twice, at +4 and +5, and the byte at +9 is zero.
+    `played` is written twice, at +4 and +5, the byte at +9 is zero, and `points` is signed.
     """
     row = bytearray(TABLE_ROW_BYTES)
     struct.pack_into("<I", row, 0, key)
@@ -236,7 +236,7 @@ def table_row_bytes(
     row[7] = drawn
     row[8] = lost
     row[9] = 0
-    struct.pack_into("<HHH", row, 10, goals_for, goals_against, points)
+    struct.pack_into("<HHh", row, 10, goals_for, goals_against, points)
     row[16] = flag
     return bytes(row)
 

@@ -79,6 +79,18 @@ def write_names_csv(folder: Path, csv_text: str) -> Path:
             id="blank-line-skipped",
         ),
         pytest.param("12345,Ligue Éxample\n", {12345: "Ligue Éxample"}, id="utf-8-name"),
+        # Excel's "CSV UTF-8" opens the file with a byte order mark, which must not stick to the
+        # first id and turn the first row into a header that is skipped.
+        pytest.param(
+            "\ufeff12345,Example League\n12346,Example Cup\n",
+            {12345: "Example League", 12346: "Example Cup"},
+            id="byte-order-mark",
+        ),
+        pytest.param(
+            "\ufeffdatabase_id,name\n12345,Example League\n",
+            {12345: "Example League"},
+            id="byte-order-mark-before-a-header",
+        ),
         # A database id is plain digits, so a first cell that is signed is no more an id than
         # a word is, and the header rule takes it for the heading it looks like.
         pytest.param(
@@ -170,6 +182,21 @@ def test_an_error_names_the_file_but_never_its_folder(tmp_path: Path) -> None:
 
     message = str(error_info.value)
     assert NAME_FILE_NAME in message
+    assert PRIVATE_FOLDER_NAME not in message
+    assert str(tmp_path) not in message
+
+
+def test_a_file_that_is_not_utf_8_names_the_file_but_never_its_folder(tmp_path: Path) -> None:
+    """A file saved in a legacy code page raises a ValueError that says what is wrong with it."""
+    csv_path = tmp_path / PRIVATE_FOLDER_NAME / NAME_FILE_NAME
+    csv_path.parent.mkdir(parents=True)
+    csv_path.write_bytes("12345,Ligue Éxample\n".encode("cp1252"))
+
+    with pytest.raises(ValueError, match="is not UTF-8 text") as error_info:
+        read_competition_names(csv_path)
+
+    message = str(error_info.value)
+    assert message.startswith(NAME_FILE_NAME)
     assert PRIVATE_FOLDER_NAME not in message
     assert str(tmp_path) not in message
 

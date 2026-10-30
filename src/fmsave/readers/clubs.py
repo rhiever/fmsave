@@ -188,7 +188,9 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
             records; or a team id is listed twice (by one club or by two).
     """
     records, scan_end = _scan_club_records(game_db, layouts.records)
-    records = _bind_club_table(game_db, records, layouts, file_name)
+    records, (extended_rows, unanchored_rows, rejected_rows) = _bind_club_table(
+        game_db, records, layouts, file_name
+    )
     if not records:
         raise layout_mismatch(file_name, "no club records found")
     _reject_repeated_club_keys(records, file_name)
@@ -262,6 +264,9 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         affiliate_refs_linked=affiliates.linked,
         reputation_found=len(reputations),
         reputations_median=median_low(reputations) if reputations else None,
+        table_rows_extended=extended_rows,
+        table_rows_unanchored=unanchored_rows,
+        table_rows_rejected=rejected_rows,
     )
     record_spans = tuple(
         ClubRecordSpan(
@@ -337,8 +342,12 @@ def _footer_unique_ids(
 
 def _bind_club_table(
     game_db: bytes, records: list[_ClubRecord], layouts: ClubLayouts, file_name: str
-) -> list[_ClubRecord]:
-    """Authenticate a counted table before admitting its initial club and footer bounds."""
+) -> tuple[list[_ClubRecord], tuple[int, int, int]]:
+    """Authenticate a counted table before admitting its initial club and footer bounds.
+
+    Also returns how many rows after the first give no club: (extended variant, no record
+    anchor, fields rejected).
+    """
     record_layout, table_layout = layouts.records, layouts.table
     prefix_end = (
         records[0].record_start + record_layout.anchor_offset + len(record_layout.anchor)
@@ -372,7 +381,7 @@ def _bind_club_table(
     if not headers:
         if len(game_db) >= FULL_SAVE_MINIMUM_GAME_DB_BYTES:
             raise layout_mismatch(file_name, "no complete club table was found")
-        return records
+        return records, (0, 0, 0)
     tables: list[tuple[ClubTableRecord, ...]] = []
     for head in sorted(headers):
         rows = walk_club_table(game_db, head, table_layout)
@@ -388,6 +397,7 @@ def _bind_club_table(
         raise layout_mismatch(file_name, "club table framing is invalid or ambiguous")
     rows = tables[0]
     bounded: list[_ClubRecord] = []
+    extended_rows = unanchored_rows = rejected_rows = 0
     for ordinal, row in enumerate(rows):
         extra = (
             table_layout.extended_prefix_bytes
@@ -395,10 +405,13 @@ def _bind_club_table(
             else 0
         )
         start = row.body_start + extra - record_layout.zero_byte_offset
-        if ordinal and (
-            extra
-            or not game_db.startswith(record_layout.anchor, start + record_layout.anchor_offset)
+        if ordinal and extra:
+            extended_rows += 1
+            continue
+        if ordinal and not game_db.startswith(
+            record_layout.anchor, start + record_layout.anchor_offset
         ):
+            unanchored_rows += 1
             continue
         uid = 0 if ordinal == 0 else rows[ordinal - 1].unique_id + 1
         record = _accepted_record(
@@ -407,6 +420,7 @@ def _bind_club_table(
         if record is None:
             if ordinal == 0:
                 raise layout_mismatch(file_name, "the initial club has invalid fields")
+            rejected_rows += 1
             continue
         bounded.append(
             replace(
@@ -416,7 +430,7 @@ def _bind_club_table(
                 team_counts_start=row.team_counts_start,
             )
         )
-    return bounded
+    return bounded, (extended_rows, unanchored_rows, rejected_rows)
 
 
 def _reject_repeated_club_keys(records: Sequence[_ClubRecord], file_name: str) -> None:

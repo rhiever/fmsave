@@ -16,6 +16,37 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 TOTAL_DECOMPRESSED_CAP = 16 * 1024 * 1024
 FRAME_DECOMPRESSED_CAP = 4 * 1024 * 1024
+READER_NAMES = (
+    "clubs",
+    "players",
+    "contracts",
+    "suspensions",
+    "managed_clubs",
+    "stages",
+    "competitions",
+    "nations",
+    "fixtures",
+    "stadiums",
+    "transfer_windows",
+    "injury_types",
+    "injuries",
+    "affiliates",
+    "job_vacancies",
+    "league_tables",
+    "competition_rules",
+    "player_match_stats",
+    "player_season_stats",
+    "player_season_history",
+    "finances",
+    "sponsorships",
+    "facilities",
+    "staff",
+    "staff_lists",
+    "tactics",
+    "set_pieces",
+    "training",
+    "mentoring",
+)
 
 
 def seed_inputs() -> list[bytes]:
@@ -55,15 +86,9 @@ def run_one_input(data: bytes) -> None:
                 return
             with fmsave.Save(container_index, save_info) as career_save:
                 repr(career_save.info)
-                for reader in (
-                    career_save.clubs,
-                    career_save.players,
-                    career_save.contracts,
-                    career_save.suspensions,
-                    career_save.managed_clubs,
-                ):
+                for reader_name in READER_NAMES:
                     try:
-                        len(reader())
+                        len(getattr(career_save, reader_name)())
                     except fmsave.FmsaveError:
                         pass
 

@@ -1602,6 +1602,101 @@ def twin_table_blocks() -> list[bytes]:
     ]
 
 
+# The goals Northbridge scored in its first match of group A, which an earlier state of its row
+# holds in the same slot.
+EARLIER_STATE_GOALS_FOR = 3
+# Its place at that earlier time, which does not carry on from the one-club table before it.
+EARLIER_STATE_STORED_INDEX = 2
+
+
+def earlier_state_table_blocks(goals_for: int = EARLIER_STATE_GOALS_FOR) -> list[bytes]:
+    """A table of one block: Northbridge's group A row as it stood after its first match.
+
+    With the default goals the one match it holds is group A's first slot exactly, so it is an
+    earlier state of the row group A keeps. Other goals make it a match group A does not hold.
+    Its stored index is its place at that earlier time, which does not carry on from the table
+    before it, so it is a table of its own.
+    """
+    first_match = {
+        "played": 1,
+        "won": 1,
+        "goals_for": goals_for,
+        "goals_against": 1,
+        "points": 3,
+    }
+    return [
+        table_block_bytes(
+            team_id=NORTHBRIDGE_TEAM_A,
+            rounds_per_venue=TABLE_ROUNDS_PER_VENUE,
+            total=first_match,
+            home=first_match,
+            away={"played": 0, "won": 0},
+            first_half=first_match,
+            second_half={"played": 0, "won": 0},
+            matches=[{"key": SOUTHPORT_TEAM, **first_match}, None, None, None],
+            head_bytes=stored_index_head_bytes(EARLIER_STATE_STORED_INDEX),
+        )
+    ]
+
+
+# A table of one club whose first slot holds one readable match and whose other three slots do
+# not each describe one match its score bears out.
+UNREADABLE_SLOT_COUNT = 3
+
+
+def unreadable_slot_table_blocks() -> list[bytes]:
+    """One block: a readable draw, then a slot counting two matches, a win the score calls a
+    loss, and a win scoring more goals than any match has ever had."""
+    return [
+        table_block_bytes(
+            team_id=ATHLETIC_TEAM_A,
+            rounds_per_venue=TABLE_ROUNDS_PER_VENUE,
+            total={"played": 4, "won": 2, "drawn": 1, "lost": 1, "points": 7},
+            home={"played": 2, "won": 1, "drawn": 1, "points": 4},
+            away={"played": 2, "won": 1, "lost": 1, "points": 3},
+            first_half={"played": 2, "won": 1, "drawn": 1, "points": 4},
+            second_half={"played": 2, "won": 1, "lost": 1, "points": 3},
+            matches=[
+                {
+                    "key": NORTHBRIDGE_TEAM_A,
+                    "played": 1,
+                    "drawn": 1,
+                    "won": 0,
+                    "goals_for": 2,
+                    "goals_against": 2,
+                    "points": 1,
+                },
+                {
+                    "key": SOUTHPORT_TEAM,
+                    "played": 2,
+                    "won": 1,
+                    "drawn": 1,
+                    "goals_for": 3,
+                    "goals_against": 1,
+                    "points": 4,
+                },
+                {
+                    "key": NORTHBRIDGE_TEAM_A,
+                    "played": 1,
+                    "won": 1,
+                    "goals_for": 0,
+                    "goals_against": 2,
+                    "points": 3,
+                },
+                {
+                    "key": SOUTHPORT_TEAM,
+                    "played": 1,
+                    "won": 1,
+                    "goals_for": 255,
+                    "goals_against": 0,
+                    "points": 3,
+                },
+            ],
+            head_bytes=stored_index_head_bytes(0),
+        )
+    ]
+
+
 # A table whose rows account for exactly the matches the calendar holds for their clubs, which
 # is what puts a table in step with one season and so lets the calendar decide its venues. The
 # two clubs meet twice in competition 902, once at each ground, and each row's two slots carry
