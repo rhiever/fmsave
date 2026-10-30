@@ -16,7 +16,7 @@ a ground.
 Derived views the table carries no field for:
 
 - the ground a club plays at is `stadiums().filter(lambda stadium: club_uid in
-  stadium.home_club_uids)`;
+  (stadium.home_club_uids or ()))`;
 - the grounds a club owns are `stadiums().where(owner_club_uid=club_uid)`.
 """
 
@@ -57,9 +57,10 @@ class Stadium:
             comes from the fixture calendar, not from any stored link: a club has a home
             ground once the calendar records enough first-team home matches for it, and that
             ground is the one it used most. It is empty for a ground no club uses often
-            enough, and a ground several clubs share lists each of them (unconfirmed).
-        home_club_names: Denormalised names of home_club_uids, in the same order
-            (unconfirmed).
+            enough, and a ground several clubs share lists each of them. None means the
+            fixture calendar is unavailable, not that no club uses the ground (unconfirmed).
+        home_club_names: Denormalised names of home_club_uids, in the same order; None
+            when the fixture calendar is unavailable (unconfirmed).
         pitch_length_dm: The pitch's length in decimetres.
         pitch_width_dm: The pitch's width in decimetres.
         pitch_min_length_dm: The shortest pitch length the ground allows (unconfirmed).
@@ -81,8 +82,8 @@ class Stadium:
     capacity: int | None
     owner_club_uid: int | None
     owner_club_name: str | None
-    home_club_uids: tuple[int, ...]
-    home_club_names: tuple[str, ...]
+    home_club_uids: tuple[int, ...] | None
+    home_club_names: tuple[str, ...] | None
     pitch_length_dm: int
     pitch_width_dm: int
     pitch_min_length_dm: int

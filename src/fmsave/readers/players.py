@@ -176,7 +176,7 @@ class PlayerDecoder:
         record_window_end: int,
         *,
         is_last_record: bool,
-        suspension_entries: tuple[SuspensionEntry, ...],
+        suspension_entries: tuple[SuspensionEntry, ...] | None,
     ) -> tuple[Player, Contract | None]:
         """Decode one player record's public fields, including its person block and contract.
 
@@ -322,7 +322,13 @@ class PlayerDecoder:
             )
         )
 
-        suspensions = player_suspensions(suspension_entries) if suspension_entries else ()
+        suspensions = (
+            None
+            if suspension_entries is None
+            else player_suspensions(suspension_entries)
+            if suspension_entries
+            else ()
+        )
 
         # Positional, matching Player's field order in models/players.py.
         player = Player(

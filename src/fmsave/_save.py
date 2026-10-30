@@ -9,9 +9,15 @@ from typing import NamedTuple, Self, cast
 
 from fmsave import _checks
 from fmsave._checks import GateResult, ReaderCheck
-from fmsave._container import ContainerIndex, read_index, read_section
+from fmsave._container import (
+    ContainerIndex,
+    ContainerLimits,
+    read_index,
+    read_region_frames_bounded,
+    read_section,
+)
 from fmsave._context import SaveContext, closed_save_error
-from fmsave._errors import ReaderCheckError
+from fmsave._errors import ReaderCheckError, UnsupportedGameError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import (
     ContractLayout,
@@ -72,6 +78,7 @@ from fmsave.readers.affiliates import (
 from fmsave.readers.facilities import find_facility_layout, read_club_facilities
 from fmsave.readers.finances import find_finance_layouts, read_club_finances
 from fmsave.readers.fixtures import build_fixtures_with_offsets
+from fmsave.readers.fm27_span import Fm27Span, Fm27SpanLimits, read_fm27_span
 from fmsave.readers.injuries import (
     build_injury_records,
     find_injury_manager_layout,
@@ -319,6 +326,38 @@ class Save:
         """Game, build, database version, in-game date and section schemas."""
         return self._info
 
+    def experimental_span(self) -> Fm27Span:
+        """Partially decoded raw FM27 fixture cores and counted rules, not semantic tables.
+
+        Only available for the explicitly enabled FM27 preview experiment. This does not
+        identify the authoritative fixture calendar or link rules to competitions. Unknown
+        status is None, never an assumed unplayed match; each raw record names unsupported
+        fields. The bounded pass is cached without retaining decompressed section bytes.
+        """
+        self._require_open()
+        if self._info.game != "FM27":
+            raise UnsupportedGameError(
+                "experimental_span is available only for the FM27 experiment"
+            )
+        return self._context.cached("fm27:raw_span", self._read_experimental_span)
+
+    def _read_experimental_span(self) -> Fm27Span:
+        index = self._require_open()
+        clock = self._info.game_date
+        if clock is None:
+            raise ReaderCheckError("experimental FM27 span requires a readable save clock")
+        limits = Fm27SpanLimits()
+        frames = read_region_frames_bounded(
+            index,
+            SPAN_REGION,
+            maximum_compressed_bytes=limits.maximum_span_bytes * 9 // 8,
+            maximum_compressed_frame_bytes=limits.maximum_frame_bytes * 9 // 8,
+            maximum_frames=limits.maximum_candidates,
+            maximum_decompressed_bytes=limits.maximum_span_bytes,
+            maximum_frame_output_bytes=limits.maximum_frame_bytes,
+        )
+        return read_fm27_span(frames, clock_year=clock.year, limits=limits)
+
     @property
     def closed(self) -> bool:
         """Whether the save has been closed. Readers raise SaveClosedError once it is."""
@@ -438,6 +477,12 @@ class Save:
                 table does. A save opened with strict=True raises ReaderCheckError instead.
         """
         context = self._context
+        if self._info.game == "FM27":
+            self._require_open()
+            raise UnsupportedGameError(
+                "experimental FM27 suspension coverage is not established; "
+                "Player.suspensions is None, not an empty list of bans"
+            )
         return context.cached(SUSPENSIONS_TABLE_CACHE_KEY, self._suspensions_table_entry_point)
 
     def managed_clubs(self) -> Table[ManagedClub]:
@@ -761,7 +806,7 @@ class Save:
         # The calendar and the clubs are read first and in full, checks and all: a stadium row
         # carries its owner's club name and a home-ground link built out of fixture rows, so
         # neither may reach it from a table whose own checks did not pass.
-        fixtures = self.fixtures()
+        fixtures = None if self._info.game == "FM27" else self.fixtures()
         self.clubs()
         # No game_db borrow here on purpose. The calendar above reads the club and stadium
         # indexes inside its own borrow, so both are cached by now and a borrow would only
@@ -769,7 +814,10 @@ class Save:
         club_index = context.club_index()
         stadium_index = self._checked_stadium_index()
         stadiums, stadium_stats = build_stadiums(
-            stadium_index, club_index, tuple(fixtures), self._stadium_layout()
+            stadium_index,
+            club_index,
+            None if fixtures is None else tuple(fixtures),
+            self._stadium_layout(),
         )
         stadium_check = _checks.check_stadiums(
             stadium_stats, gate_bounds, stadium_index.game_db_bytes
@@ -2149,7 +2197,11 @@ class Save:
                     blocks, walk_counts = walk_training_blocks(
                         training, club_team_ids, layout, save_info.file_name
                     )
-                    library = locate_schedule_library(training, walk_counts.blocks_end, layout)
+                    library = (
+                        None
+                        if save_info.game == "FM27"
+                        else locate_schedule_library(training, walk_counts.blocks_end, layout)
+                    )
                 team_rows, group_rows, training_stats = build_training_tables(
                     blocks,
                     library,
@@ -2320,7 +2372,15 @@ class Save:
         with context.section(GAME_DB_SECTION) as game_db:
             nations, stats = read_nations(game_db, layout)
             game_db_length = len(game_db)
-        check = _checks.check_nations(stats, self._gate_bounds(), game_db_length)
+        bounds = self._gate_bounds()
+        # Experimental nation reads always authenticate the complete counted table,
+        # including fragments; the other readers retain their full-save thresholds.
+        check_bytes = (
+            max(game_db_length, bounds.minimum_applies_from_bytes)
+            if info.game == "FM27"
+            else game_db_length
+        )
+        check = _checks.check_nations(stats, bounds, check_bytes)
         self._enforce_checks((check,))
         self._store_reader_checks((check,))
         return Table(nations, Nation)
@@ -2385,9 +2445,6 @@ class Save:
             contract_layout = find_layout(
                 ContractLayout, GAME_DB_SECTION, game_db_schema, save_info.build
             ).layout
-            suspension_layout = find_layout(
-                SuspensionLayout, GAME_DB_SECTION, game_db_schema, save_info.build
-            ).layout
             decoder = build_player_decoder(
                 player_records.layout,
                 club_index,
@@ -2397,9 +2454,15 @@ class Save:
                 contract_layout,
                 save_info.file_name,
             )
-            suspension_entries_by_position = locate_suspensions(
-                game_db, player_records, suspension_layout
-            )
+            omit_suspensions = save_info.game == "FM27"
+            suspension_entries_by_position: Mapping[int, tuple[SuspensionEntry, ...]] = {}
+            if not omit_suspensions:
+                suspension_layout = find_layout(
+                    SuspensionLayout, GAME_DB_SECTION, game_db_schema, save_info.build
+                ).layout
+                suspension_entries_by_position = locate_suspensions(
+                    game_db, player_records, suspension_layout
+                )
             # With a name map the competitions are read first, checks and all. Every
             # competition name a ban carries comes out of the competition index, so that index
             # must have passed its own checks before a name of its leaves this reader: a build
@@ -2434,7 +2497,7 @@ class Save:
                     record_offset,
                     record_window_end,
                     is_last_record=position == last_position,
-                    suspension_entries=suspension_entries,
+                    suspension_entries=None if omit_suspensions else suspension_entries,
                 )
                 history_selectors[player.uid] = history_selector(
                     game_db,
@@ -2464,12 +2527,15 @@ class Save:
                 gate_bounds,
                 game_db_length,
             ),
-            _checks.check_suspensions(
-                suspension_stats(suspension_entries_by_position, player_count, clock),
-                gate_bounds,
-                game_db_length,
-            ),
         )
+        if not omit_suspensions:
+            reader_checks += (
+                _checks.check_suspensions(
+                    suspension_stats(suspension_entries_by_position, player_count, clock),
+                    gate_bounds,
+                    game_db_length,
+                ),
+            )
         self._enforce_checks(reader_checks)
         context.cached(HISTORY_SELECTORS_CACHE_KEY, lambda: FrozenMapping(history_selectors))
         return _PlayerTables(
@@ -2519,6 +2585,7 @@ def open_save(
     *,
     strict: bool = False,
     competition_names: Mapping[int, str] | str | os.PathLike[str] | None = None,
+    experimental_fm27: bool = False,
 ) -> Save:
     """Open a Football Manager 26 save file for reading.
 
@@ -2536,6 +2603,13 @@ def open_save(
             ships none, so without this every `Competition.name` and every denormalised
             `competition_name` is None. Tables are read once and then kept, so the map cannot be
             changed afterwards: open the save again to read it under a different one.
+        experimental_fm27: Opt into partial support for one observed FM27 preview build.
+            Only explicitly registered layouts are used; other readers raise
+            `UnsupportedGameError`. Failed checks always raise, even with strict=False.
+            These layouts are structurally checked, not verified against the game UI.
+            The opt-in limits decompression to 256 MiB per frame and 512 MiB declared total.
+            Global `field_status` labels describe FM26; the FM27 validation report marks
+            every field unconfirmed. This does not enable general FM27 support.
 
     Raises:
         FileNotFoundError: The file does not exist.
@@ -2554,10 +2628,18 @@ def open_save(
     # The map is checked before the file is touched, so a mistake in it costs none of the work
     # of opening a save.
     names = _normalized_competition_names(competition_names)
-    container_index = read_index(path)
+    # A deliberately conservative budget for this single-build experiment. A larger
+    # career is unsupported here rather than allowed to consume the FM26 default budget.
+    limits = (
+        ContainerLimits(total_decompressed_cap=512 * 1024**2, frame_decompressed_cap=256 * 1024**2)
+        if experimental_fm27
+        else None
+    )
+    container_index = read_index(path, limits)
+    info = read_save_info(container_index, experimental_fm27=experimental_fm27)
     return Save(
         container_index,
-        read_save_info(container_index),
-        strict=strict,
+        info,
+        strict=strict or info.game == "FM27",
         competition_names=names,
     )

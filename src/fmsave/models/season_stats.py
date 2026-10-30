@@ -86,7 +86,7 @@ class PlayerSeasonStats:
         shots: Shots.
         shots_on_target: Shots on target.
         shots_outside_box: Shots from outside the box.
-        goals_outside_box: Goals from outside the box (unconfirmed).
+        goals_outside_box: Goals from outside the box, or None when unsupported (unconfirmed).
         free_kick_shots: Shots from free kicks (unconfirmed).
         penalties_taken: Penalties taken (unconfirmed).
         penalties_scored: Penalties scored (unconfirmed).
@@ -115,8 +115,8 @@ class PlayerSeasonStats:
         interceptions: Interceptions.
         possession_won: Times the player won possession.
         possession_lost: Times the player lost possession (unconfirmed).
-        pressures_attempted: Pressures attempted.
-        pressures_completed: Pressures completed.
+        pressures_attempted: Pressures attempted, or None when unsupported.
+        pressures_completed: Pressures completed, or None when unsupported.
         blocks: Blocks; None for a goalkeeper (unconfirmed).
         shots_blocked: Shots blocked while defending (unconfirmed).
         clearances: Clearances; None for a goalkeeper.
@@ -158,7 +158,7 @@ class PlayerSeasonStats:
     shots: int
     shots_on_target: int
     shots_outside_box: int
-    goals_outside_box: int
+    goals_outside_box: int | None
     free_kick_shots: int
     penalties_taken: int
     penalties_scored: int
@@ -185,8 +185,8 @@ class PlayerSeasonStats:
     interceptions: int
     possession_won: int
     possession_lost: int
-    pressures_attempted: int
-    pressures_completed: int
+    pressures_attempted: int | None
+    pressures_completed: int | None
     blocks: int | None
     shots_blocked: int
     clearances: int | None

@@ -56,7 +56,7 @@ from fmsave.readers.contracts import (
 from fmsave.readers.managed import first_human_selector
 from fmsave.readers.names import NamePools
 from fmsave.readers.persons import PersonTuple, build_person_block_decoder
-from fmsave.readers.player_scan import PlayerRecords, closing_unique_id
+from fmsave.readers.player_scan import PlayerRecords, closing_person_header
 
 _UINT32 = struct.Struct("<I")
 _UINT16 = struct.Struct("<H")
@@ -319,7 +319,13 @@ def read_staff_lists(
     Values that turn out to be player pindexes are dropped and counted, and a person two
     lists of one club both
     name keeps both list numbers.
+
+    Raises:
+        ValueError: The layout's list count width is neither one nor two bytes.
     """
+    count_bytes = layout.list_count_bytes
+    if count_bytes not in (1, 2):
+        raise ValueError("staff list_count_bytes must be 1 or 2")
     pindex_positions = player_records.position_by_pindex
     lowest_value, highest_value = layout.list_value_range
     list_count = layout.list_count
@@ -342,10 +348,12 @@ def read_staff_lists(
         cursor = team_list_end + 1 + _UINT32.size * game_db[team_list_end]
         stored_lists: list[tuple[int, ...]] = []
         for _list_number in range(list_count):
-            if cursor >= record_end:
+            if cursor + count_bytes > record_end:
                 break
-            value_count = game_db[cursor]
-            cursor += 1
+            value_count = (
+                game_db[cursor] if count_bytes == 1 else _UINT16.unpack_from(game_db, cursor)[0]
+            )
+            cursor += count_bytes
             values_end = cursor + _UINT32.size * value_count
             if values_end > record_end:
                 break
@@ -706,15 +714,15 @@ def _next_header_after(headers: Sequence[int], header: int) -> int | None:
     return headers[position] if position < len(headers) else None
 
 
-def _unique_id(
+def _closing_header(
     game_db: bytes,
     person_id: int,
     header: int,
     uid: int,
     next_header: int | None,
     layout: StaffLayout,
-) -> int | None:
-    """A person's database Unique ID, from the header that closes his object, or None.
+) -> tuple[int, int] | None:
+    """The validated (offset, database Unique ID) header closing this person, or None.
 
     That header lies after his own and no further on than the next header the decode knows
     of, which may be it; the next header's uid is the highest the closing one can carry.
@@ -727,7 +735,7 @@ def _unique_id(
         search_end = next_header + _UINT32.size
         next_values = _header_values(game_db, next_header, _header_reader(layout), layout)
         uid_ceiling = None if next_values is None else next_values[0]
-    return closing_unique_id(game_db, person_id, search_start, search_end, uid, uid_ceiling)
+    return closing_person_header(game_db, person_id, search_start, search_end, uid, uid_ceiling)
 
 
 def _person_block_window(
@@ -859,7 +867,18 @@ def read_staff(
     records_by_person = discovery.records_by_person
     if human_person_id is not None:
         human_header = header_by_person[human_person_id]
-        object_end = _next_header_after(boundaries, human_header) or len(game_db)
+        next_header = _next_header_after(boundaries, human_header)
+        object_end = next_header or len(game_db)
+        if layouts.person_blocks.require_unique_candidate:
+            human_values = _header_values(
+                game_db, human_header, _header_reader(staff_layout), staff_layout
+            )
+            human_uid, _human_kind = cast("tuple[int, int]", human_values)
+            closing = _closing_header(
+                game_db, human_person_id, human_header, human_uid, next_header, staff_layout
+            )
+            if closing is not None:
+                object_end = min(object_end, closing[0])
         found_records = _human_records(
             game_db,
             human_header,
@@ -912,11 +931,15 @@ def read_staff(
             codes_in_set += int(codes_ok)
             block_40_in_range += int(further_ok)
         next_header = _next_header_after(boundaries, header)
-        unique_id = _unique_id(game_db, person_id, header, uid, next_header, staff_layout)
+        closing = _closing_header(game_db, person_id, header, uid, next_header, staff_layout)
+        unique_id = None if closing is None else closing[1]
+        person_boundary = next_header
+        if layouts.person_blocks.require_unique_candidate and closing is not None:
+            person_boundary = closing[0]
         own_records = records_by_person.get(person_id)
         tag_offset = None if own_records is None else _latest_started(own_records)[0]
         window_start, window_end = _person_block_window(
-            game_db, header, tag_offset, next_header, staff_layout
+            game_db, header, tag_offset, person_boundary, staff_layout
         )
         person = person_decoder.decode(game_db, window_start, window_end)
         if person is not None:

@@ -9,6 +9,29 @@ No Python? [Open fmsave in your browser](https://rhiever.github.io/fmsave/app/) 
 the page. You get your squad and every player in the save, with all attributes, CA and PA, this
 season's stats, and CSV downloads. The save is read on your computer and never uploaded.
 
+## Experimental FM27 preview support
+
+This branch has an opt-in experiment for build `27.0.0+2486695`, not full FM27 support:
+
+```console
+fmsave info career.fm --experimental-fm27
+fmsave validate career.fm --experimental-fm27 --json
+```
+
+Python callers can pass `experimental_fm27=True` to `fmsave.open`. Metadata and selected player, club, nation, competition and finance readers
+are enabled, with strict structural checks. Unsupported readers reject instead of borrowing
+FM26 layouts. This is not a complete save interpretation; use `validate` to see exact coverage.
+Player suspensions are unknown (`None`), not an empty list, and the suspension reader rejects.
+Ambiguous person fields are omitted rather than guessed. `Save.experimental_span()` exposes
+partially decoded raw fixture cores/rules separately from the still-unsupported semantic
+calendar/rules tables; `validate` reports numeric raw coverage, not their identities. Reader checks are always strict in this mode. Unknown FM27 builds and schemas
+are rejected. A successful container decode or structural check does **not** establish that
+all data was interpreted correctly or that a file is malware-free. No code from the save is
+executed. Global field-status labels describe FM26; the experimental validation report marks
+all fields unconfirmed. Independent in-game comparisons are still required. The opt-in uses conservative
+256 MiB per-frame and 512 MiB total declared decompression budgets, so larger careers may
+be rejected. This experiment is not a release.
+
 ## Install
 
 fmsave needs Python 3.12 or newer.

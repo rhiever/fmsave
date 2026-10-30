@@ -16,7 +16,7 @@ import struct
 import sys
 from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import BinaryIO
@@ -501,13 +501,20 @@ def decompress_head(compressed: bytes, wanted_length: int, name: str, file_name:
 
 
 def walk_frame_headers(
-    save_file: BinaryIO, start: int, end: int, file_name: str
+    save_file: BinaryIO, start: int, end: int, file_name: str, *, maximum_frames: int | None = None
 ) -> tuple[FrameSpan, ...]:
     """Locate every frame in [start, end) from frame and block headers, without decompressing."""
+    frame_limit = (
+        MAX_FRAMES_PER_REGION
+        if maximum_frames is None
+        else min(MAX_FRAMES_PER_REGION, maximum_frames)
+    )
+    if frame_limit <= 0:
+        raise ValueError("maximum_frames must be positive")
     spans: list[FrameSpan] = []
     position = start
     while position < end:
-        if len(spans) >= MAX_FRAMES_PER_REGION:
+        if len(spans) >= frame_limit:
             raise CorruptSaveError(
                 f"{file_name}: too many frames between offsets {start} and {end}"
             )
@@ -579,10 +586,68 @@ def region_named(container_index: ContainerIndex, region_name: str) -> Region:
     return region
 
 
-def walk_frames(container_index: ContainerIndex, region_name: str) -> tuple[FrameSpan, ...]:
+def walk_frames(
+    container_index: ContainerIndex, region_name: str, *, maximum_frames: int | None = None
+) -> tuple[FrameSpan, ...]:
     region = region_named(container_index, region_name)
     with open_verified(container_index) as save_file:
-        return walk_frame_headers(save_file, region.start, region.end, container_index.file_name)
+        return walk_frame_headers(
+            save_file,
+            region.start,
+            region.end,
+            container_index.file_name,
+            maximum_frames=maximum_frames,
+        )
+
+
+def read_region_frames_bounded(
+    container_index: ContainerIndex,
+    region_name: str,
+    *,
+    maximum_compressed_bytes: int,
+    maximum_compressed_frame_bytes: int,
+    maximum_frames: int,
+    maximum_decompressed_bytes: int,
+    maximum_frame_output_bytes: int,
+) -> Iterator[bytes]:
+    """Read one frame at a time with input, output and work caps before allocation.
+
+    No compressed-frame list is retained and no file handle survives a yielded frame.
+    The remaining aggregate output budget also limits each decompressor call itself.
+    """
+    if (
+        min(
+            maximum_compressed_bytes,
+            maximum_compressed_frame_bytes,
+            maximum_frames,
+            maximum_decompressed_bytes,
+            maximum_frame_output_bytes,
+        )
+        <= 0
+    ):
+        raise ValueError("bounded region budgets must be positive")
+    region = region_named(container_index, region_name)
+    if region.end - region.start > maximum_compressed_bytes:
+        raise CorruptSaveError("region exceeds its compressed byte budget")
+    spans = walk_frames(container_index, region_name, maximum_frames=maximum_frames)
+    if any(span.size > maximum_compressed_frame_bytes for span in spans):
+        raise CorruptSaveError("region exceeds its compressed frame byte budget")
+    produced = 0
+    for span in spans:
+        if span.skippable:
+            continue
+        cap = min(
+            container_index.limits.frame_decompressed_cap,
+            maximum_frame_output_bytes,
+            maximum_decompressed_bytes - produced,
+        )
+        bounded = replace(
+            container_index,
+            limits=replace(container_index.limits, frame_decompressed_cap=cap),
+        )
+        frame = read_region_frame(bounded, region_name, span)
+        produced += len(frame)
+        yield frame
 
 
 def read_region_frames(container_index: ContainerIndex, region_name: str) -> Iterator[bytes]:

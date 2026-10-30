@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from itertools import pairwise
 
-from fmsave._errors import CorruptSaveError
+from fmsave._errors import CorruptSaveError, UnsupportedGameError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import TrainingLayout, find_layout
 from fmsave._reader_stats import TrainingStats
@@ -238,10 +238,16 @@ def walk_training_blocks(
         ReaderCheckError: The section is too short to hold its header list, or a block the walk
             accepted holds a weekly record or a mentoring group it cannot read: a lead byte, a
             marker, a name, a count outside its cap, or a part running past the end.
+        UnsupportedGameError: A nonempty header list or mentoring group uses a shape the
+            layout explicitly does not support. Empty counts remain readable.
     """
     header_entries = _read_word(
         section, layout.header_count_offset, "its header entry count", file_name
     )
+    if header_entries and not layout.header_entries_supported:
+        raise UnsupportedGameError(
+            f"{file_name}: nonempty training header entries are not supported by this layout"
+        )
     blocks_offset = (
         layout.header_list_offset
         + layout.header_entry_bytes * header_entries
@@ -293,6 +299,10 @@ def walk_training_blocks(
         stored_group_count = _read_word(
             section, group_count_offset, "a block's mentoring group count", file_name
         )
+        if stored_group_count and not layout.mentoring_groups_supported:
+            raise UnsupportedGameError(
+                f"{file_name}: nonempty training mentoring groups are not supported by this layout"
+            )
         groups: list[tuple[int, str, tuple[int, ...]]] = []
         position = group_count_offset + _UINT32.size
         for _group_index in range(stored_group_count):
@@ -412,7 +422,7 @@ def locate_schedule_library(
 
 def build_training_tables(
     blocks: Sequence[RawTrainingBlock],
-    library: tuple[TrainingSchedule, ...],
+    library: tuple[TrainingSchedule, ...] | None,
     club_index: ClubIndex,
     player_records: PlayerRecords,
     players: Table[Player],
@@ -424,7 +434,8 @@ def build_training_tables(
     A team the managed club fields at a club it controls maps to the managed club itself, with
     the slot that team holds in the managed club's own list, because that is the club whose
     training screen shows it. A member whose stored selector names no player record leaves that
-    entry's uid and name empty and is counted.
+    entry's uid and name empty and is counted. A library of None is unsupported, not an
+    observed empty library, and remains None in every team row.
     """
     club_for_team = club_index.team_to_club.get
     affiliate_club_for_team = club_index.affiliate_team_to_club.get
@@ -483,7 +494,7 @@ def build_training_tables(
         week_steps=counts.week_steps,
         seven_day_steps=counts.seven_day_steps,
         undated_weeks=counts.undated_weeks,
-        library_entries=len(library),
+        library_entries=0 if library is None else len(library),
         groups=len(group_rows),
         members=member_count,
         members_resolved=resolved_count,

@@ -360,6 +360,7 @@ class PersonBlockLayout:
     relation_sentinel_offset_in_entry: int
     second_nation_qualifiers: tuple[int, ...]
     relation_sentinel_value: int
+    require_unique_candidate: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -639,6 +640,10 @@ class MatchCacheLayout:
     dated_child_type_offset: int
     dated_attachment_bytes: int
     nullable_suffix_bytes: tuple[int, int, int, int, int]
+    nullable_prefix_second_marker: bytes = b"\x01\x02"
+    medical_row_lead_byte: int = 2
+    nullable_suffix_first_marker: bytes = b"\x01\x03"
+    nullable_suffix_first_date_offset: int = 39
 
 
 @dataclass(frozen=True, slots=True)
@@ -707,6 +712,7 @@ class MatchRecordLayout:
     parent_header_bytes: int
     parent_count_offset: int
     cache_layout: MatchCacheLayout | None = None
+    nonempty_supported: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -1290,6 +1296,8 @@ class SeasonStatsLayout:
     goalkeeper_fields: tuple[tuple[str, int, str, int], ...]
     maximum_minutes_per_appearance: int
     slot_kinds: tuple[str, ...]
+    unsupported_fields: tuple[str, ...] = ()
+    require_unique_keys: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1404,6 +1412,7 @@ class InjuryTypeTableLayout:
     maximum_entries_tried: int
     maximum_entries_opened: int
     payload_prefix: bytes
+    allow_match_entries: bool = True
 
     @property
     def record_overhead_bytes(self) -> int:
@@ -1466,6 +1475,8 @@ class InjuryManagerLayout:
     typed_r12_offset: int
     typed_clock_band_days: int
     recent_log_days: int
+    allow_typed_rows: bool = True
+    require_empty_lists: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1615,6 +1626,7 @@ class StaffLayout:
     list_only_block_search_bytes: int
     preference_slot_sentinels: tuple[tuple[int, int], ...] = ()
     non_staff_contract_kinds: tuple[int, ...] = ()
+    list_count_bytes: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -1715,6 +1727,8 @@ class TacticsLayout:
     routine_record_max_bytes: int
     routine_name_length_range: tuple[int, int]
     name_length_range: tuple[int, int]
+    tactic_records_supported: bool = True
+    named_routines_supported: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -1803,6 +1817,8 @@ class TrainingLayout:
     library_entry_marker_value: int
     library_day_blocks_offset: int
     library_folder_offset: int
+    header_entries_supported: bool = True
+    mentoring_groups_supported: bool = True
 
     @property
     def week_trailer_bytes(self) -> int:
@@ -2409,9 +2425,9 @@ class _BuildModule(Protocol):
 
 
 def _build_modules() -> tuple[_BuildModule, ...]:
-    from fmsave._layouts import fm26_26_1_0, fm26_26_3_2
+    from fmsave._layouts import fm26_26_1_0, fm26_26_3_2, fm27_27_0_0
 
-    return (fm26_26_3_2, fm26_26_1_0)
+    return (fm26_26_3_2, fm26_26_1_0, fm27_27_0_0)
 
 
 def registered_layouts() -> tuple[LayoutEntry, ...]:
@@ -2447,6 +2463,22 @@ def find_layout[LayoutT: Layout](
         for entry in registered_layouts()
         if entry.region == region and isinstance(entry.layout, layout_type)
     ]
+    # A shared schema number is not evidence of cross-edition compatibility. Partial
+    # FM27 support accepts only an explicitly observed build AND schema registration.
+    if build.startswith("27."):
+        from fmsave._errors import UnsupportedGameError
+
+        for entry in candidates:
+            if (
+                entry.build == build
+                and entry.schema == schema
+                and isinstance(entry.layout, layout_type)
+            ):
+                return LayoutMatch(entry.layout, exact=True)
+        raise UnsupportedGameError(
+            f"experimental FM27: {layout_type.__name__} in {region!r} "
+            f"has no supported layout for build {build}, schema {schema}"
+        )
     for entry in candidates:
         if (
             schema is not None

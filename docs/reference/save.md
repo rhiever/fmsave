@@ -23,8 +23,15 @@ runs every reader at once and reports how each fared, without raising or warning
        competitions, nations, fixtures, stadiums, transfer_windows, injury_types, injuries, affiliates,
        job_vacancies, league_tables, competition_rules, player_match_stats,
        player_season_stats, player_season_history, finances, sponsorships, facilities, staff, staff_lists, tactics,
-       set_pieces, training, mentoring, close
+       set_pieces, training, mentoring, experimental_span, close
 ```
+
+## Experimental raw span
+
+`Save.experimental_span()` is available only after opting into the FM27 preview. It returns
+partially decoded raw fixture cores and counted rules, with unsupported fields explicitly
+identified. It is **not** the authoritative fixture calendar or semantic competition-rules
+table. The validation report includes only its numeric coverage counts, never raw identities.
 
 ## Save metadata
 

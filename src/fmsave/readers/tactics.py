@@ -22,7 +22,7 @@ import struct
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
-from fmsave._errors import ReaderCheckError
+from fmsave._errors import ReaderCheckError, UnsupportedGameError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import TacticsLayout, find_layout
 from fmsave._reader_stats import TacticStats
@@ -271,6 +271,8 @@ def _read_selection_part(
     Raises:
         ReaderCheckError: A constant the block is built around is not where the layout says,
             a count runs past the end of the section, or the section ends inside the part.
+        UnsupportedGameError: The layout supports only an explicit zero tactic count but
+            this selection claims records or has an inconsistent no-tactics flag.
     """
     cursor = _expect_bytes(
         section,
@@ -338,6 +340,12 @@ def _read_selection_part(
     (tactics_value,) = _UINT32.unpack_from(section, cursor)
     cursor += _UINT32.size
     (tactic_count,) = _UINT16.unpack_from(section, cursor)
+    if not layout.tactic_records_supported and (
+        tactic_count or tactics_value != layout.no_tactics_value
+    ):
+        raise UnsupportedGameError(
+            f"{file_name}: populated or inconsistent tactic records are not supported by this layout"
+        )
     # The word in front of the count is the layout's no-tactics value on exactly the blocks
     # whose count is zero, on every block of every save measured, so it is read as the flag it
     # is: a block that carries it holds no record whatever the count says.
@@ -536,7 +544,8 @@ def _read_routine_name(section: bytes, terminator_at: int, layout: TacticsLayout
 
     The shortest length whose stored word sits exactly that many bytes in front of the
     terminator wins. A slot with no routine stores a length of zero, so an empty name is a
-    routine and not a failure; None means these bytes end no routine at all.
+    routine and not a failure; None means these bytes end no routine at all. A layout that
+    supports only unnamed slots rejects a positive matched length before decoding its text.
     """
     lowest_length, highest_length = layout.routine_name_length_range
     for length in range(lowest_length, highest_length + 1):
@@ -546,6 +555,8 @@ def _read_routine_name(section: bytes, terminator_at: int, layout: TacticsLayout
         (stored_length,) = _UINT32.unpack_from(section, length_at)
         if stored_length != length:
             continue
+        if length and not layout.named_routines_supported:
+            raise UnsupportedGameError("named set-piece routines are not supported by this layout")
         candidate = section[length_at + _UINT32.size : length_at + _UINT32.size + length]
         try:
             text = candidate.decode("utf-8")
@@ -686,6 +697,8 @@ def walk_tactic_blocks(
         ReaderCheckError: The section is too short to hold its header, a constant a block is
             built around is not where the layout says it is, a count inside a block runs past
             the end of the section, or a name does not decode.
+        UnsupportedGameError: The layout supports only empty tactic records or routine names
+            and a block contains a populated or inconsistent variant.
     """
     _selector, header_blocks = read_tactics_header(section, layout, file_name)
     starts = _block_starts(section, club_team_ids, layout)

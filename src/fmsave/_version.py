@@ -177,7 +177,9 @@ def read_metadata_section(container_index: ContainerIndex, name: str) -> bytes:
     return read_section(container_index, name)
 
 
-def read_summary_facts(container_index: ContainerIndex) -> SummaryFacts:
+def read_summary_facts(
+    container_index: ContainerIndex, *, experimental_fm27: bool = False
+) -> SummaryFacts:
     """Read the summary's version, strings and fallback date once, rejecting games other than FM26."""
     file_name = container_index.file_name
     summary = read_metadata_section(container_index, SAVE_SUMMARY_SECTION)
@@ -189,15 +191,27 @@ def read_summary_facts(container_index: ContainerIndex) -> SummaryFacts:
     )
     summary_layout = find_layout(SaveSummaryLayout, SAVE_SUMMARY_SECTION, summary_schema, "").layout
     version = find_game_version(summary, summary_layout, file_name)
-    if version.major != SUPPORTED_GAME_MAJOR:
+    if version.major == 27 and experimental_fm27:
+        # Version discovery is generic; decoding the structure is edition-specific.
+        summary_layout = find_layout(
+            SaveSummaryLayout, SAVE_SUMMARY_SECTION, summary_schema, version.build
+        ).layout
+    elif version.major != SUPPORTED_GAME_MAJOR:
         raise UnsupportedGameError(
             f"{file_name} is an {version.game} save ({version.build}). fmsave {__version__} reads FM26 saves "
             f"only; {version.game} is not supported yet. See {ISSUES_URL}"
         )
     strings_layout = find_layout(
-        SummaryStringsLayout, SAVE_SUMMARY_SECTION, summary_schema, ""
+        SummaryStringsLayout,
+        SAVE_SUMMARY_SECTION,
+        summary_schema,
+        version.build if version.major == 27 else "",
     ).layout
     clock = read_summary_clock(summary, summary_layout, version)
+    if version.major == 27 and clock is None:
+        raise ReaderCheckError(
+            f"{file_name}: experimental FM27 summary does not fit its structured clock layout"
+        )
     return SummaryFacts(
         version,
         read_summary_strings(summary, strings_layout),
@@ -337,6 +351,7 @@ def decode_unrecognized_game_info(
         if (
             entry.region == GAME_INFO_SECTION
             and entry.schema == schema
+            and entry.build.split(".", 1)[0] == str(version.major)
             and isinstance(entry.layout, GameInfoLayout)
             and entry.layout not in candidates
         ):
@@ -390,13 +405,13 @@ def read_game_info_facts(
         ) from error
 
 
-def read_save_info(container_index: ContainerIndex) -> SaveInfo:
+def read_save_info(container_index: ContainerIndex, *, experimental_fm27: bool = False) -> SaveInfo:
     """Detect the game and build and read save metadata. Warns on unknown FM26 builds."""
     file_name = container_index.file_name
-    summary_facts = read_summary_facts(container_index)
+    summary_facts = read_summary_facts(container_index, experimental_fm27=experimental_fm27)
     version = summary_facts.version
     known_build = version.build in known_builds()
-    if not known_build:
+    if not known_build and version.major != 27:
         warnings.warn(
             UnknownBuildWarning(
                 f"{file_name} was saved by FM26 build {version.build}, which fmsave {__version__} has no "
@@ -413,6 +428,15 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
         for name in section_names
     }
     facts = read_game_info_facts(container_index, section_schemas, version, known_build)
+    if version.major == 27:
+        warnings.warn(
+            UnknownBuildWarning(
+                "experimental FM27 support: only explicitly registered layouts are enabled; "
+                "unsupported readers fail closed. Structural checks are not semantic or "
+                "in-game verification; field-status labels describe FM26, not this experiment."
+            ),
+            skip_file_prefixes=(str(Path(fmsave.__file__).parent) + os.sep,),
+        )
     sections = tuple(
         SectionInfo(
             name=entry.name,

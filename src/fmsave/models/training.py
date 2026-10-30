@@ -73,9 +73,10 @@ class TeamTraining:
             a youth team, is not known (unconfirmed).
         weeks: Every week of the calendar, in stored order, running from before the save's
             date to well after it.
-        schedule_library: The schedules the manager has saved, in stored order. It is one
-            library per save rather than per team, so every row carries the same one, and it
-            holds only saved schedules: the game's own built-in ones are not in it, although a
+        schedule_library: The schedules the manager has saved, in stored order, or None when
+            reading the library is unsupported. An empty tuple means an observed empty library.
+            One library is stored per save rather than per team, so every row carries the same
+            one. It holds only saved schedules: the game's own built-in ones are not in it, although a
             week may well name one. **The save may store a schedule more than once**: most
             saves measured hold twice as many entries as the Schedules screen lists, the same
             schedules over under two runs of ids, so count the distinct `(folder, name)` pairs
@@ -87,7 +88,7 @@ class TeamTraining:
     club_name: str | None
     team_slot: int | None
     weeks: tuple[TrainingWeek, ...]
-    schedule_library: tuple[TrainingSchedule, ...]
+    schedule_library: tuple[TrainingSchedule, ...] | None
 
 
 @dataclass(frozen=True, slots=True)

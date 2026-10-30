@@ -314,6 +314,7 @@ def test_every_row_carries_the_sections_one_schedule_library(career_path: Path) 
         teams = save.training()
 
     for row in teams:
+        assert row.schedule_library is not None
         assert len(row.schedule_library) == len(CAREER_LIBRARY_ROWS)
         for read_schedule, expected in zip(row.schedule_library, CAREER_LIBRARY_ROWS, strict=True):
             assert read_schedule.folder == expected.folder
@@ -409,6 +410,7 @@ def test_every_new_record_survives_pickling_and_deep_copying(career_path: Path) 
         teams = save.training()
         groups = save.mentoring()
 
+    assert teams[1].schedule_library is not None
     records: tuple[object, ...] = (
         teams,
         groups,

@@ -17,6 +17,7 @@ from bisect import bisect_right
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from fmsave._errors import UnsupportedGameError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import MatchRecordLayout, find_layout
 from fmsave._reader_stats import MatchStats
@@ -388,6 +389,23 @@ def locate_match_records(
     """
     search = _match_search(layout, clock.year)
     offsets = player_records.record_offsets
+    if not layout.nonempty_supported:
+        declarations = _cache_declarations(game_db, player_records, layout, search)
+        if (
+            declarations is None
+            or declarations.slots == 0
+            or declarations.unknown
+            or declarations.nonempty
+            or declarations.containing_null + declarations.null + declarations.empty != len(offsets)
+        ):
+            raise UnsupportedGameError(
+                "experimental per-match support requires independently established null or "
+                "empty histories for every player; populated or unsupported histories cannot "
+                "be decoded with this layout"
+            )
+        return LocatedMatchRecords(
+            {}, lists_found=0, lists_decoded=0, history_declarations=declarations
+        )
     if not offsets:
         return LocatedMatchRecords(
             {},

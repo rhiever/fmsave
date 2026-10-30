@@ -30,7 +30,7 @@ import platform
 import warnings
 from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from statistics import median_low
 from typing import TYPE_CHECKING, Literal
 
@@ -2596,10 +2596,13 @@ class ValidationReport:
     section_schemas: Mapping[str, int]
     readers: tuple[ReaderValidation, ...]
     field_statuses: Mapping[str, str]
+    experimental_counts: Mapping[str, int] = field(
+        default_factory=lambda: FrozenMapping({}), hash=False
+    )
 
     def to_json_dict(self) -> dict[str, object]:
         """The report as a JSON-ready dict."""
-        return {
+        record: dict[str, object] = {
             "fmsave_version": self.fmsave_version,
             "python_version": self.python_version,
             "os": self.os,
@@ -2610,6 +2613,9 @@ class ValidationReport:
             "readers": [reader.to_json_dict() for reader in self.readers],
             "field_statuses": dict(self.field_statuses),
         }
+        if self.experimental_counts:
+            record["experimental_counts"] = dict(self.experimental_counts)
+        return record
 
 
 def _completed_validation(
@@ -2733,6 +2739,10 @@ def validate_save(career_save: Save) -> ValidationReport:
         warnings.simplefilter("ignore", ReaderCheckWarning)
         for reader_name, read_table in reader_tables:
             shared_pass = _READER_PASSES.get(reader_name)
+            if save_info.game == "FM27" and reader_name == STADIUMS_READER:
+                # The experiment reads the authenticated stadium table independently;
+                # unavailable calendar-derived home links remain None, not failed work.
+                shared_pass = None
             carried_error = None if shared_pass is None else failed_passes.get(shared_pass)
             if carried_error is not None:
                 # The shared decode would run again only to raise the same error.
@@ -2758,6 +2768,33 @@ def validate_save(career_save: Save) -> ValidationReport:
             validations.append(
                 _completed_validation(reader_name, len(table), table.coverage, reader_check)
             )
+    experimental_counts: dict[str, int] = {}
+    if save_info.game == "FM27":
+        try:
+            raw_span = career_save.experimental_span()
+        except FmsaveError:
+            experimental_counts["span_parse_errors"] = 1
+        else:
+            experimental_counts = {
+                "span_parse_errors": 0,
+                "span_frames": raw_span.frame_count,
+                "span_bytes": raw_span.span_bytes,
+                "raw_fixture_cores": len(raw_span.fixtures),
+                "fixtures_with_owned_status": sum(
+                    row.played is not None for row in raw_span.fixtures
+                ),
+                "fixtures_with_score_pairs": sum(
+                    row.home_goals is not None and row.away_goals is not None
+                    for row in raw_span.fixtures
+                ),
+                "recovered_fixture_cores": raw_span.recovered_fixtures,
+                "raw_rules_parents": len(raw_span.rules),
+                "raw_rules_rounds": sum(len(row.rounds) for row in raw_span.rules),
+                "rules_with_unknown_promotion_quad": sum(
+                    row.promotion_quad is None for row in raw_span.rules
+                ),
+                "rejected_rule_candidates": raw_span.rejected_rule_candidates,
+            }
     return ValidationReport(
         fmsave_version=__version__,
         python_version=platform.python_version(),
@@ -2767,5 +2804,10 @@ def validate_save(career_save: Save) -> ValidationReport:
         known_build=save_info.known_build,
         section_schemas=FrozenMapping(save_info.section_schemas),
         readers=tuple(validations),
-        field_statuses=registered_statuses(),
+        field_statuses=FrozenMapping(
+            dict.fromkeys(registered_statuses(), "unconfirmed")
+            if save_info.game == "FM27"
+            else registered_statuses()
+        ),
+        experimental_counts=FrozenMapping(experimental_counts),
     )

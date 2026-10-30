@@ -213,6 +213,7 @@ class PersonBlockDecoder:
     marker_table: bytes
     marker_needle: bytes
     zero_offset_from_birth: int
+    require_unique_candidate: bool
 
     # Candidate validation and name-block offsets.
     date_zero_bytes_offset: int
@@ -255,13 +256,18 @@ class PersonBlockDecoder:
     second_nation_qualifier_ok_count: int = 0
 
     def decode(self, game_db: bytes, window_start: int, window_end: int) -> PersonTuple | None:
-        """The first validated person block in `[window_start, window_end)`, or None.
+        """A validated person block in `[window_start, window_end)`, or None.
+
+        Normally the first valid block wins. Layouts requiring uniqueness omit person
+        fields when more than one candidate validates inside the window.
 
         Raises:
             CorruptSaveError: A validated block's relation header or entry list runs past
                 window_end, or its legal name is not valid UTF-8.
         """
         self.last_block_start = None
+        if self.require_unique_candidate:
+            return self._decode_unique(game_db, window_start, window_end)
         search_start = window_start + self.zero_offset_from_birth
         for zero_position in iter_marker_run_starts(
             game_db, search_start, window_end, self.marker_table, self.marker_needle
@@ -271,6 +277,51 @@ class PersonBlockDecoder:
             if person is not None:
                 return person
         return None
+
+    def _decode_unique(
+        self, game_db: bytes, window_start: int, window_end: int
+    ) -> PersonTuple | None:
+        """Accept exactly one candidate, counting only a successfully accepted block.
+
+        Candidate decoding updates the relation checks before it finishes. An ambiguous or
+        damaged window must not contribute those provisional counts to later player checks.
+        The immutable name and birth-date caches remain useful after a rejected window.
+        """
+        previous_counts = (
+            self.relation_entry_count,
+            self.relation_sentinel_ok_count,
+            self.second_nation_entry_count,
+            self.second_nation_qualifier_ok_count,
+        )
+        selected: PersonTuple | None = None
+        selected_start: int | None = None
+        accepted = False
+        try:
+            search_start = window_start + self.zero_offset_from_birth
+            for zero_position in iter_marker_run_starts(
+                game_db, search_start, window_end, self.marker_table, self.marker_needle
+            ):
+                birth_date_offset = zero_position - self.zero_offset_from_birth
+                person = self._try_candidate(game_db, birth_date_offset, window_end)
+                if person is None:
+                    continue
+                if selected is not None:
+                    return None
+                selected = person
+                selected_start = self.last_block_start
+            if selected is not None:
+                self.last_block_start = selected_start
+                accepted = True
+            return selected
+        finally:
+            if not accepted:
+                (
+                    self.relation_entry_count,
+                    self.relation_sentinel_ok_count,
+                    self.second_nation_entry_count,
+                    self.second_nation_qualifier_ok_count,
+                ) = previous_counts
+                self.last_block_start = None
 
     def _try_candidate(
         self, game_db: bytes, birth_date_offset: int, window_end: int
@@ -617,6 +668,7 @@ def build_person_block_decoder(
         marker_table=_build_marker_table(layout.personality_range),
         marker_needle=_build_marker_needle(layout.personality_count),
         zero_offset_from_birth=layout.personality_offset_from_birth - 1,
+        require_unique_candidate=layout.require_unique_candidate,
         date_zero_bytes_offset=layout.date_zero_bytes_offset_from_birth,
         zero_region_bytes=bytes(layout.date_zero_bytes_count),
         legal_name_length_min=layout.legal_name_length_min,

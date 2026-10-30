@@ -142,7 +142,11 @@ def test_grounds_are_mostly_unnamed_and_share_their_home_clubs_plausibly(
         mismatches.check(
             label,
             "no ground collects too many home clubs",
-            all(len(ground.home_club_uids) <= STADIUM_HOME_CLUBS_LIMIT for ground in grounds),
+            all(
+                ground.home_club_uids is not None
+                and len(ground.home_club_uids) <= STADIUM_HOME_CLUBS_LIMIT
+                for ground in grounds
+            ),
         )
     mismatches.fail_if_any()
 

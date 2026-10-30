@@ -33,26 +33,28 @@ options:
 
 ```console
 $ fmsave info --help
-usage: fmsave info [-h] [--show-name] [--json] SAVE
+usage: fmsave info [-h] [--experimental-fm27] [--show-name] [--json] SAVE
 
 Show save metadata.
 
 positional arguments:
-  SAVE         path to a .fm save file
+  SAVE                 path to a .fm save file
 
 options:
-  -h, --help   show this help message and exit
-  --show-name  include the save's name, and with --json the save summary
-               texts, which hold names (hidden by default)
-  --json       print JSON instead of text
+  -h, --help           show this help message and exit
+  --experimental-fm27  opt into partial FM27 preview support; unsupported
+                       layouts fail closed
+  --show-name          include the save's name, and with --json the save
+                       summary texts, which hold names (hidden by default)
+  --json               print JSON instead of text
 ```
 
 ## fmsave export
 
 ```console
 $ fmsave export --help
-usage: fmsave export [-h] (--club VALUE | --managed-club |
-                     --competition VALUE | --nation VALUE | --all)
+usage: fmsave export [-h] [--experimental-fm27]
+                     (--club VALUE | --managed-club | --competition VALUE | --nation VALUE | --all)
                      [--format {csv,json,jsonl}] [--columns NAMES]
                      [--competition-names PATH] [-o PATH] [--strict]
                      SAVE TABLE
@@ -86,6 +88,8 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
+  --experimental-fm27   opt into partial FM27 preview support; unsupported
+                        layouts fail closed
   --club VALUE          rows of one club, given as a club uid or a club name
                         or short name (any case)
   --managed-club        rows of the club the human manager runs
@@ -100,7 +104,8 @@ options:
   --competition-names PATH
                         a UTF-8 CSV of database_id,name naming competitions,
                         which no save stores
-  -o, --output PATH     write to this file instead of standard output
+  -o PATH, --output PATH
+                        write to this file instead of standard output
   --strict              stop rather than write when a reader's checks fail
                         (they warn by default)
 ```
@@ -109,17 +114,19 @@ options:
 
 ```console
 $ fmsave validate --help
-usage: fmsave validate [-h] [--json] SAVE
+usage: fmsave validate [-h] [--experimental-fm27] [--json] SAVE
 
 Run every reader and report its checks, counts and coverage. The report holds
 no names, uids or text from the save.
 
 positional arguments:
-  SAVE        path to a .fm save file
+  SAVE                 path to a .fm save file
 
 options:
-  -h, --help  show this help message and exit
-  --json      print JSON instead of text
+  -h, --help           show this help message and exit
+  --experimental-fm27  opt into partial FM27 preview support; unsupported
+                       layouts fail closed
+  --json               print JSON instead of text
 ```
 
 
