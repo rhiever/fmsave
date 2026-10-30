@@ -86,7 +86,9 @@ class PlayerSeasonStats:
         shots: Shots.
         shots_on_target: Shots on target.
         shots_outside_box: Shots from outside the box.
-        goals_outside_box: Goals from outside the box, or None when unsupported (unconfirmed).
+        goals_outside_box: Goals from outside the box. Always None for now: the stored count
+            runs above goals and shots on target on some rows, so it is withheld until its
+            meaning is known (unconfirmed).
         free_kick_shots: Shots from free kicks (unconfirmed).
         penalties_taken: Penalties taken (unconfirmed).
         penalties_scored: Penalties scored (unconfirmed).

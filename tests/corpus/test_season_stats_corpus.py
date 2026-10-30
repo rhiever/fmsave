@@ -113,7 +113,6 @@ SQUAD_COLUMNS: dict[
     "Itc": (count("interceptions"), as_number),
     "Clearances": (count("clearances"), as_number),
     "Shots From Outside The Box Per 90 minutes": (per_90("shots_outside_box"), as_number),
-    "Goals From Outside The Box": (count("goals_outside_box"), as_number),
     "K Hdrs/90": (per_90("key_headers"), as_number),
     "OP-KP/90": (per_90("open_play_key_passes"), as_number),
     "Ch C/90": (per_90("clear_cut_chances_created"), as_number),

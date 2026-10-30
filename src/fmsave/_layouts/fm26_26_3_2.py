@@ -1851,6 +1851,10 @@ SEASON_STATS = SeasonStatsLayout(
         "calendar_year_overall",
         "calendar_year_international",
     ),
+    # The count at 101 matched the squad screen's goals from outside the box for one managed
+    # club, but across three careers it runs above goals on about a fifth of the lines where it
+    # is nonzero, and above shots on target on some, so it does not count goals everywhere.
+    unsupported_fields=("goals_outside_box",),
 )
 
 SEASON_HISTORY = SeasonHistoryLayout(

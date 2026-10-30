@@ -79,14 +79,16 @@ def test_extended_lines_omit_only_explicitly_unsupported_metrics() -> None:
         assert record_to_dict(row, json_ready=True)["pressures_attempted"] is None
 
 
-def test_fm26_keeps_its_metric_values_and_rates() -> None:
-    body = season_stats_body(
-        [
-            ExampleRecord(
-                key=12, own_slots=(stat_line(minutes=90, pressures_attempted=7),) + (None,) * 7
-            )
-        ]
+def test_fm26_keeps_its_pressures_and_withholds_goals_outside_box() -> None:
+    line = stat_line(
+        minutes=90,
+        goals=0,
+        shots=3,
+        shots_outside_box=2,
+        goals_outside_box=1,
+        pressures_attempted=7,
     )
+    body = season_stats_body([ExampleRecord(key=12, own_slots=(line,) + (None,) * 7)])
     rows, _ = build_season_stats(
         walk_season_stats(body, FM26_LAYOUT, "example.bin"),
         body,
@@ -95,8 +97,12 @@ def test_fm26_keeps_its_metric_values_and_rates() -> None:
         {},
         FM26_LAYOUT,
     )
+    assert FM26_LAYOUT.unsupported_fields == ("goals_outside_box",)
     assert rows[0].pressures_attempted == 7
     assert rows[0].pressures_attempted_per_90 == 7
+    assert rows[0].shots_outside_box == 2
+    assert rows[0].goals_outside_box is None
+    assert record_to_dict(rows[0], json_ready=True)["goals_outside_box"] is None
 
 
 @pytest.mark.parametrize(

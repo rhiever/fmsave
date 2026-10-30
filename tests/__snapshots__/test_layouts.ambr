@@ -2317,6 +2317,7 @@
           'calendar_year_international',
         ),
         'unsupported_fields': tuple(
+          'goals_outside_box',
         ),
       }),
       'region': 'unlisted_after_non_pl_hist_ls',
