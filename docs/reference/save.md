@@ -33,6 +33,14 @@ partially decoded raw fixture cores and counted rules, with unsupported fields e
 identified. It is **not** the authoritative fixture calendar or semantic competition-rules
 table. The validation report includes only its numeric coverage counts, never raw identities.
 
+## Experimental finance interpretation
+
+The FM27 experiment retains the prior-month interpretation of finance snapshots. It does
+not expose the current month's live income and expenditure. Snapshot timing and payroll
+semantics still need independent FM27 validation. Money is returned in the save's stored
+units without display-currency conversion; wages are weekly amounts. Comparing these rows
+with the game's current finance overview requires matching the period and units.
+
 ## Save metadata
 
 ```{eval-rst}
