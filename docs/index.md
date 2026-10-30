@@ -8,7 +8,8 @@ myst:
 
 Read your Football Manager 26 and 27 saves from disk into Python records, DataFrames, CSV, and JSON.
 fmsave is read-only: it never modifies a save, makes no network connections, and does not read
-game memory.
+game memory. FM27 support currently covers build `27.0.0+2486695`; see the
+[coverage guide](guides/trust.md) for supported readers and field status.
 
 No Python? [Open fmsave in your browser](https://rhiever.github.io/fmsave/app/) and drop a save on
 the page. You get your squad and every player in the save, with all attributes, CA and PA, this
@@ -48,9 +49,12 @@ fmsave export career.fm players --managed-club -o squad.csv
 
 ## Where saves live
 
+Common FM26 locations:
+
 - macOS: `~/Library/Application Support/Sports Interactive/Football Manager 26/games/`
 - Windows: usually `Documents\Sports Interactive\Football Manager 26\games\`
-- Steam Cloud and other stores may keep saves somewhere else.
+
+For FM27, Steam Cloud, or another store location, use the folder shown by the game's Save As dialog.
 
 If the game is running, copy the save and read the copy.
 
