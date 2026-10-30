@@ -1288,6 +1288,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         },
         "finances": {"clubs_with_series": 0, "balance_breaks": 0, "opening_balance_steps": 0},
         "sponsorships": {
+            "sponsor_lists_rejected": 0,
             "clubs_without_sponsors": 0,
             "clubs_with_empty_sponsor_lists": 0,
             "clubs_without_sponsor_lists": 0,

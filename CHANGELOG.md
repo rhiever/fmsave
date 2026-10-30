@@ -15,6 +15,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ### Fixed
 
+- FM27 sponsorship lists retain boundary-date rows instead of losing the whole club's list. Rejected FM27 rows in a structurally located list now fail an explicit check, even when overall coverage passes. FM26 date boundaries and failure behavior remain unchanged; rejected lists gain a diagnostic count.
+
 - League-table points below zero, after a points deduction, read as negative instead of about 65,000.
 - `league_tables()` no longer returns one-club tables that hold an earlier state of a row kept in another table, which reported a stale record in first place. Validation counts them as `superseded_blocks`.
 - League-table match slots that do not hold one match whose score agrees with its result, such as slots counting two meetings or scoring hundreds of goals, keep their slot and side with the other fields empty. Validation counts them as `unreadable_match_slots`.

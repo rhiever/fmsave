@@ -751,8 +751,6 @@ def test_no_series_and_no_managed_club_fails_nothing() -> None:
         stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES
     )
     assert failed_gate_names(stats) == []
-    # The one count that still applies is the ceiling on second chains, which no club can break
-    # when no club has a chain at all: this is the hole the reader's docstring names.
     assert [gate.name for gate in gates if gate.applied] == ["finance_clubs_with_two_chains"]
 
 
@@ -798,6 +796,7 @@ def test_the_sponsorship_check_names_its_own_reader(career_save_path: Path) -> N
     assert finance_check.record_count == 6
     assert sponsorship_check.record_count == 3
     assert dict(sponsorship_check.anomalies) == {
+        "sponsor_lists_rejected": 0,
         "clubs_without_sponsors": 0,
         "clubs_with_empty_sponsor_lists": 0,
         "clubs_without_sponsor_lists": 0,
@@ -951,6 +950,7 @@ def test_empty_and_invalid_primary_lists_have_distinct_coverage_and_anomalies(em
     assert stats.clubs_with_empty_sponsor_lists == int(empty)
     report = check_sponsorships(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert dict(report.anomalies) == {
+        "sponsor_lists_rejected": int(not empty),
         "clubs_without_sponsors": 1,
         "clubs_with_empty_sponsor_lists": int(empty),
         "clubs_without_sponsor_lists": int(not empty),
@@ -999,3 +999,92 @@ def test_historical_sponsor_dates_still_reject_null_and_malformed_values(packed:
     row = sponsor_row_bytes(**{**SPONSOR_A, "start": packed})  # pyright: ignore[reportArgumentType]
     record = sponsor_run_record((row,))
     assert locate_sponsor_chain(record, 0, len(record), LAYOUTS.sponsors) is None
+
+
+@pytest.mark.parametrize(
+    "build,start,end,expected_count",
+    (
+        ("27.0.0+2486695", (183, 2032), (182, 2032), 3),
+        ("27.0.0+2486695", (183, 2032), (183, 2032), 3),
+        ("27.0.0+2486695", (183, 2032), (184, 2032), 3),
+        ("27.0.0+2486695", (183, 2032), (181, 2032), 0),
+        ("27.0.0+2486695", (1, 2032), (365, 2031), 3),
+        (BUILD_STRING, (183, 2032), (182, 2032), 0),
+        (BUILD_STRING, (183, 2032), (183, 2032), 0),
+        (BUILD_STRING, (183, 2032), (184, 2032), 3),
+    ),
+)
+def test_sponsor_date_boundary_preserves_the_entire_owned_list(
+    build: str, start: tuple[int, int], end: tuple[int, int], expected_count: int
+) -> None:
+    from tests.fixtures.container import packed_date
+
+    sound = sponsor_row_bytes(**SPONSOR_A)  # pyright: ignore[reportArgumentType]
+    boundary = sponsor_row_bytes(
+        **{**SPONSOR_A, "start": packed_date(*start), "end": packed_date(*end)}
+    )  # pyright: ignore[reportArgumentType]
+    data = one_club_game_db(
+        club_finance_bytes(rows=career_finance_rows(), sponsors=(sound, boundary, sound))
+    )
+    index = read_club_index(data, find_club_layouts(GAME_DB_SCHEMA, build), FILE_NAME)
+    _, sponsors, stats = read_club_finances(
+        data, index, own_spans(data, index), CLOCK, find_finance_layouts(4000, build), True
+    )
+    assert len(sponsors) == expected_count
+    assert stats.sponsor_lists_rejected == int(expected_count == 0)
+    if sponsors:
+        from datetime import timedelta
+
+        assert sponsors[1].start == date(start[1], 1, 1) + timedelta(days=start[0] - 1)
+        assert sponsors[1].end == date(end[1], 1, 1) + timedelta(days=end[0] - 1)
+
+
+@pytest.mark.parametrize("game_db_bytes", (FRAGMENT_GAME_DB_BYTES, FULL_SIZE_GAME_DB_BYTES))
+def test_one_rejected_owned_sponsor_list_fails_even_when_coverage_passes(
+    game_db_bytes: int,
+) -> None:
+    bad = sponsor_row_bytes(**{**SPONSOR_A, "annual": 4_000_000})  # pyright: ignore[reportArgumentType]
+    data = one_club_game_db(club_finance_bytes(rows=career_finance_rows(), sponsors=(bad,)))
+    index = read_club_index(data, find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING), FILE_NAME)
+    _, sponsors, rejected = read_club_finances(
+        data,
+        index,
+        own_spans(data, index),
+        CLOCK,
+        find_finance_layouts(4000, "27.0.0+2486695"),
+        True,
+    )
+    assert sponsors == ()
+    assert getattr(rejected, "sponsor_lists_rejected", None) == 1
+    healthy = dataclasses.replace(
+        passing_finance_stats(),
+        sponsor_lists_rejected=rejected.sponsor_lists_rejected,
+        sponsor_lists_strict=rejected.sponsor_lists_strict,
+    )
+    gates = evaluate_sponsorships(healthy, BOUNDS, game_db_bytes)
+    assert [g.name for g in gates if g.applied and not g.passed] == ["sponsor_lists_rejected"]
+
+
+def test_rejected_owned_sponsors_stop_both_strict_tables(tmp_path: Path) -> None:
+    from tests.test_fm27_experimental import fm27_fragment
+
+    bad = sponsor_row_bytes(**{**SPONSOR_A, "annual": 4_000_000})  # pyright: ignore[reportArgumentType]
+    data = one_club_game_db(club_finance_bytes(rows=career_finance_rows(), sponsors=(bad,)))
+    from fmsave._container import read_index, read_section
+    from tests.fixtures.container import SectionFrame, build_container_fragment, section_body
+
+    index = read_index(fm27_fragment(tmp_path, game_db=data))
+    sections = [
+        SectionFrame(name, read_section(index, name), entry.extension)
+        for name, entry in index.sections.items()
+    ]
+    sections.append(SectionFrame("humans", section_body(".dat", 24, bytes(40))))
+    path = build_container_fragment(sections).write(tmp_path / "fictional.fm")
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        save = fmsave.open(path)
+    with save:
+        for table in (save.sponsorships, save.finances):
+            with pytest.raises(fmsave.ReaderCheckError, match="sponsor_lists_rejected"):
+                table()
+            assert save._context.cached_value(FINANCES_TABLE_CACHE_KEY) is None
+            assert save._context.cached_value(SPONSORSHIPS_TABLE_CACHE_KEY) is None

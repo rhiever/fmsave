@@ -23,7 +23,6 @@ from fmsave._layouts.fm26_26_3_2 import (
     NAME_POOLS,
     NATION_TABLE,
     PLAYER_RECORDS,
-    SPONSOR_CHAINS,
     STADIUM_TABLE,
     STAGE_TABLE,
     TAGGED_STREAM,
@@ -50,6 +49,9 @@ from fmsave._layouts.fm26_26_3_2 import (
 )
 from fmsave._layouts.fm26_26_3_2 import (
     SEASON_STATS as FM26_SEASON_STATS,
+)
+from fmsave._layouts.fm26_26_3_2 import (
+    SPONSOR_CHAINS as FM26_SPONSOR_CHAINS,
 )
 from fmsave._layouts.fm26_26_3_2 import (
     STAFF as FM26_STAFF,
@@ -162,6 +164,9 @@ MATCH_CACHE = replace(
     nullable_suffix_first_date_offset=38,
 )
 MATCH_RECORDS = replace(FM26_MATCH_RECORDS, cache_layout=MATCH_CACHE, nonempty_supported=False)
+
+# Keep stored boundary dates unchanged; this build can end a row 1 day before it starts.
+SPONSOR_CHAINS = replace(FM26_SPONSOR_CHAINS, minimum_row_days=-1, reject_invalid_lists=True)
 
 LAYOUTS = (
     LayoutEntry("game_info", 47, BUILD, GAME_INFO),

@@ -269,16 +269,32 @@ def locate_finance_chain(
     return None
 
 
+@dataclass(frozen=True, slots=True)
+class _SponsorChainResult:
+    first_row: int
+    row_count: int
+    valid: bool
+
+
 def locate_sponsor_chain(
     game_db: bytes, search_start: int, record_end: int, layout: SponsorChainLayout
 ) -> tuple[int, int] | None:
+    """The owned primary list when every row passes, or None for absent/invalid data."""
+    result = _inspect_sponsor_chain(game_db, search_start, record_end, layout)
+    return (result.first_row, result.row_count) if result is not None and result.valid else None
+
+
+def _inspect_sponsor_chain(
+    game_db: bytes, search_start: int, record_end: int, layout: SponsorChainLayout
+) -> _SponsorChainResult | None:
     """The structurally owned primary sponsor list, including an explicit empty list.
 
     The counted prefix determines one list position. Missing, truncated or invalid prefix
     data yields None; later sponsor-shaped bytes are never a fallback. A positive count
     requires every row to pass tag, flag, calendar-date and monetary checks. Once ownership
     is established, historical contract dates use the ordinary game date format; an
-    empirical search-year window is unnecessary.
+    empirical search-year window is unnecessary. Invalid rows retain their owned count
+    in a result marked invalid, so coverage cannot hide a rejected list.
     """
     if search_start < 0 or record_end > len(game_db) or search_start >= record_end:
         return None
@@ -315,10 +331,11 @@ def locate_sponsor_chain(
     first_row = primary_count_at - layout.count_offset
     row_count = game_db[primary_count_at]
     run_end = first_row + layout.row_bytes * row_count
+    rejected = _SponsorChainResult(first_row, row_count, valid=False)
     if run_end > record_end:
-        return None
+        return rejected
     if row_count == 0:
-        return first_row, 0
+        return _SponsorChainResult(first_row, 0, valid=True)
 
     row_struct, index_by_name = _sponsor_row_struct(layout)
     for row_offset in range(first_row, run_end, layout.row_bytes):
@@ -330,12 +347,12 @@ def locate_sponsor_chain(
             or total_value > layout.value_maximum
             or row[index_by_name["annual"]] > total_value
         ):
-            return None
+            return rejected
         start = decode_date(game_db, row_offset + layout.start_offset)
         end = decode_date(game_db, row_offset + layout.end_offset)
-        if start is None or end is None or end <= start:
-            return None
-    return first_row, row_count
+        if start is None or end is None or (end - start).days < layout.minimum_row_days:
+            return rejected
+    return _SponsorChainResult(first_row, row_count, valid=True)
 
 
 def month_labels(clock: date, row_count: int, month_lag: int) -> tuple[date, ...]:
@@ -397,6 +414,7 @@ def read_club_finances(
     expenditure_split_rows = 0
     clubs_with_sponsors = 0
     clubs_with_empty_sponsor_lists = 0
+    sponsor_lists_rejected = 0
     for club in club_index.clubs:
         span = span_by_club_uid.get(club.uid)
         if span is None or not searched_record(span, chain_layout):
@@ -466,11 +484,15 @@ def read_club_finances(
                     opening_balance_steps += 1
             previous_balance = balance
             previous_net = net
-        located_run = locate_sponsor_chain(
+        sponsor_result = _inspect_sponsor_chain(
             game_db, head + row_bytes * row_count, span.record_end, sponsor_layout
         )
-        if located_run is None:
+        if sponsor_result is None:
             continue
+        if not sponsor_result.valid:
+            sponsor_lists_rejected += 1
+            continue
+        located_run = (sponsor_result.first_row, sponsor_result.row_count)
         if located_run[1] == 0:
             clubs_with_empty_sponsor_lists += 1
             continue
@@ -494,6 +516,8 @@ def read_club_finances(
             clubs_with_sponsors=clubs_with_sponsors,
             sponsor_rows=len(sponsorships),
             clubs_with_empty_sponsor_lists=clubs_with_empty_sponsor_lists,
+            sponsor_lists_rejected=sponsor_lists_rejected,
+            sponsor_lists_strict=sponsor_layout.reject_invalid_lists,
             managed_club_exists=managed_club_exists,
         ),
     )
