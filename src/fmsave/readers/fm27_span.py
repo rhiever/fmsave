@@ -15,6 +15,7 @@ from datetime import date
 from itertools import pairwise
 from typing import Literal
 
+from fmsave._container import FM27_FRAME_DECOMPRESSED_CAP, FM27_TOTAL_DECOMPRESSED_CAP
 from fmsave._errors import CorruptSaveError
 from fmsave._scan import decode_date
 
@@ -38,10 +39,13 @@ _UNSUPPORTED_FIXTURE_FIELDS = (
 
 @dataclass(frozen=True, slots=True)
 class Fm27SpanLimits:
-    """Allocation and work ceilings, independent of counts claimed by the input."""
+    """Allocation and work ceilings, independent of counts claimed by the input.
 
-    maximum_span_bytes: int = 64 * 1024**2
-    maximum_frame_bytes: int = 8 * 1024**2
+    The byte ceilings default to the budgets every other FM27 read applies.
+    """
+
+    maximum_span_bytes: int = FM27_TOTAL_DECOMPRESSED_CAP
+    maximum_frame_bytes: int = FM27_FRAME_DECOMPRESSED_CAP
     maximum_candidates: int = 100_000
     maximum_fixtures: int = 100_000
     maximum_rules: int = 4096

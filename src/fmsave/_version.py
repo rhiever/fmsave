@@ -13,6 +13,8 @@ from pathlib import Path
 
 import fmsave
 from fmsave._container import (
+    FM27_FRAME_DECOMPRESSED_CAP,
+    FM27_TOTAL_DECOMPRESSED_CAP,
     ContainerIndex,
     damaged_part_error,
     read_section,
@@ -410,8 +412,12 @@ def limit_game_index(container_index: ContainerIndex, game: str) -> ContainerInd
         return container_index
     limits = replace(
         container_index.limits,
-        total_decompressed_cap=min(container_index.limits.total_decompressed_cap, 512 * 1024**2),
-        frame_decompressed_cap=min(container_index.limits.frame_decompressed_cap, 256 * 1024**2),
+        total_decompressed_cap=min(
+            container_index.limits.total_decompressed_cap, FM27_TOTAL_DECOMPRESSED_CAP
+        ),
+        frame_decompressed_cap=min(
+            container_index.limits.frame_decompressed_cap, FM27_FRAME_DECOMPRESSED_CAP
+        ),
     )
     validate_entries(
         container_index.entries, container_index.trailer_offset, limits, container_index.file_name
