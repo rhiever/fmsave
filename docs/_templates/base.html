@@ -3,7 +3,7 @@
 {%- extends "!base.html" -%}
 {%- block extrahead -%}
 {{ super() }}
-{%- set page_title = title|striptags|e if pagename != "index" else "fmsave: read Football Manager 26 saves" %}
+{%- set page_title = title|striptags|e if pagename != "index" else "fmsave: read Football Manager saves" %}
 {%- if pageurl %}
 <meta property="og:url" content="{{ pageurl|e }}">
 {%- endif %}
