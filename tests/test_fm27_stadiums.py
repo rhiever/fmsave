@@ -106,7 +106,7 @@ def test_fm27_validation_does_not_carry_unsupported_calendar_into_independent_st
     # validation and must still be called after the unsupported shared calendar pass.
     monkeypatch.setattr(fmsave.Save, "stadiums", lambda self: Table((), Stadium))
     with pytest.warns(fmsave.UnknownBuildWarning):
-        save = fmsave.open(fm27_fragment(tmp_path), experimental_fm27=True)
+        save = fmsave.open(fm27_fragment(tmp_path))
     with save:
         report = fmsave.validate_save(save)
     readers = {reader.reader: reader for reader in report.readers}

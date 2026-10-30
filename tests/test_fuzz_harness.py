@@ -106,9 +106,8 @@ def test_other_exceptions_escape_from_readers(monkeypatch: pytest.MonkeyPatch) -
         run_one_input(SEEDS[1])
 
 
-@pytest.mark.parametrize("experimental", [False, True])
-def test_fm27_span_parser_is_reached_only_with_explicit_opt_in(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, experimental: bool
+def test_fm27_span_parser_is_reached_in_normal_fuzzing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import fmsave._save
     from tests.test_fm27_span_integration import span_fragment
@@ -122,16 +121,15 @@ def test_fm27_span_parser_is_reached_only_with_explicit_opt_in(
         return result
 
     monkeypatch.setattr(fmsave._save, "read_fm27_span", recording_parser)
-    run_one_input(span_fragment(tmp_path).read_bytes(), experimental_fm27=experimental)
-    assert len(parsed) == int(experimental)
-    if experimental:
-        assert len(parsed[0].fixtures) == 2
-        assert parsed[0].fixtures[1].home_goals == 2
-        assert len(parsed[0].rules) == 1
+    run_one_input(span_fragment(tmp_path).read_bytes())
+    assert len(parsed) == 1
+    assert len(parsed[0].fixtures) == 2
+    assert parsed[0].fixtures[1].home_goals == 2
+    assert len(parsed[0].rules) == 1
 
 
 @pytest.mark.parametrize("cap", ["TOTAL_DECOMPRESSED_CAP", "FRAME_DECOMPRESSED_CAP"])
-def test_fm27_opt_in_retains_fuzz_decompression_caps(
+def test_fm27_retains_fuzz_decompression_caps(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: str
 ) -> None:
     import fmsave._save
@@ -142,7 +140,7 @@ def test_fm27_opt_in_retains_fuzz_decompression_caps(
     monkeypatch.setattr(
         fmsave._save, "read_fm27_span", raise_error(AssertionError("parser must not be reached"))
     )
-    run_one_input(span_fragment(tmp_path).read_bytes(), experimental_fm27=True)
+    run_one_input(span_fragment(tmp_path).read_bytes())
 
 
 def test_fm27_parser_unexpected_errors_escape(
@@ -153,12 +151,11 @@ def test_fm27_parser_unexpected_errors_escape(
 
     monkeypatch.setattr(fmsave._save, "read_fm27_span", raise_error(RuntimeError("boom")))
     with pytest.raises(RuntimeError, match="boom"):
-        run_one_input(span_fragment(tmp_path).read_bytes(), experimental_fm27=True)
+        run_one_input(span_fragment(tmp_path).read_bytes())
 
 
-@pytest.mark.parametrize("experimental", [False, True])
-def test_fuzz_cli_forwards_opt_in_and_supplies_a_reachable_fm27_seed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, experimental: bool
+def test_fuzz_cli_supplies_a_reachable_fm27_seed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import shutil
     import sys
@@ -181,7 +178,7 @@ def test_fuzz_cli_forwards_opt_in_and_supplies_a_reachable_fm27_seed(
         seed_folder = Path(arguments[-1])
         try:
             seeds = sorted(seed_folder.iterdir())
-            assert len(seeds) == len(SEEDS) + int(experimental)
+            assert len(seeds) == len(SEEDS)
             for seed in seeds:
                 callback(seed.read_bytes())
         finally:
@@ -194,11 +191,8 @@ def test_fuzz_cli_forwards_opt_in_and_supplies_a_reachable_fm27_seed(
         SimpleNamespace(instrument_imports=nullcontext, Setup=setup, Fuzz=lambda: None),
     )
     arguments = ["fuzz_container.py", str(tmp_path)]
-    if experimental:
-        arguments.append("--experimental-fm27")
     monkeypatch.setattr(sys, "argv", arguments)
     harness.main()
-    assert len(parsed) == int(experimental)
-    if experimental:
-        assert len(parsed[0].fixtures) == 2
-        assert len(parsed[0].rules) == 1
+    assert len(parsed) == 1
+    assert len(parsed[0].fixtures) == 2
+    assert len(parsed[0].rules) == 1

@@ -226,11 +226,6 @@ class _CommandLineParser(argparse.ArgumentParser):
 
 def _add_save_argument(command_parser: argparse.ArgumentParser) -> None:
     command_parser.add_argument("save_path", metavar="SAVE", help="path to a .fm save file")
-    command_parser.add_argument(
-        "--experimental-fm27",
-        action="store_true",
-        help="opt into partial FM27 preview support; unsupported layouts fail closed",
-    )
 
 
 def _table_argument_help() -> str:
@@ -265,7 +260,7 @@ def _table_name(argument: str) -> str:
 def _build_parser() -> _CommandLineParser:
     parser = _CommandLineParser(
         prog="fmsave",
-        description="Read Football Manager 26 save files. fmsave never modifies a save.",
+        description="Read Football Manager 26 and supported 27 save files. fmsave never modifies a save.",
     )
     parser.add_argument("--version", action="version", version=f"fmsave {__version__}")
     subcommands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
@@ -402,7 +397,7 @@ def _render_info_text(save_info: SaveInfo, show_name: bool) -> str:
 
 def _run_info(arguments: argparse.Namespace) -> int:
     save_path = Path(arguments.save_path)
-    with fmsave.open(save_path, experimental_fm27=arguments.experimental_fm27) as career_save:
+    with fmsave.open(save_path) as career_save:
         save_info = career_save.info
     if arguments.json:
         info_text = json.dumps(
@@ -801,7 +796,7 @@ def _stadium_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[obj
     if any(stadium.home_club_uids is None for stadium in stadiums):
         raise UnsupportedGameError(
             "stadium club/nation scopes require verified home-ground links; "
-            "these links are unknown in the FM27 experiment. Use --all for raw stadium rows"
+            "these links are unknown in FM27. Use --all for raw stadium rows"
         )
     keeps_club = _club_uid_filter(career_save, scope)
     return (
@@ -1172,7 +1167,6 @@ def _run_export(arguments: argparse.Namespace) -> int:
         save_path,
         strict=arguments.strict,
         competition_names=competition_names,
-        experimental_fm27=arguments.experimental_fm27,
     ) as career_save:
         scope = _resolve_scope(career_save, arguments)
         records = export_table.rows(career_save, scope)
@@ -1225,9 +1219,7 @@ def _validation_exit_code(report: ValidationReport) -> int:
 
 
 def _run_validate(arguments: argparse.Namespace) -> int:
-    with fmsave.open(
-        Path(arguments.save_path), experimental_fm27=arguments.experimental_fm27
-    ) as career_save:
+    with fmsave.open(Path(arguments.save_path)) as career_save:
         report = validate_save(career_save)
     if arguments.json:
         report_text = json.dumps(report.to_json_dict(), indent=2, ensure_ascii=True)

@@ -2466,7 +2466,7 @@ def find_layout[LayoutT: Layout](
     # A shared schema number is not evidence of cross-edition compatibility. Partial
     # FM27 support accepts only an explicitly observed build AND schema registration.
     if build.startswith("27."):
-        from fmsave._errors import UnsupportedGameError
+        from fmsave._errors import ISSUES_URL, UnsupportedGameError
 
         for entry in candidates:
             if (
@@ -2476,8 +2476,8 @@ def find_layout[LayoutT: Layout](
             ):
                 return LayoutMatch(entry.layout, exact=True)
         raise UnsupportedGameError(
-            f"experimental FM27: {layout_type.__name__} in {region!r} "
-            f"has no supported layout for build {build}, schema {schema}"
+            f"FM27: {layout_type.__name__} in {region!r} "
+            f"has no supported layout for build {build}, schema {schema}. See {ISSUES_URL}"
         )
     for entry in candidates:
         if (

@@ -18,6 +18,7 @@ from tests.fixtures.container import (
     length_prefixed,
     packed_date,
     section_body,
+    zstd,
 )
 from tests.fixtures.nations import nation_table_bytes
 
@@ -54,14 +55,14 @@ def fm27_fragment(
     ).write(tmp_path / "example.bin")
 
 
-def test_fm27_still_requires_explicit_opt_in(tmp_path: Path) -> None:
-    with pytest.raises(UnsupportedGameError):
-        fmsave.open(fm27_fragment(tmp_path))
+def test_fm27_is_read_by_default(tmp_path: Path) -> None:
+    with pytest.warns(UserWarning, match="FM27"), fmsave.open(fm27_fragment(tmp_path)) as save:
+        assert save.info.game == "FM27"
 
 
 def test_fm27_exact_experiment_reads_structured_metadata(tmp_path: Path) -> None:
-    with pytest.warns(UserWarning, match="experimental"):
-        save = fmsave.open(fm27_fragment(tmp_path), experimental_fm27=True)
+    with pytest.warns(UserWarning, match="FM27"):
+        save = fmsave.open(fm27_fragment(tmp_path))
     with save:
         assert save.info.game == "FM27"
         assert save.info.build == BUILD
@@ -76,9 +77,7 @@ def test_fm27_unknown_build_or_metadata_schema_fails_closed(
     tmp_path: Path, build: str, schema: int
 ) -> None:
     with pytest.raises(UnsupportedGameError):
-        fmsave.open(
-            fm27_fragment(tmp_path, build=build, info_schema=schema), experimental_fm27=True
-        )
+        fmsave.open(fm27_fragment(tmp_path, build=build, info_schema=schema))
 
 
 def test_fm27_layouts_never_borrow_across_game_editions() -> None:
@@ -90,18 +89,18 @@ def test_fm27_layouts_never_borrow_across_game_editions() -> None:
         find_layout(GameInfoLayout, "game_info", 47, "27.9.0+1")
 
 
-def test_fm27_info_cli_opt_in(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["info", str(fm27_fragment(tmp_path)), "--experimental-fm27", "--json"]) == 0
+def test_fm27_info_cli_default(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["info", str(fm27_fragment(tmp_path)), "--json"]) == 0
     captured = capsys.readouterr()
     assert '"game": "FM27"' in captured.out
     assert "Alex Example" not in captured.out
-    assert "experimental" in captured.err
+    assert "FM27" in captured.err
 
 
 def test_fm27_nations_walk_whole_table_and_cache(tmp_path: Path) -> None:
     path = fm27_fragment(tmp_path, game_db=nation_table_bytes())
-    with pytest.warns(UserWarning, match="experimental"):
-        save = fmsave.open(path, experimental_fm27=True)
+    with pytest.warns(UserWarning, match="FM27"):
+        save = fmsave.open(path)
     with save:
         rows = save.nations()
         assert len(rows) == 251
@@ -124,24 +123,20 @@ def test_fm27_nations_walk_whole_table_and_cache(tmp_path: Path) -> None:
     ids=("missing", "truncated", "ambiguous", "duplicate-identity"),
 )
 def test_fm27_nations_fail_closed_even_without_strict(tmp_path: Path, data: bytes) -> None:
-    with pytest.warns(UserWarning, match="experimental"):
-        save = fmsave.open(fm27_fragment(tmp_path, game_db=data), experimental_fm27=True)
+    with pytest.warns(UserWarning, match="FM27"):
+        save = fmsave.open(fm27_fragment(tmp_path, game_db=data))
     with save, pytest.raises(fmsave.ReaderCheckError):
         save.nations()
 
 
 def test_fm27_unrecognized_summary_clock_is_not_silently_accepted(tmp_path: Path) -> None:
     with pytest.raises(fmsave.ReaderCheckError):
-        fmsave.open(
-            fm27_fragment(tmp_path, summary_date=packed_date(0, 2032)), experimental_fm27=True
-        )
+        fmsave.open(fm27_fragment(tmp_path, summary_date=packed_date(0, 2032)))
 
 
 def test_fm27_validation_does_not_claim_fm26_semantic_verification(tmp_path: Path) -> None:
-    with pytest.warns(UserWarning, match="experimental"):
-        save = fmsave.open(
-            fm27_fragment(tmp_path, game_db=nation_table_bytes()), experimental_fm27=True
-        )
+    with pytest.warns(UserWarning, match="FM27"):
+        save = fmsave.open(fm27_fragment(tmp_path, game_db=nation_table_bytes()))
     with save:
         report = fmsave.validate_save(save)
     assert set(report.field_statuses.values()) == {"unconfirmed"}
@@ -165,10 +160,10 @@ def test_fm27_opt_in_rejects_oversized_frame_before_reading_payload(tmp_path: Pa
         },
     ).write(tmp_path / "oversized.bin")
     with pytest.raises(fmsave.CorruptSaveError, match="per-frame cap"):
-        fmsave.open(path, experimental_fm27=True)
+        fmsave.open(path)
 
 
-def test_fm27_opt_in_checks_total_declared_budget_before_payloads(tmp_path: Path) -> None:
+def test_fm27_checks_total_declared_budget_before_payloads(tmp_path: Path) -> None:
     from fmsave._container import read_index, read_section
 
     index = read_index(fm27_fragment(tmp_path))
@@ -176,15 +171,19 @@ def test_fm27_opt_in_checks_total_declared_budget_before_payloads(tmp_path: Path
         SectionFrame(name, read_section(index, name), entry.extension)
         for name, entry in index.sections.items()
     ]
+    sections.extend(
+        SectionFrame(name, section_body(".dat", 1, bytes(4))) for name in ("extra_a", "extra_b")
+    )
     path = build_container_fragment(
         sections,
         declared_sizes={
-            name + entry.extension: (entry.compressed_size, 200 * 1024**2)
-            for name, entry in index.sections.items()
+            section.name + section.extension: (len(zstd.compress(section.body)), 200 * 1024**2)
+            for section in sections
+            if section.name in ("game_db", "extra_a", "extra_b")
         },
     ).write(tmp_path / "oversized-total.bin")
     with pytest.raises(fmsave.CorruptSaveError, match="total cap"):
-        fmsave.open(path, experimental_fm27=True)
+        fmsave.open(path)
 
 
 def test_unknown_fm26_metadata_never_tries_an_fm27_layout(tmp_path: Path) -> None:

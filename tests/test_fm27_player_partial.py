@@ -30,8 +30,8 @@ def test_fm27_players_keep_unsupported_suspensions_unknown(tmp_path: Path) -> No
         trailing=person,
     )
     data = name_pools_bytes(("Alex",), ("Example",), ()) + clubs + bytes(256) + player
-    with pytest.warns(UserWarning, match="experimental"):
-        save = fmsave.open(fm27_fragment(tmp_path, game_db=data), experimental_fm27=True)
+    with pytest.warns(UserWarning, match="FM27"):
+        save = fmsave.open(fm27_fragment(tmp_path, game_db=data))
     with save:
         rows = save.players()
         assert len(rows) == 1

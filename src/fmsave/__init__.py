@@ -1,4 +1,4 @@
-"""fmsave: read Football Manager 26 save files."""
+"""fmsave: read Football Manager 26 and supported 27 save files."""
 
 from fmsave._errors import (
     AmbiguousNameError,

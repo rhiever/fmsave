@@ -1,4 +1,4 @@
-// Reads an FM26 save inside this worker with Pyodide and fmsave. The File is mounted
+// Reads a supported Football Manager save inside this worker with Pyodide and fmsave. The File is mounted
 // read-only with WORKERFS, so its bytes are read from disk as needed and never leave this
 // computer. The only network requests fetch Pyodide and fmsave themselves.
 //

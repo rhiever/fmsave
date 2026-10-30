@@ -768,6 +768,10 @@ function onWorkerMessage({ data: msg }) {
     case "ready":
       readerReady = true;
       setStatus("ok", `Reader ready, fmsave ${msg.fmsave}`);
+      const [major, minor] = msg.fmsave.split(".").map(Number);
+      $("game-support").textContent = major > 0 || minor >= 8
+        ? "FM26 and FM27 build 27.0.0+2486695. Some FM27 fields remain unconfirmed."
+        : "This published reader supports FM26. FM27 needs fmsave 0.8.0 or later.";
       break;
     case "stage": setStage(msg.stage); break;
     case "meta": pendingMeta = msg.meta; break;
@@ -852,7 +856,7 @@ function loadFailed(text) {
 async function begin(file) {
   if (!file) return;
   if (!/\.fm$/i.test(file.name)) {
-    const text = "That is not a .fm file. FM26 saves end in .fm.";
+    const text = "That is not a .fm file. Football Manager saves end in .fm.";
     if (data && !$("app").hidden) return toast(text, 5000);
     return loadFailed(text);
   }
@@ -887,6 +891,8 @@ function showApp({ keep = false } = {}) {
   }
   if (keep) return;
   const m = data.meta;
+  $("coverage-note").textContent = m.coverage_note || "";
+  $("coverage-note").hidden = !m.coverage_note;
   $("meta").innerHTML = [m.save && `<b>${esc(m.save)}</b>`, m.club && esc(m.club), m.date && esc(day(Date.parse(m.date) / DAY))].filter(Boolean).join(", ");
   for (const b of $("csv-menu").querySelectorAll("[data-csv]")) b.hidden = (state.demo && b.dataset.csv !== "view") || (!hasSquad() && b.dataset.csv === "squad");
   $("tabs").querySelector('[data-list="squad"]').hidden = !hasSquad();

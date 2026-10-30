@@ -105,3 +105,16 @@ the game displays. Check that unit before interpreting a difference.
 
 `UnknownBuildWarning` means fmsave does not recognize that FM26 build. Readers still run; inspect
 their checks before relying on the output.
+
+
+## FM27 coverage
+
+FM27 build `27.0.0+2486695` opens normally. Other FM27 builds and unregistered layouts are
+rejected. Failed checks always stop an FM27 reader, even with `strict=False`. The validation
+report lists unsupported readers and marks every FM27 field unconfirmed. Global field-status
+labels describe FM26; they do not certify FM27 meanings.
+
+The reader uses a 256 MiB per-frame and 512 MiB declared-total decompression cap for FM27.
+Larger careers can be rejected. These limits do not reduce FM26's existing budget.
+Finance rows describe historical snapshots, not current-month live totals; stored money is
+not converted to the game's display currency. Match the period and units before comparing.

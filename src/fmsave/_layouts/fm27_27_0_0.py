@@ -1,4 +1,4 @@
-"""Partial, experimental layouts observed on one FM27 preview build.
+"""Partial layouts observed on one registered FM27 build.
 
 These registrations establish structural compatibility, not in-game verification.
 Unregistered layouts must not fall back to another game edition.
@@ -82,7 +82,7 @@ SUMMARY_STRINGS = SummaryStringsLayout(
 )
 # The counted nation walk, ordinal identities and duplicated database ids all validate.
 # No other database layout is implied by this registration. Require both checks even
-# for tiny fragments: an empty or ambiguous experiment must never look like success.
+# for tiny fragments: an empty or ambiguous input must never look like success.
 NATION_BOUNDS = replace(
     GATE_BOUNDS,
     nation_tables_found=(1, 1),

@@ -1,7 +1,7 @@
 ---
 myst:
   html_meta:
-    description: "Export fmsave tables from Football Manager 26 saves to pandas, polars, CSV, JSON, and JSON Lines, or use the fmsave export command."
+    description: "Export fmsave tables from Football Manager 26 and 27 saves to pandas, polars, CSV, JSON, and JSON Lines, or use the fmsave export command."
 ---
 
 # Getting data out

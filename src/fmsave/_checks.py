@@ -2740,7 +2740,7 @@ def validate_save(career_save: Save) -> ValidationReport:
         for reader_name, read_table in reader_tables:
             shared_pass = _READER_PASSES.get(reader_name)
             if save_info.game == "FM27" and reader_name == STADIUMS_READER:
-                # The experiment reads the authenticated stadium table independently;
+                # FM27 reads the authenticated stadium table independently;
                 # unavailable calendar-derived home links remain None, not failed work.
                 shared_pass = None
             carried_error = None if shared_pass is None else failed_passes.get(shared_pass)

@@ -369,7 +369,7 @@ class Player:
             established.
         suspensions: The player's unserved suspensions, in the order the save stores them,
             including bans the game no longer displays; () when the player has none.
-            None when the experimental reader cannot establish suspension coverage.
+            None when the FM27 reader cannot establish suspension coverage.
     """
 
     uid: int

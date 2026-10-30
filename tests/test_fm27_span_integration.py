@@ -33,7 +33,7 @@ def span_fragment(tmp_path: Path) -> Path:
 
 def test_raw_fm27_span_is_explicit_cached_bounded_and_survives_close(tmp_path: Path) -> None:
     with pytest.warns(fmsave.UnknownBuildWarning):
-        save = fmsave.open(span_fragment(tmp_path), experimental_fm27=True)
+        save = fmsave.open(span_fragment(tmp_path))
     with save:
         span = save.experimental_span()
         assert save.experimental_span() is span
@@ -49,7 +49,7 @@ def test_raw_fm27_span_is_explicit_cached_bounded_and_survives_close(tmp_path: P
 
 def test_validation_raw_span_counts_never_include_raw_identities(tmp_path: Path) -> None:
     with pytest.warns(fmsave.UnknownBuildWarning):
-        save = fmsave.open(span_fragment(tmp_path), experimental_fm27=True)
+        save = fmsave.open(span_fragment(tmp_path))
     with save:
         report = fmsave.validate_save(save)
     counts = report.experimental_counts
@@ -84,6 +84,6 @@ def test_integrated_raw_span_limits_decompression_before_parser_allocation(tmp_p
     )
     path = build_container_fragment(sections).write(tmp_path / "large-output.bin")
     with pytest.warns(fmsave.UnknownBuildWarning):
-        save = fmsave.open(path, experimental_fm27=True)
+        save = fmsave.open(path)
     with save, pytest.raises(fmsave.CorruptSaveError, match="more than 8388608 bytes"):
         save.experimental_span()

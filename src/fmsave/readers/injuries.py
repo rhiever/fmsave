@@ -208,7 +208,7 @@ def read_injury_types(
     """
     if entries and not layout.allow_match_entries:
         raise UnsupportedGameError(
-            "nonempty per-match injury-type tables are not supported by this experimental layout"
+            "nonempty per-match injury-type tables are not supported by this layout"
         )
     entries_with_magic_tried = 0
     entries_without_magic = 0
@@ -388,8 +388,7 @@ def walk_injury_manager(
             )
         if array_index == layout.typed_array_index and row_count and not layout.allow_typed_rows:
             raise UnsupportedGameError(
-                f"{file_name}: nonempty typed injury rows are not supported by this "
-                "experimental layout"
+                f"{file_name}: nonempty typed injury rows are not supported by this FM27 layout"
             )
         row_offsets.append(cursor)
         row_counts.append(row_count)
@@ -414,7 +413,7 @@ def walk_injury_manager(
         if entry_count and layout.require_empty_lists:
             raise UnsupportedGameError(
                 f"{file_name}: nonempty auxiliary injury lists are not supported by this "
-                "experimental layout"
+                "FM27 layout"
             )
         list_entries.append(entry_count)
         cursor += entry_count * entry_bytes

@@ -11,7 +11,6 @@ from fmsave import _checks
 from fmsave._checks import GateResult, ReaderCheck
 from fmsave._container import (
     ContainerIndex,
-    ContainerLimits,
     read_index,
     read_region_frames_bounded,
     read_section,
@@ -31,7 +30,7 @@ from fmsave._layouts import (
     find_layout,
 )
 from fmsave._reader_stats import ResultStats, TacticStats
-from fmsave._version import read_save_info
+from fmsave._version import limit_game_index, read_save_info
 from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
@@ -282,7 +281,7 @@ def _returning[ValueT](value: ValueT) -> Callable[[], ValueT]:
 
 
 class Save:
-    """A Football Manager 26 save opened for reading.
+    """A supported Football Manager save opened for reading.
 
     Opening reads only the header, the directory and the save metadata; the file is
     not kept open. Each reader reopens the file, checks that it has not changed since
@@ -329,7 +328,7 @@ class Save:
     def experimental_span(self) -> Fm27Span:
         """Partially decoded raw FM27 fixture cores and counted rules, not semantic tables.
 
-        Only available for the explicitly enabled FM27 preview experiment. This does not
+        Available for supported FM27 builds. This does not
         identify the authoritative fixture calendar or link rules to competitions. Unknown
         status is None, never an assumed unplayed match; each raw record names unsupported
         fields. The bounded pass is cached without retaining decompressed section bytes.
@@ -337,7 +336,7 @@ class Save:
         self._require_open()
         if self._info.game != "FM27":
             raise UnsupportedGameError(
-                "experimental_span is available only for the FM27 experiment"
+                "experimental_span is available only for supported FM27 builds"
             )
         return self._context.cached("fm27:raw_span", self._read_experimental_span)
 
@@ -480,7 +479,7 @@ class Save:
         if self._info.game == "FM27":
             self._require_open()
             raise UnsupportedGameError(
-                "experimental FM27 suspension coverage is not established; "
+                "FM27 suspension coverage is not established; "
                 "Player.suspensions is None, not an empty list of bans"
             )
         return context.cached(SUSPENSIONS_TABLE_CACHE_KEY, self._suspensions_table_entry_point)
@@ -2585,9 +2584,8 @@ def open_save(
     *,
     strict: bool = False,
     competition_names: Mapping[int, str] | str | os.PathLike[str] | None = None,
-    experimental_fm27: bool = False,
 ) -> Save:
-    """Open a Football Manager 26 save file for reading.
+    """Open a Football Manager 26 or supported 27 save file for reading.
 
     Args:
         path: The save file to read.
@@ -2596,20 +2594,14 @@ def open_save(
             default: a reader whose checks fail issues `ReaderCheckWarning` and hands its table
             back. With True it raises `ReaderCheckError` instead, which is what a pipeline that
             would rather stop than read a table it cannot vouch for wants. A structural failure,
-            where the decode has no table to hand back, raises either way.
+            where the decode has no table to hand back, raises either way. FM27 reader checks
+            always raise, even with strict=False.
         competition_names: Names for competitions, keyed on `Competition.database_id`, either
             as a mapping or as the path of a two-column CSV that
             `fmsave.read_competition_names` reads. No save stores a competition name and fmsave
             ships none, so without this every `Competition.name` and every denormalised
             `competition_name` is None. Tables are read once and then kept, so the map cannot be
             changed afterwards: open the save again to read it under a different one.
-        experimental_fm27: Opt into partial support for one observed FM27 preview build.
-            Only explicitly registered layouts are used; other readers raise
-            `UnsupportedGameError`. Failed checks always raise, even with strict=False.
-            These layouts are structurally checked, not verified against the game UI.
-            The opt-in limits decompression to 256 MiB per frame and 512 MiB declared total.
-            Global `field_status` labels describe FM26; the FM27 validation report marks
-            every field unconfirmed. This does not enable general FM27 support.
 
     Raises:
         FileNotFoundError: The file does not exist.
@@ -2623,20 +2615,14 @@ def open_save(
         ValueError: A competition name CSV is malformed, or a supplied name is empty.
 
     Warns:
-        UnknownBuildWarning: The save comes from an FM26 build without layout tables.
+        UnknownBuildWarning: An FM26 build lacks layout tables, or FM27 coverage is incomplete.
     """
     # The map is checked before the file is touched, so a mistake in it costs none of the work
     # of opening a save.
     names = _normalized_competition_names(competition_names)
-    # A deliberately conservative budget for this single-build experiment. A larger
-    # career is unsupported here rather than allowed to consume the FM26 default budget.
-    limits = (
-        ContainerLimits(total_decompressed_cap=512 * 1024**2, frame_decompressed_cap=256 * 1024**2)
-        if experimental_fm27
-        else None
-    )
-    container_index = read_index(path, limits)
-    info = read_save_info(container_index, experimental_fm27=experimental_fm27)
+    container_index = read_index(path)
+    info = read_save_info(container_index)
+    container_index = limit_game_index(container_index, info.game)
     return Save(
         container_index,
         info,

@@ -399,7 +399,7 @@ def locate_match_records(
             or declarations.containing_null + declarations.null + declarations.empty != len(offsets)
         ):
             raise UnsupportedGameError(
-                "experimental per-match support requires independently established null or "
+                "FM27 per-match support requires independently established null or "
                 "empty histories for every player; populated or unsupported histories cannot "
                 "be decoded with this layout"
             )

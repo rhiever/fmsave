@@ -1,7 +1,7 @@
 ---
 myst:
   html_meta:
-    description: "Reference for every record type fmsave reads from a Football Manager 26 save and its fields."
+    description: "Reference for every record type fmsave reads from a Football Manager 26 and 27 save and its fields."
 ---
 
 # Records

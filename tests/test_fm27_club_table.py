@@ -62,8 +62,8 @@ def test_fm27_club_table_public_reader_has_distinct_identity_spaces(tmp_path: Pa
     for ordinal, uid in enumerate((6100, 6200)):
         data += club_body(finance=ordinal, team_id=71001 + ordinal)
         data += struct.pack("<III", ordinal, uid, uid)
-    with pytest.warns(UserWarning, match="experimental"):
-        save = fmsave.open(fm27_fragment(tmp_path, game_db=data), experimental_fm27=True)
+    with pytest.warns(UserWarning, match="FM27"):
+        save = fmsave.open(fm27_fragment(tmp_path, game_db=data))
     with save:
         rows = save.clubs()
         assert [row.uid for row in rows] == [0, 6101]

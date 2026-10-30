@@ -28,14 +28,14 @@ runs every reader at once and reports how each fared, without raising or warning
 
 ## Experimental raw span
 
-`Save.experimental_span()` is available only after opting into the FM27 preview. It returns
+`Save.experimental_span()` is available for supported FM27 builds. It returns
 partially decoded raw fixture cores and counted rules, with unsupported fields explicitly
 identified. It is **not** the authoritative fixture calendar or semantic competition-rules
 table. The validation report includes only its numeric coverage counts, never raw identities.
 
-## Experimental finance interpretation
+## FM27 finance interpretation
 
-The FM27 experiment retains the prior-month interpretation of finance snapshots. It does
+FM27 support retains the prior-month interpretation of finance snapshots. It does
 not expose the current month's live income and expenditure. Snapshot timing and payroll
 semantics still need independent FM27 validation. Money is returned in the save's stored
 units without display-currency conversion; wages are weekly amounts. Comparing these rows

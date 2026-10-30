@@ -340,3 +340,16 @@ def test_llms_txt_points_agents_at_the_web_app() -> None:
     text = (APP_FOLDER.parent / "llms.txt").read_text(encoding="utf-8")
     assert text.startswith("# fmsave\n\n> ")
     assert "https://rhiever.github.io/fmsave/app/" in text
+
+
+def test_fm27_reader_opens_normally_and_reports_coverage(tmp_path: Path) -> None:
+    from tests.test_fm27_experimental import fm27_fragment
+
+    with pytest.warns(fmsave.UnknownBuildWarning, match="FM27"):
+        meta = reader.open_save(str(fm27_fragment(tmp_path)))
+    try:
+        assert meta["game"] == "FM27"
+        assert "unconfirmed" in meta["coverage_note"]
+    finally:
+        reader.close_save()
+        reader._state.clear()
