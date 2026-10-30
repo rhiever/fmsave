@@ -348,6 +348,30 @@ def test_one_league_table_block_decodes_with_its_aggregates_and_match_rows() -> 
     assert block.matches[3].key == UNPLAYED_KEY
 
 
+def test_a_points_deduction_that_takes_the_total_below_zero_reads_as_negative() -> None:
+    """The save stores points signed, so a deduction larger than the points won is below zero.
+
+    Read unsigned, a club deducted twelve points before it had won any shows 65,524.
+    """
+    records = scan(
+        [
+            example_table_block(
+                total={
+                    "played": 4,
+                    "won": 0,
+                    "drawn": 2,
+                    "lost": 2,
+                    "goals_for": 2,
+                    "goals_against": 6,
+                    "points": -10,
+                }
+            )
+        ]
+    )
+
+    assert records.table_blocks[0].aggregates[0].points == -10
+
+
 def test_a_block_whose_home_and_away_do_not_add_up_is_rejected() -> None:
     block = example_table_block(
         home={"played": 1, "won": 1, "drawn": 0, "lost": 0},

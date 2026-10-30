@@ -1309,12 +1309,19 @@ def test_a_missing_name_file_exits_2_and_names_only_the_file(
     assert PRIVATE_FOLDER not in error_text
 
 
+@pytest.mark.parametrize(
+    "file_bytes",
+    [
+        pytest.param(b"database_id,name\n12345\n", id="short-row"),
+        pytest.param("12345,Ligue Éxample\n".encode("cp1252"), id="not-utf-8"),
+    ],
+)
 def test_a_malformed_name_file_exits_2_and_names_only_the_file(
-    save_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    save_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str], file_bytes: bytes
 ) -> None:
     bad_path = tmp_path / PRIVATE_FOLDER / "bad.csv"
     bad_path.parent.mkdir(parents=True, exist_ok=True)
-    bad_path.write_text("database_id,name\n12345\n", encoding="utf-8")
+    bad_path.write_bytes(file_bytes)
     exit_code, output_text, error_text = run_export(
         capsys, str(save_path), "competitions", "--all", "--competition-names", str(bad_path)
     )

@@ -54,6 +54,8 @@ fmsave.export.column_names(fmsave.Player)  # ("uid", "unique_id", "name", ...)
 
 Nested JSON carries the label and raw code for coded values. Dates become ISO strings, and
 tuples become arrays. CSV is convenient for spreadsheets; use JSON when nested structure matters.
+CSV cells are written as they are, so a spreadsheet may run a text cell that starts with `=`, `+`,
+`-` or `@` as a formula.
 
 `to_dicts(json_ready=True)` gives the same nesting `write_json()` uses: dates as ISO strings, tuples
 as lists, everything JSON-serialisable.

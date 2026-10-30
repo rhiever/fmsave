@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import csv
 import os
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import cast
 
@@ -72,7 +72,8 @@ def read_competition_names(path: str | os.PathLike[str]) -> dict[int, str]:
     The first column is the competition's editor database id, which is what
     `Competition.database_id` carries. A first row whose first cell is not a whole number is
     taken for a header and skipped. Blank lines are skipped, and surrounding whitespace is
-    stripped from both cells.
+    stripped from both cells. A byte order mark at the head of the file, which Excel writes when
+    it saves "CSV UTF-8", is ignored.
 
     One id may be listed twice with the same name. Two different names for one id are a
     contradiction and raise, because neither is more likely to be the one meant.
@@ -87,52 +88,70 @@ def read_competition_names(path: str | os.PathLike[str]) -> dict[int, str]:
     Raises:
         OSError: The file cannot be opened or read. It is left to the caller, which knows the
             path it passed.
-        ValueError: A row has other than two columns, an id is not a whole number, a name is
-            empty, or one id is listed twice under two names.
+        ValueError: The file is not UTF-8 text, a row has other than two columns, an id is not
+            a whole number, a name is empty, or one id is listed twice under two names.
     """
     file_name = _error_file_name(path)
+    # utf-8-sig drops the byte order mark Excel writes at the head of a "CSV UTF-8" file, which
+    # plain utf-8 would leave stuck to the first id, turning that row into a skipped header.
+    with open(path, encoding="utf-8-sig", newline="") as name_file:
+        try:
+            return _names_from_lines(name_file, file_name)
+        except UnicodeDecodeError as error:
+            # The codec's own message names neither the file nor a line, only a byte offset
+            # into whatever chunk it was decoding, so it is replaced by one that names the file.
+            raise ValueError(
+                f"{file_name} is not UTF-8 text; save it as CSV UTF-8 and try again"
+            ) from error
+
+
+def _names_from_lines(lines: Iterable[str], file_name: str) -> dict[int, str]:
+    """The name map the lines of a name file hold, by the rules `read_competition_names` sets.
+
+    Raises:
+        ValueError: A row is malformed. The message begins with `file_name`.
+        UnicodeDecodeError: The lines come from a file that is not UTF-8 text.
+    """
     names: dict[int, str] = {}
-    with open(path, encoding="utf-8", newline="") as name_file:
-        rows = csv.reader(name_file)
-        header_row_allowed = True
-        for row in rows:
-            # line_num counts physical lines, so a row whose quoted name holds a newline is
-            # reported at the line it ended on rather than the line it began on. That is the
-            # only line number the csv reader offers, and it is the line the row's closing
-            # quote sits on in the reader's own editor.
-            line_number = rows.line_num
-            if _is_blank(row):
+    rows = csv.reader(lines)
+    header_row_allowed = True
+    for row in rows:
+        # line_num counts physical lines, so a row whose quoted name holds a newline is
+        # reported at the line it ended on rather than the line it began on. That is the
+        # only line number the csv reader offers, and it is the line the row's closing
+        # quote sits on in the reader's own editor.
+        line_number = rows.line_num
+        if _is_blank(row):
+            continue
+        first_cell = row[_DATABASE_ID_COLUMN].strip()
+        if header_row_allowed:
+            header_row_allowed = False
+            if _parsed_database_id(first_cell) is None:
                 continue
-            first_cell = row[_DATABASE_ID_COLUMN].strip()
-            if header_row_allowed:
-                header_row_allowed = False
-                if _parsed_database_id(first_cell) is None:
-                    continue
-            if len(row) != _EXPECTED_COLUMNS:
-                # A row of more than two columns is refused as firmly as one of fewer. The
-                # extra cell leaves the row ambiguous: nothing says whether the name was meant
-                # to hold the comma or whether a column was added, and either guess would
-                # store a name the reader never wrote. The hint says how to write such a name.
-                hint = _EXTRA_COLUMN_HINT if len(row) > _EXPECTED_COLUMNS else ""
-                raise ValueError(
-                    f"{file_name} line {line_number}: expected {_EXPECTED_COLUMNS} columns, "
-                    f"found {len(row)}{hint}"
-                )
-            database_id = _parsed_database_id(first_cell)
-            if database_id is None:
-                raise ValueError(
-                    f"{file_name} line {line_number}: {first_cell!r} is not a competition "
-                    "database id"
-                )
-            name = row[_NAME_COLUMN].strip()
-            if not name:
-                raise ValueError(f"{file_name} line {line_number}: the name is empty")
-            listed_name = names.get(database_id)
-            if listed_name is not None and listed_name != name:
-                raise ValueError(
-                    f"{file_name} line {line_number}: database id {database_id} is listed twice"
-                )
-            names[database_id] = name
+        if len(row) != _EXPECTED_COLUMNS:
+            # A row of more than two columns is refused as firmly as one of fewer. The
+            # extra cell leaves the row ambiguous: nothing says whether the name was meant
+            # to hold the comma or whether a column was added, and either guess would
+            # store a name the reader never wrote. The hint says how to write such a name.
+            hint = _EXTRA_COLUMN_HINT if len(row) > _EXPECTED_COLUMNS else ""
+            raise ValueError(
+                f"{file_name} line {line_number}: expected {_EXPECTED_COLUMNS} columns, "
+                f"found {len(row)}{hint}"
+            )
+        database_id = _parsed_database_id(first_cell)
+        if database_id is None:
+            raise ValueError(
+                f"{file_name} line {line_number}: {first_cell!r} is not a competition database id"
+            )
+        name = row[_NAME_COLUMN].strip()
+        if not name:
+            raise ValueError(f"{file_name} line {line_number}: the name is empty")
+        listed_name = names.get(database_id)
+        if listed_name is not None and listed_name != name:
+            raise ValueError(
+                f"{file_name} line {line_number}: database id {database_id} is listed twice"
+            )
+        names[database_id] = name
     return names
 
 

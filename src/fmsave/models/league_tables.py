@@ -90,7 +90,11 @@ class LeagueTableMatch:
     """One match slot of one club's row: a played match, or a slot never played.
 
     A slot the club has not played keeps its place in the list so the shape of the season is
-    never lost: its opponent fields, goals, outcome and points are all None.
+    never lost: its opponent fields, goals, outcome and points are all None. So are they on a
+    played slot whose own counters do not describe one match whose result its score bears out,
+    such as a slot counting two meetings at once; the save holds such slots almost only in rows
+    whose slots do not add up to the row's totals, and fmsave leaves them empty rather than
+    report numbers that are not one match's. `fmsave validate` counts them.
 
     Attributes:
         slot: The slot's index in the row, counting from zero.
@@ -116,8 +120,7 @@ class LeagueTableMatch:
             does not resolve.
         goals_for: Goals the club scored, or None for an unplayed slot.
         goals_against: Goals the club conceded, or None for an unplayed slot.
-        outcome: Whether the club won, drew or lost, or None for an unplayed slot and for a row
-            whose counters name no single result.
+        outcome: Whether the club won, drew or lost, or None for an unplayed slot.
         points: Points the club took from the match, or None for an unplayed slot.
     """
 
@@ -159,7 +162,8 @@ class LeagueTableRow:
         lost: Matches lost in total.
         goals_for: Goals scored in total.
         goals_against: Goals conceded in total.
-        points: Points taken in total.
+        points: Points taken in total, after any adjustment such as a points deduction, so it
+            can differ from the home and away points added together and can be below zero.
         home: The club's home record (every field unconfirmed).
         away: The club's away record (every field unconfirmed).
         first_half: The club's record in the first half of the season (every field
@@ -213,7 +217,7 @@ class LeagueTable:
         competition_id: The competition the table was voted to belong to, in the stage id
             space (not the id space a suspension's competition id belongs to); None when the
             vote could not settle it, which on the corpus is one table in a thousand. Read that
-            beside the shape of the tables: 30% to 43% of them hold one block, and a one-block
+            beside the shape of the tables: 20% to 28% of them hold one block, and a one-block
             table meets the vote's half-the-members rule on a majority of one, so it resolves
             trivially; over the tables of two blocks or more resolution is 0.998 to 1.000. One
             competition names several tables, because a cup's group stage is one competition

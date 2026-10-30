@@ -975,6 +975,9 @@ LEAGUE_TABLES = LeagueTableLayout(
     # neutral-ground meetings. `table_venue_calendar_agreement` re-runs that comparison on
     # every save read, so this constant cannot be wrong without a check failing.
     home_slot_parity=0,
+    # Far above any score a match has ever finished on, so this turns away noise rather than
+    # any real result.
+    match_goals_maximum=40,
 )
 
 # The round-record offsets and the moved-match rule were measured on the corpus: the date
@@ -1448,8 +1451,8 @@ GATE_BOUNDS = GateBounds(
     # At least 0.9995 of the blocks kept carry a team id inside the layout's range.
     table_block_team_in_range=(0.99, None),
     # Almost every table is voted a competition on the saves measured, which overshoots spec
-    # 6.2's "about 85%". Read that headline beside the shape of the tables: a third to nearly a
-    # half of them hold a single block, and a one-block table meets the vote's "at least half
+    # 6.2's "about 85%". Read that headline beside the shape of the tables: a fifth to over a
+    # quarter of them hold a single block, and a one-block table meets the vote's "at least half
     # the members" rule on a majority of one, so it resolves trivially. Over the tables of two
     # blocks or more the share is 0.998 or better, which is the
     # figure that says the vote is sound rather than merely permissive. The floor stays well

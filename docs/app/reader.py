@@ -12,9 +12,12 @@ as plain lists.
 
 from __future__ import annotations
 
+import csv
 import dataclasses
 import gc
 import math
+import os
+import re
 import time
 from array import array
 from collections.abc import Callable, Iterable, Sequence
@@ -41,6 +44,11 @@ STAT_IDENTITY = frozenset({*STAT_SKIP, *STAT_ROLLUP_COLUMNS, "average_rating"})
 # Uids and money need float64: float32 is exact only up to 16,777,216.
 WIDE_COLUMNS = frozenset({"uid", "club_uid", "transfer_value", "contract_wage"})
 _EPOCH = date(1970, 1, 1)
+# A cell starting with one of these runs as a formula when the download is opened in a
+# spreadsheet, so text that does gets a leading apostrophe, as app.js does for its own list.
+FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
+# A negative number starts with "-" too, and is left as the number it is.
+_PLAIN_NUMBER = re.compile(r"-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?")
 _state: dict[str, Any] = {}
 
 
@@ -341,6 +349,31 @@ def player_detail(uid: int) -> dict[str, object]:
     return {"player": export.record_to_dict(player, json_ready=True), "stats": rows}
 
 
+def defused_cell(cell: str) -> str:
+    """The cell as a spreadsheet will show it, with an apostrophe before text it would run."""
+    if cell.startswith(FORMULA_STARTS) and not _PLAIN_NUMBER.fullmatch(cell):
+        return "'" + cell
+    return cell
+
+
+def defuse_formulas(path: str) -> None:
+    """Rewrite the CSV at path so no cell runs as a formula when a spreadsheet opens it.
+
+    fmsave writes every cell as it is, which suits a program reading the file. These downloads
+    are opened in spreadsheets, where a name from the save that starts with "=" would run. The
+    rewrite is done here rather than through fmsave so it works with any release the page loads.
+    """
+    defused_path = path + ".defused"
+    with (
+        open(path, encoding="utf-8", newline="") as source,
+        open(defused_path, "w", encoding="utf-8", newline="") as target,
+    ):
+        writer = csv.writer(target)
+        for row in csv.reader(source):
+            writer.writerow([defused_cell(cell) for cell in row])
+    os.replace(defused_path, path)
+
+
 def write_csv(name: str, path: str) -> int:
     """Write one of the page's CSV downloads to path and return its row count."""
     players = _state["players"]
@@ -357,6 +390,7 @@ def write_csv(name: str, path: str) -> int:
     else:
         raise AppError("Unknown download.")
     table.write_csv(path)
+    defuse_formulas(path)
     return len(table)
 
 

@@ -16,7 +16,7 @@ has to be made deliberately.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 import pytest
@@ -98,7 +98,7 @@ class ReadCounter:
         read_section = context_module.read_section
         read_region_frames = context_module.read_region_frames
         read_directory_entry = context_module.read_directory_entry
-        read_region_frame = season_stats_module.read_region_frame
+        read_chosen_region_frames = season_stats_module.read_chosen_region_frames
 
         def counting_read_section(container_index: ContainerIndex, name: str) -> bytes:
             self.sections_read.append(name)
@@ -116,15 +116,18 @@ class ReadCounter:
             self.match_entries_read.append(f"{entry.name}{entry.extension}")
             return read_directory_entry(container_index, entry)
 
-        def counting_read_region_frame(
-            container_index: ContainerIndex, region_name: str, span: FrameSpan
-        ) -> bytes:
-            self.sections_read.append(f"frame:{region_name}")
-            return read_region_frame(container_index, region_name, span)
+        def counting_read_chosen_region_frames(
+            container_index: ContainerIndex, region_name: str, spans: Iterable[FrameSpan]
+        ) -> Iterator[bytes]:
+            for frame_bytes in read_chosen_region_frames(container_index, region_name, spans):
+                self.sections_read.append(f"frame:{region_name}")
+                yield frame_bytes
 
         monkeypatch.setattr(context_module, "read_section", counting_read_section)
-        monkeypatch.setattr(season_stats_module, "read_region_frame", counting_read_region_frame)
-        monkeypatch.setattr(season_history_module, "read_region_frame", counting_read_region_frame)
+        for season_module in (season_stats_module, season_history_module):
+            monkeypatch.setattr(
+                season_module, "read_chosen_region_frames", counting_read_chosen_region_frames
+            )
         monkeypatch.setattr(context_module, "read_region_frames", counting_read_region_frames)
         monkeypatch.setattr(context_module, "read_directory_entry", counting_read_directory_entry)
 

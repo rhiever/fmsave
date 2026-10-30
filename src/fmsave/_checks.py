@@ -802,7 +802,7 @@ def evaluate_league_tables(
     does not depend on how the blocks were grouped.
 
     `table_groups_resolved` observes near 1.0 on every save measured, which reads stronger than
-    it is: 30% to 43% of tables hold a single block, and a one-block table meets the vote's
+    it is: 20% to 28% of tables hold a single block, and a one-block table meets the vote's
     half-the-members rule on a majority of one. Over the tables of two blocks or more the share
     is 0.998 to 1.000, so this gate is a floor under a near-saturated rate rather than a
     discriminating one.
@@ -905,7 +905,11 @@ def evaluate_competition_rules(
 
 
 def check_players(stats: PlayerStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
-    """The player reader's checks, record count and anomaly counts."""
+    """The player reader's checks, record count and anomaly counts.
+
+    `edited_attribute_players` counts players storing an attribute past the 1 to 100 raw scale,
+    which only an edited record does; their display attributes read past 20.
+    """
     return ReaderCheck(
         PLAYERS_READER,
         stats.records,
@@ -914,6 +918,7 @@ def check_players(stats: PlayerStats, bounds: GateBounds, game_db_bytes: int) ->
             {
                 "markerless_players": stats.markerless,
                 "unresolved_teams": stats.with_team - stats.team_resolved,
+                "edited_attribute_players": stats.edited_attributes,
             }
         ),
     )
@@ -938,13 +943,23 @@ def check_contracts(stats: ContractStats, bounds: GateBounds, game_db_bytes: int
 
 
 def check_clubs(stats: ClubStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
-    """The club reader's checks, record count and anomaly counts."""
+    """The club reader's checks, record count and anomaly counts.
+
+    The three table-row counts are rows of the counted club table that give no club, which
+    every full save carries thousands of. A player whose team only such a row lists keeps its
+    team id and has no club, and the player reader counts it in `unresolved_teams`.
+    """
     return ReaderCheck(
         CLUBS_READER,
         stats.records,
         evaluate_clubs(stats, bounds, game_db_bytes),
         FrozenMapping(
-            {"unlinked_affiliate_teams": stats.affiliate_refs - stats.affiliate_refs_linked}
+            {
+                "unlinked_affiliate_teams": stats.affiliate_refs - stats.affiliate_refs_linked,
+                "extended_table_rows": stats.table_rows_extended,
+                "unanchored_table_rows": stats.table_rows_unanchored,
+                "rejected_table_rows": stats.table_rows_rejected,
+            }
         ),
     )
 
@@ -1136,11 +1151,14 @@ def check_league_tables(
 
     `duplicate_blocks` counts the repeated copies the span holds of a block already kept, which
     is about 45% of everything the span pass finds and is the reader's largest single
-    correction. `rejected_block_candidates` counts the candidates the span pass judged and
-    turned down. The rest count what the grouping and the joins left incomplete:
-    `unresolved_groups` groups the calendar vote could not name, `blocks_outside_resolved_groups`
-    the rows those groups hold, and the two team counts the rows whose team id is out of range
-    or belongs to no club the save lists.
+    correction. `superseded_blocks` counts the blocks of the tables dropped because every row in
+    them is an earlier state of a row another table keeps. `rejected_block_candidates` counts the
+    candidates the span pass judged and turned down. The rest count what the grouping and the
+    joins left incomplete: `unresolved_groups` groups the calendar vote could not name,
+    `blocks_outside_resolved_groups` the rows those groups hold, the two team counts the rows
+    whose team id is out of range or belongs to no club the save lists, and
+    `unreadable_match_slots` the played match slots left empty because their own counters do not
+    describe one match whose result its score bears out.
 
     The last two are the population the venue check judged rather than an anomaly in the usual
     sense, and they are reported because that check is the one here that an empty population
@@ -1157,13 +1175,18 @@ def check_league_tables(
         FrozenMapping(
             {
                 "duplicate_blocks": stats.duplicate_blocks,
+                "superseded_blocks": stats.superseded_blocks,
                 "rejected_block_candidates": (
-                    stats.block_candidates - stats.blocks - stats.duplicate_blocks
+                    stats.block_candidates
+                    - stats.blocks
+                    - stats.duplicate_blocks
+                    - stats.superseded_blocks
                 ),
                 "unresolved_groups": stats.groups - stats.groups_resolved,
                 "blocks_outside_resolved_groups": stats.blocks - stats.blocks_in_resolved_groups,
                 "team_ids_out_of_range": stats.blocks - stats.team_id_in_range,
                 "unresolved_teams": stats.blocks - stats.team_resolved,
+                "unreadable_match_slots": stats.unreadable_match_slots,
                 "in_sync_tables": stats.in_sync_tables,
                 "venue_slots_decided": stats.venue_slots_decided,
                 "started_calendar_divisions": stats.started_calendar_divisions,

@@ -14,7 +14,7 @@ import os
 import re
 import struct
 import sys
-from collections.abc import Generator, Iterator, Mapping, Sequence
+from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -596,10 +596,17 @@ def read_region_frames(container_index: ContainerIndex, region_name: str) -> Ite
             for span in spans
             if not span.skippable
         ]
-    declared_total = sum(entry.decompressed_size for entry in container_index.entries)
     return decompress_region_frames(
-        compressed_frames, container_index.limits, declared_total, region_name, file_name
+        compressed_frames,
+        container_index.limits,
+        declared_total(container_index),
+        region_name,
+        file_name,
     )
+
+
+def declared_total(container_index: ContainerIndex) -> int:
+    return sum(entry.decompressed_size for entry in container_index.entries)
 
 
 def region_frame_heads(
@@ -642,6 +649,27 @@ def read_region_frame(container_index: ContainerIndex, region_name: str, span: F
         if changed_since_index(container_index):
             raise changed_on_disk_error(file_name) from error
         raise
+
+
+def read_chosen_region_frames(
+    container_index: ContainerIndex, region_name: str, spans: Iterable[FrameSpan]
+) -> Iterator[bytes]:
+    """Decompress the chosen frames of a region one at a time, located by `region_frame_heads`.
+
+    As in `decompress_region_frames`, the frames count against the total cap after the
+    directory's data, so a region of many chosen frames cannot decompress past it.
+    """
+    limits = container_index.limits
+    total_decompressed = declared_total(container_index)
+    for span in spans:
+        frame_bytes = read_region_frame(container_index, region_name, span)
+        total_decompressed += len(frame_bytes)
+        if total_decompressed > limits.total_decompressed_cap:
+            raise CorruptSaveError(
+                f"{container_index.file_name}: region {region_name!r} exceeds the total "
+                "decompression cap"
+            )
+        yield frame_bytes
 
 
 def decompress_region_frames(

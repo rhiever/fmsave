@@ -18,7 +18,8 @@ class PlayerStats:
     `*_in_range` and `home_near_current` counts use the ranges in `GateBounds`.
     `outfield_players` counts records rated below `GateBounds.natural_goalkeeper_rating` in
     goal, and `outfield_goalkeeper_block_low` those of them whose raw handling and raw throwing
-    are both at most `GateBounds.goalkeeper_block_low_maximum`.
+    are both at most `GateBounds.goalkeeper_block_low_maximum`. `edited_attributes` counts
+    records storing an attribute above the layout's ordinary attribute range.
     """
 
     records: int
@@ -45,6 +46,7 @@ class PlayerStats:
     home_grown_club_refs_resolved: int
     ages: array[int]
     heights_median: int | None
+    edited_attributes: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,7 +91,9 @@ class ClubStats:
     controlling club, which needs an id to name a team of another club that no other club has
     already claimed. `reputation_found` counts the clubs whose status record held a
     reputation inside the layout's range, and `reputations_median` is the low median of those
-    reputations.
+    reputations. The last three count the counted-table rows after the first that give no
+    club: rows in the extended variant, rows without the record anchor, and anchored rows
+    whose fields are rejected.
     """
 
     records: int
@@ -101,6 +105,9 @@ class ClubStats:
     affiliate_refs_linked: int
     reputation_found: int
     reputations_median: int | None
+    table_rows_extended: int = 0
+    table_rows_unanchored: int = 0
+    table_rows_rejected: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,11 +308,14 @@ class TransferWindowStats:
 class LeagueTableStats:
     """What building the live league tables counted.
 
-    `blocks` counts the table blocks left after repeated content was dropped, and
-    `duplicate_blocks` those dropped: the span stores each block several times over, the copies
-    agreeing in every decoded field and differing only in the 19 undecoded head bytes, and
-    about 45% of what the span pass finds is such a copy. `block_candidates` counts every
-    candidate the span pass judged, accepted or not.
+    `blocks` counts the table blocks the returned tables hold, and `duplicate_blocks` the
+    repeated content dropped before grouping: the span stores each block several times over, the
+    copies agreeing in every decoded field and differing only in the 19 undecoded head bytes, and
+    about 45% of what the span pass finds is such a copy. `superseded_blocks` counts the blocks
+    of the tables dropped after grouping because every row in them is an earlier state of a row
+    another table keeps. `block_candidates` counts every candidate the span pass judged,
+    accepted or not. `unreadable_match_slots` counts the played match slots left empty because
+    their own counters do not describe one match whose result its score bears out.
 
     `groups` counts the tables the kept blocks fall into, split on the index each block stores
     of its own place in its table, and `groups_resolved` those the calendar vote gave a
@@ -330,6 +340,7 @@ class LeagueTableStats:
 
     blocks: int
     duplicate_blocks: int
+    superseded_blocks: int
     block_candidates: int
     groups: int
     groups_resolved: int
@@ -341,6 +352,7 @@ class LeagueTableStats:
     in_sync_tables: int
     venue_slots_decided: int
     venue_slots_agreeing: int
+    unreadable_match_slots: int
 
 
 @dataclass(frozen=True, slots=True)

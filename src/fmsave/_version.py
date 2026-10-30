@@ -17,6 +17,7 @@ from fmsave._container import (
     damaged_part_error,
     read_section,
     read_section_heads,
+    section_entry,
 )
 from fmsave._errors import (
     ISSUES_URL,
@@ -58,6 +59,9 @@ VERSION_CANDIDATE_START = re.compile(rb"(?<![0-9.])[0-9]{1,3}\.")
 MAX_MIGRATION_NAMES = 4096
 MAX_MIGRATION_NAME_BYTES = 4096
 UNSET_GAME_INFO_CLOCK = struct.pack("<HH", 1, 1900)
+# Opening a save decodes two metadata sections, a few kilobytes in every save seen. The cap
+# bounds what a damaged directory entry can make that decode, a byte-by-byte string scan, cost.
+MAX_METADATA_SECTION_BYTES = 1024**2
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,10 +166,21 @@ def read_summary_clock(
         return None
 
 
+def read_metadata_section(container_index: ContainerIndex, name: str) -> bytes:
+    """Read a section that opening the save decodes, refusing one far larger than any save writes."""
+    declared_size = section_entry(container_index, name).decompressed_size
+    if declared_size > MAX_METADATA_SECTION_BYTES:
+        raise CorruptSaveError(
+            f"{container_index.file_name}: section {name!r} declares {declared_size:,} bytes, "
+            f"more than the {MAX_METADATA_SECTION_BYTES:,} allowed"
+        )
+    return read_section(container_index, name)
+
+
 def read_summary_facts(container_index: ContainerIndex) -> SummaryFacts:
     """Read the summary's version, strings and fallback date once, rejecting games other than FM26."""
     file_name = container_index.file_name
-    summary = read_section(container_index, SAVE_SUMMARY_SECTION)
+    summary = read_metadata_section(container_index, SAVE_SUMMARY_SECTION)
     summary_schema = section_schema(
         summary,
         container_index.sections[SAVE_SUMMARY_SECTION].extension,
@@ -355,7 +370,7 @@ def read_game_info_facts(
     layout_match = find_layout(
         GameInfoLayout, GAME_INFO_SECTION, section_schemas.get(GAME_INFO_SECTION), version.build
     )
-    game_info = read_section(container_index, GAME_INFO_SECTION)
+    game_info = read_metadata_section(container_index, GAME_INFO_SECTION)
     try:
         if not known_build:
             return decode_unrecognized_game_info(

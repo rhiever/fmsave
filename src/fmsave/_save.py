@@ -1153,7 +1153,9 @@ class Save:
         index each block keeps of its own place in its table. The save stores each block
         several times over, the copies agreeing in every field fmsave decodes and differing
         only in undecoded head bytes, so repeated content is dropped before the tables are
-        built; keeping it would break the tables apart. Nothing in a table names its
+        built; keeping it would break the tables apart. The save also keeps older states of a
+        row, which break off into tables of one club; such a table is dropped where a row kept
+        elsewhere holds every match it holds and more. Nothing in a table names its
         competition, so it is voted for from the fixture calendar and is empty on the few
         tables the vote cannot settle, which are still returned; one competition names
         several tables, since a cup's group stage holds a table per group. Rows are in the

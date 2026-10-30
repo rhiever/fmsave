@@ -5,6 +5,7 @@ The app runs reader.py in Pyodide; here it runs in CPython against the same publ
 
 from __future__ import annotations
 
+import csv
 import dataclasses
 import importlib.util
 import json
@@ -167,6 +168,60 @@ def test_each_download_writes_a_csv(opened: dict[str, Any], tmp_path: Path, name
     assert len(lines) == rows + 1
     if name == "players":
         assert lines[0].split(",") == list(column_names(fmsave.Player))
+
+
+@pytest.mark.parametrize("name", ["players", "squad", "season-stats"])
+def test_a_download_is_fmsave_s_own_csv_when_no_cell_could_run(
+    opened: dict[str, Any], tmp_path: Path, name: str
+) -> None:
+    """The example career has no cell a spreadsheet would run, so the rewrite changes no byte."""
+    del opened
+    reader.read_stats()
+    download_path = tmp_path / "download.csv"
+    reader.write_csv(name, str(download_path))
+    table = {
+        "players": reader._state["players"],
+        "squad": reader._state["players"].where(club_uid=reader._state["club_uid"]),
+        "season-stats": reader._state["stats"],
+    }[name]
+    fmsave_path = tmp_path / "fmsave.csv"
+    table.write_csv(fmsave_path)
+    assert download_path.read_bytes() == fmsave_path.read_bytes()
+
+
+@pytest.mark.parametrize(
+    ("cell", "shown"),
+    [
+        pytest.param("=1+1", "'=1+1", id="equals"),
+        pytest.param("+1", "'+1", id="plus"),
+        pytest.param("@SUM(A1)", "'@SUM(A1)", id="at"),
+        pytest.param("\tname", "'\tname", id="tab"),
+        pytest.param("\rname", "'\rname", id="carriage-return"),
+        pytest.param("-1+1", "'-1+1", id="minus-text"),
+        pytest.param("-5", "-5", id="negative-int"),
+        pytest.param("-0.25", "-0.25", id="negative-float"),
+        pytest.param("-1e-05", "-1e-05", id="negative-exponent"),
+        pytest.param("Example Name", "Example Name", id="plain-text"),
+        pytest.param("", "", id="empty"),
+    ],
+)
+def test_a_cell_a_spreadsheet_would_run_is_defused(cell: str, shown: str) -> None:
+    assert reader.defused_cell(cell) == shown
+
+
+def test_defusing_rewrites_only_the_cells_that_would_run(tmp_path: Path) -> None:
+    path = tmp_path / "download.csv"
+    rows = [["name", "value"], ["=SUM(1,2)", "-3"], ["Example, Name", "+2"]]
+    with path.open("w", encoding="utf-8", newline="") as stream:
+        csv.writer(stream).writerows(rows)
+    reader.defuse_formulas(str(path))
+    with path.open(encoding="utf-8", newline="") as stream:
+        assert list(csv.reader(stream)) == [
+            ["name", "value"],
+            ["'=SUM(1,2)", "-3"],
+            ["Example, Name", "'+2"],
+        ]
+    assert [entry.name for entry in tmp_path.iterdir()] == ["download.csv"]
 
 
 def test_an_unknown_request_is_refused_with_a_safe_message(opened: dict[str, Any]) -> None:

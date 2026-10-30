@@ -639,3 +639,36 @@ def test_save_info_is_immutable(tmp_path: Path) -> None:
         save_info.game = "FM99"  # type: ignore[misc]
     with pytest.raises(TypeError):
         save_info.section_schemas["game_info"] = 1  # type: ignore[index]
+
+
+@pytest.mark.parametrize("section_name", ["save_game_summary", "game_info"])
+def test_a_metadata_section_past_its_cap_is_corrupt_before_it_is_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, section_name: str
+) -> None:
+    body = {"save_game_summary": save_summary_body(), "game_info": game_info_body()}[section_name]
+    padded_body = body + bytes(version_module.MAX_METADATA_SECTION_BYTES + 1 - len(body))
+    index = build_index(tmp_path, sections_with(**{section_name: padded_body}))
+    section_reads: list[str] = []
+    original_read_section = version_module.read_section
+
+    def counting_read_section(container_index: ContainerIndex, name: str) -> bytes:
+        section_reads.append(name)
+        return original_read_section(container_index, name)
+
+    monkeypatch.setattr(version_module, "read_section", counting_read_section)
+    with pytest.raises(CorruptSaveError, match=f"section '{section_name}' declares"):
+        read_save_info(index)
+    assert section_name not in section_reads
+
+
+def test_a_metadata_section_at_its_cap_is_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(version_module, "MAX_METADATA_SECTION_BYTES", 4096)
+    summary = save_summary_body()
+    game_info = game_info_body()
+    sections = sections_with(
+        save_game_summary=summary + bytes(4096 - len(summary)),
+        game_info=game_info + bytes(4096 - len(game_info)),
+    )
+    assert read_save_info(build_index(tmp_path, sections)).build == "26.3.2+2329565"

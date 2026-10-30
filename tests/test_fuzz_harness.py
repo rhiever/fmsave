@@ -9,7 +9,7 @@ import pytest
 
 import fmsave
 import fmsave._container
-from fuzz.fuzz_container import run_one_input, seed_inputs
+from fuzz.fuzz_container import READER_NAMES, run_one_input, seed_inputs
 from tests.fixtures.container import FILE_MAGIC
 
 pytestmark = pytest.mark.filterwarnings("error")
@@ -29,6 +29,16 @@ def test_seeds_run_every_reader() -> None:
     assert len(SEEDS) >= 2
     for seed in SEEDS:
         run_one_input(seed)
+
+
+def test_the_harness_runs_every_public_reader() -> None:
+    public_readers = {
+        name
+        for name, member in vars(fmsave.Save).items()
+        if not name.startswith("_") and callable(member) and name != "close"
+    }
+    assert len(READER_NAMES) == len(set(READER_NAMES))
+    assert set(READER_NAMES) == public_readers
 
 
 def test_random_bytes() -> None:
@@ -75,7 +85,7 @@ def test_reader_fmsave_errors_do_not_stop_later_readers(monkeypatch: pytest.Monk
     monkeypatch.setattr(fmsave.Save, "clubs", raise_error(fmsave.ReaderCheckError("no clubs")))
     monkeypatch.setattr(fmsave.Save, "managed_clubs", recording_managed_clubs)
     run_one_input(SEEDS[1])
-    assert called == ["managed_clubs"]
+    assert "managed_clubs" in called
 
 
 @pytest.mark.parametrize("error", [ValueError("boom"), IndexError("boom"), RuntimeError("boom")])

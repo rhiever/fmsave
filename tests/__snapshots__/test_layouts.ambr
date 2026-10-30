@@ -1862,6 +1862,7 @@
         'home_slot_parity': 0,
         'key_offset': 0,
         'lost_offset': 8,
+        'match_goals_maximum': 40,
         'matches_offset': 87,
         'played_copy_offset': 5,
         'played_offset': 4,

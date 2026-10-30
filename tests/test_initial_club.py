@@ -232,3 +232,47 @@ def test_authenticated_spans_ignore_club_shaped_finance_data() -> None:
     spans = own_record_spans(bytes(data), index, LAYOUTS.records)
     assert spans[0].record_end == 5 + len(body)
     assert spans == index.record_spans
+
+
+def test_table_rows_that_give_no_club_are_counted_by_reason() -> None:
+    from fmsave._checks import check_clubs
+    from fmsave._layouts import GateBounds, find_layout
+    from tests.fixtures.club_tables import club_body
+
+    extended = club_body("Example Extended", "Extended", (71002,))
+    extended = bytes((12,)) + bytes(4) + extended[1:]
+    unanchored = bytearray(club_body("Example Unanchored", "Unanchored", (71003,)))
+    struct.pack_into("<I", unanchored, 5, 5)
+    rejected = bytearray(club_body("Example Rejected", "Rejected", (71004,)))
+    struct.pack_into("<I", rejected, 1, 1000)
+    bodies = [
+        club_body("Example Initial", "Initial", (71001,)),
+        extended,
+        bytes(unanchored),
+        bytes(rejected),
+        club_body("Example Last", "Last", (71005,)),
+    ]
+    data = struct.pack("<IB", len(bodies), 0) + b"".join(
+        body + struct.pack("<III", ordinal, 6100 + 100 * ordinal, 6100 + 100 * ordinal)
+        for ordinal, body in enumerate(bodies)
+    )
+    index = read_club_index(data, LAYOUTS, "example.fm")
+    # Counting the rows must leave the clubs read, and their joins, as they were.
+    assert [(c.uid, c.name) for c in index.clubs] == [
+        (0, "Example Initial"),
+        (6401, "Example Last"),
+    ]
+    assert set(index.team_to_club) == {71001, 71005}
+    stats = index.stats
+    assert (stats.table_rows_extended, stats.table_rows_unanchored, stats.table_rows_rejected) == (
+        1,
+        1,
+        1,
+    )
+    bounds = find_layout(GateBounds, "game_db", 4000, "").layout
+    assert dict(check_clubs(stats, bounds, len(data)).anomalies) == {
+        "unlinked_affiliate_teams": 0,
+        "extended_table_rows": 1,
+        "unanchored_table_rows": 1,
+        "rejected_table_rows": 1,
+    }

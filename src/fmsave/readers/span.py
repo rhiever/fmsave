@@ -510,7 +510,7 @@ def _table_search(layout: LeagueTableLayout) -> _TableSearch:
             (layout.zero_offset, "B", "zero"),
             (layout.goals_for_offset, "H", "goals_for"),
             (layout.goals_against_offset, "H", "goals_against"),
-            (layout.points_offset, "H", "points"),
+            (layout.points_offset, "h", "points"),
             (layout.flag_offset, "B", "flag"),
         ],
         start_offset=0,

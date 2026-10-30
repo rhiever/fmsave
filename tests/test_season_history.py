@@ -323,6 +323,21 @@ def test_history_index_rejects_ambiguous_complete_frames(tmp_path) -> None:
         history.read_history_index(read_index(path), history.find_history_layout(BUILD))
 
 
+def test_history_index_candidates_count_against_the_total_cap(tmp_path) -> None:
+    from fmsave._container import ContainerLimits, read_index
+
+    frame_bytes = 64 * 1024
+    broken = history_index()[:-1]
+    padded = broken + bytes(frame_bytes - len(broken))
+    path = index_container(tmp_path, [padded] * 4)
+    declared_total = sum(entry.decompressed_size for entry in read_index(path).entries)
+    index = read_index(
+        path, ContainerLimits(total_decompressed_cap=declared_total + 2 * frame_bytes)
+    )
+    with pytest.raises(fmsave.CorruptSaveError, match="total decompression cap"):
+        history.read_history_index(index, history.find_history_layout(BUILD))
+
+
 @pytest.mark.parametrize("object_kind", [2, 3])
 def test_history_ownership_accepts_distinct_identity_copy_words(tmp_path, object_kind) -> None:
     from tests.fixtures.career import PLAYER_A_UID, career_game_db

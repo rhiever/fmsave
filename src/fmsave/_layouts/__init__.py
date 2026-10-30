@@ -855,7 +855,8 @@ class LeagueTableLayout:
     match rows, whose venue alternates with the slot's parity.
 
     Each row holds a u32 key, the played count twice, the won, drawn and lost counts, a zero
-    byte, the u16 goals for, goals against and points, and a flag byte. On an aggregate row,
+    byte, the u16 goals for and goals against, the signed i16 points, and a flag byte. Points
+    are signed because a deduction can take a club's total below zero. On an aggregate row,
     and in a match slot that was never played, the key is `unplayed_key`; otherwise it is the
     opponent's first-team id.
 
@@ -864,8 +865,8 @@ class LeagueTableLayout:
     counts equal and played equal to won plus drawn plus lost, the home and away rows'
     played counts add up to the total row's, so do the two half rows', and the total row has
     played at least one match. `team_id_range`, `stored_index_head_byte`,
-    `division_club_range` and `home_slot_parity` are for the league-tables reader rather than
-    the span pass. The byte at `stored_index_head_byte` inside the head blob is the block's
+    `division_club_range`, `home_slot_parity` and `match_goals_maximum` are for the
+    league-tables reader rather than the span pass. The byte at `stored_index_head_byte` inside the head blob is the block's
     own place in its table, running 0 to n-1 and starting again at the next table, so it is
     what separates two tables; a group of `division_club_range` clubs each playing the others
     twice is a division.
@@ -877,6 +878,10 @@ class LeagueTableLayout:
     outright. On the tables whose rows account for exactly one season of that calendar, the
     slots the calendar can decide by itself agree with the even slot being home on at least
     99.76% of them on every save measured, and with the odd slot being home on at most 0.24%.
+
+    `match_goals_maximum` is the most goals a played match slot may record for either club
+    before the reader treats the slot as unreadable, alongside the slot's own counters naming
+    one match whose result its score bears out.
     """
 
     row_bytes: int
@@ -903,6 +908,7 @@ class LeagueTableLayout:
     stored_index_head_byte: int
     division_club_range: tuple[int, int]
     home_slot_parity: int | None
+    match_goals_maximum: int
 
 
 @dataclass(frozen=True, slots=True)

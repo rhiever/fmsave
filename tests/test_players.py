@@ -535,6 +535,8 @@ def test_edited_player_ranges_require_a_player_kind_and_preserve_raw_values(mark
     assert player.ability.current == 225 and player.ability.potential == 245
     assert player.raw_attributes.consistency == 120
     assert player.attributes.consistency == 24
+    # The players check reports edited records rather than leaving the values above 20 unflagged.
+    assert decoder.edited_attribute_records == 1
 
 
 @pytest.mark.parametrize(

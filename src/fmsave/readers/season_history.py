@@ -6,7 +6,7 @@ import struct
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from fmsave._container import ContainerIndex, read_region_frame, region_frame_heads
+from fmsave._container import ContainerIndex, read_chosen_region_frames, region_frame_heads
 from fmsave._errors import ReaderCheckError
 from fmsave._layouts import SeasonHistoryLayout, SeasonStatsLayout, find_layout
 from fmsave._reader_stats import SeasonHistoryStats
@@ -88,15 +88,14 @@ def read_history_index(index: ContainerIndex, layout: SeasonHistoryLayout) -> Hi
     """Accept exactly one matching span frame whose complete structure walks."""
     accepted: HistoryIndex | None = None
     first_error: ReaderCheckError | None = None
-    candidates = 0
-    for span, head in region_frame_heads(index, SPAN_REGION, len(layout.index_header)):
-        if head != layout.index_header:
-            continue
-        candidates += 1
+    candidates = [
+        span
+        for span, head in region_frame_heads(index, SPAN_REGION, len(layout.index_header))
+        if head == layout.index_header
+    ]
+    for body in read_chosen_region_frames(index, SPAN_REGION, candidates):
         try:
-            walked = walk_history_index(
-                read_region_frame(index, SPAN_REGION, span), index.file_name, layout
-            )
+            walked = walk_history_index(body, index.file_name, layout)
         except ReaderCheckError as error:
             if first_error is None:
                 first_error = error
@@ -107,7 +106,9 @@ def read_history_index(index: ContainerIndex, layout: SeasonHistoryLayout) -> Hi
     if accepted is None:
         if first_error is not None:
             raise first_error
-        raise _mismatch(index.file_name, f"no history index frame found ({candidates} candidates)")
+        raise _mismatch(
+            index.file_name, f"no history index frame found ({len(candidates)} candidates)"
+        )
     return accepted
 
 

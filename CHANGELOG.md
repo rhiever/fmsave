@@ -4,6 +4,19 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Fixed
+
+- League-table points below zero, after a points deduction, read as negative instead of about 65,000.
+- `league_tables()` no longer returns one-club tables that hold an earlier state of a row kept in another table, which reported a stale record in first place. Validation counts them as `superseded_blocks`.
+- League-table match slots that do not hold one match whose score agrees with its result, such as slots counting two meetings or scoring hundreds of goals, keep their slot and side with the other fields empty. Validation counts them as `unreadable_match_slots`.
+- `read_competition_names()` and `--competition-names` accept a file Excel saved as "CSV UTF-8". Its byte order mark no longer hides the first row. A file that is not UTF-8 raises an error that names it.
+- Opening a save refuses metadata sections far larger than any save writes, and `player_season_stats()` and `player_season_history()` keep to the total decompression cap, so a small damaged or crafted file cannot take minutes and gigabytes to read.
+- The web app's CSV downloads put an apostrophe before text a spreadsheet would run as a formula, as its list download already did. A CSV button no longer stays on "Writing" after another save is opened.
+
+### Changed
+
+- Validation reports `edited_attribute_players` for players stored past the 1 to 100 raw attribute scale, and the club-table rows that give no club by reason: `extended_table_rows`, `unanchored_table_rows` and `rejected_table_rows`.
+
 ## [0.7.0] - 2026-10-28
 
 ### Added
