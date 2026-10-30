@@ -1,12 +1,12 @@
 # fmsave
 
-> fmsave reads Football Manager 26 save files (.fm) into Python records, pandas and polars DataFrames, CSV, and JSON. It is read-only: it never modifies a save, makes no network connections, and does not read game memory. It needs Python 3.12 or newer and is on PyPI as `fmsave`. A free web app runs the same reader in the browser for people without Python.
+> fmsave reads Football Manager 26 and 27 save files (.fm) into Python records, pandas and polars DataFrames, CSV, and JSON. It is read-only: it never modifies a save, makes no network connections, and does not read game memory. It needs Python 3.12 or newer and is on PyPI as `fmsave`. A free web app runs the same reader in the browser for people without Python.
 
 Install with `pip install fmsave`, or try it without installing with `uvx fmsave info path/to/career.fm`. The fmsave library supports local, single-player analysis. Using hidden data such as potential ability in a shared online career may break that career's rules.
 
 ## Web app
 
-- [fmsave web app](https://rhiever.github.io/fmsave/app/): drop an FM26 save to see every player with all attributes, CA and PA, positions, personality, contracts, and this season's stats, ranked against players in the same position, with CSV downloads. The save is read in the browser and never uploaded.
+- [fmsave web app](https://rhiever.github.io/fmsave/app/): drop a supported FM26 or FM27 save to see every player with all attributes, CA and PA, positions, personality, contracts, and this season's stats, ranked against players in the same position, with CSV downloads. The save is read in the browser and never uploaded.
 - [Web app demo](https://rhiever.github.io/fmsave/app/#demo): the same app with a made-up league, for trying it without a save.
 
 ## Guides

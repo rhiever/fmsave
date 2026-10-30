@@ -5,22 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://pypi.org https://files.pythonhosted.org; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
-<title>fmsave: scout every player in your FM26 save</title>
-<meta name="description" content="Drop a Football Manager 26 save and get every player in it, with all attributes, CA and PA, this season's stats, and CSV downloads. Your save never leaves your computer.">
+<title>fmsave: scout every player in your Football Manager save</title>
+<meta name="description" content="Drop a supported Football Manager save and get every player in it, with all attributes, CA and PA, this season's stats, and CSV downloads. Your save never leaves your computer.">
 <link rel="canonical" href="https://rhiever.github.io/fmsave/app/">
 <meta name="theme-color" content="#121619">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="fmsave">
-<meta property="og:title" content="fmsave: scout every player in your FM26 save">
-<meta property="og:description" content="Drop a Football Manager 26 save and see every player with all attributes, CA and PA, and this season's stats, ranked against players in the same position. Free, and your save never leaves your computer.">
+<meta property="og:title" content="fmsave: scout every player in your Football Manager save">
+<meta property="og:description" content="Drop a supported Football Manager save and see every player with all attributes, CA and PA, and this season's stats, ranked against players in the same position. Free, and your save never leaves your computer.">
 <meta property="og:url" content="https://rhiever.github.io/fmsave/app/">
 <meta property="og:image" content="https://rhiever.github.io/fmsave/app/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="The fmsave web app: a percentile wheel of 52 attributes beside the words Scout every player in your FM26 save.">
+<meta property="og:image:alt" content="The fmsave web app: a percentile wheel of 52 attributes beside the words Scout every player in your Football Manager save.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="fmsave: scout every player in your FM26 save">
-<meta name="twitter:description" content="Drop a Football Manager 26 save and see every player with all attributes, CA and PA, and this season's stats. Your save never leaves your computer.">
+<meta name="twitter:title" content="fmsave: scout every player in your Football Manager save">
+<meta name="twitter:description" content="Drop a supported Football Manager save and see every player with all attributes, CA and PA, and this season's stats. Your save never leaves your computer.">
 <meta name="twitter:image" content="https://rhiever.github.io/fmsave/app/og.png">
 <script type="application/ld+json">
 {
@@ -28,7 +28,7 @@
   "@type": "WebApplication",
   "name": "fmsave web app",
   "url": "https://rhiever.github.io/fmsave/app/",
-  "description": "Reads a Football Manager 26 save in the browser and shows every player in it, with all attributes, current and potential ability, positions, personality, contracts, and this season's stats, ranked against players in the same position. It exports CSV files. The save is read on the user's computer and never uploaded.",
+  "description": "Reads a supported Football Manager save in the browser and shows every player in it, with all attributes, current and potential ability, positions, personality, contracts, and this season's stats, ranked against players in the same position. It exports CSV files. The save is read on the user's computer and never uploaded.",
   "applicationCategory": "UtilitiesApplication",
   "operatingSystem": "Any, in a current web browser",
   "isAccessibleForFree": true,
@@ -84,8 +84,9 @@
 <noscript><p class="noscript">This page needs JavaScript to read a save. Without it, you can still use <a href="../">fmsave as a Python library and command line tool</a>.</p></noscript>
 <main class="start" id="start">
   <section>
-    <h1>Scout every player in your FM26 save</h1>
-    <p class="lede">Drop a Football Manager 26 save here. You get your squad and every player in the game world, with all attributes, CA and PA, positions, personality, contracts, this season's stats, and CSV downloads. Every number is ranked against players in the same position.</p>
+    <h1>Scout every player in your Football Manager save</h1>
+    <p class="lede">Drop a supported Football Manager save here. You get your squad and every player in the game world, with all attributes, CA and PA, positions, personality, contracts, this season's stats, and CSV downloads. Every number is ranked against players in the same position.</p>
+    <p id="game-support">FM26 and supported FM27 builds. FM27 requires reader 0.8.0 or later.</p>
     <div class="drop" id="drop">
       <strong id="drop-title">Drop your .fm save here</strong>
       <div class="drop-row" id="drop-actions">
@@ -102,7 +103,7 @@
     </div>
     <div class="notes">
       <p><b>Your save never leaves this computer.</b> This page reads it inside your browser with <a href="../">fmsave</a>, an open source Python reader. Nothing is uploaded and nothing is stored on a server. The page downloads only the reader and its fonts (from Google Fonts).</p>
-      <p><b>Where saves live.</b> On a Mac, <code>~/Library/Application Support/Sports Interactive/Football Manager 26/games/</code>.<br>On Windows, usually <code>Documents\Sports Interactive\Football Manager 26\games\</code>. A big save takes about half a minute to read. If the game is running, copy the save and drop the copy in instead.</p>
+      <p><b>Where saves live.</b> On a Mac, <code>~/Library/Application Support/Sports Interactive/Football Manager 26/games/</code>.<br>On Windows, usually <code>Documents\Sports Interactive\Football Manager 26\games\</code>. These are FM26 examples; use the game's Save As dialog to locate other saves. Large saves can take longer to read. If the game is running, copy the save and drop the copy in instead.</p>
       <p><b>Play fair.</b> CA, PA, and hidden attributes are shown. That is fine in your own single-player career. Using them in a shared online career may break its rules.</p>
     </div>
   </section>
@@ -137,6 +138,7 @@
     </div>
     <label class="ctl">Competition <select id="stat-kind-bar"></select></label>
   </div>
+  <p id="coverage-note" class="reader-note" hidden></p>
   <div class="body">
     <aside class="rail" id="rail" aria-label="Filters">
       <div class="rail-head"><button class="plain" id="rail-close"><svg class="icon"><use href="#i-x"/></svg>Close</button></div>

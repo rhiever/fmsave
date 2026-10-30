@@ -157,6 +157,7 @@ def walk_season_stats(body: bytes, layout: SeasonStatsLayout, file_name: str) ->
         return count
 
     records: list[RawSeasonRecord] = []
+    keys_seen: set[int] = set()
     position = _SECTION_HEADER_BYTES
     while True:
         if position >= end:
@@ -167,6 +168,10 @@ def walk_season_stats(body: bytes, layout: SeasonStatsLayout, file_name: str) ->
         if marker != _RECORD_PRESENT or position + 1 + _U32.size + header_bytes > end:
             raise _mismatch(file_name, f"the record at byte {position:,} does not start as one")
         key: int = _U32.unpack_from(body, position + 1)[0]
+        if layout.require_unique_keys:
+            if key in keys_seen:
+                raise _mismatch(file_name, "the statistics records repeat a player key")
+            keys_seen.add(key)
         own_lines, position = read_slots(position + 1 + _U32.size + header_bytes, own_slot_count)
         position += layout.block_bytes
         other_count = read_count(position, layout.maximum_other_teams, "other teams")
@@ -238,6 +243,26 @@ _ROW_FIELDS = tuple(field.name for field in dataclasses.fields(PlayerSeasonStats
     len(("player_uid", "player_name", "kind", "team_id")) + len(_NO_CLUB) :
 ]
 
+# Omitting a metric must preserve the public model's nullability contract. The
+# role-specific fields were nullable already; the three preview fields are withheld
+# until their changed meanings can be established independently.
+_NULLABLE_METRICS = frozenset(
+    {
+        "goals_outside_box",
+        "pressures_attempted",
+        "pressures_completed",
+        "open_play_crosses_completed",
+        "aerial_challenges_attempted",
+        "headers_won",
+        "blocks",
+        "clearances",
+        "saves_held",
+        "saves_parried",
+        "saves_tipped",
+        "shots_on_target_faced",
+    }
+)
+
 
 @functools.cache
 def _line_readers(layout: SeasonStatsLayout) -> tuple[_LineReader, _LineReader]:
@@ -246,17 +271,34 @@ def _line_readers(layout: SeasonStatsLayout) -> tuple[_LineReader, _LineReader]:
     Raises:
         ValueError: The layout's fields and the model's fields do not name the same statistics.
     """
+    stored_names = {
+        name for name, *_ in (*layout.fields, *layout.outfield_fields, *layout.goalkeeper_fields)
+    }
+    unsupported = frozenset(layout.unsupported_fields)
+    invalid = unsupported - (stored_names & _NULLABLE_METRICS)
+    if invalid:
+        raise ValueError(
+            f"unsupported metric omissions are not nullable stored fields: {sorted(invalid)}"
+        )
     rated_name = _field_at(layout, layout.rated_appearances_offset)
 
     def reader(extra: tuple[tuple[str, int, str, int], ...]) -> _LineReader:
         specs = [(layout.rating_sum_offset, "H", "_rating_sum")]
-        specs += [(offset, code, name) for name, offset, code, _ in (*layout.fields, *extra)]
+        specs += [
+            (offset, code, name)
+            for name, offset, code, _ in (*layout.fields, *extra)
+            if name not in unsupported
+        ]
         struct_object, start_offset, index_by_name = build_gap_padded_struct(specs)
-        unit_by_name = {name: unit for name, _, _, unit in (*layout.fields, *extra)}
+        unit_by_name = {
+            name: unit for name, _, _, unit in (*layout.fields, *extra) if name not in unsupported
+        }
         absent_index = len(specs)
         shared_names = {name for name, *_ in (*layout.outfield_fields, *layout.goalkeeper_fields)}
         unknown = set(unit_by_name) - set(_ROW_FIELDS)
-        missing = set(_ROW_FIELDS) - set(unit_by_name) - shared_names - {"average_rating"}
+        missing = (
+            set(_ROW_FIELDS) - set(unit_by_name) - shared_names - unsupported - {"average_rating"}
+        )
         if unknown or missing:
             raise ValueError(f"layout and model disagree: {sorted(unknown)} {sorted(missing)}")
         order = [index_by_name.get(name, absent_index) for name in _ROW_FIELDS]

@@ -15,7 +15,8 @@ The `fmsave` command line: `info`, `export` and `validate`. Each block below is 
 $ fmsave --help
 usage: fmsave [-h] [--version] COMMAND ...
 
-Read Football Manager 26 save files. fmsave never modifies a save.
+Read Football Manager 26 and supported 27 save files. fmsave never modifies a
+save.
 
 positional arguments:
   COMMAND

@@ -260,7 +260,7 @@ def _table_name(argument: str) -> str:
 def _build_parser() -> _CommandLineParser:
     parser = _CommandLineParser(
         prog="fmsave",
-        description="Read Football Manager 26 save files. fmsave never modifies a save.",
+        description="Read Football Manager 26 and supported 27 save files. fmsave never modifies a save.",
     )
     parser.add_argument("--version", action="version", version=f"fmsave {__version__}")
     subcommands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
@@ -793,12 +793,17 @@ def _stadium_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[obj
     stadiums = career_save.stadiums()
     if scope.club_uids is None and scope.nation_id is None:
         return stadiums
+    if any(stadium.home_club_uids is None for stadium in stadiums):
+        raise UnsupportedGameError(
+            "stadium club/nation scopes require verified home-ground links; "
+            "these links are unknown in FM27. Use --all for raw stadium rows"
+        )
     keeps_club = _club_uid_filter(career_save, scope)
     return (
         stadium
         for stadium in stadiums
         if keeps_club(stadium.owner_club_uid)
-        or any(keeps_club(club_uid) for club_uid in stadium.home_club_uids)
+        or any(keeps_club(club_uid) for club_uid in (stadium.home_club_uids or ()))
     )
 
 
@@ -1159,7 +1164,9 @@ def _run_export(arguments: argparse.Namespace) -> int:
         _check_output_path(output_path, save_path)
     # A failed check warns, and the rows it judged are written anyway; --strict stops instead.
     with fmsave.open(
-        save_path, strict=arguments.strict, competition_names=competition_names
+        save_path,
+        strict=arguments.strict,
+        competition_names=competition_names,
     ) as career_save:
         scope = _resolve_scope(career_save, arguments)
         records = export_table.rows(career_save, scope)
@@ -1194,10 +1201,15 @@ def _render_validation_text(report: ValidationReport) -> str:
             if gate.applied and not gate.passed
         )
     lines.append(f"game {report.game}, build {report.build}")
+    if report.experimental_counts:
+        lines.append("experimental raw span (not semantic fixture/rules tables):")
+        lines.extend(f"  {name}: {count}" for name, count in report.experimental_counts.items())
     return "\n".join(lines)
 
 
 def _validation_exit_code(report: ValidationReport) -> int:
+    if report.experimental_counts.get("span_parse_errors", 0):
+        return EXIT_UNEXPECTED
     statuses = {reader.status for reader in report.readers}
     if "failed" in statuses:
         return EXIT_UNSUPPORTED

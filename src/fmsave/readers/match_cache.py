@@ -143,7 +143,7 @@ class MatchCacheWalker:
         at = _need(at + _U32.size, count * 2, end)
         first, second, third = layout.nullable_prefix_bytes
         at = _nullable(data, at, end, b"\x01\x01", first)
-        at = _nullable(data, at, end, b"\x01\x02", second, (5,))
+        at = _nullable(data, at, end, layout.nullable_prefix_second_marker, second, (5,))
         at = _nullable(data, at, end, b"\x01\x01", third, (2,))
         stop = _need(at, layout.raw_body_bytes, end)
         if data[at] != 2:
@@ -184,7 +184,7 @@ class MatchCacheWalker:
         for _ in range(count):
             _need(at, 4, end)
             optional = data[at + 3]
-            if data[at] != 2 or optional not in (0, 1):
+            if data[at] != layout.medical_row_lead_byte or optional not in (0, 1):
                 raise _UnknownCache
             stop = _need(
                 at, layout.medical_row_bytes + layout.medical_optional_bytes * optional, end
@@ -224,7 +224,14 @@ class MatchCacheWalker:
                 at = stop
         first, second, third, fourth, fifth = layout.nullable_suffix_bytes
         start = at
-        at = _nullable(data, at, end, b"\x01\x03", first, (39,))
+        at = _nullable(
+            data,
+            at,
+            end,
+            layout.nullable_suffix_first_marker,
+            first,
+            (layout.nullable_suffix_first_date_offset,),
+        )
         if data[start] and data[at - 1] != 0:
             raise _UnknownCache
         at = _nullable(data, at, end, b"\x01\x05", second)

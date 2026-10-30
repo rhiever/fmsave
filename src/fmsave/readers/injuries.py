@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from fmsave._container import DirectoryEntry
+from fmsave._errors import UnsupportedGameError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import InjuryManagerLayout, InjuryTypeTableLayout, find_layout
 from fmsave._reader_stats import InjuryStats, InjuryTypeStats
@@ -200,7 +201,15 @@ def read_injury_types(
     entry without the magic is not a per-match file: it is counted, skipped, and does not count
     against the first limit. A save with no such entry, and one whose entries hold no table,
     both give a table of no rows.
+
+    Raises:
+        UnsupportedGameError: This layout permits only structurally absent match entries,
+            but the directory lists at least one entry.
     """
+    if entries and not layout.allow_match_entries:
+        raise UnsupportedGameError(
+            "nonempty per-match injury-type tables are not supported by this layout"
+        )
     entries_with_magic_tried = 0
     entries_without_magic = 0
     records: tuple[InjuryTypeRecord, ...] = ()
@@ -351,6 +360,8 @@ def walk_injury_manager(
     Raises:
         ReaderCheckError: A count runs past the end of the section, the bytes where the tail
             belongs are not the tail, or the walk does not end on the section's last byte.
+        UnsupportedGameError: This layout does not support nonempty typed rows or lists,
+            and such a count is present.
         ValueError: The layout does not name exactly two arrays besides its typed and log ones.
     """
     kept_indexes = (layout.typed_array_index, layout.log_array_index)
@@ -375,6 +386,10 @@ def walk_injury_manager(
                 f"{section_bytes - cursor} bytes are left",
                 section_name=INJURY_MANAGER_SECTION,
             )
+        if array_index == layout.typed_array_index and row_count and not layout.allow_typed_rows:
+            raise UnsupportedGameError(
+                f"{file_name}: nonempty typed injury rows are not supported by this FM27 layout"
+            )
         row_offsets.append(cursor)
         row_counts.append(row_count)
         cursor += row_count * stride
@@ -394,6 +409,11 @@ def walk_injury_manager(
                 f"list {list_index} claims {entry_count} entries of {entry_bytes} bytes and "
                 f"only {section_bytes - cursor} bytes are left",
                 section_name=INJURY_MANAGER_SECTION,
+            )
+        if entry_count and layout.require_empty_lists:
+            raise UnsupportedGameError(
+                f"{file_name}: nonempty auxiliary injury lists are not supported by this "
+                "FM27 layout"
             )
         list_entries.append(entry_count)
         cursor += entry_count * entry_bytes

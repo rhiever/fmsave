@@ -4,6 +4,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-30
+
+### Added
+
+- FM27 build `27.0.0+2486695` opens through the normal library, command line, and web app reader. Other FM27 builds and unregistered layouts are rejected.
+- FM27 readers use strict checks and conservative memory budgets. Unsupported tables reject, and unconfirmed or unsupported fields keep their explicit status. This does not establish that every FM27 value is decoded correctly.
+- The app identifies FM27's unconfirmed field meanings and the reader version needed for FM27. Documentation now covers both editions and their coverage limits.
+- Fuzzing exercises a fictional FM27 seed through the real raw-span parser while retaining decompression caps.
+
 ### Fixed
 
 - League-table points below zero, after a points deduction, read as negative instead of about 65,000.

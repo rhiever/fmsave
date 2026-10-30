@@ -302,6 +302,7 @@ def test_a_ban_is_named_only_when_it_covers_one_competition(career_save_path: Pa
     assert nation_ban.competition_id is None
     assert nation_ban.competition_name is None
     # The player's own copy of each ban is named by the same lookup.
+    assert player.suspensions is not None
     assert [ban.competition_name for ban in player.suspensions] == [FIRST_COMPETITION_NAME, None]
 
 

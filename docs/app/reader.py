@@ -65,7 +65,7 @@ def friendly_error(error: BaseException) -> str:
     if isinstance(error, fmsave.UnsupportedGameError):
         return (
             "This save comes from a game or build fmsave cannot read yet. fmsave reads "
-            "Football Manager 26 saves."
+            "Football Manager 26 and supported 27 builds (reader 0.8.0 or later)."
         )
     if isinstance(error, fmsave.CorruptSaveError):
         return "This save looks damaged or incomplete. Try a fresh copy of the save file."
@@ -287,6 +287,12 @@ def open_save(path: str) -> dict[str, object]:
     club = managed[0] if managed else None
     _state["club_uid"] = None if club is None else club.club_uid
     return {
+        "game": info.game,
+        "coverage_note": (
+            "FM27 field meanings remain unconfirmed. Money is in stored units; wages are weekly. Unsupported values stay blank."
+            if info.game == "FM27"
+            else ""
+        ),
         "save": info.save_name,
         "date": None if info.game_date is None else info.game_date.isoformat(),
         "club": None if club is None else club.club_name,

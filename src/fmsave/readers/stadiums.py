@@ -32,6 +32,7 @@ import struct
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from fmsave._errors import ReaderCheckError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import StadiumTableLayout, find_layout
 from fmsave._reader_stats import StadiumStats
@@ -599,18 +600,24 @@ def home_grounds(fixtures: Sequence[Fixture], minimum_fixtures: int) -> dict[int
 def build_stadiums(
     index: StadiumIndex,
     club_index: ClubIndex,
-    fixtures: Sequence[Fixture],
+    fixtures: Sequence[Fixture] | None,
     layout: StadiumTableLayout,
 ) -> tuple[tuple[Stadium, ...], StadiumStats]:
     """Build one row per walked ground, and count what the stadium checks judge.
 
     The owner comes from the table and the home clubs from the calendar, which are two
-    different claims about the same ground and are kept apart in the record.
+    different claims about the same ground and are kept apart in the record. A None
+    calendar is unavailable, not an observed empty calendar: both derived home-club
+    fields remain None while intrinsic table fields and owner joins are still read.
     """
+    if fixtures is None and not index.reached_table_end:
+        raise ReaderCheckError("stadium table end was not reached; independent table is incomplete")
     uid_by_club_index = club_index.uid_by_club_index
     club_by_uid = club_index.club_by_uid
     counts = _table_counts(index, uid_by_club_index, layout)
-    ground_by_club_uid = home_grounds(fixtures, layout.home_ground_minimum_fixtures)
+    ground_by_club_uid = (
+        {} if fixtures is None else home_grounds(fixtures, layout.home_ground_minimum_fixtures)
+    )
     # The uids and the names of a ground's home clubs are taken off the same club records, so
     # the two tuples a row carries are the same length and in the same order by construction.
     home_clubs_by_stadium_uid: dict[int, list[Club]] = {}
@@ -641,8 +648,12 @@ def build_stadiums(
                 capacity=raw_stadium.capacity or None,
                 owner_club_uid=owner_club_uid,
                 owner_club_name=None if owner_club is None else owner_club.name,
-                home_club_uids=tuple(home_club.uid for home_club in home_clubs),
-                home_club_names=tuple(home_club.name for home_club in home_clubs),
+                home_club_uids=None
+                if fixtures is None
+                else tuple(home_club.uid for home_club in home_clubs),
+                home_club_names=None
+                if fixtures is None
+                else tuple(home_club.name for home_club in home_clubs),
                 pitch_length_dm=raw_stadium.pitch_length,
                 pitch_width_dm=raw_stadium.pitch_width,
                 pitch_min_length_dm=raw_stadium.pitch_min_length,

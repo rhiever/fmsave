@@ -1,7 +1,7 @@
 ---
 myst:
   html_meta:
-    description: "Read your Football Manager 26 squad with fmsave: attributes, ability, contracts, and season stats, sorted, filtered, and exported."
+    description: "Read your Football Manager 26 and 27 squads with fmsave: attributes, ability, contracts, and season stats, sorted, filtered, and exported."
 ---
 
 # Your squad

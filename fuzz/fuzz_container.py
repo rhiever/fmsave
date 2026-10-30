@@ -46,6 +46,7 @@ READER_NAMES = (
     "set_pieces",
     "training",
     "mentoring",
+    "experimental_span",
 )
 
 
@@ -54,12 +55,17 @@ def seed_inputs() -> list[bytes]:
     from tests.fixtures.career import career_fragment
     from tests.fixtures.container import build_container_fragment
 
-    return [
+    seeds = [
         build_container_fragment().content,
         career_fragment().content,
         career_fragment(duplicate_club_name=True).content,
         career_fragment(manager_between_jobs=True).content,
     ]
+    from tests.test_fm27_span_integration import span_fragment
+
+    with tempfile.TemporaryDirectory() as directory:
+        seeds.append(span_fragment(Path(directory)).read_bytes())
+    return seeds
 
 
 def run_one_input(data: bytes) -> None:
@@ -84,11 +90,18 @@ def run_one_input(data: bytes) -> None:
                 save_info = read_save_info(container_index)
             except fmsave.FmsaveError:
                 return
-            with fmsave.Save(container_index, save_info) as career_save:
+            with fmsave.Save(
+                container_index, save_info, strict=save_info.game == "FM27"
+            ) as career_save:
                 repr(career_save.info)
                 for reader_name in READER_NAMES:
                     try:
-                        len(getattr(career_save, reader_name)())
+                        result = getattr(career_save, reader_name)()
+                        if reader_name == "experimental_span":
+                            len(result.fixtures)
+                            len(result.rules)
+                        else:
+                            len(result)
                     except fmsave.FmsaveError:
                         pass
 

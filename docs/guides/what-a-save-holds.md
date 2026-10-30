@@ -1,7 +1,7 @@
 ---
 myst:
   html_meta:
-    description: "What a Football Manager 26 save holds and what fmsave's 27 readers return, with the limits of each."
+    description: "What a Football Manager 26 and 27 save holds and what fmsave's readers return, with the limits of each."
 ---
 
 # What a save holds

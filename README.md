@@ -1,6 +1,6 @@
 # fmsave
 
-Read your Football Manager 26 saves from disk into Python records, DataFrames, CSV and JSON.
+Read your Football Manager 26 and 27 saves from disk into Python records, DataFrames, CSV, and JSON.
 
 [Documentation](https://rhiever.github.io/fmsave/): guides and the full reference.
 [Release notes](https://rhiever.github.io/fmsave/changelog.html) cover each release.
@@ -8,6 +8,18 @@ Read your Football Manager 26 saves from disk into Python records, DataFrames, C
 No Python? [Open fmsave in your browser](https://rhiever.github.io/fmsave/app/) and drop a save on
 the page. You get your squad and every player in the save, with all attributes, CA and PA, this
 season's stats, and CSV downloads. The save is read on your computer and never uploaded.
+
+## Game coverage
+
+FM27 support covers build `27.0.0+2486695` through the normal API and commands. Other FM27
+builds and unregistered layouts are rejected. Reader coverage is partial: suspensions,
+semantic fixtures, league tables, competition rules, and populated per-match histories are
+not supported. Run `fmsave validate SAVE --json` for reader coverage and checks.
+
+FM27 field meanings remain unconfirmed; structural checks do not establish correctness.
+Unknown values stay explicit rather than borrowing FM26 meanings. Finance rows are snapshots,
+not current-month totals, and money is not converted to display currency. See the
+[trust guide](https://rhiever.github.io/fmsave/guides/trust.html) before relying on a value.
 
 ## Install
 

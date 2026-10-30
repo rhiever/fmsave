@@ -326,7 +326,7 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: rgb(var(--men)
 .p-label { font-family: var(--ui); font-weight: 600; fill: var(--ink-2); }
 
 /* App frame */
-.app { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 1fr; height: calc(100vh - var(--bar)); height: calc(100dvh - var(--bar)); }
+.app { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr); height: calc(100vh - var(--bar)); height: calc(100dvh - var(--bar)); }
 .subbar {
   display: flex;
   align-items: center;
@@ -385,7 +385,8 @@ input[type="range"] { width: 120px; accent-color: rgb(var(--tec)); }
 }
 .plain:hover { border-color: var(--ink-3); }
 .statbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 7px 20px; background: var(--sheet); border-bottom: 1px solid var(--rule); }
-.body { display: grid; grid-template-columns: 220px minmax(0, 1fr) 410px; min-height: 0; }
+.reader-note { grid-row: 3; margin: 0; padding: 7px 20px; font-size: 16px; color: var(--ink-2); border-bottom: 1px solid var(--rule); }
+.body { grid-row: 4; display: grid; grid-template-columns: 220px minmax(0, 1fr) 410px; min-height: 0; }
 
 /* Filter rail */
 .rail { min-height: 0; overflow-y: auto; padding: 16px 16px 28px; border-right: 1px solid var(--rule); background: var(--ground); }

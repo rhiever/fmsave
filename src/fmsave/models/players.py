@@ -369,6 +369,7 @@ class Player:
             established.
         suspensions: The player's unserved suspensions, in the order the save stores them,
             including bans the game no longer displays; () when the player has none.
+            None when the FM27 reader cannot establish suspension coverage.
     """
 
     uid: int
@@ -423,7 +424,7 @@ class Player:
     loan_start: date | None
     loan_end: date | None
     contract: Contract | None
-    suspensions: tuple[PlayerSuspension, ...]
+    suspensions: tuple[PlayerSuspension, ...] | None
 
 
 register_field_statuses(Ability, unconfirmed=("current", "potential", "potential_range_code"))
