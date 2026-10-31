@@ -180,6 +180,25 @@ def unique_staff_rows(
     human_selector: int | None = None,
     human_personality_floor: int | None = None,
     require_unique_candidate: bool = True,
+    fm27_jobs: bool = False,
+):
+    rows, _stats = unique_staff_read(
+        extra_staff,
+        human_selector=human_selector,
+        human_personality_floor=human_personality_floor,
+        require_unique_candidate=require_unique_candidate,
+        fm27_jobs=fm27_jobs,
+    )
+    return rows
+
+
+def unique_staff_read(
+    extra_staff: bytes,
+    *,
+    human_selector: int | None = None,
+    human_personality_floor: int | None = None,
+    require_unique_candidate: bool = True,
+    fm27_jobs: bool = False,
 ):
     from datetime import date
 
@@ -198,12 +217,16 @@ def unique_staff_rows(
     players = locate_player_records(db, pools.end_offset, PLAYER_LAYOUT, "career example.fm")
     layouts = replace(
         STAFF_LAYOUTS,
-        staff=replace(STAFF_LAYOUTS.staff, human_personality_floor=human_personality_floor),
+        staff=replace(
+            STAFF_LAYOUTS.staff,
+            human_personality_floor=human_personality_floor,
+            **(FM27_JOB_VALUES if fm27_jobs else {}),  # pyright: ignore[reportArgumentType]
+        ),
         person_blocks=replace(
             STAFF_LAYOUTS.person_blocks, require_unique_candidate=require_unique_candidate
         ),
     )
-    rows, _lists, _stats = read_staff(
+    rows, _lists, stats = read_staff(
         db,
         humans_body(count=int(human_selector is not None), selector=human_selector or 0),
         clubs,
@@ -213,7 +236,7 @@ def unique_staff_rows(
         layouts,
         "career example.fm",
     )
-    return rows
+    return rows, stats
 
 
 def test_valid_unlisted_closing_header_keeps_neighbor_person_block_outside_staff_window() -> None:
@@ -417,3 +440,248 @@ def test_fm26_human_contract_past_his_closing_header_is_not_his_under_the_floor(
     )
 
     assert any(row.is_human_manager for row in rows) is has_row
+
+
+# The job, offer and no-contract values the FM27 layout registers. The rest of the career
+# fixture's layout stays FM26's, since its staff lists are written with one-byte counts.
+FM27_JOB_VALUES: dict[str, object] = {
+    "job_offset": 16,
+    "offer_marker_offset": 19,
+    "no_contract_selector_offset": 16,
+    "no_contract_lead": b"\x05\x05",
+}
+# Where a contract record's job and the word after it sit, counted from its tag: the selector
+# is five bytes past the tag.
+JOB_FROM_TAG = 5 + 16
+AFTER_JOB_FROM_TAG = 5 + 19
+NOT_AN_OFFER = b"\xff\xff\xff\xff"
+
+
+def test_fm27_registration_reads_jobs_offers_and_roles_with_no_contract() -> None:
+    from fmsave._layouts import StaffLayout, find_layout
+
+    layout = find_layout(StaffLayout, "game_db", 4000, "27.0.0+2486695").layout
+    assert {name: getattr(layout, name) for name in FM27_JOB_VALUES} == FM27_JOB_VALUES
+    assert STAFF_LAYOUT.job_offset is None
+    assert STAFF_LAYOUT.offer_marker_offset is None
+    assert STAFF_LAYOUT.no_contract_selector_offset is None
+
+
+def job_contract(
+    *,
+    job: int,
+    team_id: int | None = None,
+    start_year: int = 2029,
+    wage: int = 1_000,
+    offer: bool = False,
+) -> bytes:
+    from tests.fixtures.career import NORTHBRIDGE_TEAM_A
+    from tests.fixtures.container import packed_date
+    from tests.fixtures.game_db import CONTRACT_TAG, contract_bytes
+
+    record, tag_offset = contract_bytes(
+        selector=19,
+        team_id=NORTHBRIDGE_TEAM_A if team_id is None else team_id,
+        wage=wage,
+        start=packed_date(1, start_year),
+        tail={"end": packed_date(1, 2032), "status": 0},
+        head={"type": 1},
+    )
+    patched = bytearray(record)
+    patched[tag_offset + JOB_FROM_TAG] = job
+    after_job = tag_offset + AFTER_JOB_FROM_TAG
+    patched[after_job : after_job + 4] = CONTRACT_TAG if offer else NOT_AN_OFFER
+    return bytes(patched)
+
+
+def no_contract_role(*, job: int, selector: int = 19) -> bytes:
+    from tests.fixtures.career import NORTHBRIDGE_TEAM_A
+    from tests.fixtures.container import packed_date
+    from tests.fixtures.game_db import CONTRACT_TAG
+
+    return (
+        CONTRACT_TAG
+        + packed_date(120, 2010)
+        + b"\x0a\x00"
+        + NOT_AN_OFFER
+        + b"\x05\x05"
+        + struct.pack("<II", selector, NORTHBRIDGE_TEAM_A)
+        + bytes(8)
+        + bytes((job, 0, 0))
+        + NOT_AN_OFFER
+    )
+
+
+def person_with(record: bytes, name: str = "Role Example") -> bytes:
+    from tests.fixtures.staff import staff_object_bytes
+
+    return staff_object_bytes(
+        person_id=18, uid=810_018, contract=record, person_block=person_block(name)
+    ) + staff_object_bytes(person_id=19, uid=810_019, person_block=person_block("Neighbor"))
+
+
+@pytest.mark.parametrize(("code", "label"), [(16, "MANAGER"), (88, "TECHNICAL_DIRECTOR")])
+def test_a_contracted_persons_job_comes_from_his_contract_record(code: int, label: str) -> None:
+    from fmsave import StaffJob
+
+    rows = unique_staff_rows(person_with(job_contract(job=code)), fm27_jobs=True)
+    row = next(row for row in rows if row.uid == 810_018)
+
+    assert row.job is not None
+    assert row.job.label is StaffJob[label]
+    assert row.job.raw == code
+    assert row.has_contract is True
+
+
+def test_a_job_code_no_screen_has_labelled_keeps_its_raw_number() -> None:
+    from fmsave import StaffJob
+
+    rows = unique_staff_rows(person_with(job_contract(job=26)), fm27_jobs=True)
+    row = next(row for row in rows if row.uid == 810_018)
+
+    assert row.job is not None
+    assert row.job.label is StaffJob.UNKNOWN
+    assert row.job.raw == 26
+
+
+def test_without_the_layout_values_no_job_is_read_and_an_offer_is_a_row() -> None:
+    rows = unique_staff_rows(person_with(job_contract(job=16, offer=True)))
+    row = next(row for row in rows if row.uid == 810_018)
+
+    assert row.job is None
+    assert row.has_contract is True
+
+
+def test_an_offer_gives_no_row_and_is_counted() -> None:
+    rows, stats = unique_staff_read(person_with(job_contract(job=16, offer=True)), fm27_jobs=True)
+
+    assert not any(row.uid == 810_018 for row in rows)
+    assert stats.offer_records == 1
+
+
+def test_an_offer_from_another_club_leaves_the_job_he_holds() -> None:
+    from tests.fixtures.career import NORTHBRIDGE_UID, SOUTHPORT_TEAM
+
+    records = job_contract(job=2) + job_contract(
+        job=16, team_id=SOUTHPORT_TEAM, start_year=2030, offer=True
+    )
+    rows = unique_staff_rows(person_with(records), fm27_jobs=True)
+    own = [row for row in rows if row.uid == 810_018]
+
+    assert [(row.club_uid, row.job and row.job.raw) for row in own] == [(NORTHBRIDGE_UID, 2)]
+
+
+def test_an_offer_to_renew_does_not_replace_the_contract_he_is_on() -> None:
+    from datetime import date
+
+    records = job_contract(job=2, wage=900) + job_contract(
+        job=2, start_year=2030, wage=1_500, offer=True
+    )
+    rows = unique_staff_rows(person_with(records), fm27_jobs=True)
+    row = next(row for row in rows if row.uid == 810_018)
+
+    assert row.wage == 900
+    assert row.contract_start == date(2029, 1, 1)
+
+
+def test_a_role_held_with_no_contract_is_a_row_with_its_team_and_job() -> None:
+    from fmsave import StaffJob
+    from tests.fixtures.career import NORTHBRIDGE_TEAM_A, NORTHBRIDGE_UID
+
+    rows, stats = unique_staff_read(
+        person_with(no_contract_role(job=4), "Chair Example"), fm27_jobs=True
+    )
+    row = next(row for row in rows if row.uid == 810_018)
+
+    assert row.club_uid == NORTHBRIDGE_UID
+    assert row.team_id == NORTHBRIDGE_TEAM_A
+    assert row.team_slot == 0
+    assert row.job is not None
+    assert row.job.label is StaffJob.CHAIRPERSON
+    assert row.has_contract is False
+    assert row.wage is None
+    assert row.contract_start is None
+    assert row.in_club_lists is False
+    assert row.legal_name == "Chair Example"
+    assert stats.no_contract_roles == 1
+
+
+def test_a_role_with_no_contract_is_not_read_without_the_layout_values() -> None:
+    rows = unique_staff_rows(person_with(no_contract_role(job=4)))
+
+    assert not any(row.uid == 810_018 for row in rows)
+
+
+def test_a_role_with_a_player_selector_is_not_a_staff_row() -> None:
+    from tests.fixtures.career import PLAYER_A_PINDEX
+
+    rows, stats = unique_staff_read(
+        person_with(no_contract_role(job=4, selector=PLAYER_A_PINDEX + 1)), fm27_jobs=True
+    )
+
+    assert not any(row.uid == 810_018 for row in rows)
+    assert stats.no_contract_roles == 0
+
+
+def test_an_affiliate_listing_of_a_role_with_no_contract_at_its_parent_is_one_row() -> None:
+    from types import SimpleNamespace
+    from typing import cast
+
+    from fmsave.readers.staff import _merge_membership
+
+    parent, side, person = 5_001, 5_009, 18
+    clubs = cast(
+        "ClubIndex",
+        SimpleNamespace(
+            clubs=(
+                SimpleNamespace(uid=parent, parent_club_uid=None),
+                SimpleNamespace(uid=side, parent_club_uid=parent),
+            )
+        ),
+    )
+
+    rows, counts = _merge_membership(
+        {(side, person): (0,)}, {}, {person: 100}, clubs, {(parent, person): (0, 70_001, 6)}
+    )
+
+    assert rows == {(parent, person): (None, (0,), side)}
+    assert counts.merged_affiliate_pairs == 1
+
+
+def test_a_listed_person_with_a_role_at_the_same_club_is_one_row_with_the_roles_team() -> None:
+    from types import SimpleNamespace
+    from typing import cast
+
+    from fmsave.readers.staff import _merge_membership, _row_roles
+    from tests.test_staff import STAFF_LAYOUTS
+
+    club, person, team, job = 5_001, 18, 70_001, 38
+    clubs = cast(
+        "ClubIndex", SimpleNamespace(clubs=(SimpleNamespace(uid=club, parent_club_uid=None),))
+    )
+    roles = {(club, person): (0, team, job)}
+
+    rows, _counts = _merge_membership({(club, person): (1,)}, {}, {person: 100}, clubs, roles)
+
+    assert rows == {(club, person): (None, (1,), club)}
+    assert _row_roles(b"", rows, roles, STAFF_LAYOUTS) == {(club, person): (team, job)}
+
+
+def test_the_human_managers_job_comes_from_his_own_contract() -> None:
+    from fmsave import StaffJob
+    from tests.fixtures.staff import staff_object_bytes
+
+    human = staff_object_bytes(
+        person_id=18,
+        uid=810_018,
+        kind=9,
+        contract=job_contract(job=16),
+        person_block=person_block("Manager Example"),
+    )
+    neighbor = staff_object_bytes(person_id=19, uid=810_019, person_block=person_block("Neighbor"))
+
+    rows = unique_staff_rows(human + neighbor, human_selector=19, fm27_jobs=True)
+    manager = next(row for row in rows if row.is_human_manager)
+
+    assert manager.job is not None
+    assert manager.job.label is StaffJob.MANAGER

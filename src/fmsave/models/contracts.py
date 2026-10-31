@@ -168,11 +168,15 @@ class Contract:
     """A player's contract as it stands at the save's in-game date.
 
     Every field below that a chain record fills comes from one record: the contract in
-    effect, which is the record at the player's own club that has started and has not
-    ended, or else the record with the latest start on or before the in-game date. Records
-    that start later are agreed future moves, such as pre-contracts and completed transfers
-    that take effect later; they stay in `chain` but never fill these fields. When no record
-    has started, those fields are None or empty and `chain` still lists every record.
+    effect. A record that carries its terms always wins over one that does not, even one at
+    the player's own club, so a player on loan has the contract of the club that loaned him
+    out. Among the records of the winning kind it is the latest to start of those at the
+    player's own club that have started and have not ended; failing that, the latest running
+    record at the club his earliest running record names; failing that, the record with the
+    latest start on or before the in-game date. Records that start later are agreed future
+    moves, such as pre-contracts and completed transfers that take effect later; they stay in
+    `chain` but never fill these fields. When no record has started, those fields are None or
+    empty and `chain` still lists every record.
 
     Attributes:
         player_uid: Uid of the player this contract belongs to (unconfirmed).

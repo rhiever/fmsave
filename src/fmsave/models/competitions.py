@@ -89,8 +89,8 @@ class Competition:
     """One competition, as the stage table names it.
 
     Attributes:
-        id: The competition id, in the stage id space (not the id space a suspension's
-            competition id belongs to).
+        id: The competition id, in the stage id space, which `Suspension.competition_id`
+            also uses.
         database_id: The competition's id in the game's own editor database, which is stable
             across saves and is what an external name source is keyed on; None when the save
             holds no such link (unconfirmed).

@@ -260,6 +260,8 @@ TRAINING = TrainingLayout(
     library_entry_marker_value=1,
     library_day_blocks_offset=6,
     library_folder_offset=55,
+    day_sessions_offset=1,
+    sessions_per_day=3,
 )
 
 NAME_POOLS = NamePoolLayout(
@@ -978,6 +980,9 @@ LEAGUE_TABLES = LeagueTableLayout(
     # Far above any score a match has ever finished on, so this turns away noise rather than
     # any real result.
     match_goals_maximum=40,
+    # The last aggregate row's final byte is 1 when match rows follow and 0 when the block
+    # stores none; the word after a 0 is then not a round count.
+    match_rows_flag_offset=84,
 )
 
 # The round-record offsets and the moved-match rule were measured on the corpus: the date
@@ -1350,6 +1355,8 @@ GATE_BOUNDS = GateBounds(
     # not move with how big a save is, so the floor sits far below 1 and still fails long
     # before half the bans have gone unreadable.
     suspension_scopes_known=(0.50, None),
+    # Hundreds of entries on every save measured; the share above is the tighter check here.
+    suspension_entries_minimum=(1, None),
     # Around 8,000 rows and no gaps at all on every save measured; both bounds leave room for a
     # much shorter table and for a save whose table needs resynchronising a few times.
     stage_rows_minimum=(1_000, None),

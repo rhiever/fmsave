@@ -62,8 +62,8 @@ same scale, and `natural_positions` is the shorthand for the ones rated 18 or be
 `ability` carries `current` and `potential`, `reputation` carries 4 figures, and `personality`
 carries the 8 personality attributes.
 
-Wages and transfer values come back in the unit the save stores them in, which is not the currency
-the game displays. fmsave does not convert them.
+Wages and transfer values come back in the unit the save stores them in, which can differ from the
+currency the game displays. fmsave does not convert them.
 
 Some fields are coded values: they carry both the number the save holds and the label fmsave reads
 it as.
@@ -143,7 +143,7 @@ formats, the flattening rules, and doing the same job from the command line.
 
 ## The rest of the club
 
-The squad is 1 of 29 tables. The same club uid opens the others:
+The squad is 1 of 30 tables. The same club uid opens the others:
 
 ```python
 with fmsave.open("career.fm") as career_save:

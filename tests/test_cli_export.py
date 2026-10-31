@@ -528,7 +528,16 @@ def test_all_managed_clubs_without_a_managed_club_writes_no_rows(
     exit_code, output_text, _ = run_export(capsys, str(between_jobs_path), "managed-clubs", "--all")
     assert exit_code == cli.EXIT_OK
     assert csv_rows(output_text) == [
-        ["club_uid", "club_name", "club_short_name", "manager_name", "manager_staff_uid"]
+        [
+            "club_uid",
+            "club_name",
+            "club_short_name",
+            "manager_name",
+            "manager_staff_uid",
+            "balance",
+            "scouting_budget",
+            "scouting_budget_remaining",
+        ]
     ]
 
 
@@ -1379,6 +1388,7 @@ PLAYER_A_INJURY_COUNT = 2
 TEAM_TRAINING_COUNT = 2
 MENTORING_GROUP_COUNT = 2
 TACTIC_COUNT = 2
+SELECTION_COUNT = 3
 SET_PIECE_COUNT = 40
 # Every table the club, staff, medical and setup readers add, with how many rows --all writes.
 NEW_TABLE_ROW_COUNTS = (
@@ -1395,6 +1405,7 @@ NEW_TABLE_ROW_COUNTS = (
     ("mentoring", MENTORING_GROUP_COUNT),
     ("tactics", TACTIC_COUNT),
     ("set-pieces", SET_PIECE_COUNT),
+    ("selections", SELECTION_COUNT),
 )
 # The tables only the manager's own club has rows in, and how many --managed-club writes.
 MANAGED_CLUB_ONLY_TABLES = (
@@ -1402,6 +1413,7 @@ MANAGED_CLUB_ONLY_TABLES = (
     ("mentoring", MENTORING_GROUP_COUNT),
     ("tactics", TACTIC_COUNT),
     ("set-pieces", SET_PIECE_COUNT),
+    ("selections", SELECTION_COUNT),
 )
 
 

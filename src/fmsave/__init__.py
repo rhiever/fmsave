@@ -79,10 +79,17 @@ from fmsave.models.rules import (
 from fmsave.models.season_history import PlayerSeasonHistory
 from fmsave.models.season_stats import PlayerSeasonStats, SeasonStatsKind
 from fmsave.models.stadiums import Stadium
-from fmsave.models.staff import Staff, StaffAttributes, StaffList, StaffPreferences
+from fmsave.models.staff import (
+    Staff,
+    StaffAttributes,
+    StaffJob,
+    StaffList,
+    StaffPreferences,
+)
 from fmsave.models.suspensions import PlayerSuspension, Suspension, SuspensionScope
 from fmsave.models.tactics import (
     Mentality,
+    Selection,
     SetPieceRoutine,
     Tactic,
     TacticPosition,
@@ -92,7 +99,9 @@ from fmsave.models.tactics import (
 from fmsave.models.training import (
     MentoringGroup,
     TeamTraining,
+    TrainingDay,
     TrainingSchedule,
+    TrainingSession,
     TrainingWeek,
 )
 from fmsave.name_maps import read_competition_names
@@ -167,6 +176,7 @@ __all__ = [
     "SaveInfo",
     "SeasonStatsKind",
     "SectionInfo",
+    "Selection",
     "SetPieceRoutine",
     "SponsorType",
     "Sponsorship",
@@ -174,6 +184,7 @@ __all__ = [
     "Stadium",
     "Staff",
     "StaffAttributes",
+    "StaffJob",
     "StaffList",
     "StaffPreferences",
     "Stage",
@@ -186,7 +197,9 @@ __all__ = [
     "TacticSlot",
     "Team",
     "TeamTraining",
+    "TrainingDay",
     "TrainingSchedule",
+    "TrainingSession",
     "TrainingWeek",
     "Trait",
     "TransferValueState",

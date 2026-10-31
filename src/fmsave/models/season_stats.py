@@ -127,8 +127,9 @@ class PlayerSeasonStats:
         yellow_cards: Yellow cards.
         red_cards: Red cards (unconfirmed).
         mistakes_leading_to_goal: Mistakes leading to a goal (unconfirmed).
-        clean_sheets: Clean sheets; 0 for an outfield player (unconfirmed).
-        goals_allowed: Goals conceded as goalkeeper; 0 for an outfield player (unconfirmed).
+        clean_sheets: Clean sheets; usually 0 for an outfield player (unconfirmed).
+        goals_allowed: Goals conceded as goalkeeper; usually 0 for an outfield player
+            (unconfirmed).
         saves_held: Saves held; None for an outfield player (unconfirmed).
         saves_parried: Saves parried; None for an outfield player (unconfirmed).
         saves_tipped: Saves tipped; None for an outfield player (unconfirmed).

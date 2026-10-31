@@ -4,8 +4,9 @@ import copy
 import pickle
 import random
 from collections import Counter
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -20,9 +21,18 @@ from fmsave._checks import (
 )
 from fmsave._errors import FmsaveError, ReaderCheckError, SaveClosedError
 from fmsave._layouts import GateBounds, find_layout
+from fmsave._layouts.fm26_26_3_2 import TRAINING as FM26_TRAINING
+from fmsave._layouts.fm27_27_0_0 import TRAINING as FM27_TRAINING
 from fmsave._reader_stats import TrainingStats
 from fmsave.export import column_names
-from fmsave.models.training import MentoringGroup, TeamTraining, TrainingSchedule, TrainingWeek
+from fmsave.models.common import CodedValue
+from fmsave.models.training import (
+    MentoringGroup,
+    TeamTraining,
+    TrainingSchedule,
+    TrainingSession,
+    TrainingWeek,
+)
 from fmsave.readers._common import GAME_DB_SECTION, TRAINING_SECTION
 from fmsave.readers.training import (
     build_training_tables,
@@ -133,6 +143,11 @@ def one_block_body(weeks: tuple[bytes, ...], *, team_id: int = NORTHBRIDGE_TEAM_
     )
 
 
+def week_pairs(weeks: tuple[TrainingWeek, ...]) -> list[tuple[date | None, str]]:
+    """Each week's start date and schedule name, leaving its days to the tests about them."""
+    return [(week.week_start, week.schedule_name) for week in weeks]
+
+
 def active_week(team_training: TeamTraining, clock: date) -> date | None:
     """The active week of a team: the latest week starting on or before the save's date."""
     started = [
@@ -159,11 +174,11 @@ def test_each_name_belongs_to_the_date_written_before_it(career_path: Path) -> N
         teams = save.training()
 
     first_team = next(row for row in teams if row.team_id == NORTHBRIDGE_TEAM_A)
-    assert first_team.weeks == (
-        TrainingWeek(date(2031, 2, 17), "Example Balanced"),
-        TrainingWeek(date(2031, 2, 24), "Example Recovery"),
-        TrainingWeek(date(2031, 3, 3), "Example Balanced"),
-    )
+    assert week_pairs(first_team.weeks) == [
+        (date(2031, 2, 17), "Example Balanced"),
+        (date(2031, 2, 24), "Example Recovery"),
+        (date(2031, 3, 3), "Example Balanced"),
+    ]
 
 
 def test_a_differing_second_name_moves_with_its_own_date_not_the_next_record() -> None:
@@ -171,10 +186,85 @@ def test_a_differing_second_name_moves_with_its_own_date_not_the_next_record() -
 
     blocks, _counts = walk_training_blocks(body, CLUB_TEAM_IDS, LAYOUT, FILE_NAME)
 
-    assert blocks[0].weeks == (
-        TrainingWeek(date(2031, 2, 17), "Example Light"),
-        TrainingWeek(date(2031, 2, 24), "Example Balanced"),
+    assert week_pairs(blocks[0].weeks) == [
+        (date(2031, 2, 17), "Example Light"),
+        (date(2031, 2, 24), "Example Balanced"),
+    ]
+
+
+# Seven fictional days of three codes each, every code different, so a day or a session read
+# from the wrong place cannot match. Two of them are codes the FM27 enum names, which an FM26
+# layout must still leave unlabelled.
+FICTIONAL_DAYS = (
+    (300, 500, 300),
+    (21, 22, 23),
+    (31, 32, 33),
+    (41, 42, 43),
+    (51, 52, 53),
+    (61, 62, 63),
+    (71, 72, 65535),
+)
+
+
+def test_each_day_follows_the_week_start_with_its_own_three_sessions() -> None:
+    week = training_week_bytes(
+        week_start=packed_date(48, TRAINING_YEAR),
+        schedule_name="Example Balanced",
+        day_sessions=FICTIONAL_DAYS,
     )
+    blocks, _counts = walk_training_blocks(
+        one_block_body((week,)), CLUB_TEAM_IDS, LAYOUT, FILE_NAME
+    )
+
+    days = blocks[0].weeks[0].days
+    assert [day.day for day in days] == [date(2031, 2, 17) + timedelta(days=n) for n in range(7)]
+    assert [tuple(session.raw for session in day.sessions) for day in days] == list(FICTIONAL_DAYS)
+    assert blocks[0].weeks[0].schedule_name == "Example Balanced"
+
+
+def test_an_fm26_session_is_never_labelled_even_with_a_code_the_fm27_enum_names() -> None:
+    week = training_week_bytes(
+        week_start=packed_date(48, TRAINING_YEAR),
+        schedule_name="Example Balanced",
+        day_sessions=FICTIONAL_DAYS,
+    )
+    blocks, _counts = walk_training_blocks(
+        one_block_body((week,)), CLUB_TEAM_IDS, LAYOUT, FILE_NAME
+    )
+
+    first_day = blocks[0].weeks[0].days[0]
+    assert first_day.sessions == (
+        CodedValue(TrainingSession.UNKNOWN, 300),
+        CodedValue(TrainingSession.UNKNOWN, 500),
+        CodedValue(TrainingSession.UNKNOWN, 300),
+    )
+    assert {
+        session.label for week in blocks[0].weeks for day in week.days for session in day.sessions
+    } == {TrainingSession.UNKNOWN}
+
+
+def test_the_days_export_nested_in_each_week_with_label_and_code(career_path: Path) -> None:
+    with fmsave.open(career_path) as save:
+        rows = save.training().to_dicts(json_ready=True)
+
+    first_week = cast("list[dict[str, Any]]", rows[0]["weeks"])[0]
+    assert first_week["days"][0] == {
+        "day": "2031-02-17",
+        "sessions": ["unknown", "unknown", "unknown"],
+        "sessions_code": [11, 10, 6],
+    }
+    assert len(first_week["days"]) == 7
+
+
+def test_every_registered_layout_reads_its_sessions_inside_a_day_block() -> None:
+    for layout in (FM26_TRAINING, FM27_TRAINING):
+        sessions_end = layout.day_sessions_offset + 2 * layout.sessions_per_day
+        assert sessions_end <= layout.day_block_bytes
+        assert layout.day_blocks_offset + layout.day_block_count * layout.day_block_bytes <= (
+            layout.week_name_offset
+        )
+    assert not FM26_TRAINING.session_labels_supported
+    assert FM27_TRAINING.session_labels_supported
 
 
 @pytest.mark.parametrize("name_length", [3, 40])
@@ -217,11 +307,14 @@ def test_a_week_whose_date_does_not_decode_is_returned_and_steps_over(
         teams = save.training()
 
     reserve_team = next(row for row in teams if row.team_id == NORTHBRIDGE_TEAM_B)
-    assert reserve_team.weeks == (
-        TrainingWeek(date(2031, 2, 17), "Example Light"),
-        TrainingWeek(date(2031, 2, 24), "Example Light"),
-        TrainingWeek(None, "Example Light"),
-    )
+    assert week_pairs(reserve_team.weeks) == [
+        (date(2031, 2, 17), "Example Light"),
+        (date(2031, 2, 24), "Example Light"),
+        (None, "Example Light"),
+    ]
+    undated_week = reserve_team.weeks[2]
+    assert [day.day for day in undated_week.days] == [None] * 7
+    assert [len(day.sessions) for day in undated_week.days] == [3] * 7
 
 
 def test_the_active_week_of_each_team_is_the_latest_one_already_started(
@@ -382,6 +475,10 @@ def test_the_mentoring_counts_and_anomalies(career_path: Path) -> None:
     assert reader_check is not None
     assert reader_check.record_count == 2
     assert reader_check.anomalies == {"members_without_a_player": 1, "members_elsewhere": 1}
+
+
+def test_a_week_built_from_its_start_and_name_has_no_days() -> None:
+    assert TrainingWeek(date(2030, 7, 1), "Example Schedule").days == ()
 
 
 def test_the_columns_the_export_flattens() -> None:

@@ -106,7 +106,8 @@ See [exporting](../guides/exporting.md) for sparsity and scope details.
 
 ## Managed-club-only
 
-`managed_clubs()`, `tactics()`, `set_pieces()`, `training()` and `mentoring()`: rows here exist
+`managed_clubs()`, `tactics()`, `set_pieces()`, `selections()`, `training()` and
+`mentoring()`: rows here exist
 only for the club the save's human manager runs.
 
 ```{eval-rst}
@@ -115,8 +116,10 @@ only for the club the save's human manager runs.
 .. autoclass:: fmsave.TacticSlot
 .. autoclass:: fmsave.TacticSettingUnit
 .. autoclass:: fmsave.SetPieceRoutine
+.. autoclass:: fmsave.Selection
 .. autoclass:: fmsave.TeamTraining
 .. autoclass:: fmsave.TrainingSchedule
 .. autoclass:: fmsave.TrainingWeek
+.. autoclass:: fmsave.TrainingDay
 .. autoclass:: fmsave.MentoringGroup
 ```

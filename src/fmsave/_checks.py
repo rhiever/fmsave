@@ -59,6 +59,7 @@ from fmsave._reader_stats import (
     RulesStats,
     SeasonHistoryStats,
     SeasonStatsStats,
+    SelectionStats,
     StadiumStats,
     StaffStats,
     StageStats,
@@ -117,6 +118,7 @@ STAFF_READER = "staff"
 STAFF_LISTS_READER = "staff_lists"
 TACTICS_READER = "tactics"
 SET_PIECES_READER = "set_pieces"
+SELECTIONS_READER = "selections"
 TRAINING_READER = "training"
 MENTORING_READER = "mentoring"
 
@@ -144,9 +146,9 @@ _FINANCE_PASS_READERS = frozenset({FINANCES_READER, SPONSORSHIPS_READER})
 # The staff rows and the club staff lists come out of one pass over the club records and one
 # over the whole section, so they fail or succeed together.
 _STAFF_PASS_READERS = frozenset({STAFF_READER, STAFF_LISTS_READER})
-# The tactics and the set-piece routines come out of one walk over the manager's team blocks,
-# so they fail or succeed together.
-_TACTICS_PASS_READERS = frozenset({TACTICS_READER, SET_PIECES_READER})
+# The tactics, the set-piece routines and the selections come out of one walk over the
+# manager's team blocks, so they fail or succeed together.
+_TACTICS_PASS_READERS = frozenset({TACTICS_READER, SET_PIECES_READER, SELECTIONS_READER})
 # The calendars and the mentoring groups come out of one walk over the training section, so
 # they fail or succeed together.
 _TRAINING_PASS_READERS = frozenset({TRAINING_READER, MENTORING_READER})
@@ -172,6 +174,7 @@ _LIKELY_CAUSES: FrozenMapping[str, str] = FrozenMapping(
     {
         "tails_without_clause_table": "an unrecognised bonus list shape in the contract tail",
         "suspension_share_of_players": "a suspension entry layout that has moved",
+        "suspension_entries_minimum": "a suspension entry layout that has moved",
         "suspension_scopes_known": "suspension scope codes this build no longer uses",
         "sponsor_clubs_minimum": (
             "a finance chain locator that found nothing, since a sponsor run is only looked "
@@ -511,7 +514,9 @@ def evaluate_suspensions(
     check with no rate, so an entry layout that has moved fails here rather than reporting a
     save whose players are never banned. The scope check judges what the entries that were
     found say rather than how many there are, so it is not applied when there are none and
-    the first check is what fails then.
+    the first check is what fails then. `suspension_entries_minimum` counts the entries
+    themselves, which is what judges an empty search on a build whose share has no floor
+    because a small ban list in a large database is ordinary there.
 
     `issued_after_clock` judges the bans covering ONE COMPETITION alone. A ban covering a
     whole nation carries a date ahead of the in-game date as ordinary career state, so over
@@ -539,6 +544,12 @@ def evaluate_suspensions(
             stats.entries_with_known_scope,
             stats.entries,
             bounds.suspension_scopes_known,
+            applied,
+        ),
+        _gate(
+            "suspension_entries_minimum",
+            stats.entries,
+            bounds.suspension_entries_minimum,
             applied,
         ),
     )
@@ -1055,7 +1066,7 @@ def check_fixtures(
     `stray_records` and `stray_clusters` count what the span held outside the calendar, which
     every save carries some of, and `strays_without_a_copy` those of them the calendar holds
     no copy of, which is the only part of the drop that loses anything. The rest count kept
-    fixtures a join or a decode left incomplete. `neutral_venue_votes` counts the clubs and
+    fixtures a join or a decode left incomplete. `neutral_venue_votes` counts the teams and
     seasons whose usual ground was decided: none of them on a full-size span means the venue
     vote never ran at all. `unresolved_stadiums` counts the records storing a ground the
     stadium table does not hold, which every save carries a few dozen of.
@@ -2071,7 +2082,8 @@ def check_staff(stats: StaffStats, bounds: GateBounds, game_db_bytes: int) -> Re
     the records naming a team no club lists, `repeat_contracts` the people holding two records
     at one club, and `merged_affiliate_pairs` the listings an affiliate side made that became a
     row at its parent. `human_manager_missing` is one where the save lists a human manager
-    whose own object or contract could not be read, and zero otherwise.
+    whose own object or contract could not be read, and zero otherwise. `offer_records`
+    counts the contract records a layout marks as offers, which give no row.
     """
     return ReaderCheck(
         STAFF_READER,
@@ -2088,6 +2100,7 @@ def check_staff(stats: StaffStats, bounds: GateBounds, game_db_bytes: int) -> Re
                 "merged_affiliate_pairs": stats.merged_affiliate_pairs,
                 "human_manager_missing": 0 if stats.human_found else 1,
                 "non_staff_tailed_hits": stats.non_staff_tailed_hits,
+                "offer_records": stats.offer_records,
             }
         ),
     )
@@ -2257,6 +2270,48 @@ def evaluate_set_pieces(
             bounds.set_piece_blocks_complete,
             _applies(bounds, game_db_bytes) and stats.managed_club_exists,
         ),
+    )
+
+
+def evaluate_selections(
+    stats: SelectionStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The selection reader's checks: its picks name players, mostly the managed club's.
+
+    They reuse the bounds the tactic reader puts on every selector of the same blocks, of which
+    the picks are a part. Both are excused without a denominator, because a team can store no
+    pick at all, and the second is judged on the picks that resolved.
+    """
+    applied = _applies(bounds, game_db_bytes) and stats.managed_club_exists
+    return (
+        _share_gate(
+            "selection_picks_resolved",
+            stats.picks_resolved,
+            stats.picks,
+            bounds.tactic_selection_selectors_resolved,
+            applied,
+        ),
+        _share_gate(
+            "selection_picks_at_club",
+            stats.picks_at_club,
+            stats.picks_resolved,
+            bounds.tactic_selection_selectors_at_club,
+            applied,
+        ),
+    )
+
+
+def check_selections(stats: SelectionStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The selection reader's checks, record count and anomaly count.
+
+    `unresolved_picks` counts the picks no player record names; their rows keep empty player
+    fields.
+    """
+    return ReaderCheck(
+        SELECTIONS_READER,
+        stats.picks,
+        evaluate_selections(stats, bounds, game_db_bytes),
+        FrozenMapping({"unresolved_picks": stats.picks - stats.picks_resolved}),
     )
 
 
@@ -2537,7 +2592,8 @@ class ReaderValidation:
     competition rules and stadiums share the one streamed pass over the span the same way, and
     are reported together when that pass itself is what failed. Four more pairs share a decode
     in the same way: finances with sponsorships, staff with staff lists, training with
-    mentoring, and tactics with set pieces. A structural failure spreads the same way on any
+    mentoring, and tactics with set pieces and selections. A structural failure spreads the
+    same way on any
     save, since no mode reads a table from a decode that produced none.
 
     Attributes:
@@ -2546,8 +2602,8 @@ class ReaderValidation:
             "competition_rules", "player_match_stats", "player_season_stats",
             "player_season_history", "stadiums",
             "finances", "sponsorships", "affiliates", "job_vacancies", "staff", "staff_lists",
-            "injury_types", "injuries", "training", "mentoring", "tactics", "set_pieces" or
-            "facilities".
+            "injury_types", "injuries", "training", "mentoring", "tactics", "set_pieces",
+            "selections" or "facilities".
         status: "ok" when the reader returned its table and every applied check of its own
             passed, "failed" when a check did not, and "error" when it raised another fmsave
             error.
@@ -2674,8 +2730,8 @@ def validate_save(career_save: Save) -> ValidationReport:
     Readers run in the order clubs, players, contracts, suspensions, managed clubs, stages,
     competitions, fixtures, league tables, transfer windows, competition rules, per-match
     player stats, stadiums, finances, sponsorships, affiliates, job vacancies, staff, staff
-    lists, injury types, injury history, training, mentoring, tactics, set pieces, club
-    facilities. The order puts each reader after the ones whose work it reuses, so a shared
+    lists, injury types, injury history, training, mentoring, tactics, set pieces, selections,
+    club facilities. The order puts each reader after the ones whose work it reuses, so a shared
     decode that fails is reported where it failed: stadiums follow the fixtures whose calendar
     they read, injury types precede the injury history that names its types, and the two
     readers of each shared pass sit side by side. A reader whose checks fail is reported
@@ -2734,6 +2790,7 @@ def validate_save(career_save: Save) -> ValidationReport:
         (MENTORING_READER, career_save.mentoring),
         (TACTICS_READER, career_save.tactics),
         (SET_PIECES_READER, career_save.set_pieces),
+        (SELECTIONS_READER, career_save.selections),
         (FACILITIES_READER, career_save.facilities),
     )
     validations: list[ReaderValidation] = []

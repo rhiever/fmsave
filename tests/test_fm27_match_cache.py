@@ -167,3 +167,88 @@ def test_new_typed_markers_do_not_silently_fit_the_fm26_cache_walk() -> None:
         MatchCacheWalker(MATCH_RECORDS.cache_layout).locate(data, ABILITY, len(data)).state
         == "unknown"
     )
+
+
+def declared_layout() -> MatchRecordLayout:
+    return dataclasses.replace(
+        fm27_layout(), nonempty_supported=True, declared_histories_required=True
+    )
+
+
+def played_record(**fields: int) -> bytes:
+    return match_record_bytes(
+        day_of_year=100,
+        year=2032,
+        opponent_team_id=100,
+        competition_id=12,
+        played=True,
+        **fields,
+    )
+
+
+def test_declared_mode_reads_a_populated_history_its_declaration_names() -> None:
+    records = played_record(goals=2, minutes=90) + match_record_bytes(
+        day_of_year=104, year=2032, opponent_team_id=101, competition_id=12, played=False
+    )
+    data = fm27_prefix() + fm27_predecessor() + match_list_bytes(records, team_id=100)
+    located = locate_match_records(
+        data, synthetic_player_records((ABILITY,)), declared_layout(), date(2032, 5, 1)
+    )
+    assert [(row.goals, row.has_stats) for row in located[0]] == [(2, True), (None, False)]
+    assert located.lists_found == located.lists_decoded == 1
+    assert located.history_declarations is not None
+    assert located.history_declarations.nonempty == 1
+    assert located.history_declarations.unknown == 0
+
+
+def test_declared_mode_reads_a_proven_empty_save_as_no_rows() -> None:
+    data = fm27_prefix() + fm27_predecessor() + b"\x00"
+    located = locate_match_records(
+        data, synthetic_player_records((ABILITY,)), declared_layout(), date(2032, 5, 1)
+    )
+    assert not located
+    assert located.history_declarations is not None
+    assert located.history_declarations.null == 1
+
+
+@pytest.mark.parametrize(
+    "damage", ["short-list", "undeclared-list", "unknown-declaration", "unknown-without-a-list"]
+)
+def test_declared_mode_fails_closed_when_declarations_and_lists_disagree(damage: str) -> None:
+    child = match_list_bytes(played_record(), team_id=100)
+    if damage == "short-list":
+        # The declaration names a populated history whose list claims a record it lacks.
+        listed = bytearray(child)
+        struct.pack_into("<I", listed, 8, 2)
+        declaration = bytes(listed)
+    elif damage == "undeclared-list":
+        # A null declaration, then a complete list no declaration names.
+        declaration = b"\x00" + child
+    elif damage == "unknown-declaration":
+        declaration = b"\x02" + child
+    else:
+        # Only the unknown declaration itself fails this one: no list follows to disagree.
+        declaration = b"\x02"
+    data = fm27_prefix() + fm27_predecessor() + declaration
+    with pytest.raises(UnsupportedGameError, match="declaration"):
+        locate_match_records(
+            data, synthetic_player_records((ABILITY,)), declared_layout(), date(2032, 5, 1)
+        )
+
+
+def test_declared_mode_rejects_a_save_without_players() -> None:
+    with pytest.raises(UnsupportedGameError, match="declaration"):
+        locate_match_records(
+            fm27_prefix() + b"\x00",
+            synthetic_player_records(()),
+            declared_layout(),
+            date(2032, 5, 1),
+        )
+
+
+def test_default_layout_keeps_reading_lists_without_declarations() -> None:
+    data = bytes(40) + match_list_bytes(played_record(), team_id=100)
+    located = locate_match_records(
+        data, synthetic_player_records((ABILITY,)), MATCH_RECORDS, date(2032, 5, 1)
+    )
+    assert len(located[0]) == 1

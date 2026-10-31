@@ -104,7 +104,8 @@ Money uses the save's stored unit. Wages, values and balances are not converted 
 the game displays. Check that unit before interpreting a difference.
 
 `UnknownBuildWarning` means fmsave does not recognize that FM26 build. Readers still run; inspect
-their checks before relying on the output.
+their checks before relying on the output. fmsave also issues it for every FM27 save, because
+FM27 coverage is partial.
 
 
 ## FM27 coverage

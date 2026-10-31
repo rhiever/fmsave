@@ -14,22 +14,32 @@ plus 1. Two independent routes link that manager to a club:
 Route 1 is the primary answer and route 2 checks it. When neither route finds a club, for
 example while the manager is between jobs, no managed club is listed. The manager's person uid
 comes from the single person header in `game_db` that stores the person id followed by a
-doubled uid.
+doubled uid, or, when several do, from the only one of them that carries the human manager's
+object kind.
+
+The club's current balance is read behind its own monthly finance chain, and the scouting
+budget from `humans`, each only on a build whose layouts place it.
 """
 
 from __future__ import annotations
 
 import struct
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import NamedTuple
 
 from fmsave._container import damaged_part_error
 from fmsave._errors import CorruptSaveError
-from fmsave._layouts import ContractLayout, HumansLayout, SummaryStringsLayout, find_layout
+from fmsave._layouts import (
+    ContractLayout,
+    HumansLayout,
+    StaffLayout,
+    SummaryStringsLayout,
+    find_layout,
+)
 from fmsave._reader_stats import ManagedStats
-from fmsave._scan import read_u16, read_u32
+from fmsave._scan import decode_date, read_u16, read_u32
 from fmsave.models.clubs import Club
 from fmsave.models.managed import ManagedClub
 from fmsave.readers._common import (
@@ -40,13 +50,14 @@ from fmsave.readers._common import (
     build_gap_padded_struct,
     layout_mismatch,
 )
-from fmsave.readers.clubs import ClubIndex
+from fmsave.readers.clubs import ClubIndex, ClubRecordSpan
 from fmsave.readers.contracts import (
     CHAIN_RECORD_CLUB_UID,
     CHAIN_RECORD_END,
     CHAIN_RECORD_HAS_TERMS,
     build_contract_decoder,
 )
+from fmsave.readers.finances import FinanceLayouts, find_finance_layouts, read_current_balance
 
 _U32 = struct.Struct("<I")
 _U32_BYTES = _U32.size
@@ -58,8 +69,10 @@ class ManagedClubLayouts:
     """The layouts the managed-club reader uses."""
 
     humans: HumansLayout
+    staff: StaffLayout
     summary_strings: SummaryStringsLayout
     contracts: ContractLayout
+    finances: FinanceLayouts
 
 
 def find_managed_club_layouts(section_schemas: Mapping[str, int], build: str) -> ManagedClubLayouts:
@@ -67,6 +80,9 @@ def find_managed_club_layouts(section_schemas: Mapping[str, int], build: str) ->
     return ManagedClubLayouts(
         humans=find_layout(
             HumansLayout, HUMANS_SECTION, section_schemas.get(HUMANS_SECTION), build
+        ).layout,
+        staff=find_layout(
+            StaffLayout, GAME_DB_SECTION, section_schemas.get(GAME_DB_SECTION), build
         ).layout,
         summary_strings=find_layout(
             SummaryStringsLayout,
@@ -77,6 +93,7 @@ def find_managed_club_layouts(section_schemas: Mapping[str, int], build: str) ->
         contracts=find_layout(
             ContractLayout, GAME_DB_SECTION, section_schemas.get(GAME_DB_SECTION), build
         ).layout,
+        finances=find_finance_layouts(section_schemas.get(GAME_DB_SECTION), build),
     )
 
 
@@ -199,11 +216,15 @@ def _chain_record_club(
     return best_club
 
 
-def _manager_staff_uid(game_db: bytes, selector: int, layout: HumansLayout) -> int | None:
-    """The uid of the only person header for person id `selector - 1`, or None.
+def _manager_staff_uid(
+    game_db: bytes, selector: int, layout: HumansLayout, staff_layout: StaffLayout
+) -> int | None:
+    """The uid of the person header for person id `selector - 1`, or None.
 
-    A header is the person id followed by a doubled uid that is neither 0 nor FFFFFFFF. No
-    header, or more than one, gives None.
+    A header is the person id followed by a doubled uid that is neither 0 nor FFFFFFFF. One
+    header gives its uid. Several give the uid of the only one whose object kind is the human
+    manager's, which is the header `staff()` marks as his. No header, or several with no
+    single human one, gives None.
 
     Raises:
         ValueError: The layout's two uid fields overlap.
@@ -218,16 +239,20 @@ def _manager_staff_uid(game_db: bytes, selector: int, layout: HumansLayout) -> i
     last_header_offset = len(game_db) - uid_struct_offset - uid_struct.size
     person_id_bytes = _U32.pack(selector - 1)
     find = game_db.find
-    found_uid: int | None = None
+    found_uids: list[int] = []
+    human_uids: list[int] = []
     hit = find(person_id_bytes)
     while 0 <= hit <= last_header_offset:
         person_uid, person_uid_copy = unpack_uids(game_db, hit + uid_struct_offset)
         if person_uid == person_uid_copy and person_uid not in _NO_PERSON_UIDS:
-            if found_uid is not None:
-                return None
-            found_uid = person_uid
+            found_uids.append(person_uid)
+            kind_at = hit + staff_layout.kind_offset
+            if kind_at < len(game_db) and game_db[kind_at] == staff_layout.human_kind:
+                human_uids.append(person_uid)
         hit = find(person_id_bytes, hit + 1)
-    return found_uid
+    if len(found_uids) == 1:
+        return found_uids[0]
+    return human_uids[0] if len(human_uids) == 1 else None
 
 
 def _first_human(humans: bytes, layout: HumansLayout, file_name: str) -> tuple[int, int] | None:
@@ -243,6 +268,44 @@ def _first_human(humans: bytes, layout: HumansLayout, file_name: str) -> tuple[i
         return human_count, read_u32(humans, layout.first_selector_offset)
     except CorruptSaveError as error:
         raise damaged_part_error(file_name, f"section {HUMANS_SECTION!r}", error) from error
+
+
+def scouting_budget(humans: bytes, layout: HumansLayout) -> tuple[int, int] | None:
+    """(the season's scouting budget, what is left of it), or None.
+
+    Every hit of the layout's marker with a valid date in front of it is a candidate. The pair
+    is returned only when exactly one candidate holds a non-zero budget and that pair passes
+    the layout's checks; no candidate, a budget of zero, or two candidates with money give
+    None, as does a build whose layout has no marker. Never raises.
+    """
+    marker = layout.scouting_budget_marker
+    if not marker:
+        return None
+    word_offsets = (
+        layout.scouting_date_offset,
+        layout.scouting_budget_offset,
+        layout.scouting_remaining_offset,
+    )
+    last_word_offset = len(humans) - _U32_BYTES
+    found: tuple[int, int] | None = None
+    hit = humans.find(marker)
+    while hit >= 0:
+        if all(0 <= hit + offset <= last_word_offset for offset in word_offsets) and (
+            decode_date(humans, hit + layout.scouting_date_offset) is not None
+        ):
+            budget: int = _U32.unpack_from(humans, hit + layout.scouting_budget_offset)[0]
+            remaining: int = _U32.unpack_from(humans, hit + layout.scouting_remaining_offset)[0]
+            if budget:
+                if found is not None:
+                    return None
+                found = (budget, remaining)
+        hit = humans.find(marker, hit + 1)
+    if found is None:
+        return None
+    budget, remaining = found
+    if budget > layout.scouting_budget_maximum or remaining > budget:
+        return None
+    return found
 
 
 def first_human_selector(humans: bytes, layout: HumansLayout, file_name: str) -> int | None:
@@ -275,6 +338,7 @@ def resolve_managed_clubs(
     clock: date,
     layouts: ManagedClubLayouts,
     file_name: str,
+    record_spans: Callable[[], Sequence[ClubRecordSpan]],
 ) -> ManagedClubsResult:
     """The club run by the save's first human manager, as a one-row tuple or (), with counts.
 
@@ -285,6 +349,10 @@ def resolve_managed_clubs(
 
     With one human manager, the summary must not link the manager to any club other than the
     one route 1 finds. With several, it is enough that one summary link names that club.
+
+    `record_spans` gives the club records' own spans; it is called only on a build whose layout
+    places the current balance, to find the managed club's finance chain. The scouting budget
+    is read only on a save with a single human manager.
 
     Raises:
         CorruptSaveError: The `humans` section ends before the human count or the selector, or
@@ -338,14 +406,25 @@ def resolve_managed_clubs(
         )
 
     manager_staff_uid = (
-        _manager_staff_uid(game_db, selector, layouts.humans) if has_person_id else None
+        _manager_staff_uid(game_db, selector, layouts.humans, layouts.staff)
+        if has_person_id
+        else None
     )
+    balance: int | None = None
+    if layouts.finances.sponsors.balance_offset is not None:
+        span = next((span for span in record_spans() if span.club_uid == club.uid), None)
+        if span is not None:
+            balance = read_current_balance(game_db, span, layouts.finances)
+    scouting = scouting_budget(humans, layouts.humans) if human_count == 1 else None
     managed_club = ManagedClub(
         club_uid=club.uid,
         club_name=club.name,
         club_short_name=club.short_name,
         manager_name=manager_name,
         manager_staff_uid=manager_staff_uid,
+        balance=balance,
+        scouting_budget=None if scouting is None else scouting[0],
+        scouting_budget_remaining=None if scouting is None else scouting[1],
     )
     return ManagedClubsResult(
         (managed_club,), ManagedStats(human_count, route_one_resolved, route_two_resolved, 1)

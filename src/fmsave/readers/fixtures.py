@@ -4,7 +4,7 @@ The span holds several runs of fixture records: the career's own calendar, and s
 of it. One of those strays is a fixed block of template records dated years before the save's
 clock and present with the same count on every save seen, so keeping it would put the same
 phantom matches on every career. The runs are told apart by the distance between consecutive
-records: a gap of `cluster_gap_bytes` or more starts a new one, and only the run holding the
+records: a gap of more than `cluster_gap_bytes` starts a new one, and only the run holding the
 most records is the calendar.
 
 File order is neither sorted nor a rotation of a sorted order, so the kept run is sorted here
@@ -209,7 +209,7 @@ def _club_fields(
 def _modal_ordinals(
     ordinal_counts: Mapping[tuple[int, int | None], Mapping[int, int]], minimum_fixtures: int
 ) -> dict[tuple[int, int | None], int]:
-    """The ground each club used most in each season, for the pairs that played enough at home.
+    """The ground each team used most in each season, for the pairs that played enough at home.
 
     A pair with fewer than `minimum_fixtures` recorded grounds gets no entry, so no match of
     that pair is called neutral on the strength of one or two records. Two grounds used
@@ -347,14 +347,23 @@ def build_fixtures_with_offsets(
             with_stadium += 1
             if stadium_ordinal in uid_by_ordinal:
                 stadium_resolved += 1
+        # The vote is per team: a club's reserve and youth sides often play at grounds of
+        # their own, and pooling them with the first team can outvote its stadium.
         if home_club is not None and stadium_ordinal is not None:
-            counts = ordinal_counts.setdefault((home_club[0], raw_fixture.season_start_year), {})
+            counts = ordinal_counts.setdefault(
+                (raw_fixture.home_team_id, raw_fixture.season_start_year), {}
+            )
             counts[stadium_ordinal] = counts.get(stadium_ordinal, 0) + 1
         decoded_records.append(
             _DecodedFixture(raw_fixture, kick_off_date, kick_off_time, home_club, away_club)
         )
 
     modal_ordinals = _modal_ordinals(ordinal_counts, layout.neutral_venue_minimum_home_fixtures)
+    # A ground one of the club's own teams usually plays at is a home ground for all of them.
+    club_grounds: dict[tuple[int, int | None], set[int]] = {}
+    for (team_id, season_start_year), ordinal in modal_ordinals.items():
+        club_uid = team_to_club[team_id][0]
+        club_grounds.setdefault((club_uid, season_start_year), set()).add(ordinal)
     decoded_records.sort(key=_sort_key)
 
     fixtures: list[Fixture] = []
@@ -372,11 +381,11 @@ def build_fixtures_with_offsets(
         stadium_ordinal = raw_fixture.stadium_ordinal
         is_neutral_venue: bool | None = None
         if decoded.home_club is not None and stadium_ordinal is not None:
-            modal_ordinal = modal_ordinals.get(
-                (decoded.home_club[0], raw_fixture.season_start_year)
-            )
-            if modal_ordinal is not None:
-                is_neutral_venue = stadium_ordinal != modal_ordinal
+            season_start_year = raw_fixture.season_start_year
+            if stadium_ordinal in club_grounds.get((decoded.home_club[0], season_start_year), ()):
+                is_neutral_venue = False
+            elif (raw_fixture.home_team_id, season_start_year) in modal_ordinals:
+                is_neutral_venue = True
         owned_played = played_by_offset.get(raw_fixture.span_offset)
         played = raw_fixture.played if owned_played is None else owned_played
         stored_round_index = raw_fixture.round_index

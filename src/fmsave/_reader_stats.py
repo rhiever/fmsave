@@ -203,7 +203,7 @@ class FixtureStats:
     they remain unnamed and are excluded from the club join population.
     `undated` counts records whose stored date does not decode and
     `bad_kick_off_slots` those whose slot names no time of day. `neutral_venue_votes` counts
-    the (club, season) pairs that played enough home matches for a usual ground to be decided.
+    the (team, season) pairs that played enough home matches for a usual ground to be decided.
     `with_stadium` counts kept records storing a ground and `stadium_resolved` those whose
     ground the stadium table holds; the rest store the one value no ordinal ever takes.
     """
@@ -560,7 +560,8 @@ class StaffStats:
     those inside closed club records, and `untailed_hits` those
     whose record has no tail, which no person owns, `unowned_tailed_hits` those with a tail
     whose person has no header in front of them, and `owned_records` the records a person was
-    found to own.
+    found to own. `offer_records` counts the tailed records a layout marks as offers, which no
+    person owns, and `no_contract_roles` the club roles held with no contract that were read.
 
     Membership: `listed_pairs` counts the (club, person) pairs the lists give, and
     `listed_pairs_contracted_here` those whose person holds a contract at the listing club or
@@ -603,6 +604,8 @@ class StaffStats:
     rows: int
     list_rows: int
     non_staff_tailed_hits: int = 0
+    offer_records: int = 0
+    no_contract_roles: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -828,6 +831,21 @@ class TacticStats:
     routine_blocks_complete: int
     routines: int
     named_routines: int
+
+
+@dataclass(frozen=True, slots=True)
+class SelectionStats:
+    """What the selections built from the manager's team blocks counted.
+
+    `managed_club_exists` says whether the save lists a club for its manager at all. `picks`
+    counts the starter and substitute places that hold a stored pick, `picks_resolved` those
+    a player record names, and `picks_at_club` those of them registered with the managed club.
+    """
+
+    managed_club_exists: bool
+    picks: int
+    picks_resolved: int
+    picks_at_club: int
 
 
 @dataclass(frozen=True, slots=True)

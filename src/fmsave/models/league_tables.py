@@ -15,8 +15,9 @@ disagreements are where the head-to-head rule decides.
 Derived views these records carry no field for:
 
 - goal difference is `goals_for - goals_against`;
-- a division is `18 <= club_count <= 26 and rows[0].rounds_per_venue == club_count - 1`, a shape
-  rule that holds in any country and needs no competition name;
+- a division is `18 <= club_count <= 26` with `rounds_per_venue == club_count - 1` on a row that
+  has match slots (it is None on a row stored without them), a shape rule that holds in any
+  country and needs no competition name;
 - a club's remaining fixtures are the set difference between the group's member teams and the
   opponents already in `matches`, per venue; the save stores no remaining-fixture list;
 - resolved groups only is `.filter(lambda table: table.competition_id is not None)`;
@@ -64,7 +65,8 @@ class LeagueTableSplit:
     Every field is unconfirmed. The save's own arithmetic holds on all four (played equals won
     plus drawn plus lost, and home and away add up to the total, as do the two halves), which
     is what the block acceptance checks require, but no in-game screen has yet been read back
-    against them, so none of the seven is verified.
+    against them, so none of the seven is verified. On FM27 some cup group stages count
+    matches in played that are none of won, drawn or lost.
 
     Attributes:
         played: Matches played in this split (unconfirmed).
@@ -156,7 +158,8 @@ class LeagueTableRow:
             resolve.
         team_slot: The team's slot in its club's team list, 0 for the first entry, or None when
             the team does not resolve (unconfirmed).
-        played: Matches played in total.
+        played: Matches played in total. On FM27 some cup group stages count matches here that
+            are none of won, drawn or lost.
         won: Matches won in total.
         drawn: Matches drawn in total.
         lost: Matches lost in total.
@@ -171,8 +174,10 @@ class LeagueTableRow:
         second_half: The club's record in the second half of the season (every field
             unconfirmed).
         rounds_per_venue: How many rounds the group plays at each venue, so the row holds twice
-            this many match slots (unconfirmed).
-        matches: One entry per match slot, in stored order, including slots never played.
+            this many match slots; None where the save stores the row without match slots,
+            which it does for some tables (unconfirmed).
+        matches: One entry per match slot, in stored order, including slots never played;
+            empty where the save stores the row without them.
         unknown: The 19 bytes stored in front of the block, one int per byte. The first of
             them is the row's own place in its table, which is what tells one table from the
             next and is already reported as `position`; it is kept here so the blob ships
@@ -197,7 +202,7 @@ class LeagueTableRow:
     away: LeagueTableSplit
     first_half: LeagueTableSplit
     second_half: LeagueTableSplit
-    rounds_per_venue: int
+    rounds_per_venue: int | None
     matches: tuple[LeagueTableMatch, ...]
     unknown: Mapping[str, int]
 
@@ -215,9 +220,9 @@ class LeagueTable:
 
     Attributes:
         competition_id: The competition the table was voted to belong to, in the stage id
-            space (not the id space a suspension's competition id belongs to); None when the
-            vote could not settle it, which on the corpus is one table in a thousand. Read that
-            beside the shape of the tables: 20% to 28% of them hold one block, and a one-block
+            space, which `Suspension.competition_id` also uses; None when the vote could not
+            settle it, which on the corpus is one table in a thousand. Read that beside the
+            shape of the tables: 20% to 28% of them hold one block, and a one-block
             table meets the vote's half-the-members rule on a majority of one, so it resolves
             trivially; over the tables of two blocks or more resolution is 0.998 to 1.000. One
             competition names several tables, because a cup's group stage is one competition

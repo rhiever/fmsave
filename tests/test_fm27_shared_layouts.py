@@ -20,12 +20,12 @@ SHARED = (
     ("game_db", 4000, observed.CONTRACTS),
     ("game_db", 4000, observed.STAGE_TABLE),
     ("game_db", 4000, observed.STADIUM_TABLE),
+    ("game_db", 4000, observed.SUSPENSIONS),
     ("game_db", 4000, observed.COMPETITION_ID_PAIRS),
     ("game_db", 4000, observed.TAGGED_STREAM),
     ("game_db", 4000, observed.TRANSFER_WINDOWS),
     ("game_db", 4000, observed.FINANCE_CHAINS),
     ("game_db", 4000, observed.FACILITY_BYTE),
-    ("humans", 24, observed.HUMANS),
     ("feeder_man", 5, observed.AFFILIATE_GROUPS),
     ("job_centre", 1, observed.JOB_CENTRE),
 )
@@ -40,6 +40,23 @@ def test_fm27_observed_structures_are_explicit_not_fallback(region, schema, layo
         find_layout(type(layout), region, schema + 1, BUILD)
     with pytest.raises(UnsupportedGameError):
         find_layout(type(layout), region, schema, "27.0.1+3000001")
+
+
+def test_fm27_humans_layout_adds_only_the_scouting_budget_to_the_shared_one() -> None:
+    from dataclasses import replace
+
+    from fmsave._layouts import HumansLayout
+
+    match = find_layout(HumansLayout, "humans", 24, BUILD)
+    assert match.exact
+    assert match.layout.scouting_budget_marker
+    assert replace(match.layout, scouting_budget_marker=b"") == replace(
+        observed.HUMANS,
+        scouting_date_offset=match.layout.scouting_date_offset,
+        scouting_budget_offset=match.layout.scouting_budget_offset,
+        scouting_remaining_offset=match.layout.scouting_remaining_offset,
+        scouting_budget_maximum=match.layout.scouting_budget_maximum,
+    )
 
 
 def test_fm27_affiliate_groups_walk_every_count_and_reject_trailing_data() -> None:
@@ -65,30 +82,48 @@ def test_fm27_training_whitelist_does_not_guess_unobserved_substructures() -> No
     assert not layout.mentoring_groups_supported
 
 
-def test_fm27_injury_whitelist_rejects_unobserved_nonempty_variants() -> None:
+def test_fm27_injury_layouts_are_the_observed_fm26_layouts_registered_exactly() -> None:
     from fmsave._layouts import InjuryManagerLayout, InjuryTypeTableLayout
 
-    types = find_layout(InjuryTypeTableLayout, "match_file", None, BUILD).layout
-    manager = find_layout(InjuryManagerLayout, "injury_manager", 8, BUILD).layout
-    assert not types.allow_match_entries
-    assert not manager.allow_typed_rows
-    assert manager.require_empty_lists
+    types = find_layout(InjuryTypeTableLayout, "match_file", None, BUILD)
+    manager = find_layout(InjuryManagerLayout, "injury_manager", 8, BUILD)
+    assert types.exact and types.layout == observed.INJURY_TYPE_TABLE
+    assert manager.exact and manager.layout == observed.INJURY_MANAGER
+    assert types.layout.allow_match_entries
+    assert manager.layout.allow_typed_rows
+    assert not manager.layout.require_empty_lists
+    with pytest.raises(UnsupportedGameError):
+        find_layout(InjuryManagerLayout, "injury_manager", 9, BUILD)
 
 
-def test_fm27_tactics_whitelist_allows_only_observed_empty_variants() -> None:
+def test_fm27_injury_checks_apply_to_early_season_sections_not_fragments() -> None:
+    from fmsave._layouts import GateBounds
+
+    bounds = find_layout(GateBounds, "game_db", 4000, BUILD).layout
+    assert bounds.injury_manager_minimum_applies_from_bytes == 16 * 1024
+    assert bounds.injury_log_recent_team_matches == (0.75, None)
+    assert observed.GATE_BOUNDS.injury_manager_minimum_applies_from_bytes == 256 * 1024
+    assert observed.GATE_BOUNDS.injury_log_recent_team_matches == (0.90, None)
+
+
+def test_fm27_tactics_reads_records_but_still_rejects_named_routines() -> None:
     from fmsave._layouts import TacticsLayout
 
     layout = find_layout(TacticsLayout, "tactics_man", 26, BUILD).layout
     assert layout.selection_end_marker == b"\x44\x00"
-    assert not layout.tactic_records_supported
+    assert layout.tactic_records_supported
+    assert layout.user_signature == layout.alternate_signature
+    assert layout.preset_signature != layout.user_signature
     assert not layout.named_routines_supported
 
 
-def test_fm27_match_whitelist_requires_proven_absence_not_unobserved_rows() -> None:
+def test_fm27_match_whitelist_reads_rows_only_behind_declared_histories() -> None:
     from fmsave._layouts import MatchRecordLayout
 
     layout = find_layout(MatchRecordLayout, "game_db", 4000, BUILD).layout
-    assert not layout.nonempty_supported
+    assert layout.nonempty_supported
+    assert layout.declared_histories_required
+    assert not observed.MATCH_RECORDS.declared_histories_required
     cache = layout.cache_layout
     assert cache is not None
     assert cache.header_marker == b"\x0c\x07"
@@ -107,3 +142,12 @@ def test_fm27_sponsor_boundary_does_not_enable_unknown_schemas_or_builds() -> No
     for schema, build in ((4001, BUILD), (4000, "27.0.1+3000001")):
         with pytest.raises(UnsupportedGameError):
             find_layout(layout_type, "game_db", schema, build)
+
+
+def test_fm27_suspensions_judge_an_empty_search_by_count_not_by_share() -> None:
+    from fmsave._layouts import GateBounds
+
+    bounds = find_layout(GateBounds, "game_db", 4000, BUILD).layout
+    assert bounds.suspension_share_of_players == (None, 0.10)
+    assert bounds.suspension_entries_minimum == (1, None)
+    assert observed.GATE_BOUNDS.suspension_share_of_players == (0.001, 0.10)

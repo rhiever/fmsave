@@ -13,7 +13,8 @@ import pytest
 import fmsave
 from fmsave._errors import ReaderCheckError, UnsupportedGameError
 from fmsave._layouts.fm26_26_3_2 import TRAINING as FM26_TRAINING
-from fmsave.models.training import TeamTraining, TrainingWeek
+from fmsave.models.common import CodedValue
+from fmsave.models.training import TeamTraining, TrainingSession
 from fmsave.readers.training import build_training_tables, walk_training_blocks
 from fmsave.table import Table
 from tests.fixtures.career import (
@@ -33,13 +34,21 @@ LAYOUT = replace(
     week_record_fixed_bytes=80,
     header_entries_supported=False,
     mentoring_groups_supported=False,
+    session_labels_supported=True,
 )
 TEAMS = frozenset({NORTHBRIDGE_TEAM_A})
 
 
-def fm27_week(day: int, name: str) -> bytes:
+def fm27_day(sessions: tuple[int, int, int], last: int = 0) -> bytes:
+    """One eight-byte day: its lead byte, three session codes and one byte after them."""
+    return b"\x04" + struct.pack("<3H", *sessions) + bytes((last,))
+
+
+def fm27_week(
+    day: int, name: str, sessions: tuple[tuple[int, int, int], ...] = ((11, 10, 6),) * 7
+) -> bytes:
     """Seven independently encoded eight-byte days, then the week's own label."""
-    days = (b"\x04" + struct.pack("<3H", 11, 10, 6) + b"\x00") * 7
+    days = b"".join(fm27_day(day_sessions) for day_sessions in sessions)
     return b"\x0b" + packed_date(day, 2031) + b"\x01" + days + length_prefixed(name) + bytes(14)
 
 
@@ -69,10 +78,10 @@ def test_fm27_calendar_pairs_each_name_with_its_own_date() -> None:
 
     assert len(blocks) == 1
     assert blocks[0].team_id == NORTHBRIDGE_TEAM_A
-    assert blocks[0].weeks == (
-        TrainingWeek(date(2031, 2, 17), "Example Light"),
-        TrainingWeek(date(2031, 2, 24), "Example Balanced"),
-    )
+    assert [(week.week_start, week.schedule_name) for week in blocks[0].weeks] == [
+        (date(2031, 2, 17), "Example Light"),
+        (date(2031, 2, 24), "Example Balanced"),
+    ]
     assert blocks[0].groups == ()
     assert counts.weeks == 2
     assert counts.week_steps == counts.seven_day_steps == 1
@@ -187,3 +196,61 @@ def test_known_empty_library_stays_distinct_from_unsupported() -> None:
     table = Table((row,), TeamTraining)
     assert table.to_dicts(json_ready=True)[0]["schedule_library"] == []
     assert table.coverage["schedule_library"] == 1.0
+
+
+# A fictional week in the shape the Training screen shows: training, a match, travel and rest,
+# and two codes the enum does not name, which keep their raw number.
+FICTIONAL_FM27_WEEK = (
+    (304, 6, 1),
+    (302, 5, 0),
+    (300, 500, 300),
+    (301, 300, 300),
+    (200, 7, 2),
+    (402, 500, 402),
+    (303, 104, 300),
+)
+
+
+def test_fm27_sessions_carry_their_names_and_unnamed_codes_keep_their_raw_number() -> None:
+    week = fm27_week(48, "Example Light", FICTIONAL_FM27_WEEK)
+    payload = struct.pack("<II", 581, 1) + bytes(10) + struct.pack("<I", 0) + bytes((1, 0, 0))
+    payload += struct.pack("<IBI", NORTHBRIDGE_TEAM_A, 2, 0) + struct.pack("<I", 1) + week
+    payload += bytes(36) + struct.pack("<I", 0)
+    blocks, _counts = walk_training_blocks(
+        section_body(".dat", 32, payload), TEAMS, LAYOUT, "fictional.bin"
+    )
+
+    days = blocks[0].weeks[0].days
+    assert [day.day for day in days] == [date(2031, 2, 17 + offset) for offset in range(7)]
+    assert [tuple(session.raw for session in day.sessions) for day in days] == list(
+        FICTIONAL_FM27_WEEK
+    )
+    assert days[2].sessions == (
+        CodedValue(TrainingSession.REST, 300),
+        CodedValue(TrainingSession.MATCH, 500),
+        CodedValue(TrainingSession.REST, 300),
+    )
+    assert [session.label for session in days[5].sessions] == [
+        TrainingSession.TRAVEL,
+        TrainingSession.MATCH,
+        TrainingSession.TRAVEL,
+    ]
+    assert [session.label for session in days[6].sessions] == [
+        TrainingSession.CONDITIONING,
+        TrainingSession.UNKNOWN,
+        TrainingSession.REST,
+    ]
+    assert days[6].sessions[1].raw == 104
+    assert days[0].sessions[0] == CodedValue(TrainingSession.UNKNOWN, 304)
+
+
+def test_fm27_byte_after_a_days_sessions_is_not_read_as_a_session() -> None:
+    plain = fm27_section()
+    marked = bytearray(plain)
+    # The first week's first day starts at 66; its byte after the three codes is at 73.
+    marked[73] = 0xFF
+    plain_blocks, _counts = walk_training_blocks(plain, TEAMS, LAYOUT, "fictional.bin")
+    marked_blocks, _counts = walk_training_blocks(bytes(marked), TEAMS, LAYOUT, "fictional.bin")
+
+    assert marked_blocks[0].weeks[0].days == plain_blocks[0].weeks[0].days
+    assert [session.raw for session in plain_blocks[0].weeks[0].days[0].sessions] == [11, 10, 6]

@@ -270,13 +270,17 @@ def stats_columns(kind: str) -> dict[str, bytes]:
 
 
 def open_save(path: str) -> dict[str, object]:
-    """Open the save at path and return what the page shows while the players load."""
+    """Open the save at path and return what the page shows while the players load.
+
+    A file that is not a save, or one fmsave cannot read, fails before the last save is
+    dropped, so the page can keep showing it.
+    """
+    started = time.monotonic()
+    career_save = fmsave.open(path)
     close_save()
     _state.clear()
     # WebAssembly memory never shrinks, so the last save is collected before the next is read.
     gc.collect()
-    started = time.monotonic()
-    career_save = fmsave.open(path)
     _state["save"] = career_save
     _state["started"] = started
     info = career_save.info

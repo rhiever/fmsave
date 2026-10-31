@@ -37,6 +37,7 @@ TABLE_TEAM_ID_BACK = 23
 TABLE_ROUNDS_PER_VENUE_AT = 85
 TABLE_MATCHES_AT = 87
 UNPLAYED_KEY = 0xFFFFFFFF
+MATCH_ROWS_FLAG = 1
 DEFAULT_HEAD_BYTES = bytes(range(TABLE_HEAD_BYTES))
 
 
@@ -296,6 +297,9 @@ def table_block_bytes(
     block = bytearray()
     block.extend(struct.pack("<I", team_id))
     block.extend(head_bytes)
+    # The last aggregate row's final byte is the flag saying match rows follow; a test that
+    # wants the form without them passes `second_half` with an explicit flag of 0.
+    second_half = {"flag": MATCH_ROWS_FLAG, **second_half}
     for aggregate in (total, home, away, first_half, second_half):
         block.extend(_row_from_counters(aggregate, key=UNPLAYED_KEY))
     block.extend(struct.pack("<H", rounds_per_venue))

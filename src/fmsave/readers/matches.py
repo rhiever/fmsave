@@ -56,6 +56,11 @@ _NOBODY_WAS_RATED = 0
 
 _NO_OPPONENT_CLUB: tuple[int | None, str | None, str | None, int | None] = (None, None, None, None)
 
+_UNDECLARED_HISTORIES = (
+    "this layout reads per-match histories only when every player's history declaration is "
+    "established and every populated one decodes completely"
+)
+
 
 @dataclass(frozen=True, slots=True)
 class RawMatchRecord:
@@ -66,7 +71,7 @@ class RawMatchRecord:
 
     Attributes:
         date: The date the match was played.
-        opponent_team_id: The opposing side's first-team id, exactly as stored.
+        opponent_team_id: The opposing team's id, exactly as stored.
         competition_id: The competition id, in the stage id space.
         tag: The unidentified byte exported as `unknown["tag"]`.
         has_stats: Whether a performance body follows the header.
@@ -304,8 +309,12 @@ def _cache_declarations(
     player_records: PlayerRecords,
     layout: MatchRecordLayout,
     search: _MatchSearch,
+    nonempty_offsets: set[int] | None = None,
 ) -> CacheDeclarations | None:
-    """Count owned declarations independently of emitted rows and output filters."""
+    """Count owned declarations independently of emitted rows and output filters.
+
+    When `nonempty_offsets` is given, the offset of every nonempty declaration is added to it.
+    """
     if layout.cache_layout is None:
         return None
     walker = MatchCacheWalker(layout.cache_layout)
@@ -334,6 +343,8 @@ def _cache_declarations(
                         at += decoded[1]
                     else:
                         state = "unknown"
+        if state == "nonempty" and nonempty_offsets is not None and declaration.offset is not None:
+            nonempty_offsets.add(declaration.offset)
         counts[state] += 1
     return CacheDeclarations(slots=len(offsets), **counts)
 
@@ -386,6 +397,11 @@ def locate_match_records(
     A separate bounded field walk establishes owned null/empty cache declarations. Its
     counts are independent of this nonempty scan and its output filters; unsupported
     preceding fields remain unknown.
+
+    Raises:
+        UnsupportedGameError: The layout reads no populated history and absence is not
+            established for every player, or it requires declared histories and a declaration
+            is unknown or the nonempty declarations are not exactly the parents decoded.
     """
     search = _match_search(layout, clock.year)
     offsets = player_records.record_offsets
@@ -396,7 +412,6 @@ def locate_match_records(
             or declarations.slots == 0
             or declarations.unknown
             or declarations.nonempty
-            or declarations.containing_null + declarations.null + declarations.empty != len(offsets)
         ):
             raise UnsupportedGameError(
                 "FM27 per-match support requires independently established null or "
@@ -407,6 +422,8 @@ def locate_match_records(
             {}, lists_found=0, lists_decoded=0, history_declarations=declarations
         )
     if not offsets:
+        if layout.declared_histories_required:
+            raise UnsupportedGameError(_UNDECLARED_HISTORIES)
         return LocatedMatchRecords(
             {},
             lists_found=0,
@@ -416,6 +433,7 @@ def locate_match_records(
     start = max(0, offsets[0] - search.owner_back_offset)
     records_by_position: dict[int, list[RawMatchRecord]] = {}
     lists_found = lists_decoded = 0
+    decoded_parents: set[int] = set()
     suffix_lengths: dict[int, int] = {}
     suffix_owner: int | None = None
 
@@ -529,14 +547,21 @@ def locate_match_records(
                         start = extra[1]
                         continue
             lists_decoded += child_count
+            decoded_parents.add(parent_at)
             start = list_at
             if records:
                 records_by_position.setdefault(position, []).extend(records)
+    nonempty_offsets: set[int] = set()
+    declarations = _cache_declarations(game_db, player_records, layout, search, nonempty_offsets)
+    if layout.declared_histories_required and (
+        declarations is None or declarations.unknown or nonempty_offsets != decoded_parents
+    ):
+        raise UnsupportedGameError(_UNDECLARED_HISTORIES)
     return LocatedMatchRecords(
         {position: tuple(records) for position, records in records_by_position.items()},
         lists_found=lists_found,
         lists_decoded=lists_decoded,
-        history_declarations=_cache_declarations(game_db, player_records, layout, search),
+        history_declarations=declarations,
     )
 
 

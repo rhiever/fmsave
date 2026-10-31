@@ -10,7 +10,7 @@ import pytest
 
 import fmsave
 from fmsave import ManagedClub, Table
-from fmsave._layouts import SummaryStringsLayout, find_layout
+from fmsave._layouts import StaffLayout, SummaryStringsLayout, find_layout
 from fmsave._status import field_status
 from fmsave.readers.managed import read_summary_strings
 from fmsave.readers.players import PlayerDecoder
@@ -77,7 +77,7 @@ EXAMPLE_CLUBS = (
 )
 
 
-def club_region_bytes() -> bytes:
+def club_region_bytes(*, northbridge_finance: bytes = b"") -> bytes:
     club_records = [
         club_record_bytes(
             club_index=club.club_index,
@@ -89,6 +89,7 @@ def club_region_bytes() -> bytes:
             short_name=club.short_name,
             team_ids=club.team_ids,
             float_anchor_only=club.float_anchor_only,
+            trailing_bytes=northbridge_finance if club.uid == NORTHBRIDGE_UID else b"",
         )
         for club in EXAMPLE_CLUBS
     ]
@@ -109,6 +110,15 @@ def club_region_bytes() -> bytes:
 def person_header_bytes(person_id: int, uid: int) -> bytes:
     """A non-player person header: the person id, then the uid twice."""
     return struct.pack("<III", person_id, uid, uid)
+
+
+def human_header_bytes(person_id: int, uid: int) -> bytes:
+    """A person header that carries the human manager's object kind."""
+    layout = find_layout(StaffLayout, "game_db", GAME_DB_SCHEMA, BUILD_STRING).layout
+    header = bytearray(person_header_bytes(person_id, uid))
+    header.extend(bytes(layout.kind_offset + 1 - len(header)))
+    header[layout.kind_offset] = layout.human_kind
+    return bytes(header)
 
 
 def chain_record(*, selector: int, team_id: int, end: bytes | None) -> bytes:
@@ -151,8 +161,9 @@ def example_game_db(
             selector=MANAGER_SELECTOR, team_id=NORTHBRIDGE_TEAM_A, end=packed_date(182, 2032)
         ),
     ),
+    northbridge_finance: bytes = b"",
 ) -> bytes:
-    payload = club_region_bytes() + bytes(64)
+    payload = club_region_bytes(northbridge_finance=northbridge_finance) + bytes(64)
     for person_header in person_headers:
         payload += person_header + bytes(64)
     for record in chain_records:
@@ -417,6 +428,28 @@ def test_two_person_header_candidates_leave_the_person_uid_unset(tmp_path: Path)
     assert len(managed_clubs) == 1
     assert managed_clubs[0].manager_staff_uid is None
     assert managed_clubs[0].club_uid == NORTHBRIDGE_UID
+
+
+def test_the_human_kind_settles_two_person_header_candidates(tmp_path: Path) -> None:
+    game_db = example_game_db(
+        person_headers=(
+            person_header_bytes(499, OTHER_PERSON_UID),
+            human_header_bytes(499, MANAGER_PERSON_UID),
+        )
+    )
+    managed_clubs = read_managed_clubs(write_fragment(tmp_path, game_db=game_db))
+    assert managed_clubs[0].manager_staff_uid == MANAGER_PERSON_UID
+
+
+def test_two_human_kind_candidates_leave_the_person_uid_unset(tmp_path: Path) -> None:
+    game_db = example_game_db(
+        person_headers=(
+            human_header_bytes(499, OTHER_PERSON_UID),
+            human_header_bytes(499, MANAGER_PERSON_UID),
+        )
+    )
+    managed_clubs = read_managed_clubs(write_fragment(tmp_path, game_db=game_db))
+    assert managed_clubs[0].manager_staff_uid is None
 
 
 @pytest.mark.parametrize(

@@ -1172,15 +1172,23 @@ class ContractDecoder:
         return block_start, block_end
 
     def _find_fallback_dates(
-        self, game_db: bytes, record_offset: int, record_window_end: int
+        self,
+        game_db: bytes,
+        record_offset: int,
+        record_window_end: int,
+        object_end: int | None = None,
     ) -> tuple[date | None, date | None]:
         """(start, end) with the latest end among valid pairs, or (None, None).
 
         `record_window_end` is already `len(game_db)` for the last player (see
         `player_scan.window_end`), so no separate last-record case is needed here.
+        `object_end`, when known, is where the player's own object ends: a pair must also
+        end there, so dates stored by the objects after his are never read as his.
         """
         search_start = record_offset + self.fallback_start_from_record
         limit = record_window_end - self.fallback_end_margin
+        if object_end is not None:
+            limit = min(limit, object_end)
         limit = max(limit, search_start)
         game_db_length = len(game_db)
         find_end = min(game_db_length, limit)
@@ -1260,12 +1268,15 @@ class ContractDecoder:
         player_club_uid: int | None,
         *,
         registration_missing: bool = False,
+        object_end: int | None = None,
     ) -> tuple[Contract | None, bool | None, int | None, str | None, date | None, date | None]:
         """Assemble one player's contract from their chain records and, when needed, the
         fallback reader.
 
         `player_club_uid` is the uid of the club fielding the player's own registered team,
         already resolved by `PlayerDecoder`, so this method never re-resolves it.
+        `object_end` is the offset of the header closing the player's object, when one was
+        found; the fallback reader reads nothing past it.
 
         Returns (contract, on_loan, loan_parent_club_uid, loan_parent_club_name, loan_start,
         loan_end); the last five are also carried inside contract when it is not None.
@@ -1292,7 +1303,7 @@ class ContractDecoder:
         fallback_end: date | None = None
         if chain_records is None or not any_tail_parsed:
             fallback_start, fallback_end = self._find_fallback_dates(
-                game_db, record_offset, record_window_end
+                game_db, record_offset, record_window_end, object_end
             )
 
         if chain_records is None and fallback_start is None and fallback_end is None:

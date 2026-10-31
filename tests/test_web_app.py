@@ -290,6 +290,20 @@ def test_opening_a_save_drops_what_the_last_one_left(career_save_path: Path) -> 
     reader._state.clear()
 
 
+def test_a_file_that_fails_to_open_keeps_the_last_save(
+    opened: dict[str, Any], tmp_path: Path
+) -> None:
+    """The page keeps showing the last save when another file fails, so the reader keeps it too."""
+    del opened
+    reader.read_stats()
+    not_a_save = tmp_path / "notes.fm"
+    not_a_save.write_bytes(b"not a save " * 100)
+    assert set(reader.call("open_save", str(not_a_save))) == {"error"}
+    assert set(reader.call("player_detail", PLAYER_A_UID)) == {"ok"}
+    assert set(reader.call("stats_columns", "league")) == {"ok"}
+    assert set(reader.call("write_csv", "squad", str(tmp_path / "squad.csv"))) == {"ok"}
+
+
 def test_a_save_without_a_managed_club_has_no_squad_download(
     opened: dict[str, Any], tmp_path: Path
 ) -> None:

@@ -35,8 +35,9 @@ from fmsave._layouts import (
     find_layout,
 )
 from fmsave._reader_stats import StaffStats
+from fmsave.models.common import CodedValue
 from fmsave.models.players import Ability
-from fmsave.models.staff import Staff, StaffAttributes, StaffList, StaffPreferences
+from fmsave.models.staff import Staff, StaffAttributes, StaffJob, StaffList, StaffPreferences
 from fmsave.readers._common import GAME_DB_SECTION, HUMANS_SECTION, build_gap_padded_struct
 from fmsave.readers.clubs import ClubIndex
 from fmsave.readers.contracts import (
@@ -59,6 +60,7 @@ from fmsave.readers.persons import PersonTuple, build_person_block_decoder
 from fmsave.readers.player_scan import PlayerRecords, closing_person_header
 
 _UINT32 = struct.Struct("<I")
+_SELECTOR_TEAM = struct.Struct("<II")
 _UINT16 = struct.Struct("<H")
 _INT16 = struct.Struct("<h")
 _MISSING_UID = 0xFFFFFFFF
@@ -424,15 +426,6 @@ def _discovery_pattern(
         ValueError: The selector or team bound does not fit in three bytes, so the byte class
             its top byte needs cannot be built.
     """
-    selector_maximum = staff_layout.discovery_selector_maximum
-    team_maximum = team_lists.team_id_range[1]
-    bounds = (
-        (selector_maximum, "discovery_selector_maximum"),
-        (team_maximum, "the top of team_id_range"),
-    )
-    for bound, bound_name in bounds:
-        if not 0 <= bound >> 16 <= 0xFF:
-            raise ValueError(f"{bound_name} ({bound}) must fit in three bytes")
     selector_offset = contract_layout.selector_offset
     team_offset = contract_layout.team_id_offset
     if team_offset != selector_offset + _UINT32.size:
@@ -446,17 +439,33 @@ def _discovery_pattern(
         raise ValueError(
             f"selector_offset ({selector_offset}) must leave room for the tag ({len(tag)} bytes)"
         )
-    pattern = (
-        re.escape(tag)
-        + b"." * lead_bytes
-        + b".."
+    pattern = re.escape(tag) + b"." * lead_bytes + _selector_team_pattern(staff_layout, team_lists)
+    return re.compile(pattern, re.DOTALL)
+
+
+def _selector_team_pattern(staff_layout: StaffLayout, team_lists: TeamListLayout) -> bytes:
+    """A selector and then a team id, each with the top byte of its word bounded.
+
+    Raises:
+        ValueError: The selector or team bound does not fit in three bytes.
+    """
+    selector_maximum = staff_layout.discovery_selector_maximum
+    team_maximum = team_lists.team_id_range[1]
+    bounds = (
+        (selector_maximum, "discovery_selector_maximum"),
+        (team_maximum, "the top of team_id_range"),
+    )
+    for bound, bound_name in bounds:
+        if not 0 <= bound >> 16 <= 0xFF:
+            raise ValueError(f"{bound_name} ({bound}) must fit in three bytes")
+    return (
+        b".."
         + _byte_class(selector_maximum >> 16)
         + b"\\x00"
         + b".."
         + _byte_class(team_maximum >> 16)
         + b"\\x00"
     )
-    return re.compile(pattern, re.DOTALL)
 
 
 @dataclass(frozen=True, slots=True)
@@ -477,6 +486,7 @@ class _Discovery:
     unowned_tailed_hits: int
     owned_records: int
     non_staff_tailed_hits: int
+    offer_records: int
 
 
 def discover_contracts(
@@ -495,11 +505,15 @@ def discover_contracts(
     somebody whose object is not a staff object, and is counted so that the checks can see it.
     Candidates inside closed club records are counted separately, since those bytes cannot
     be a standalone person object. Records whose selector is a player's or the human manager's
-    are left to their own readers.
+    are left to their own readers, and on a layout that marks offers, an offer is counted and
+    owned by nobody.
     """
     pattern = _discovery_pattern(layouts.staff, layouts.contracts, layouts.team_lists)
     selector_offset = layouts.contracts.selector_offset
     staff_layout = layouts.staff
+    tag = layouts.contracts.tag
+    offer_marker_offset = staff_layout.offer_marker_offset
+    offer_records = 0
     pindex_positions = player_records.position_by_pindex
     unpack_selector = _UINT32.unpack_from
     decode_chain_record = decoder.decode_chain_record
@@ -539,6 +553,11 @@ def discover_contracts(
         if not record[CHAIN_RECORD_HAS_TERMS]:
             untailed_hits += 1
             continue
+        if offer_marker_offset is not None and game_db.startswith(
+            tag, tag_offset + selector_offset + offer_marker_offset
+        ):
+            offer_records += 1
+            continue
         own_records = records_by_person.get(person_id)
         if own_records is None:
             header = locate_contracted_header(game_db, person_id, tag_offset, staff_layout)
@@ -571,7 +590,120 @@ def discover_contracts(
         unowned_tailed_hits=unowned_tailed_hits,
         owned_records=owned_records,
         non_staff_tailed_hits=non_staff_tailed_hits,
+        offer_records=offer_records,
     )
+
+
+@functools.cache
+def _no_contract_pattern(
+    staff_layout: StaffLayout, contracts: ContractLayout, team_lists: TeamListLayout
+) -> re.Pattern[bytes]:
+    """The pattern of a no-contract role record: the tag, the lead, a selector and a team id.
+
+    The selector and team id are bounded exactly as `_discovery_pattern` bounds a contract's.
+
+    Raises:
+        ValueError: The layout reads no such record, or its lead does not fit between the
+            tag and the selector.
+    """
+    selector_offset = staff_layout.no_contract_selector_offset
+    if selector_offset is None:
+        raise ValueError("this staff layout reads no role records without a contract")
+    tag = contracts.tag
+    lead = staff_layout.no_contract_lead
+    gap = selector_offset - len(tag) - len(lead)
+    if gap < 0:
+        raise ValueError(
+            f"no_contract_selector_offset ({selector_offset}) must leave room for the tag "
+            f"({len(tag)} bytes) and the lead ({len(lead)} bytes)"
+        )
+    return re.compile(
+        re.escape(tag)
+        + b"." * gap
+        + re.escape(lead)
+        + _selector_team_pattern(staff_layout, team_lists),
+        re.DOTALL,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _NoContractRoles:
+    """What the pass for roles held with no contract found.
+
+    `roles` maps each (club, person) pair to the record's tag offset, team id and job code,
+    and `header_by_person` each such person's header.
+    """
+
+    roles: dict[tuple[int, int], tuple[int, int, int | None]]
+    header_by_person: dict[int, int]
+
+
+def discover_no_contract_roles(
+    game_db: bytes,
+    player_records: PlayerRecords,
+    human_selector: int | None,
+    club_by_team_id: Mapping[int, tuple[int | None, str | None]],
+    layouts: StaffLayouts,
+    club_index: ClubIndex,
+) -> _NoContractRoles:
+    """Every club role a person who is not a player holds with no contract, from one pass.
+
+    A record belongs to a person only when its team id resolves to a club and his own header
+    sits in front of it, as a contract record's does. A person holding two such roles at one
+    club keeps the first in file order.
+    """
+    staff_layout = layouts.staff
+    if staff_layout.no_contract_selector_offset is None:
+        return _NoContractRoles({}, {})
+    pattern = _no_contract_pattern(staff_layout, layouts.contracts, layouts.team_lists)
+    selector_offset = staff_layout.no_contract_selector_offset
+    pindex_positions = player_records.position_by_pindex
+    roles: dict[tuple[int, int], tuple[int, int, int | None]] = {}
+    header_by_person: dict[int, int] = {}
+    closed_clubs = club_index.record_spans[:-1]
+    club_position = 0
+    for match in pattern.finditer(game_db):
+        tag_offset = match.start()
+        while (
+            club_position < len(closed_clubs)
+            and closed_clubs[club_position].record_end <= tag_offset
+        ):
+            club_position += 1
+        if (
+            club_position < len(closed_clubs)
+            and closed_clubs[club_position].record_start <= tag_offset
+        ):
+            continue
+        selector_at = tag_offset + selector_offset
+        selector, team_id = _SELECTOR_TEAM.unpack_from(game_db, selector_at)
+        if selector == 0 or selector == human_selector:
+            continue
+        person_id = selector - _ID_OFFSET
+        if person_id in pindex_positions:
+            continue
+        club_uid = club_by_team_id.get(team_id, (None, None))[0]
+        if club_uid is None or (club_uid, person_id) in roles:
+            continue
+        header = header_by_person.get(person_id)
+        if header is None:
+            header = locate_contracted_header(game_db, person_id, tag_offset, staff_layout)
+            if header is None:
+                continue
+            header_by_person[person_id] = header
+        roles[(club_uid, person_id)] = (
+            tag_offset,
+            team_id,
+            _job_code(game_db, selector_at, staff_layout),
+        )
+    return _NoContractRoles(roles, header_by_person)
+
+
+def _job_code(game_db: bytes, selector_at: int, layout: StaffLayout) -> int | None:
+    """The job code a record stores past its selector, or None where the layout reads none."""
+    if layout.job_offset is None:
+        return None
+    job_at = selector_at + layout.job_offset
+    return game_db[job_at] if 0 <= job_at < len(game_db) else None
 
 
 def _latest_started(
@@ -605,6 +737,7 @@ def _human_records(
     """
     tag = layouts.contracts.tag
     selector_offset = layouts.contracts.selector_offset
+    offer_marker_offset = layouts.staff.offer_marker_offset
     needle = _UINT32.pack(selector)
     find = game_db.find
     startswith = game_db.startswith
@@ -612,7 +745,11 @@ def _human_records(
     hit = find(needle, header, object_end)
     while hit >= 0:
         tag_offset = hit - selector_offset
-        if tag_offset >= header and startswith(tag, tag_offset):
+        if (
+            tag_offset >= header
+            and startswith(tag, tag_offset)
+            and not (offer_marker_offset is not None and startswith(tag, hit + offer_marker_offset))
+        ):
             record = decoder.decode_chain_record(game_db, tag_offset)
             if record[CHAIN_RECORD_HAS_TERMS]:
                 records.append((tag_offset, record))
@@ -834,8 +971,18 @@ def read_staff(
     discovery = discover_contracts(
         game_db, player_records, human_selector, contract_decoder, layouts, club_index
     )
+    no_contract = discover_no_contract_roles(
+        game_db,
+        player_records,
+        human_selector,
+        contract_decoder.club_by_team_id,
+        layouts,
+        club_index,
+    )
 
     header_by_person = dict(discovery.header_by_person)
+    for person_id, header in no_contract.header_by_person.items():
+        header_by_person.setdefault(person_id, header)
     listed_persons = sorted({person_id for _club_uid, person_id in listed_pairs})
     ambiguous_headers = 0
     unlocated_persons = 0
@@ -899,7 +1046,7 @@ def read_staff(
             human_person_id = None
 
     rows_by_club_and_person, membership = _merge_membership(
-        listed_pairs, records_by_person, header_by_person, club_index
+        listed_pairs, records_by_person, header_by_person, club_index, no_contract.roles
     )
     if human_person_id is not None:
         human_record = _latest_started(records_by_person[human_person_id])
@@ -966,7 +1113,8 @@ def read_staff(
             block=block,
         )
 
-    rows = _build_rows(rows_by_club_and_person, objects, club_index)
+    roles = _row_roles(game_db, rows_by_club_and_person, no_contract.roles, layouts)
+    rows = _build_rows(rows_by_club_and_person, objects, club_index, roles)
     list_rows = _build_list_rows(lists_by_club, objects, club_index)
     listed_persons_staff = sum(
         1
@@ -1006,8 +1154,34 @@ def read_staff(
         rows=len(rows),
         list_rows=len(list_rows),
         non_staff_tailed_hits=discovery.non_staff_tailed_hits,
+        offer_records=discovery.offer_records,
+        no_contract_roles=len(no_contract.roles),
     )
     return rows, list_rows, stats
+
+
+def _row_roles(
+    game_db: bytes,
+    rows_by_club_and_person: Mapping[tuple[int, int], _RowSource],
+    no_contract_roles: Mapping[tuple[int, int], tuple[int, int, int | None]],
+    layouts: StaffLayouts,
+) -> dict[tuple[int, int], tuple[int | None, int | None]]:
+    """Each row's (team id, job code): from its contract record, else from a role it holds
+    with no contract, else neither.
+    """
+    selector_offset = layouts.contracts.selector_offset
+    roles: dict[tuple[int, int], tuple[int | None, int | None]] = {}
+    for key, (own_record, _list_numbers, _listed_club_uid) in rows_by_club_and_person.items():
+        if own_record is not None:
+            tag_offset, record = own_record
+            roles[key] = (
+                record[CHAIN_RECORD_TEAM_ID],
+                _job_code(game_db, tag_offset + selector_offset, layouts.staff),
+            )
+            continue
+        role = no_contract_roles.get(key)
+        roles[key] = (None, None) if role is None else (role[1], role[2])
+    return roles
 
 
 @dataclass(frozen=True, slots=True)
@@ -1031,13 +1205,17 @@ def _merge_membership(
     records_by_person: Mapping[int, list[tuple[int, ChainRecordTuple]]],
     header_by_person: Mapping[int, int],
     club_index: ClubIndex,
+    no_contract_roles: Mapping[tuple[int, int], object] | None = None,
 ) -> tuple[dict[tuple[int, int], _RowSource], _MembershipCounts]:
     """The (club, person) rows to build, each with its contract record and its list numbers.
 
     A person a club both lists and pays is one row. A person an affiliate side lists whose
     contract is at that side's parent belongs to the parent, keeping the side that listed him
     and its list numbers; any other listing stands on its own at the club that made it. A
-    person nobody lists is a row wherever his contract is.
+    person nobody lists is a row wherever his contract is, and a person holding a role with
+    no contract is a row at that role's club unless a row for him there exists already. An
+    affiliate side's listing of a person whose role with no contract is at its parent belongs
+    to the parent, as a contract there would.
 
     One case the saves measured hold none of: a person listed by **both** an affiliate side and
     its parent would be one row either way, and the two listings would write the same key here,
@@ -1096,10 +1274,22 @@ def _merge_membership(
                 club_uid,
             )
             continue
+        if (
+            parent_club_uid is not None
+            and no_contract_roles is not None
+            and (parent_club_uid, person_id) in no_contract_roles
+            and (club_uid, person_id) not in no_contract_roles
+        ):
+            merged_affiliate_pairs += 1
+            rows[(parent_club_uid, person_id)] = (None, list_numbers, club_uid)
+            continue
         rows[(club_uid, person_id)] = (None, list_numbers, club_uid)
     for key, own_record in contracted.items():
         if key not in rows:
             rows[key] = (own_record, (), None)
+    for key in no_contract_roles or {}:
+        if key not in rows and key[1] in header_by_person:
+            rows[key] = (None, (), None)
     return rows, _MembershipCounts(
         listed_pairs_contracted_here=listed_pairs_contracted_here,
         merged_affiliate_pairs=merged_affiliate_pairs,
@@ -1112,6 +1302,7 @@ def _build_rows(
     rows_by_club_and_person: Mapping[tuple[int, int], _RowSource],
     objects: Mapping[int, _PersonObject],
     club_index: ClubIndex,
+    roles: Mapping[tuple[int, int], tuple[int | None, int | None]],
 ) -> tuple[Staff, ...]:
     """One `Staff` per row, ordered by where the person's object sits and then by club uid."""
     rows: list[Staff] = []
@@ -1127,7 +1318,7 @@ def _build_rows(
             None if listed_club_uid is None else club_index.club_by_uid.get(listed_club_uid)
         )
         record = None if own_record is None else own_record[1]
-        team_id = None if record is None else record[CHAIN_RECORD_TEAM_ID]
+        team_id, job_code = roles[key]
         personality = None if person is None else person[_PERSON_PERSONALITY]
         rows.append(
             Staff(
@@ -1147,6 +1338,7 @@ def _build_rows(
                 club_name="" if club is None else club.name,
                 team_id=team_id,
                 team_slot=_team_slot(club_index, team_id),
+                job=None if job_code is None else CodedValue.from_raw(StaffJob, job_code),
                 listed_club_uid=listed_club_uid,
                 listed_club_name=None if listed_club is None else listed_club.name,
                 in_club_lists=bool(list_numbers),

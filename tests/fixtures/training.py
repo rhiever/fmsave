@@ -33,8 +33,12 @@ def day_block_bytes(sessions: tuple[int, int, int] = (11, 10, 6)) -> bytes:
     return b"\x03" + _DAY_SESSIONS.pack(*sessions)
 
 
-def _seven_day_blocks() -> bytes:
-    return day_block_bytes() * 7
+def _seven_day_blocks(day_sessions: Sequence[tuple[int, int, int]] | None = None) -> bytes:
+    if day_sessions is None:
+        return day_block_bytes() * 7
+    if len(day_sessions) != 7:
+        raise ValueError(f"a week holds seven days, not {len(day_sessions)}")
+    return b"".join(day_block_bytes(sessions) for sessions in day_sessions)
 
 
 def training_header_entry_bytes(*, selector: int, first_date: bytes, second_date: bytes) -> bytes:
@@ -50,12 +54,17 @@ def training_week_bytes(
     week_start: bytes,
     schedule_name: str,
     after_name: bytes = bytes(WEEK_TRAILER_BYTES),
+    day_sessions: Sequence[tuple[int, int, int]] | None = None,
 ) -> bytes:
-    """One weekly record: the lead byte, the week's start date, then its schedule name."""
+    """One weekly record: the lead byte, the week's start date, its days, then its name.
+
+    `day_sessions` gives each of the seven days its own three session codes; without it every
+    day holds the same three.
+    """
     record = bytearray(b"\x0b")
     record.extend(week_start[:4])
     record.append(1)
-    record.extend(_seven_day_blocks())
+    record.extend(_seven_day_blocks(day_sessions))
     record.extend(length_prefixed(schedule_name))
     record.extend(after_name)
     return bytes(record)

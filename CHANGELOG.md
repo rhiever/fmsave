@@ -4,6 +4,45 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-30
+
+### Added
+
+- FM27 reads `fixtures()`, `league_tables()`, and `competition_rules()` (fields unconfirmed). (#42)
+- FM27 reads `injuries()`, `injury_types()`, and `player_match_stats()` with populated histories (fields unconfirmed). (#45)
+- FM27 reads `suspensions()`; ban coverage is not yet compared with the game. (#8)
+- FM27 `tactics()` and `set_pieces()` read careers with a saved tactic. (#43)
+- `selections()` and the `selections` export table: each managed team's stored picks (fields unconfirmed). (#43)
+- `Staff.job` and `StaffJob` on FM27, with 17 job codes named. (#44)
+- FM27 `staff()` rows for club roles held with no contract, such as the chairperson. (#44)
+- `TrainingWeek.days`: each week's 7 days and their sessions. (#46)
+- `ManagedClub.balance`, `scouting_budget`, and `scouting_budget_remaining` on FM27 (unconfirmed; None on FM26). (#47)
+- Validation reports a `suspension_entries_minimum` check.
+
+### Changed
+
+- `LeagueTableRow.rounds_per_venue` is `int | None`: None, with no `matches`, for a row stored without match slots.
+- On FM27, a table row's won, drawn, and lost can add up to fewer than played in some cup group stages.
+- 11 `TacticPosition` bits are labelled, on FM26 too, so export position labels change. (#43)
+- `Staff` gains `job` after `team_slot`, which moves later CSV columns and breaks positional construction. (#44)
+- On FM27, contract offers no longer appear as `staff()` rows or replace real terms. (#44)
+- On FM27, a failed suspension check stops only `suspensions()`; a failed selection check stops only `selections()`. (#8, #43)
+- FM27 `stadiums()` reads with `home_club_uids` unknown when the calendar fails its checks. (#42)
+- The `neutral_venue_votes` validation count now counts teams, not clubs.
+- `fmsave info` shows the FM27 build as partial coverage, not unknown.
+
+### Fixed
+
+- FM26 table rows without match slots no longer read match rows from unrelated bytes or split their table.
+- `fixtures()` no longer marks first-team home matches neutral when reserve or youth sides use other grounds.
+- Unregistered free agents no longer get another person's contract end.
+- `managed_clubs()` finds `manager_staff_uid` when a second person header carries his id.
+- The web app keeps the open save working after another file fails to open.
+- Docs: FM26 `player_match_stats()` rows include friendlies, internationals, and other teams' matches.
+- Docs: `has_stats` false, the contract in effect, money units, mentoring labels, and competition id spaces.
+
+Thanks to @jeohist for the reports. Refs #8, #42, #43, #44, #45, #46, #47.
+
 ## [0.8.1] - 2026-10-30
 
 ### Added

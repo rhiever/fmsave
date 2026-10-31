@@ -143,6 +143,7 @@ SUSPENSION_GATE_NAMES = (
     "suspension_share_of_players",
     "issued_after_clock",
     "suspension_scopes_known",
+    "suspension_entries_minimum",
 )
 
 REPORT_KEYS = {
@@ -187,6 +188,7 @@ READER_ORDER = (
     "mentoring",
     "tactics",
     "set_pieces",
+    "selections",
     "facilities",
 )
 EXAMPLE_COMPETITION_COUNT = 3
@@ -614,10 +616,15 @@ def test_a_suspension_search_that_finds_nothing_fails_the_share_and_the_clock_ch
         entries_with_known_scope=0,
     )
     results = evaluate_suspensions(nothing_found, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
-    assert failed_gate_names(results) == ["suspension_share_of_players", "issued_after_clock"]
+    assert failed_gate_names(results) == [
+        "suspension_share_of_players",
+        "issued_after_clock",
+        "suspension_entries_minimum",
+    ]
     assert results[0].observed == 0.0
     assert results[1].observed is None
     assert not results[2].applied
+    assert results[3].observed == 0
     with pytest.raises(fmsave.ReaderCheckError, match=r"suspension_share_of_players=0 "):
         enforce("suspensions", results, strict=True)
     small_results = evaluate_suspensions(nothing_found, BOUNDS, SMALL_GAME_DB_BYTES)
@@ -1098,6 +1105,7 @@ def test_validate_save_reports_every_reader_ok_with_gates_not_applied(
         "mentoring": 2,
         "tactics": 2,
         "set_pieces": 40,
+        "selections": 3,
     }
     assert report.game == save_info.game
     assert report.build == save_info.build
@@ -1163,6 +1171,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         # Both entries carry a scope code the layout lists, one competition-wide and one
         # nation-wide.
         "suspension_scopes_known": 1.0,
+        "suspension_entries_minimum": 2,
     }
     assert readers["managed_clubs"].gates == ()
     assert {name: dict(reader.anomalies) for name, reader in readers.items()} == {
@@ -1311,6 +1320,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "merged_affiliate_pairs": 0,
             "human_manager_missing": 0,
             "non_staff_tailed_hits": 0,
+            "offer_records": 0,
         },
         "staff_lists": {"player_values_in_lists": 0, "unset_list_values": 0},
         "injury_types": {"match_entries": 1, "entries_without_magic": 1, "entries_tried": 0},
@@ -1337,6 +1347,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "unresolved_selectors": 5,
         },
         "set_pieces": {"named_routines": 2},
+        "selections": {"unresolved_picks": 2},
         "facilities": {
             "clubs_without_a_rating": 0,
             "ratings_out_of_range": 0,
@@ -1516,6 +1527,7 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered
         "mentoring": "failed",
         "tactics": "failed",
         "set_pieces": "failed",
+        "selections": "failed",
     }
     assert readers["contracts"].gates == (failing_gate("tails_parsed"),)
     assert tuple(gate.name for gate in readers["players"].gates) == PLAYER_GATE_NAMES
@@ -1670,6 +1682,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "mentoring": "ok",
         "tactics": "failed",
         "set_pieces": "ok",
+        "selections": "failed",
         "facilities": "failed",
     }
     assert {name: failed_gate_names(reader.gates) for name, reader in readers.items()} == {
@@ -1772,6 +1785,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # A club team without a stored tactics block does not imply a missed block.
         "tactics": ["tactic_selection_selectors_resolved"],
         "set_pieces": [],
+        "selections": ["selection_picks_resolved"],
         "facilities": ["facility_clubs_minimum"],
     }
 

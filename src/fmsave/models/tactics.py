@@ -1,4 +1,4 @@
-"""The manager's tactics and set-piece routines, as the save stores them per team.
+"""The manager's tactics, set-piece routines and selections, as the save stores them per team.
 
 **A tactic belongs to a team, not to a club.** The save keeps a separate copy of each tactic
 for each team that uses it, so a manager with two tactics and two teams using them has four
@@ -6,13 +6,13 @@ records, and the copies are not byte-identical. A row here is one stored copy, k
 team and the tactic's place in that team's own list, and the same tactic name appears once per
 team.
 
-**The mentality is named; almost nothing else here is.** The seven mentality codes carry the
-seven words the game shows, read off a manager's own tactics. The position bits, the 19 team
-instruction bytes and the 24-byte setting units are read from offsets that are pinned by
-measurement, but no displayed label has been matched to one of those codes, so every one of
-their labels is `UNKNOWN` and every unnamed number ships raw. The position bits do agree with
-the natural positions of the players picked in each slot, which is a corroboration against
-another decoded field rather than a displayed formation, so it names no bit.
+**The mentality and most positions are named; little else here is.** The seven mentality
+codes carry the seven words the game shows, read off a manager's own tactics. Eleven position
+bits carry the labels a tactics screen showed for them; the rest read `UNKNOWN`. The roles, the
+19 team instruction bytes and the 24-byte setting units are read from offsets that are pinned
+by measurement, but no displayed label has been matched to one of those codes, so every
+unnamed number ships raw. Two slots the screen showed with different roles store the same
+role bits, so those bits alone do not name a role.
 """
 
 from __future__ import annotations
@@ -48,13 +48,32 @@ class Mentality(IntEnum):
 class TacticPosition(IntEnum):
     """One position of a tactic's formation.
 
-    A member's value is the bit number set in a slot's position mask, counting from zero. Every
-    code is UNKNOWN: no bit is named until a displayed formation pins it. This is deliberately
-    **not** the same enum as `fmsave.models.matches.MatchPosition`, whose codes come from a
-    different field and are ordinals rather than bit numbers.
+    A member's value is the bit number set in a slot's position mask, counting from zero. This
+    is deliberately **not** the same enum as `fmsave.models.matches.MatchPosition`, whose codes
+    come from a different field and are ordinals rather than bit numbers.
+
+    The eleven named bits were matched to the position labels one FM27 tactics screen shows,
+    in possession and out of possession, through the player picked in each slot. In member
+    order the screen showed them as GK, D (R), D (L), D (C), DM, M (R), M (L), AM (R), AM (L),
+    AM (C) and ST (C). The column flags above the position bits, which tell
+    the two halves of a pair apart, are not positions and stay out of this enum. Bits 1, 5, 6
+    and 10 appear in stored formations but on no screen compared, so they read UNKNOWN. FM26
+    stores the same field; there the players picked in each slot fit these labels, which is a
+    corroboration rather than a screen comparison.
     """
 
     UNKNOWN = -1
+    GOALKEEPER = 0  # GK
+    DEFENDER_RIGHT = 2  # D (R)
+    DEFENDER_LEFT = 3  # D (L)
+    DEFENDER_CENTRE = 4  # D (C)
+    DEFENSIVE_MIDFIELDER = 7  # DM
+    MIDFIELDER_RIGHT = 8  # M (R)
+    MIDFIELDER_LEFT = 9  # M (L)
+    ATTACKING_MIDFIELDER_RIGHT = 11  # AM (R)
+    ATTACKING_MIDFIELDER_LEFT = 12  # AM (L)
+    ATTACKING_MIDFIELDER_CENTRE = 13  # AM (C)
+    STRIKER_CENTRE = 14  # ST (C)
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,7 +114,8 @@ class TacticSlot:
     Attributes:
         number: The slot's place in the tactic, 0 for the first.
         in_possession_positions: The positions the in-possession mask sets, in ascending bit
-            number; every label is UNKNOWN and the raw value is the bit number.
+            number; a bit no screen has shown reads UNKNOWN, and the raw value is always
+            the bit number.
         in_possession_mask: The whole in-possession mask, column flags included.
         in_possession_setting_count: How many setting units the in-possession block holds
             (unconfirmed).
@@ -107,9 +127,11 @@ class TacticSlot:
             (unconfirmed).
         out_of_possession_settings: Those units, in stored order (unconfirmed).
         unknown: The two bit fields each block carries besides its units, and the index byte
-            the out-of-possession block carries. The role bits hold exactly one bit and are
-            most likely the position's role, and the index bytes of a record are a permutation
-            of 0 to 10 which is the identity on all but one record measured (unconfirmed).
+            the out-of-possession block carries. The role bits hold exactly one bit and
+            relate to the position's role, but two slots the game shows with different roles
+            can store the same bits, so they are not the role on their own. The index bytes of
+            a record are a permutation of 0 to 10 which is the identity on all but one record
+            measured (unconfirmed).
     """
 
     number: int
@@ -200,6 +222,49 @@ class SetPieceRoutine:
     name: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class Selection:
+    """One player picked in one team's stored selection: a starter or a substitute.
+
+    A team stores one selection of eleven starter places and fifteen substitute places. A row
+    is one place that holds a pick; an empty place has no row, so a team with nothing picked
+    has no rows at all. Only the manager's own teams store a selection in this form.
+
+    **A starter's place is a tactic slot.** The starter in `slot` n plays the position of
+    `TacticSlot.number` n, but only in the tactic the team has selected, and nothing stored
+    says which of a team's tactics that is.
+
+    **The substitutes are the stored list, not the next match's bench.** On one FM27 career
+    the stored starters and the first thirteen substitutes matched the tactics screen in its
+    order. The substitute places can keep players past the bench size of the next match, so
+    compare their count with the competition's bench size before treating them all as picks.
+
+    Attributes:
+        club_uid: Uid of the club the team plays for, None for a team no club lists
+            (unconfirmed).
+        club_name: Denormalised full name of club_uid (unconfirmed).
+        team_id: The team the selection belongs to, as the save stores it (unconfirmed).
+        team_slot: The team's place in that club's own team list, 0 for its first team; None
+            when the team resolves to no club (unconfirmed).
+        substitute: False for a starter, True for a substitute (unconfirmed).
+        slot: The place within the starters or within the substitutes, counting from zero in
+            stored order; a starter's is the tactic slot it fills, and a substitute's 0 is the
+            first substitute the game lists (unconfirmed).
+        player_uid: Uid of the picked player, None when the stored pick names no player record
+            (unconfirmed).
+        player_name: Denormalised name of player_uid (unconfirmed).
+    """
+
+    club_uid: int | None
+    club_name: str | None
+    team_id: int
+    team_slot: int | None
+    substitute: bool
+    slot: int
+    player_uid: int | None
+    player_name: str | None
+
+
 register_field_statuses(
     TacticSettingUnit,
     unconfirmed=(
@@ -231,8 +296,8 @@ register_field_statuses(
     ),
 )
 # The mentality byte and the slots are read from a record the walk consumes exactly, and the
-# mentality's own words come off a manager's tactics screen; the slots' position bits stay
-# UNKNOWN, which is about the labels rather than the field. Everything else is either a join
+# mentality's own words come off a manager's tactics screen; position bits no screen has shown
+# stay UNKNOWN, which is about the labels rather than the field. Everything else is either a join
 # fmsave makes (the club and team fields), a number the save keeps with no name for it, or text
 # no screen has confirmed the meaning of.
 register_field_statuses(
@@ -253,4 +318,19 @@ register_field_statuses(
     SetPieceRoutine,
     verified=("name",),
     unconfirmed=("club_uid", "club_name", "team_id", "team_slot", "slot"),
+)
+# One FM27 tactics screen matched the picks; field statuses describe FM26, where no screen has
+# been compared and the picks only fit the positions of the slots they fill.
+register_field_statuses(
+    Selection,
+    unconfirmed=(
+        "club_uid",
+        "club_name",
+        "team_id",
+        "team_slot",
+        "substitute",
+        "slot",
+        "player_uid",
+        "player_name",
+    ),
 )

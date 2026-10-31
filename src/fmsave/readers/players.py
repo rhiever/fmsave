@@ -319,6 +319,7 @@ class PlayerDecoder:
                 name,
                 club_uid,
                 registration_missing=stored_team_id == MISSING_REFERENCE,
+                object_end=None if closing_header is None else closing_header[0],
             )
         )
 

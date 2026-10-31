@@ -25,7 +25,7 @@ from fmsave._layouts import (
     find_layout,
 )
 from fmsave._save import PLAYERS_TABLE_CACHE_KEY
-from fmsave.models.common import TransferValueState
+from fmsave.models.common import ContractEndSource, TransferValueState
 from fmsave.models.players import Attributes, Personality, Player
 from fmsave.readers.clubs import find_club_layouts, read_club_index
 from fmsave.readers.names import NAME_POOLS_CACHE_KEY, locate_name_pools
@@ -897,6 +897,35 @@ def test_unique_id_is_none_when_no_header_closes_the_record() -> None:
     players = decode_region(player_record_bytes(**first) + player_record_bytes(**second))
     assert by_uid(players, 900001).unique_id is None
     assert by_uid(players, 900003).unique_id is None
+
+
+def fallback_pair_bytes(end: bytes, start: bytes) -> bytes:
+    """A date pair the contract fallback reader accepts: FF x 4, a gap, the dates, a tail."""
+    return b"\xff\xff\xff\xff" + bytes(4) + end + start + bytes(4) + bytes([0x33] * 4)
+
+
+@pytest.mark.parametrize("pair_before_closing_header", [True, False])
+def test_fallback_contract_dates_come_only_from_the_players_own_object(
+    pair_before_closing_header: bool,
+) -> None:
+    """A free agent's fallback dates are read up to the header closing his object, never from
+    the object stored after it.
+    """
+    pair = fallback_pair_bytes(packed_date(1, 2033), packed_date(1, 2030))
+    closing = closing_header_bytes(13, 900003)
+    trailing = (
+        bytes(64) + pair + closing if pair_before_closing_header else bytes(64) + closing + pair
+    )
+    free_agent: dict[str, Any] = {**PLAYER_B, "trailing": trailing + bytes(200)}
+    next_player: dict[str, Any] = {**PLAYER_A, "pindex": 14, "uid": 900004}
+    players = decode_region(player_record_bytes(**free_agent) + player_record_bytes(**next_player))
+    contract = by_uid(players, 900002).contract
+    if pair_before_closing_header:
+        assert contract is not None
+        assert (contract.start, contract.end) == (date(2030, 1, 1), date(2033, 1, 1))
+        assert contract.end_source == ContractEndSource.PLAYER_RECORD
+    else:
+        assert contract is None
 
 
 def test_closing_unique_id_reads_only_a_sound_header_inside_its_bounds() -> None:

@@ -2182,8 +2182,8 @@ FIRST_TACTIC_INSTRUCTIONS = bytes(
 )
 SECOND_TACTIC_MENTALITY = 4
 SECOND_TACTIC_INSTRUCTION_11 = 148
-# One position bit per tactic slot, with the two centre-back slots and the two wide slots
-# sharing a bit and telling each other apart by a column flag.
+# One position bit per tactic slot, with three pairs of slots sharing a bit and telling each
+# other apart by a column flag.
 TACTIC_SLOT_BITS = (0, 5, 3, 3, 6, 10, 7, 7, 12, 14, 14)
 TACTIC_LEFT_COLUMN_BIT = 20
 TACTIC_RIGHT_COLUMN_BIT = 21

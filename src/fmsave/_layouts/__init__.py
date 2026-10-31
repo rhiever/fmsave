@@ -74,12 +74,24 @@ class HumansLayout:
     person's header is the u32 person id followed by the same uid at `person_uid_offset` and at
     `person_uid_copy_offset`, both counted from the person id; a uid of 0 or FFFFFFFF does not
     count.
+
+    The scouting budget is a pair of u32 words in `humans`, the season's budget and what is
+    left of it, at `scouting_budget_offset` and `scouting_remaining_offset` from a hit of
+    `scouting_budget_marker`; a hit counts only when a valid date sits at
+    `scouting_date_offset` from it, and a pair only when neither word exceeds
+    `scouting_budget_maximum` and the remainder does not exceed the budget. An empty marker
+    means the build has no layout for it.
     """
 
     human_count_offset: int
     first_selector_offset: int
     person_uid_offset: int
     person_uid_copy_offset: int
+    scouting_budget_marker: bytes = b""
+    scouting_date_offset: int = 0
+    scouting_budget_offset: int = 0
+    scouting_remaining_offset: int = 0
+    scouting_budget_maximum: int = 0
 
 
 # Count checks (such as the name pool minimum) apply only to a decompressed `game_db` at
@@ -263,6 +275,9 @@ class SponsorChainLayout:
     `kind_names` names stored sponsor kinds as `(code, SponsorType member name)` pairs, each
     one a code a club's sponsorship screen displayed that type against on this build. Every
     code the pairs leave out reads UNKNOWN and keeps its raw number.
+
+    `balance_offset` is where the club's current balance, a signed 32-bit word, sits in that
+    suffix; None on a build where no screen has pinned it.
     """
 
     prefix_marker: bytes
@@ -293,6 +308,7 @@ class SponsorChainLayout:
     minimum_row_days: int = 1
     reject_invalid_lists: bool = False
     kind_names: tuple[tuple[int, str], ...] = ()
+    balance_offset: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -491,7 +507,8 @@ class ContractLayout:
     The fallback reader walks `FF FF FF FF` hits in `[record_offset +
     fallback_start_from_record, limit)`, where `limit` is `max(record_offset +
     fallback_start_from_record, next_record_offset - fallback_end_margin)` (`next_record_offset`
-    the end of `game_db` for the last record). For a hit at `i`, `j = i + 8`; when `j +
+    the end of `game_db` for the last record), and no later than the header closing the
+    player's object when one is found. For a hit at `i`, `j = i + 8`; when `j +
     fallback_gate_length <= limit` and the `fallback_nonzero_length` bytes at `j +
     fallback_nonzero_offset` are not all zero, an end date sits at `j +
     fallback_end_date_offset` and a start date at `j + fallback_start_date_offset`.
@@ -681,6 +698,11 @@ class MatchRecordLayout:
 
     `maximum_minutes`, `maximum_rating` and `maximum_goals` bound what fmsave's own sanity flag
     accepts as a sound body, and `rating_scale` is what the stored rating is divided by.
+
+    With `nonempty_supported` false, only an independently established absence of every
+    player's history is accepted. With `declared_histories_required`, populated lists are read
+    only when `cache_layout` locates every player's history declaration and the nonempty
+    declarations are exactly the parents decoded completely.
     """
 
     lead_byte_offset: int
@@ -720,6 +742,7 @@ class MatchRecordLayout:
     parent_count_offset: int
     cache_layout: MatchCacheLayout | None = None
     nonempty_supported: bool = True
+    declared_histories_required: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -796,8 +819,8 @@ class FixtureCalendarLayout:
     `cluster_gap_bytes` and `neutral_venue_minimum_home_fixtures` are for the fixtures reader
     rather than the span pass: a kick-off time is `(stored slot + kick_off_slot_offset) *
     kick_off_slot_minutes` minutes into the day, a round index of `round_index_none_value`
-    means no round, a gap of `cluster_gap_bytes` or more between records separates the
-    calendar from a stray copy, and a club needs `neutral_venue_minimum_home_fixtures` home
+    means no round, a gap of more than `cluster_gap_bytes` between records separates the
+    calendar from a stray copy, and a team needs `neutral_venue_minimum_home_fixtures` home
     matches in a season before the ground it used most counts as its usual one.
     """
 
@@ -895,6 +918,12 @@ class LeagueTableLayout:
     `match_goals_maximum` is the most goals a played match slot may record for either club
     before the reader treats the slot as unreadable, alongside the slot's own counters naming
     one match whose result its score bears out.
+
+    `match_rows_flag_offset`, when set, is the byte that says whether the block stores its
+    match rows: 1 when it does and 0 when the block stores none, so its `matches` are empty.
+    Any other value rejects the block. When None, every block is read with its match rows.
+    `results_may_fall_short_of_played` accepts aggregate rows whose won, drawn and lost counts
+    add up to fewer matches than played, which some FM27 cup group stages store.
     """
 
     row_bytes: int
@@ -922,6 +951,8 @@ class LeagueTableLayout:
     division_club_range: tuple[int, int]
     home_slot_parity: int | None
     match_goals_maximum: int
+    match_rows_flag_offset: int | None = None
+    results_may_fall_short_of_played: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1601,6 +1632,15 @@ class StaffLayout:
     closing header, and when that search finds no block for him, the window is searched once
     more with personality bytes accepted from that floor, because a new manager's profile can
     store a zero there.
+
+    **Jobs, offers and roles with no contract.** Each of the next four is None, or empty, on a
+    layout where nothing has been measured, and that part is then not read. A person's job code
+    is the byte `job_offset` past his record's selector. A contract record whose job is followed
+    by a second contract tag at `offer_marker_offset` past the selector is an offer rather than
+    a job, and gives no row. A person who holds a club role with no contract, such as a board
+    member, has a record of his own that carries the contract tag, `no_contract_lead` and then
+    his selector at `no_contract_selector_offset` past the tag, followed by his team id, as a
+    contract record's is; his job sits at `job_offset` past that selector too.
     """
 
     kind_offset: int
@@ -1641,6 +1681,10 @@ class StaffLayout:
     non_staff_contract_kinds: tuple[int, ...] = ()
     list_count_bytes: int = 1
     human_personality_floor: int | None = None
+    job_offset: int | None = None
+    offer_marker_offset: int | None = None
+    no_contract_selector_offset: int | None = None
+    no_contract_lead: bytes = b""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1766,7 +1810,7 @@ class TrainingLayout:
     **A weekly record** is the byte `week_lead_byte`, a 4-byte date at `week_date_offset`
     carrying time-of-day bits, the byte `week_marker_value` at `week_marker_offset`,
     `day_block_count` blocks of `day_block_bytes` at `day_blocks_offset` each starting
-    `day_block_lead_byte` (session codes, not decoded), then at `week_name_offset` a u32 length
+    `day_block_lead_byte`, then at `week_name_offset` a u32 length
     of at most `longest_name_bytes` and that many text bytes. **The record is
     `week_record_fixed_bytes` plus that length**, so `week_trailer_bytes` follow the name:
     that length was measured on every record of every save by walking to the next record's lead
@@ -1794,6 +1838,11 @@ class TrainingLayout:
     `library_entry_marker_value` at `library_entry_marker_offset`, `day_block_count` day blocks
     at `library_day_blocks_offset`, then at `library_folder_offset` a folder name, a u32
     schedule id and a schedule name.
+
+    **A day block** holds `sessions_per_day` u16 session codes at `day_sessions_offset` from its
+    lead byte, one block per calendar day from the week's start. `session_labels_supported`
+    says whether the codes are the ones `TrainingSession` names; where it is False every
+    session reads UNKNOWN with its raw code.
 
     `seven_day_step` is how many days apart consecutive weeks are, which the reader counts.
     """
@@ -1831,8 +1880,11 @@ class TrainingLayout:
     library_entry_marker_value: int
     library_day_blocks_offset: int
     library_folder_offset: int
+    day_sessions_offset: int
+    sessions_per_day: int
     header_entries_supported: bool = True
     mentoring_groups_supported: bool = True
+    session_labels_supported: bool = False
 
     @property
     def week_trailer_bytes(self) -> int:
@@ -1896,10 +1948,11 @@ class GateBounds:
     far above its band, so either bound catches the shift on its own.
 
     Suspensions: `suspension_share_of_players` (players with an entry, of players),
-    `issued_after_clock` (entries issued after the in-game date, of entries) and
-    `suspension_scopes_known` (entries whose scope code the layout lists, of entries). The
-    first two apply whenever the section is large enough, so a search that finds no entry
-    fails the first on its lower bound and the second for want of a rate;
+    `issued_after_clock` (entries issued after the in-game date, of entries),
+    `suspension_scopes_known` (entries whose scope code the layout lists, of entries) and
+    `suspension_entries_minimum` (entries found). All but the scope check apply whenever the
+    section is large enough, so a search that finds no entry fails the share on its lower
+    bound, the clock check for want of a rate and the count on its floor;
     `suspension_scopes_known` judges the entries that were found, so it is not applied when
     there are none.
 
@@ -2270,6 +2323,7 @@ class GateBounds:
     suspension_share_of_players: BoundPair
     suspension_scopes_known: BoundPair
     issued_after_clock: BoundPair
+    suspension_entries_minimum: BoundPair
     stage_rows_minimum: BoundPair
     stage_walk_gaps: BoundPair
     stage_ids_ascending: BoundPair

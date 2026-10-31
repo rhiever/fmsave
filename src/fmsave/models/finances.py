@@ -1,12 +1,10 @@
 """Club money: one row per club per month, and the sponsor contracts a club holds.
 
-**Money is a whole number in the save's base currency, which is not the currency the game
-displays.** One save's screens were read against its own stored values and every figure came
-out at the same rate: the balance, the transfer and wage budgets, the wage bill and the
-month's income and expenditure all display at about 1.157 times what is stored, the one rate
-fitting each of them. A single rate across every money field of a career is what says the
-stored unit is a unit of its own rather than the displayed currency. No save says which unit
-that is, so **nothing here is converted** and no rate is applied.
+**Money is a whole number in the save's base currency, which can differ from the currency
+the game displays.** On one FM26 save the balance, the transfer and wage budgets, the wage
+bill and the month's income and expenditure all display at about 1.157 times what is stored,
+the one rate fitting each of them. One FM27 career shown in pounds displays the stored figures
+unchanged. **Nothing here is converted** and no rate is applied.
 
 The weekly fields are weekly amounts; every other money field is one month's amount, or a
 balance at the end of a month.

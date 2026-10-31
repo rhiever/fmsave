@@ -126,7 +126,7 @@ def splits_add_up(
     )
 
 
-def is_double_round_robin(club_count: int, rounds_per_venue: int) -> bool:
+def is_double_round_robin(club_count: int, rounds_per_venue: int | None) -> bool:
     """Whether a group has the shape of a division playing everyone home and away.
 
     A shape rule, not a name: it holds in any country and needs no competition name.

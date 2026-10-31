@@ -29,7 +29,7 @@ from fmsave._layouts import (
     SuspensionLayout,
     find_layout,
 )
-from fmsave._reader_stats import ResultStats, TacticStats
+from fmsave._reader_stats import ResultStats, SelectionStats, TacticStats
 from fmsave._version import limit_game_index, read_save_info
 from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.clubs import Club
@@ -52,7 +52,7 @@ from fmsave.models.season_stats import PlayerSeasonStats
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
-from fmsave.models.tactics import SetPieceRoutine, Tactic
+from fmsave.models.tactics import Selection, SetPieceRoutine, Tactic
 from fmsave.models.training import MentoringGroup, TeamTraining
 from fmsave.name_maps import (
     _EMPTY_COMPETITION_NAMES,  # pyright: ignore[reportPrivateUsage]
@@ -148,6 +148,7 @@ from fmsave.readers.suspensions import (
     suspension_stats,
 )
 from fmsave.readers.tactics import (
+    build_selection_table,
     build_tactic_tables,
     find_tactics_layout,
     read_tactics_header,
@@ -190,6 +191,7 @@ STAFF_TABLE_CACHE_KEY = "table:staff"
 STAFF_LISTS_TABLE_CACHE_KEY = "table:staff_lists"
 TACTICS_TABLE_CACHE_KEY = "table:tactics"
 SET_PIECES_TABLE_CACHE_KEY = "table:set_pieces"
+SELECTIONS_TABLE_CACHE_KEY = "table:selections"
 TRAINING_TABLE_CACHE_KEY = "table:training"
 MENTORING_TABLE_CACHE_KEY = "table:mentoring"
 
@@ -237,14 +239,23 @@ _EMPTY_TACTIC_STATS = TacticStats(
     routines=0,
     named_routines=0,
 )
+_EMPTY_SELECTION_STATS = SelectionStats(
+    managed_club_exists=False, picks=0, picks_resolved=0, picks_at_club=0
+)
 
 
 class _TacticTables(NamedTuple):
-    """The two tables one walk over the manager's team blocks builds, and their _checks."""
+    """The three tables one walk over the manager's team blocks builds, and their _checks.
+
+    `failed_selection_check` is set when the selection check failed on a strict save: the
+    other two tables are kept, and only `selections()` raises.
+    """
 
     tactics: Table[Tactic]
     set_pieces: Table[SetPieceRoutine]
+    selections: Table[Selection]
     reader_checks: tuple[ReaderCheck, ...]
+    failed_selection_check: ReaderCheck | None = None
 
 
 class _StaffTables(NamedTuple):
@@ -264,12 +275,48 @@ class _TrainingTables(NamedTuple):
 
 
 class _PlayerTables(NamedTuple):
-    """The three tables one decode pass over the player records builds, and their _checks."""
+    """The three tables one decode pass over the player records builds, and their _checks.
+
+    `failed_suspension_check` is set when a build that judges suspensions apart from the pass
+    failed that check: the suspension table is then empty and must not be handed out.
+    """
 
     players: Table[Player]
     contracts: Table[Contract]
     suspensions: Table[Suspension]
     reader_checks: tuple[ReaderCheck, ...]
+    failed_suspension_check: ReaderCheck | None = None
+
+
+def _checks_fail(reader_checks: Sequence[ReaderCheck]) -> bool:
+    """Whether these checks would stop a strict save."""
+    try:
+        _checks.enforce_checks(reader_checks, strict=True)
+    except ReaderCheckError:
+        return True
+    return False
+
+
+def _passed_suspensions(tables: _PlayerTables) -> Table[Suspension]:
+    """The pass's suspension table, or the error of the check it failed on its own.
+
+    Raises:
+        ReaderCheckError: The suspension check was judged apart from the pass and failed.
+    """
+    if tables.failed_suspension_check is not None:
+        _checks.enforce_checks((tables.failed_suspension_check,), strict=True)
+    return tables.suspensions
+
+
+def _passed_selections(tables: _TacticTables) -> Table[Selection]:
+    """The walk's selection table, or the error of the check it failed on its own.
+
+    Raises:
+        ReaderCheckError: The selection check failed on a strict save.
+    """
+    if tables.failed_selection_check is not None:
+        _checks.enforce_checks((tables.failed_selection_check,), strict=True)
+    return tables.selections
 
 
 def _check_cache_key(reader_name: str) -> str:
@@ -389,7 +436,8 @@ class Save:
         in from each player's person block, or stay None or empty when no block validates.
         The table is read on the first call to `players()`, `contracts()` or `suspensions()`,
         from one decode pass; later calls to any of them return the same tables. When a check
-        of that pass fails, none of the three tables is kept, so each of them raises.
+        of that pass fails, none of the three tables is kept, so each of them raises, except
+        that a failed FM27 suspension check stops only `suspensions()`.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -417,7 +465,8 @@ class Save:
         Only players whose contract is not None appear. The table is read on the first
         call to `players()`, `contracts()` or `suspensions()`, from one decode pass; later
         calls to any of them return the same tables. When a check of that pass fails, none
-        of the three tables is kept, so each of them raises.
+        of the three tables is kept, so each of them raises, except that a failed FM27
+        suspension check stops only `suspensions()`.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -449,7 +498,10 @@ class Save:
         that controlling club. The table is read on the first call to
         `players()`, `contracts()` or `suspensions()`, from one decode pass; later calls to
         any of them return the same tables. When a check of that pass fails, none of the
-        three tables is kept, so each of them raises.
+        three tables is kept, so each of them raises. On FM27 the suspension checks are judged
+        on their own: when only they fail, this reader raises, and `players()` and
+        `contracts()` still read, with every `Player.suspensions` None. FM27 ban coverage has
+        not been compared with the game.
 
         A ban covering one competition carries `competition_id` in the stage id space, which
         joins `stages()`, `competitions()`, `fixtures()`, `league_tables()` and
@@ -476,12 +528,6 @@ class Save:
                 table does. A save opened with strict=True raises ReaderCheckError instead.
         """
         context = self._context
-        if self._info.game == "FM27":
-            self._require_open()
-            raise UnsupportedGameError(
-                "FM27 suspension coverage is not established; "
-                "Player.suspensions is None, not an empty list of bans"
-            )
         return context.cached(SUSPENSIONS_TABLE_CACHE_KEY, self._suspensions_table_entry_point)
 
     def managed_clubs(self) -> Table[ManagedClub]:
@@ -789,7 +835,8 @@ class Save:
             CorruptSaveError: The save is damaged or was being written.
             ReaderCheckError: No stadium table was found, or a stadium uid appears in two
                 rows. The club and fixture readers run first and raise here too, since a row
-                carries club names and a calendar-derived link.
+                carries club names and a calendar-derived link. On FM27 a calendar that
+                cannot be read leaves `home_club_uids` None instead.
 
         Warns:
             ReaderCheckWarning: On a full-size save, what the table or the calendar link
@@ -805,7 +852,9 @@ class Save:
         # The calendar and the clubs are read first and in full, checks and all: a stadium row
         # carries its owner's club name and a home-ground link built out of fixture rows, so
         # neither may reach it from a table whose own checks did not pass.
-        fixtures = None if self._info.game == "FM27" else self.fixtures()
+        fixtures = (
+            self._fm27_home_ground_calendar() if self._info.game == "FM27" else self.fixtures()
+        )
         self.clubs()
         # No game_db borrow here on purpose. The calendar above reads the club and stadium
         # indexes inside its own borrow, so both are cached by now and a borrow would only
@@ -824,6 +873,21 @@ class Save:
         self._enforce_checks((stadium_check,))
         self._store_reader_checks((stadium_check,))
         return Table(stadiums, Stadium)
+
+    def _fm27_home_ground_calendar(self) -> Table[Fixture] | None:
+        """The FM27 calendar for home-ground links, or None when it cannot be read.
+
+        The stadium table does not depend on the calendar, so a calendar that fails its checks
+        or is unsupported leaves `home_club_uids` None, unknown, rather than failing the stadium
+        rows too. A damaged save still raises.
+
+        Raises:
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        try:
+            return self.fixtures()
+        except (ReaderCheckError, UnsupportedGameError):
+            return None
 
     def _stadium_layout(self) -> StadiumTableLayout:
         save_info = self._context.info
@@ -1346,14 +1410,14 @@ class Save:
         rather than per competition**, and drops the oldest as new ones arrive. A player who has
         played more than that in his current spell has only his latest matches here, so **a
         per-competition total summed from these rows is short without saying so**. Nothing in a
-        row marks it as truncated. Friendlies, internationals and youth matches are kept apart
-        from these records and are not here at all.
+        row marks it as truncated. On FM26, rows also cover club friendlies, internationals and
+        matches for a club's other teams, so filter on `competition_id` before adding rows up.
 
         Each row carries the competition id the record itself stores, which is in the stage id
         space, and joins to a club through the opponent's team id; a team id no club lists
-        leaves the opponent fields empty rather than guessing them. A match the save no longer
-        holds the statistics of carries its date, competition and opponent, `has_stats` is
-        false, and every field the statistics would fill is empty.
+        leaves the opponent fields empty rather than guessing them. A row with `has_stats`
+        false carries its date, competition and opponent, and every field the statistics would
+        fill is empty; on the saves measured it is a match of his team's he did not play in.
 
         On a full-size save, an empty table passes this reader's checks only when every
         accepted player has an independently located null or explicitly empty stored history.
@@ -1373,6 +1437,8 @@ class Save:
                 player records share a uid; no stage table was found in the tail of the game
                 database; or the save's in-game date is unreadable, so the years a match may be
                 dated in cannot be worked out.
+            UnsupportedGameError: On FM27, a player's history declaration is unknown, or the
+                histories declared nonempty are not exactly the lists decoded.
 
         Warns:
             ReaderCheckWarning: On a full-size save, the records decoded fall outside the
@@ -1559,11 +1625,12 @@ class Save:
 
         `balance` is the balance at the **end** of the row's month, and `net_transfers` is
         positive for a net **spend**. **Money is a whole number in the save's base currency,
-        which is not the currency the game displays**: on the save whose screens were read the
-        balance, both budgets, the wage bill and the month's income and expenditure all display
-        at about 1.157 times the stored value, one rate fitting every one of them, which is
-        what says the stored unit is its own unit. Nothing here is converted and no rate is
-        applied. The weekly fields are weekly; every other money field is one month's amount.
+        which can differ from the currency the game displays**: on one FM26 save the balance,
+        both budgets, the wage bill and the month's income and expenditure all display at
+        about 1.157 times the stored value, one rate fitting every one of them, while one FM27
+        career shown in pounds displays the stored figures unchanged. Nothing here is converted
+        and no rate is applied. The weekly fields are weekly; every other money field is one
+        month's amount.
         `transfer_budget_allocated` is **not** the budget the board allocated: that screen
         showed a budget well above it with almost none of it spent, so what the field is stays
         unnamed.
@@ -1777,12 +1844,13 @@ class Save:
         staff and no displayed label has named one, so it and the three codes beside it ship as
         raw numbers.
 
-        **The job title is not readable, and `unknown["r4"]` is not it.** A club's staff screen
-        settled that: over 78 displayed rows, 8 of the 16 codes on show carried two or more
-        different job titles and 7 titles appeared under two or three different codes, so the
-        byte keeps its raw number rather than becoming a named role. **The club's board is not
-        in this table either**: the president, the director and the managing director appear on
-        that same screen with no row here, while every other person on it matched a row.
+        **On FM27 every row carries its `job`, and `unknown["r4"]` is not it.** A club's staff
+        screen ruled `r4` out: over 78 displayed rows, 8 of the 16 codes on show carried two or
+        more different job titles. On FM27 a person who holds a club role with no contract, a
+        board member for one, is a row with `has_contract` false and the role's team, and a
+        contract a person has only been offered gives no row. On FM26 `job` is None, offers
+        are read as contracts, and the board is not in this table: the president, the director
+        and the managing director appear on a club's staff screen with no row here.
 
         Several useful figures are arithmetic on these rows rather than fields: a club's
         non-playing wage bill is the sum of `wage` over its rows, how many of its staff it
@@ -1920,17 +1988,17 @@ class Save:
 
         `mentality` carries the word the game shows: the seven codes are the seven mentalities
         it offers, from Very Defensive to Very Attacking, confirmed against a manager's own
-        tactics. **Every position bit is still a raw code with the label UNKNOWN**: the bits
-        are read from offsets a strict walk of every record lands on exactly, but no displayed
-        formation has been matched to one of those numbers. The 19 team instructions and the
+        tactics. Eleven position bits carry the label a tactics screen showed for them, from
+        goalkeeper to centre striker; **the others read UNKNOWN** with their bit number kept.
+        Roles have no label. The 19 team instructions and the
         setting units of each slot are unidentified numbers in the same way, and ship in
         `unknown` and as `TacticSettingUnit` values rather than under names they have not
         earned.
 
-        The table is read on the first call to `tactics()` or `set_pieces()`, from one walk;
-        later calls to either return the same tables. When a check of that walk fails, neither
-        table is kept, so both raise. A cold call pays for the player pass, because the
-        selectors the reader's checks judge resolve through the player records.
+        The table is read on the first call to `tactics()`, `set_pieces()` or `selections()`,
+        from one walk; later calls to any of them return the same tables. When a tactic or
+        set-piece check fails, no table is kept, so all three raise; a failed selection check
+        stops only `selections()`. A cold call pays for the player pass, because the selectors the reader's checks judge resolve through the player records.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -1958,9 +2026,10 @@ class Save:
         Groups can contain multiple routines, so a team can have more than twenty rows.
         A routine is recognised by its record structure, never by its name.
 
-        The table is read on the first call to `tactics()` or `set_pieces()`, from one walk;
-        later calls to either return the same tables. When a check of that walk fails, neither
-        table is kept, so both raise.
+        The table is read on the first call to `tactics()`, `set_pieces()` or `selections()`,
+        from one walk; later calls to any of them return the same tables. When a tactic or
+        set-piece check fails, no table is kept, so all three raise; a failed selection check
+        stops only `selections()`.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -1980,17 +2049,68 @@ class Save:
         context = self._context
         return context.cached(SET_PIECES_TABLE_CACHE_KEY, self._set_pieces_table_entry_point)
 
+    def selections(self) -> Table[Selection]:
+        """Every stored pick of the manager's teams: starters, then substitutes, by team.
+
+        A row is one starter or substitute place that holds a pick; an empty place has no row.
+        A starter's `slot` is the tactic slot it fills, in the tactic the team has selected,
+        which nothing stored identifies. **The substitutes are the stored list rather than the
+        next match's bench**: places past the bench size of the next match can still hold
+        players picked for an earlier one. Only the manager's own teams are here.
+
+        The table is read on the first call to `tactics()`, `set_pieces()` or `selections()`,
+        from one walk; later calls to any of them return the same tables. When a tactic or
+        set-piece check fails, no table is kept, so all three raise. A failed selection check
+        stops only this reader on a strict save. A cold call pays for the player pass, because
+        every pick resolves through the player records.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: The tactics section is too short to hold its header, a constant a
+                team block is built around is not where fmsave expects it, a count inside a
+                block runs past the end of the section, a name does not decode, no club record
+                is accepted, a club uid or club index appears in two records, or a team id is
+                listed twice.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save that lists a managed club, what the walk
+                read falls outside the checks' bounds. A save opened with strict=True raises
+                ReaderCheckError instead.
+        """
+        context = self._context
+        return context.cached(SELECTIONS_TABLE_CACHE_KEY, self._selections_table_entry_point)
+
+    def _keep_tactic_tables(self, tables: _TacticTables) -> None:
+        """Keep the checks and all three tables of one walk, whichever reader ran it."""
+        self._store_reader_checks(tables.reader_checks)
+        context = self._context
+        context.cached(TACTICS_TABLE_CACHE_KEY, lambda: tables.tactics)
+        context.cached(SET_PIECES_TABLE_CACHE_KEY, lambda: tables.set_pieces)
+        try:
+            context.cached(SELECTIONS_TABLE_CACHE_KEY, lambda: _passed_selections(tables))
+        except ReaderCheckError:
+            # Remembered under the selections key, so `selections()` raises it again.
+            pass
+
     def _tactics_table_entry_point(self) -> Table[Tactic]:
         tables = self._decode_tactics_tables()
-        self._store_reader_checks(tables.reader_checks)
-        self._context.cached(SET_PIECES_TABLE_CACHE_KEY, lambda: tables.set_pieces)
+        self._keep_tactic_tables(tables)
         return tables.tactics
 
     def _set_pieces_table_entry_point(self) -> Table[SetPieceRoutine]:
         tables = self._decode_tactics_tables()
-        self._store_reader_checks(tables.reader_checks)
-        self._context.cached(TACTICS_TABLE_CACHE_KEY, lambda: tables.tactics)
+        self._keep_tactic_tables(tables)
         return tables.set_pieces
+
+    def _selections_table_entry_point(self) -> Table[Selection]:
+        tables = self._decode_tactics_tables()
+        context = self._context
+        self._store_reader_checks(tables.reader_checks)
+        context.cached(TACTICS_TABLE_CACHE_KEY, lambda: tables.tactics)
+        context.cached(SET_PIECES_TABLE_CACHE_KEY, lambda: tables.set_pieces)
+        return _passed_selections(tables)
 
     def _decode_tactics_tables(self) -> _TacticTables:
         context = self._context
@@ -2042,25 +2162,42 @@ class Save:
             human_selector,
             walk_counts,
         )
-        # Both checks run before either table is built: when one fails, nothing is cached and
-        # the next call walks and checks again.
-        reader_checks = (
+        selections, selection_stats = build_selection_table(
+            blocks, club_index, player_records, players, managed_club_uid, layout.slot_count
+        )
+        # The tactic and set-piece checks run before any table is built: when one fails,
+        # nothing is cached. A failed selection check on a strict save stops only
+        # `selections()`, since stale picks of players who have left are expected.
+        tactic_checks = (
             _checks.check_tactics(tactic_stats, gate_bounds, game_db_length),
             _checks.check_set_pieces(tactic_stats, gate_bounds, game_db_length),
         )
-        self._enforce_checks(reader_checks)
+        selection_check = _checks.check_selections(selection_stats, gate_bounds, game_db_length)
+        self._enforce_checks(tactic_checks)
+        failed_selection_check = None
+        if self._strict and _checks_fail((selection_check,)):
+            failed_selection_check = selection_check
+        else:
+            self._enforce_checks((selection_check,))
         return _TacticTables(
-            Table(tactics, Tactic), Table(set_pieces, SetPieceRoutine), reader_checks
+            Table(tactics, Tactic),
+            Table(set_pieces, SetPieceRoutine),
+            Table(selections, Selection),
+            (*tactic_checks, selection_check),
+            failed_selection_check,
         )
 
     def _empty_tactic_tables(self, gate_bounds: GateBounds) -> _TacticTables:
-        """Both tables empty, for a manager with no club: nothing here is judged."""
+        """All three tables empty, for a manager with no club: nothing here is judged."""
         empty_stats = _EMPTY_TACTIC_STATS
         reader_checks = (
             _checks.check_tactics(empty_stats, gate_bounds, 0),
             _checks.check_set_pieces(empty_stats, gate_bounds, 0),
+            _checks.check_selections(_EMPTY_SELECTION_STATS, gate_bounds, 0),
         )
-        return _TacticTables(Table((), Tactic), Table((), SetPieceRoutine), reader_checks)
+        return _TacticTables(
+            Table((), Tactic), Table((), SetPieceRoutine), Table((), Selection), reader_checks
+        )
 
     def training(self) -> Table[TeamTraining]:
         """The training calendar of each team of the club the save's manager runs.
@@ -2091,8 +2228,10 @@ class Save:
             ]
             active = max(started, default=None, key=lambda week: week.week_start)
 
-        What a schedule asks of a day is **not** read: each day of a week holds three codes
-        whose meaning is unknown. `schedule_library` is the manager's own saved schedules,
+        Each week carries its seven days and each day its three sessions, as
+        `TrainingSession` codes: on FM27 the sessions an FM27 Training screen named carry
+        their label, and every other code, including every FM26 code, reads UNKNOWN with its
+        raw number kept. `schedule_library` is the manager's own saved schedules,
         which the save keeps once per section rather than per team, so every row carries the
         same tuple, and the save may hold the same schedule twice over under two ids.
 
@@ -2125,9 +2264,8 @@ class Save:
         club has groups at all, and a team with none has no row here, which is ordinary -- on
         the saves measured only the first team and one other side mentor anybody.
 
-        `label` is the stored text. Every group of every save measured carries the game's own
-        default wording with the group's number, and whether renaming a group in game changes
-        what is stored has not been checked. A member whose stored selector names no player
+        `label` is the stored text: the game's own default wording with the group's number, or
+        the name the group was given in game. A member whose stored selector names no player
         record leaves that entry's uid and name empty rather than guessing.
 
         The table is read on the first call to `training()` or `mentoring()`, from one walk;
@@ -2320,7 +2458,14 @@ class Save:
         ):
             club_index = context.club_index()
             managed_clubs, managed_stats = resolve_managed_clubs(
-                humans, game_db, summary, club_index, clock, layouts, save_info.file_name
+                humans,
+                game_db,
+                summary,
+                club_index,
+                clock,
+                layouts,
+                save_info.file_name,
+                context.own_club_record_spans,
             )
             game_db_length = len(game_db)
         managed_check = _checks.check_managed(managed_stats, gate_bounds, game_db_length)
@@ -2408,7 +2553,7 @@ class Save:
         context = self._context
         self._store_reader_checks(tables.reader_checks)
         context.cached(CONTRACTS_TABLE_CACHE_KEY, lambda: tables.contracts)
-        context.cached(SUSPENSIONS_TABLE_CACHE_KEY, lambda: tables.suspensions)
+        self._cache_suspensions(tables)
         return tables.players
 
     def _contracts_table_entry_point(self) -> Table[Contract]:
@@ -2416,7 +2561,7 @@ class Save:
         context = self._context
         self._store_reader_checks(tables.reader_checks)
         context.cached(PLAYERS_TABLE_CACHE_KEY, lambda: tables.players)
-        context.cached(SUSPENSIONS_TABLE_CACHE_KEY, lambda: tables.suspensions)
+        self._cache_suspensions(tables)
         return tables.contracts
 
     def _suspensions_table_entry_point(self) -> Table[Suspension]:
@@ -2425,7 +2570,15 @@ class Save:
         self._store_reader_checks(tables.reader_checks)
         context.cached(PLAYERS_TABLE_CACHE_KEY, lambda: tables.players)
         context.cached(CONTRACTS_TABLE_CACHE_KEY, lambda: tables.contracts)
-        return tables.suspensions
+        return _passed_suspensions(tables)
+
+    def _cache_suspensions(self, tables: _PlayerTables) -> None:
+        """Keep the suspension table, or its failure, without failing the reader that asked."""
+        try:
+            self._context.cached(SUSPENSIONS_TABLE_CACHE_KEY, lambda: _passed_suspensions(tables))
+        except ReaderCheckError:
+            # Remembered under the suspension key, so `suspensions()` raises it again.
+            pass
 
     def _decode_player_tables(self) -> _PlayerTables:
         context = self._context
@@ -2457,15 +2610,28 @@ class Save:
                 contract_layout,
                 save_info.file_name,
             )
-            omit_suspensions = save_info.game == "FM27"
-            suspension_entries_by_position: Mapping[int, tuple[SuspensionEntry, ...]] = {}
-            if not omit_suspensions:
-                suspension_layout = find_layout(
-                    SuspensionLayout, GAME_DB_SECTION, game_db_schema, save_info.build
-                ).layout
-                suspension_entries_by_position = locate_suspensions(
-                    game_db, player_records, suspension_layout
+            suspension_layout = find_layout(
+                SuspensionLayout, GAME_DB_SECTION, game_db_schema, save_info.build
+            ).layout
+            suspension_entries_by_position: Mapping[int, tuple[SuspensionEntry, ...]] = (
+                locate_suspensions(game_db, player_records, suspension_layout)
+            )
+            # FM27 judges the bans before any player is decoded, so a failed suspension check
+            # stops only `suspensions()`: the players are then decoded with no bans at all,
+            # which leaves every Player.suspensions None rather than an empty list.
+            separate_suspension_check: ReaderCheck | None = None
+            omit_suspensions = False
+            if save_info.game == "FM27":
+                separate_suspension_check = _checks.check_suspensions(
+                    suspension_stats(
+                        suspension_entries_by_position, len(player_records.record_offsets), clock
+                    ),
+                    gate_bounds,
+                    len(game_db),
                 )
+                omit_suspensions = _checks_fail((separate_suspension_check,))
+                if omit_suspensions:
+                    suspension_entries_by_position = {}
             # With a name map the competitions are read first, checks and all. Every
             # competition name a ban carries comes out of the competition index, so that index
             # must have passed its own checks before a name of its leaves this reader: a build
@@ -2531,7 +2697,7 @@ class Save:
                 game_db_length,
             ),
         )
-        if not omit_suspensions:
+        if separate_suspension_check is None:
             reader_checks += (
                 _checks.check_suspensions(
                     suspension_stats(suspension_entries_by_position, player_count, clock),
@@ -2539,6 +2705,8 @@ class Save:
                     game_db_length,
                 ),
             )
+        elif not omit_suspensions:
+            reader_checks += (separate_suspension_check,)
         self._enforce_checks(reader_checks)
         context.cached(HISTORY_SELECTORS_CACHE_KEY, lambda: FrozenMapping(history_selectors))
         return _PlayerTables(
@@ -2546,6 +2714,7 @@ class Save:
             Table(tuple(decoded_contracts), Contract),
             Table(tuple(decoded_suspensions), Suspension),
             reader_checks,
+            separate_suspension_check if omit_suspensions else None,
         )
 
     def close(self) -> None:

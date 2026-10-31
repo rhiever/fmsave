@@ -44,6 +44,7 @@ READER_NAMES = (
     "staff_lists",
     "tactics",
     "set_pieces",
+    "selections",
     "training",
     "mentoring",
     "experimental_span",

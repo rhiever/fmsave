@@ -72,6 +72,7 @@ READER_ORDER = (
     "mentoring",
     "tactics",
     "set_pieces",
+    "selections",
     "facilities",
 )
 # The readers that cannot run without the one streamed pass over the span: the three built
@@ -82,7 +83,7 @@ SHARED_PASS_PAIRS = (
     ("fmsave._save.read_club_finances", ("finances", "sponsorships")),
     ("fmsave._save.read_staff", ("staff", "staff_lists")),
     ("fmsave._save.walk_training_blocks", ("training", "mentoring")),
-    ("fmsave._save.walk_tactic_blocks", ("tactics", "set_pieces")),
+    ("fmsave._save.walk_tactic_blocks", ("tactics", "set_pieces", "selections")),
 )
 
 
@@ -184,6 +185,7 @@ def test_validate_text_lists_each_reader_and_the_build(
         "mentoring: ok (2 records)",
         "tactics: ok (2 records)",
         "set_pieces: ok (40 records)",
+        "selections: ok (3 records)",
         "facilities: ok (2 records)",
         "game FM26, build 26.3.2+2329565",
     ]
@@ -270,7 +272,7 @@ def test_a_failed_shared_decode_is_reported_for_both_its_readers_and_runs_once(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     decode_target: str,
-    pass_readers: tuple[str, str],
+    pass_readers: tuple[str, ...],
 ) -> None:
     """A pass whose decode raises is reported for both its readers, and is not decoded twice.
 
