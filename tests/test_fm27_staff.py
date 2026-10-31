@@ -391,3 +391,29 @@ def test_fm26_floor_does_not_change_the_window_of_staff_who_are_not_the_human() 
     )
 
     assert with_floor == without_floor
+
+
+@pytest.mark.parametrize(("floor", "has_row"), [(None, True), (0, False)])
+def test_fm26_human_contract_past_his_closing_header_is_not_his_under_the_floor(
+    floor: int | None, has_row: bool
+) -> None:
+    # His records and his name-block window end at the same closing header, so a record with
+    # his selector inside the next object is never read as his contract.
+    from tests.fixtures.staff import staff_object_bytes
+
+    human = staff_object_bytes(person_id=18, uid=810_018, kind=9)
+    neighbor = staff_object_bytes(
+        person_id=19,
+        uid=810_019,
+        contract=own_contract(),
+        person_block=person_block("Neighbor Example"),
+    )
+
+    rows = unique_staff_rows(
+        human + neighbor,
+        human_selector=19,
+        human_personality_floor=floor,
+        require_unique_candidate=False,
+    )
+
+    assert any(row.is_human_manager for row in rows) is has_row

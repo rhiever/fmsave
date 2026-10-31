@@ -869,7 +869,12 @@ def read_staff(
         human_header = header_by_person[human_person_id]
         next_header = _next_header_after(boundaries, human_header)
         object_end = next_header or len(game_db)
-        if layouts.person_blocks.require_unique_candidate:
+        # The same closing header ends his name-block window below, so his records and his
+        # block are looked for inside one object.
+        if (
+            layouts.person_blocks.require_unique_candidate
+            or staff_layout.human_personality_floor is not None
+        ):
             human_values = _header_values(
                 game_db, human_header, _header_reader(staff_layout), staff_layout
             )
