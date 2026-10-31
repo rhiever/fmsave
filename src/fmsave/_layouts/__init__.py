@@ -259,6 +259,10 @@ class SponsorChainLayout:
     Nonempty lists retain the row tag, flag, date and monetary checks. Row field offsets
     count from each sponsor row; prefix offsets count from the finance chain's end, and
     suffix offsets count from the end of the preceding counted entries.
+
+    `kind_names` names stored sponsor kinds as `(code, SponsorType member name)` pairs, each
+    one a code a club's sponsorship screen displayed that type against on this build. Every
+    code the pairs leave out reads UNKNOWN and keeps its raw number.
     """
 
     prefix_marker: bytes
@@ -288,6 +292,7 @@ class SponsorChainLayout:
     value_maximum: int
     minimum_row_days: int = 1
     reject_invalid_lists: bool = False
+    kind_names: tuple[tuple[int, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -25,13 +25,27 @@ from fmsave.models.common import CodedValue
 
 
 class SponsorType(IntEnum):
-    """What kind of sponsorship a contract is.
+    """What kind of sponsorship a contract is, in the words of the game's sponsorship screen.
 
-    Every code is UNKNOWN: the save groups its sponsorships into about twenty kinds, and no
-    displayed label has pinned one of those codes yet.
+    The save groups its sponsorships into about twenty kinds. A label is given only where a
+    club's sponsorship screen displayed it against the row's own stored kind, and only on the
+    build whose screen did. On FM27 build 27.0.0 one club's screen named seven codes: 1 Main
+    Kit, 3 and 23 Stadium, 4 General, 8 Away Kit, 9 Additional Kit Sponsor and 11 Back of
+    Shirt. Two codes showing one word may still differ in a way the screen does not show, so
+    each keeps its raw number. Every other code, and every FM26 code, is UNKNOWN: no FM26
+    screen has named one yet.
+
+    A member's value is the FM27 code it was first displayed against; the save's build, not
+    the value, decides which codes read as which member.
     """
 
     UNKNOWN = -1
+    MAIN_KIT = 1
+    STADIUM = 3
+    GENERAL = 4
+    AWAY_KIT = 8
+    ADDITIONAL_KIT_SPONSOR = 9
+    BACK_OF_SHIRT = 11
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,15 +103,20 @@ class Sponsorship:
     Attributes:
         club_uid: Uid of the club (unconfirmed).
         club_name: Denormalised full name of club_uid (unconfirmed).
-        kind: What kind of sponsorship it is; every code is UNKNOWN (unconfirmed).
+        kind: What kind of sponsorship it is. Only the codes an FM27 screen named carry a
+            label; every other code, and every FM26 code, is UNKNOWN (unconfirmed).
         start: The day the contract starts.
         end: The day it ends.
         total_value: The contract's whole value. On most running contracts it is the annual
-            value times the contract's whole years.
+            value times the contract's whole years. The screen's Duration column is
+            `total_value / annual_value` in years, which can differ from the span between
+            `start` and `end`, so do not work a duration out from the dates.
         annual_value: What a running contract pays a year. A contract that has ended can
             still carry a non-zero annual value, often equal to its total value, so neither a
             zero nor a non-zero value says whether the contract is still running; compare
-            `end` with the save's date for that.
+            `end` with the save's date for that. A running contract is not always counted
+            in the screen's sponsorship income either: on one FM27 club an unexpired kind 6
+            row was left out of it.
         unknown: Numeric fields with no known meaning (unconfirmed).
     """
 

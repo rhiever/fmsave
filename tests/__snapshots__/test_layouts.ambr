@@ -658,6 +658,8 @@
         'enum18_offset': 18,
         'flag10_maximum': 1,
         'flag10_offset': 10,
+        'kind_names': tuple(
+        ),
         'minimum_row_days': 1,
         'prefix_count_offset': 71,
         'prefix_date_offsets': tuple(
@@ -5187,6 +5189,36 @@
         'enum18_offset': 18,
         'flag10_maximum': 1,
         'flag10_offset': 10,
+        'kind_names': tuple(
+          tuple(
+            1,
+            'MAIN_KIT',
+          ),
+          tuple(
+            3,
+            'STADIUM',
+          ),
+          tuple(
+            4,
+            'GENERAL',
+          ),
+          tuple(
+            8,
+            'AWAY_KIT',
+          ),
+          tuple(
+            9,
+            'ADDITIONAL_KIT_SPONSOR',
+          ),
+          tuple(
+            11,
+            'BACK_OF_SHIRT',
+          ),
+          tuple(
+            23,
+            'STADIUM',
+          ),
+        ),
         'minimum_row_days': -1,
         'prefix_count_offset': 71,
         'prefix_date_offsets': tuple(

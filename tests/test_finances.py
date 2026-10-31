@@ -31,6 +31,7 @@ from fmsave.readers.clubs import (
     read_club_index,
 )
 from fmsave.readers.finances import (
+    _sponsor_kind_labels,  # pyright: ignore[reportPrivateUsage]
     find_finance_layouts,
     locate_finance_chain,
     locate_sponsor_chain,
@@ -1088,3 +1089,61 @@ def test_rejected_owned_sponsors_stop_both_strict_tables(tmp_path: Path) -> None
                 table()
             assert save._context.cached_value(FINANCES_TABLE_CACHE_KEY) is None
             assert save._context.cached_value(SPONSORSHIPS_TABLE_CACHE_KEY) is None
+
+
+FM27_BUILD = "27.0.0+2486695"
+# The kinds one FM27 club's sponsorship screen displayed a type against.
+FM27_NAMED_KINDS = (
+    (1, SponsorType.MAIN_KIT),
+    (3, SponsorType.STADIUM),
+    (4, SponsorType.GENERAL),
+    (8, SponsorType.AWAY_KIT),
+    (9, SponsorType.ADDITIONAL_KIT_SPONSOR),
+    (11, SponsorType.BACK_OF_SHIRT),
+    (23, SponsorType.STADIUM),
+)
+UNNAMED_KIND = 6
+
+
+def sponsors_of_kinds(kinds: Sequence[int], build: str) -> tuple[Sponsorship, ...]:
+    rows = tuple(
+        sponsor_row_bytes(**{**SPONSOR_A, "sponsor_type": kind})  # pyright: ignore[reportArgumentType]
+        for kind in kinds
+    )
+    data = one_club_game_db(club_finance_bytes(rows=career_finance_rows(), sponsors=rows))
+    index = read_club_index(data, find_club_layouts(GAME_DB_SCHEMA, build), FILE_NAME)
+    _, sponsors, _stats = read_club_finances(
+        data, index, own_spans(data, index), CLOCK, find_finance_layouts(4000, build), True
+    )
+    return sponsors
+
+
+def test_fm27_sponsor_kinds_carry_the_type_their_screen_displayed() -> None:
+    kinds = [code for code, _label in FM27_NAMED_KINDS] + [UNNAMED_KIND]
+    sponsors = sponsors_of_kinds(kinds, FM27_BUILD)
+    assert [(sponsor.kind.raw, sponsor.kind.label) for sponsor in sponsors] == [
+        *FM27_NAMED_KINDS,
+        (UNNAMED_KIND, SponsorType.UNKNOWN),
+    ]
+
+
+def test_fm26_sponsor_kinds_stay_unknown_with_their_codes() -> None:
+    """No FM26 screen has named a kind, so FM27's names are not borrowed."""
+    kinds = [code for code, _label in FM27_NAMED_KINDS]
+    sponsors = sponsors_of_kinds(kinds, BUILD_STRING)
+    assert [sponsor.kind.raw for sponsor in sponsors] == kinds
+    assert {sponsor.kind.label for sponsor in sponsors} == {SponsorType.UNKNOWN}
+
+
+@pytest.mark.parametrize(
+    ("kind_names", "message"),
+    (
+        (((1, "MAIN_KIT"), (1, "GENERAL")), "named twice"),
+        (((1, "NOT_A_KIND"),), "not a SponsorType member"),
+    ),
+)
+def test_sponsor_kind_names_must_be_distinct_members(
+    kind_names: tuple[tuple[int, str], ...], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        _sponsor_kind_labels(kind_names)

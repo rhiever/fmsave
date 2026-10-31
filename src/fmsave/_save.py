@@ -1605,9 +1605,12 @@ class Save:
         reproduce the game's displayed sponsorship income. An invalid structurally located
         FM27 list raises `ReaderCheckError`, regardless of save size.
 
-        Every `type` code is UNKNOWN: the save groups its sponsorships into about twenty kinds
-        and no displayed label has pinned one of those codes. Money is a whole number in the
-        save's base currency, as in `finances()`.
+        `kind` carries a label only for the codes an FM27 sponsorship screen displayed a type
+        against; every other code, and every FM26 code, is UNKNOWN. Take a contract's length
+        in years from `total_value / annual_value`, as the screen's Duration does, not from
+        `start` and `end`. On one FM27 club the screen's total income was the sum of
+        `annual_value` over its running rows, except one unexpired kind 6 row it left out.
+        Money is a whole number in the save's base currency, as in `finances()`.
 
         The table is read on the first call to `finances()` or `sponsorships()`, from one decode
         pass; later calls to either return the same tables. When a check of that pass fails,

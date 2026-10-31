@@ -131,6 +131,25 @@ def _finance_row_reader(layout: FinanceChainLayout) -> _FinanceRowReader:
 
 
 @functools.cache
+def _sponsor_kind_labels(kind_names: tuple[tuple[int, str], ...]) -> Mapping[int, SponsorType]:
+    """The label each named kind code reads as; a code the layout does not name is absent.
+
+    Raises:
+        ValueError: A code is named twice, or a name is not a `SponsorType` member.
+    """
+    labels: dict[int, SponsorType] = {}
+    for code, member_name in kind_names:
+        if code in labels:
+            raise ValueError(f"sponsor kind {code} is named twice")
+        try:
+            labels[code] = SponsorType[member_name]
+        except KeyError:
+            raise ValueError(
+                f"sponsor kind {code} names {member_name!r}, which is not a SponsorType member"
+            ) from None
+    return FrozenMapping(labels)
+
+
 def _sponsor_row_struct(layout: SponsorChainLayout) -> tuple[struct.Struct, Mapping[str, int]]:
     """The layout's sponsor row struct and the position of each field in what it unpacks.
 
@@ -532,16 +551,20 @@ def _club_sponsorships(
 ) -> list[Sponsorship]:
     """One club's sponsor rows, in the order the save stores them."""
     row_struct, index_by_name = _sponsor_row_struct(layout)
+    kind_labels = _sponsor_kind_labels(layout.kind_names)
     unpack_row = row_struct.unpack_from
     first_row, row_count = located_run
     rows: list[Sponsorship] = []
     for row_offset in range(first_row, first_row + layout.row_bytes * row_count, layout.row_bytes):
         row = unpack_row(game_db, row_offset)
+        kind_code = row[index_by_name["type"]]
         rows.append(
             Sponsorship(
                 club_uid=club_uid,
                 club_name=club_name,
-                kind=CodedValue.from_raw(SponsorType, row[index_by_name["type"]]),
+                kind=CodedValue(
+                    label=kind_labels.get(kind_code, SponsorType.UNKNOWN), raw=kind_code
+                ),
                 start=decode_date(game_db, row_offset + layout.start_offset),
                 end=decode_date(game_db, row_offset + layout.end_offset),
                 total_value=row[index_by_name["total"]],
