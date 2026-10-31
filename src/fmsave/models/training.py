@@ -85,12 +85,13 @@ class TrainingWeek:
         week_start: The day the week starts, None when the stored date does not decode.
         schedule_name: Name of the schedule the week runs, exactly as the save holds it. A
             schedule is a user's own file, so this is whatever it was called.
-        days: The week's seven days in calendar order, starting on `week_start`.
+        days: The week's seven days in calendar order, starting on `week_start`. Empty when a
+            week is built from only its start and name.
     """
 
     week_start: date | None
     schedule_name: str
-    days: tuple[TrainingDay, ...]
+    days: tuple[TrainingDay, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

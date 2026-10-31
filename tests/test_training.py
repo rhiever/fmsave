@@ -477,6 +477,10 @@ def test_the_mentoring_counts_and_anomalies(career_path: Path) -> None:
     assert reader_check.anomalies == {"members_without_a_player": 1, "members_elsewhere": 1}
 
 
+def test_a_week_built_from_its_start_and_name_has_no_days() -> None:
+    assert TrainingWeek(date(2030, 7, 1), "Example Schedule").days == ()
+
+
 def test_the_columns_the_export_flattens() -> None:
     assert column_names(TeamTraining) == (
         "team_id",
