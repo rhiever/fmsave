@@ -1144,7 +1144,9 @@ class StadiumTableLayout:
     is at no fixed fraction of the section, so nothing here is an offset into `game_db`.
 
     The walk then steps row by row and stops at the first row that does not decode, so it
-    never resynchronises: a row whose ordinal is not the next one ends the table.
+    never resynchronises: a row whose ordinal is not the next one ends the table. The row with
+    ordinal zero sits `row_bytes` before the head and is taken only on its own evidence: no
+    inline name, and a pitch length inside `pitch_length_range`.
 
     Every other offset counts from a row start. A row is `row_bytes` long unless bit
     `inline_name_flag` of the byte at `flags_offset` is set, and then the u32 at

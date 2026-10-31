@@ -171,7 +171,7 @@ def test_validate_text_lists_each_reader_and_the_build(
         "player_match_stats: ok (4 records)",
         "player_season_stats: ok (7 records)",
         "player_season_history: ok (0 records)",
-        "stadiums: ok (101 records)",
+        "stadiums: ok (102 records)",
         "finances: ok (6 records)",
         "sponsorships: ok (3 records)",
         "affiliates: ok (2 records)",

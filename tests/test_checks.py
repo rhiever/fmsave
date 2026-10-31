@@ -1080,7 +1080,7 @@ def test_validate_save_reports_every_reader_ok_with_gates_not_applied(
         # records are keyed to a player this fragment holds.
         "player_season_stats": 3,
         "player_season_history": 0,
-        "stadiums": 101,
+        "stadiums": 102,
         # The two clubs of this fragment carry no finance chain, so neither table has a row,
         # and the facilities rating stored behind that chain has none either.
         "finances": 0,
@@ -1283,7 +1283,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "walk_stopped_before_the_table_end": 0,
             "named_rows": 1,
             "unresolved_owners": 1,
-            "unset_capacities": 100,
+            "unset_capacities": 101,
             "clubs_with_home_ground": 0,
         },
         "finances": {"clubs_with_series": 0, "balance_breaks": 0, "opening_balance_steps": 0},
@@ -1302,7 +1302,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "flagged": 1,
         },
         "staff": {
-            "untailed_hits": 101,
+            "untailed_hits": 102,
             "club_record_hits": 1,
             "ambiguous_headers": 0,
             "unlocated_persons": 0,

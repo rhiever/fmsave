@@ -119,12 +119,15 @@ def stadium_table_bytes(
     return bytes(leading_bytes) + b"".join(rows) + closing + bytes(trailing_bytes)
 
 
-# The example table: 101 rows whose uids run from the base plus one. Row 10 is a fully filled
-# ground owned by the first club, row 20 belongs to the second and stores no capacity, row 30
-# names a club index no club record holds, row 99 has no owner at all, row 100 carries an
-# inline name, and row 101 is an ordinary unnamed ground.
+# The example table: 102 rows, ordinals 0 to 101, whose uids run from the base. Row 0 is the
+# unnamed ground every table starts with, one row before the run of ordinals 1, 2, 3 the
+# table is found by. Row 10 is a fully filled ground owned by the first club, row 20 belongs
+# to the second and stores no capacity, row 30 names a club index no club record holds, row 99
+# has no owner at all, row 100 carries an inline name, and row 101 is an ordinary unnamed
+# ground.
 CAREER_STADIUM_UID_BASE = 610_000
-CAREER_STADIUM_ROW_COUNT = 101
+CAREER_FIRST_STADIUM_ORDINAL = 0
+CAREER_STADIUM_ROW_COUNT = 102
 CAREER_NAMED_STADIUM_ORDINAL = 100
 CAREER_LAST_STADIUM_ORDINAL = 101
 CAREER_NAMED_STADIUM = "Example Park"
@@ -142,9 +145,9 @@ UNLISTED_OWNER_CLUB_INDEX = 3
 
 
 def career_stadium_rows() -> list[bytes]:
-    """The example table's 101 rows, in ordinal order."""
+    """The example table's 102 rows, in ordinal order."""
     rows: list[bytes] = []
-    for ordinal in range(1, CAREER_STADIUM_ROW_COUNT + 1):
+    for ordinal in range(CAREER_FIRST_STADIUM_ORDINAL, CAREER_LAST_STADIUM_ORDINAL + 1):
         uid = CAREER_STADIUM_UID_BASE + ordinal
         if ordinal == 10:
             rows.append(

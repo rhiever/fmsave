@@ -1363,7 +1363,7 @@ def test_a_failed_fixture_check_with_strict_exits_3(
 
 # What the shared career fragment holds in the club, staff, medical and setup tables, counted
 # from the fixture rather than from a reader.
-STADIUM_COUNT = 101
+STADIUM_COUNT = 102
 NORTHBRIDGE_GROUND_UID = 610010
 FINANCE_MONTH_COUNT = 6
 NORTHBRIDGE_FINANCE_MONTH_COUNT = 3

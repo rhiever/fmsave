@@ -1,11 +1,17 @@
 """The stadium table in `game_db`, and the calendar link that says who plays where.
 
-The table is a run of rows whose first field is the row's own place in it, counting from one.
+The table is a run of rows whose first field is the row's own place in it, counting from zero.
 That is what makes it findable: a pattern matching the words 1, 2 and 3 one row apart is
 common enough to hit dozens of places in a section this size, so a hit counts only when a
 dozen rows from there each store their own ordinal with the stadium uid written twice and a
 zero byte after it. One candidate survived that on every save measured, and the head sits at no
 fixed fraction of the section, so nothing here is a fixed offset.
+
+The row with ordinal zero sits one unnamed row before that head. A word of zero is too common
+for the locator to search on, so that row is taken only on its own evidence: it reads as a row
+with ordinal zero, carries no inline name, has a pitch length inside the range the pitch check
+judges, and repeats no uid the walk read. A row that fails any of those is left out, and the table then
+starts at ordinal one.
 
 The walk then steps row by row and stops at the first row that is not the next one. It never
 resynchronises, deliberately: a walk that skipped over bytes it could not read would turn a
@@ -97,7 +103,8 @@ class StadiumIndex:
     Attributes:
         rows: Every row the walk read, in table order.
         uid_by_ordinal: The stadium uid for each table ordinal, which is what a fixture's
-            stored ground resolves through. Ordinals run from one and stadium uids are unique.
+            stored ground resolves through. Ordinals run from zero, or from one when the row
+            before the located head is not accepted, and stadium uids are unique.
         locator_hits: How many places the locator pattern matched, accepted or not, which says
             how selective the acceptance test had to be.
         reached_table_end: Whether the walk stopped where the table ends, on the closing
@@ -400,6 +407,30 @@ class _WalkedRows:
     stop_offset: int
 
 
+def _ordinal_zero_row(
+    game_db: bytes, head_offset: int, scan: _StadiumTableScan, layout: StadiumTableLayout
+) -> RawStadium | None:
+    """The row with ordinal zero, one unnamed row before the head, or None when none reads.
+
+    The locator vouches for the rows from ordinal one on, but not for this one, so the row has
+    to stand on its own: the head of a row with ordinal zero, no inline name (a named row there
+    would end past the head rather than at it), and a pitch length inside the range the pitch
+    check judges, which a run of zero bytes does not hold. The ground's own pitch limits are
+    not required, because a few real grounds store a pitch past their own maximum. The uid
+    check against the walked rows is the caller's.
+    """
+    row_offset = head_offset - scan.row_bytes
+    if not _row_heads_at(game_db, row_offset, scan, 0):
+        return None
+    if game_db[row_offset + scan.flags_offset] & scan.inline_name_flag:
+        return None
+    row = _decoded_row(game_db, row_offset, 0, None, scan)
+    lowest_length, highest_length = layout.pitch_length_range
+    if not lowest_length <= row.pitch_length <= highest_length:
+        return None
+    return row
+
+
 def _walk_rows(game_db: bytes, head_offset: int, scan: _StadiumTableScan) -> _WalkedRows:
     """Step through the table from its first row, stopping at the first row that is not next."""
     rows: list[RawStadium] = []
@@ -471,8 +502,15 @@ def read_stadium_index(game_db: bytes, layout: StadiumTableLayout, file_name: st
             raise layout_mismatch(file_name, "a stadium uid appears in two rows")
         ordinals_by_uid[row.uid] = row.ordinal
         uid_by_ordinal[row.ordinal] = row.uid
+    rows = walked.rows
+    # A uid the walk already read means the bytes before the head are not this table's first
+    # row, so they are left out rather than raised on: the walked table is still sound.
+    first_row = _ordinal_zero_row(game_db, located.head_offset, scan, layout)
+    if first_row is not None and first_row.uid not in ordinals_by_uid:
+        rows = [first_row, *rows]
+        uid_by_ordinal = {first_row.ordinal: first_row.uid, **uid_by_ordinal}
     return StadiumIndex(
-        rows=tuple(walked.rows),
+        rows=tuple(rows),
         uid_by_ordinal=FrozenMapping(uid_by_ordinal),
         locator_hits=located.locator_hits,
         reached_table_end=_reached_table_end(
