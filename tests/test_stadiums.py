@@ -33,7 +33,7 @@ from fmsave.export import column_names
 from fmsave.models.fixtures import Fixture
 from fmsave.models.stadiums import Stadium
 from fmsave.readers._common import GAME_DB_SECTION
-from fmsave.readers.stadiums import build_stadiums, read_stadium_index
+from fmsave.readers.stadiums import RawStadium, build_stadiums, read_stadium_index
 from tests.fixtures.career import (
     ATHLETIC_TEAM_A,
     ATHLETIC_UID,
@@ -48,6 +48,7 @@ from tests.fixtures.career import (
     ExampleFixture,
     career_fragment,
 )
+from tests.fixtures.container import packed_date
 from tests.fixtures.stadiums import (
     CAREER_FIRST_STADIUM_ORDINAL,
     CAREER_LAST_STADIUM_ORDINAL,
@@ -55,6 +56,7 @@ from tests.fixtures.stadiums import (
     CAREER_NAMED_STADIUM_ORDINAL,
     CAREER_STADIUM_ROW_COUNT,
     CAREER_STADIUM_UID_BASE,
+    NULL_DATE,
     STADIUM_INLINE_NAME_FLAG,
     STADIUM_TABLE_LEADING_BYTES,
     stadium_row_bytes,
@@ -276,6 +278,48 @@ def test_the_closing_header_is_not_returned_as_a_ground(career_path: Path) -> No
     assert stats.pitch_within_limits == ALL_GROUND_ROWS
     assert stats.table_end_reached == 1
     assert all(ground.uid != CAREER_STADIUM_UID_BASE + 102 for ground in stadiums)
+
+
+def dated_ground(*, built: bytes = NULL_DATE, rebuilt: bytes = NULL_DATE) -> RawStadium:
+    """The thirteenth row of a small table, storing these two dates."""
+    rows = example_rows(20)
+    rows[12] = stadium_row_bytes(
+        ordinal=13,
+        uid=CAREER_STADIUM_UID_BASE + 13,
+        all_seater=5_013,
+        expansion=6_013,
+        owner_club_index=None,
+        capacity=0,
+        built=built,
+        rebuilt=rebuilt,
+    )
+    index = read_stadium_index(stadium_table_bytes(rows), LAYOUT, FILE_NAME)
+    assert len(index.rows) == 20
+    return index.rows[12]
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        pytest.param(packed_date(183, 1884), date(1884, 7, 1), id="built-in-the-1880s"),
+        pytest.param(packed_date(1, 1800), date(1800, 1, 1), id="the-first-year-kept"),
+        pytest.param(packed_date(145, 1900), date(1900, 5, 25), id="a-day-of-1900-past-the-first"),
+        pytest.param(
+            packed_date(100, 1950, time_slot=3), date(1950, 4, 10), id="slot-bits-ignored"
+        ),
+        pytest.param(NULL_DATE, None, id="day-one-of-1900-is-no-date"),
+        pytest.param(packed_date(365, 1799), None, id="before-the-earliest-year"),
+        pytest.param(packed_date(1, 2201), None, id="past-the-latest-year"),
+        pytest.param(packed_date(366, 1950), None, id="a-day-the-year-does-not-have"),
+        pytest.param(packed_date(0, 1950), None, id="day-zero"),
+    ],
+)
+def test_a_grounds_dates_reach_back_before_any_game_date(
+    stored: bytes, expected: date | None
+) -> None:
+    """A ground built in the 1800s keeps its year, which no game date may hold."""
+    assert dated_ground(built=stored).built == expected
+    assert dated_ground(rebuilt=stored).rebuilt == expected
 
 
 def test_the_home_grounds_come_from_the_calendar(tmp_path: Path) -> None:

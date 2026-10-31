@@ -31,6 +31,7 @@ the two disagree for about three grounds in ten.
 
 from __future__ import annotations
 
+import calendar
 import datetime
 import functools
 import re
@@ -42,7 +43,7 @@ from fmsave._errors import ReaderCheckError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import StadiumTableLayout, find_layout
 from fmsave._reader_stats import StadiumStats
-from fmsave._scan import decode_date
+from fmsave._scan import DAY_OF_YEAR_MASK, LATEST_GAME_YEAR
 from fmsave.models.clubs import Club
 from fmsave.models.fixtures import Fixture
 from fmsave.models.stadiums import Stadium
@@ -60,6 +61,15 @@ _FIRST_TEAM_SLOT = 0
 _DATE_BYTES = 4
 # One little-endian u32, which reads the third date as one int and a named row's name length.
 _WORD = struct.Struct("<I")
+# A stored date: the day of the year in the low bits of the first word, then the year.
+_DATE_WORDS = struct.Struct("<HH")
+# The date a row stores when it holds none: day 1 of 1900.
+_NO_GROUND_DATE = (1, 1900)
+# A ground can be older than any game date, so its dates keep their own floor rather than the
+# game clock's. The oldest year any row stores across the FM26 and FM27 saves measured is in
+# the 1800s, and the game's facilities screen shows such a ground's year as stored. A year
+# below this floor reads as no date, as does one past the latest year a game date decodes.
+_EARLIEST_GROUND_YEAR = 1800
 
 
 @dataclass(frozen=True, slots=True)
@@ -344,6 +354,24 @@ def locate_stadium_table(game_db: bytes, scan: _StadiumTableScan) -> _LocatedHea
     return _LocatedHead(head_offset, locator_hits)
 
 
+def _ground_date(game_db: bytes, offset: int) -> datetime.date | None:
+    """A built or rebuilt date, or None for the no-date value and malformed values.
+
+    Unlike a game date, a ground's date may fall before 1901: a ground built in the 1800s
+    stores that year. Day 1 of 1900 is the value a row holds when it has no date.
+    """
+    packed, year = _DATE_WORDS.unpack_from(game_db, offset)
+    day_of_year = packed & DAY_OF_YEAR_MASK
+    if (day_of_year, year) == _NO_GROUND_DATE:
+        return None
+    if not _EARLIEST_GROUND_YEAR <= year <= LATEST_GAME_YEAR:
+        return None
+    days_in_year = 366 if calendar.isleap(year) else 365
+    if not 1 <= day_of_year <= days_in_year:
+        return None
+    return datetime.date(year, 1, 1) + datetime.timedelta(days=day_of_year - 1)
+
+
 def _decoded_row(
     game_db: bytes, row_offset: int, ordinal: int, name: str | None, scan: _StadiumTableScan
 ) -> RawStadium:
@@ -365,8 +393,8 @@ def _decoded_row(
         capacity=field_values[scan.capacity_index],
         pitch_length=field_values[scan.pitch_length_index],
         pitch_width=field_values[scan.pitch_width_index],
-        built=decode_date(game_db, row_offset + scan.built_offset),
-        rebuilt=decode_date(game_db, row_offset + scan.rebuilt_offset),
+        built=_ground_date(game_db, row_offset + scan.built_offset),
+        rebuilt=_ground_date(game_db, row_offset + scan.rebuilt_offset),
         date_58_raw=_WORD.unpack_from(game_db, row_offset + scan.date_58_offset)[0],
         pitch_min_length=field_values[scan.pitch_min_length_index],
         pitch_min_width=field_values[scan.pitch_min_width_index],

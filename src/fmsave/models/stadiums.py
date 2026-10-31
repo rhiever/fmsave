@@ -67,8 +67,10 @@ class Stadium:
         pitch_min_width_dm: The narrowest pitch width the ground allows (unconfirmed).
         pitch_max_length_dm: The longest pitch length the ground allows.
         pitch_max_width_dm: The widest pitch width the ground allows.
-        built_date: The date the ground was built, or None when the save stores none. A few
-            grounds carry a date after the save's own clock.
+        built_date: The date the ground was built, or None when the save stores none. Grounds
+            built in the 1800s keep their year, as the game's facilities screen shows it; a
+            year before 1800 reads as None. A few grounds carry a date after the save's own
+            clock.
         rebuilt_date: The date the ground was last rebuilt, or None when the save stores none.
         unknown: Numeric fields with no known meaning: two capacity-like words, a small code,
             a third date as one little-endian int, and the whole flags byte whose 0x10 bit is
