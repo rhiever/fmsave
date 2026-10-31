@@ -71,7 +71,7 @@ class RawMatchRecord:
 
     Attributes:
         date: The date the match was played.
-        opponent_team_id: The opposing side's first-team id, exactly as stored.
+        opponent_team_id: The opposing team's id, exactly as stored.
         competition_id: The competition id, in the stage id space.
         tag: The unidentified byte exported as `unknown["tag"]`.
         has_stats: Whether a performance body follows the header.

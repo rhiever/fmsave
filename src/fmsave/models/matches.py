@@ -2,8 +2,8 @@
 
 Stored match histories may omit older matches and are not guaranteed season or career totals.
 Rows do not mark their histories as truncated, so summing them can undercount a player's season.
-Use `player_season_stats()` for the stored current-season totals. Friendlies, internationals and
-youth matches are outside this reader's coverage.
+Use `player_season_stats()` for the stored current-season totals. Records also cover club
+friendlies, internationals and matches for a club's other teams.
 
 A record's `competition_id` belongs to the **stage** id space, the same space `stages()`,
 `fixtures()`, the league tables and `Suspension.competition_id` use, so all of them join.
@@ -57,8 +57,9 @@ class PlayerMatchStats:
     """One player's record of one match the save still holds.
 
     These rows are retained match histories, not guaranteed season or career totals. Older
-    matches can be missing, and a row does not mark its history as truncated. Friendlies,
-    internationals and youth matches are kept apart from these records and are not here at all.
+    matches can be missing, and a row does not mark its history as truncated. Rows also cover
+    club friendlies, internationals and matches for a club's other teams, so filter on
+    `competition_id` before adding rows up.
 
     `competition_id` belongs to the **stage** id space, the same space `stages()`, `fixtures()`,
     the league tables and `Suspension.competition_id` use, so all of them join.
@@ -70,8 +71,8 @@ class PlayerMatchStats:
         date: The date the match was played.
         competition_id: Id of the competition, in the **stage** id space. It is stored on the
             record itself rather than reached through a stage.
-        opponent_team_id: The opposing side's first-team id, exactly as stored. It is a team
-            id and never a club index.
+        opponent_team_id: The opposing team's id, exactly as stored. It is a team id and never
+            a club index, and a reserve or youth side has its own.
         opponent_club_uid: Uid of the club fielding the opposing team, or None when no club
             lists that team.
         opponent_club_name: Denormalised name of opponent_club_uid, or None when the team does
@@ -80,9 +81,11 @@ class PlayerMatchStats:
             the team does not resolve.
         opponent_team_slot: The opposing team's slot in its club's team list, 0 for the first
             entry, or None when the team does not resolve (unconfirmed).
-        has_stats: Whether the save still holds this match's statistics. A save that has
-            dropped them keeps the date, the competition and the opponent and nothing else, so
-            every field below that can be None is None when this is false (unconfirmed).
+        has_stats: Whether the record holds statistics for the match. A record without them
+            keeps the date, the competition and the opponent and nothing else, so every field
+            below that can be None is None when this is false. On the saves measured such a
+            record is a match of his team's that his season totals do not count as an
+            appearance, so he did not play in it (unconfirmed).
         position: The position played, as a coded value over the mask the record stores. Only
             the goalkeeper bit is named; every other mask keeps its raw value and reads as
             UNKNOWN. None when the save holds no statistics for the match.

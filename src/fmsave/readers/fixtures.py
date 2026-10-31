@@ -4,7 +4,7 @@ The span holds several runs of fixture records: the career's own calendar, and s
 of it. One of those strays is a fixed block of template records dated years before the save's
 clock and present with the same count on every save seen, so keeping it would put the same
 phantom matches on every career. The runs are told apart by the distance between consecutive
-records: a gap of `cluster_gap_bytes` or more starts a new one, and only the run holding the
+records: a gap of more than `cluster_gap_bytes` starts a new one, and only the run holding the
 most records is the calendar.
 
 File order is neither sorted nor a rotation of a sorted order, so the kept run is sorted here
