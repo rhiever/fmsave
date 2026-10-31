@@ -2,6 +2,20 @@
 
 Thanks for helping. fmsave is a hobby project maintained on a best-effort basis, so replies can take a while.
 
+## How contributions work
+
+fmsave does not merge pull requests from other people. Please open an issue instead. I implement
+changes myself so the code stays consistent, and I credit everyone whose report, request, testing
+or findings fed a shipped change:
+
+- as a co-author on the commit that ships it,
+- in that release's changelog entry,
+- in the Contributors list in the [README](README.md#contributors).
+
+I mention you on the pull request that ships it, so you'll get a notification. A pull request you
+open anyway is read as a detailed issue and credited the same way. If you'd rather not be credited,
+say so in the issue.
+
 ## Setup
 
 fmsave uses [uv](https://docs.astral.sh/uv/) and [prek](https://github.com/j178/prek) for its commit hooks.
@@ -12,7 +26,7 @@ prek install
 uv run pytest
 ```
 
-Before opening a pull request, also run:
+Before committing, also run:
 
 ```console
 uv run ruff check .
@@ -38,7 +52,7 @@ The commit hooks check staged files and commit messages. Never skip them.
 
 ## Provenance
 
-Knowledge of the save format may come only from observing your own saves and the in-game UI. Do not use decompilation, leaked material, material under a non-disclosure agreement, or code from unlicensed parsers. The pull request template asks you to confirm this.
+Knowledge of the save format may come only from observing your own saves and the in-game UI. Do not use decompilation, leaked material, material under a non-disclosure agreement, or code from unlicensed parsers. This applies to anything you share in an issue too.
 
 ## Reporting a wrong value
 

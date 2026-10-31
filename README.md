@@ -141,6 +141,25 @@ fmsave is read-only. It never modifies saves, makes no network connections, and 
 memory. Local single-player analysis is supported. Using hidden data to gain an advantage in a
 shared online career may break platform or community rules.
 
+## Contributors
+
+Thanks to everyone who has reported bugs, suggested features, helped test or worked out how the
+game stores its data:
+
+- [@1e16miin](https://github.com/1e16miin)
+- [@Buglerru](https://github.com/Buglerru)
+- [@BWH95](https://github.com/BWH95)
+- [@GetChatGPTToDoIt](https://github.com/GetChatGPTToDoIt)
+- [@hostlund](https://github.com/hostlund)
+- [@jeohist](https://github.com/jeohist)
+- [@johnmmcparland](https://github.com/johnmmcparland)
+- [@jtstothard](https://github.com/jtstothard)
+- [@kdr6989](https://github.com/kdr6989)
+- [@matthiasvetter1104](https://github.com/matthiasvetter1104)
+- [@Namhahaha1110](https://github.com/Namhahaha1110)
+- [@OdumWorld](https://github.com/OdumWorld)
+- [@thaffy](https://github.com/thaffy)
+
 ## Support
 
 fmsave is a hobby project, maintained on a best-effort basis. Report problems through
@@ -148,6 +167,9 @@ fmsave is a hobby project, maintained on a best-effort basis. Report problems th
 issue. To share a save, email a link to the address on [my GitHub profile](https://github.com/rhiever).
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to report a wrong value without sharing real data. To
 request removal of any content, open an issue with the rights request form.
+
+fmsave does not merge pull requests from other people. Open an issue instead, and you'll be
+credited when the change ships. See [CONTRIBUTING.md](CONTRIBUTING.md#how-contributions-work).
 
 ## Disclaimer
 
