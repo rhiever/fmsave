@@ -1066,7 +1066,7 @@ def check_fixtures(
     `stray_records` and `stray_clusters` count what the span held outside the calendar, which
     every save carries some of, and `strays_without_a_copy` those of them the calendar holds
     no copy of, which is the only part of the drop that loses anything. The rest count kept
-    fixtures a join or a decode left incomplete. `neutral_venue_votes` counts the clubs and
+    fixtures a join or a decode left incomplete. `neutral_venue_votes` counts the teams and
     seasons whose usual ground was decided: none of them on a full-size span means the venue
     vote never ran at all. `unresolved_stadiums` counts the records storing a ground the
     stadium table does not hold, which every save carries a few dozen of.

@@ -203,7 +203,7 @@ class FixtureStats:
     they remain unnamed and are excluded from the club join population.
     `undated` counts records whose stored date does not decode and
     `bad_kick_off_slots` those whose slot names no time of day. `neutral_venue_votes` counts
-    the (club, season) pairs that played enough home matches for a usual ground to be decided.
+    the (team, season) pairs that played enough home matches for a usual ground to be decided.
     `with_stadium` counts kept records storing a ground and `stadium_resolved` those whose
     ground the stadium table holds; the rest store the one value no ordinal ever takes.
     """

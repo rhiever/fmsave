@@ -820,7 +820,7 @@ class FixtureCalendarLayout:
     rather than the span pass: a kick-off time is `(stored slot + kick_off_slot_offset) *
     kick_off_slot_minutes` minutes into the day, a round index of `round_index_none_value`
     means no round, a gap of `cluster_gap_bytes` or more between records separates the
-    calendar from a stray copy, and a club needs `neutral_venue_minimum_home_fixtures` home
+    calendar from a stray copy, and a team needs `neutral_venue_minimum_home_fixtures` home
     matches in a season before the ground it used most counts as its usual one.
     """
 
