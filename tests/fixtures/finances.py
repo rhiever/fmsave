@@ -130,6 +130,7 @@ def club_finance_bytes(
     facility_byte: int = 17,
     dead_sponsors: Sequence[bytes] = (),
     prefix_entries: Sequence[bytes] = (),
+    balance: int = 0,
 ) -> bytes:
     """One club record's finance bytes: padding, the snapshot chain, the gap, the sponsors.
 
@@ -140,7 +141,9 @@ def club_finance_bytes(
     """
     output = bytearray(padding_bytes)
     output.extend(finance_chain_bytes(rows))
-    output.extend(chain_gap_bytes(facility_byte=facility_byte, prefix_entries=prefix_entries))
+    output.extend(
+        chain_gap_bytes(facility_byte=facility_byte, prefix_entries=prefix_entries, balance=balance)
+    )
     output.extend(sponsor_chain_bytes(sponsors))
     if dead_sponsors:
         output.extend(bytes(DEAD_SPONSOR_GAP_BYTES))

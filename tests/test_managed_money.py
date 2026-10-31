@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import struct
+from collections.abc import Mapping
+from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
+import fmsave
+import fmsave._save as save_module
+import fmsave.readers.managed as managed_module
 from fmsave._layouts import HumansLayout, find_layout
 from fmsave._status import field_status
 from fmsave.models.managed import ManagedClub
@@ -13,10 +19,11 @@ from fmsave.readers.clubs import ClubRecordSpan
 from fmsave.readers.finances import find_finance_layouts, read_current_balance
 from fmsave.readers.managed import scouting_budget
 from tests.fixtures.career import career_finance_rows
-from tests.fixtures.container import packed_date
+from tests.fixtures.container import packed_date, section_body
 from tests.fixtures.finances import (
     CLUB_FINANCE_TRAILING_BYTES,
     chain_gap_bytes,
+    club_finance_bytes,
     finance_chain_bytes,
     sponsor_chain_bytes,
 )
@@ -150,6 +157,51 @@ def test_fm26_has_no_scouting_layout() -> None:
 def test_the_new_fields_default_to_none_and_carry_their_statuses() -> None:
     row = ManagedClub(4001, "Northbridge FC", "Northbridge", None, None)
     assert (row.balance, row.scouting_budget, row.scouting_budget_remaining) == (None, None, None)
-    assert field_status(ManagedClub, "balance") == "verified"
+    assert field_status(ManagedClub, "balance") == "unconfirmed"
     assert field_status(ManagedClub, "scouting_budget") == "unconfirmed"
     assert field_status(ManagedClub, "scouting_budget_remaining") == "unconfirmed"
+
+
+def fm27_money_layouts(
+    section_schemas: Mapping[str, int], build: str
+) -> managed_module.ManagedClubLayouts:
+    """The fragment's own layouts with FM27's balance offset and scouting fields added."""
+    layouts = managed_module.find_managed_club_layouts(section_schemas, build)
+    sponsors = replace(layouts.finances.sponsors, balance_offset=22)
+    humans = replace(
+        layouts.humans,
+        scouting_budget_marker=FM27_HUMANS.scouting_budget_marker,
+        scouting_date_offset=FM27_HUMANS.scouting_date_offset,
+        scouting_budget_offset=FM27_HUMANS.scouting_budget_offset,
+        scouting_remaining_offset=FM27_HUMANS.scouting_remaining_offset,
+        scouting_budget_maximum=FM27_HUMANS.scouting_budget_maximum,
+    )
+    return replace(layouts, finances=replace(layouts.finances, sponsors=sponsors), humans=humans)
+
+
+@pytest.mark.parametrize(("human_count", "scouting"), [(1, (80_000, 72_500)), (2, (None, None))])
+def test_managed_clubs_reads_the_balance_and_scouting_budget_end_to_end(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    human_count: int,
+    scouting: tuple[int | None, int | None],
+) -> None:
+    from tests.test_managed import MANAGER_SELECTOR, example_game_db, write_fragment
+
+    monkeypatch.setattr(save_module, "find_managed_club_layouts", fm27_money_layouts)
+    finance = club_finance_bytes(rows=career_finance_rows(), sponsors=(), balance=EXAMPLE_BALANCE)
+    humans = section_body(
+        ".dat",
+        HUMANS_SCHEMA,
+        struct.pack("<HI", human_count, MANAGER_SELECTOR)
+        + bytes(32)
+        + scouting_block(80_000, 72_500),
+    )
+    path = write_fragment(
+        tmp_path, game_db=example_game_db(northbridge_finance=finance), humans=humans
+    )
+    with fmsave.open(path) as save:
+        (row,) = save.managed_clubs()
+
+    assert row.balance == EXAMPLE_BALANCE
+    assert (row.scouting_budget, row.scouting_budget_remaining) == scouting

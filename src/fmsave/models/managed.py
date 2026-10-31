@@ -27,8 +27,9 @@ class ManagedClub:
         balance: The club's balance on the save's date, the finances screen's Overall
             Balance, in the same stored unit as `FinanceMonth`. It is not the last
             `FinanceMonth.balance`, which closes the previous month: this one also carries
-            the current month's money so far. None on a build with no layout for it (every
-            FM26 build so far) or when the club's finance record does not pass its checks.
+            the current month's money so far (unconfirmed). None on a build with no layout for
+            it (every FM26 build so far), or when the club has no monthly finance chain or its
+            sponsor prefix does not decode.
         scouting_budget: The club's scouting budget for the season, in the same unit
             (unconfirmed). It is the season's total, **not** what is left to spend: it stays
             the same while `scouting_budget_remaining` falls. None on a build with no layout
@@ -48,19 +49,20 @@ class ManagedClub:
     scouting_budget_remaining: int | None = None
 
 
-# The balance matched the Overall Balance on two careers' finances screens, each time equal to
-# the previous month's closing balance less the month's expenditure the screen showed. The
-# scouting pair matched the Scouting Budget on the same screens, but only on days when nothing
-# had been spent, so neither screen tells the season's budget from what is left of it.
+# The balance matched the Overall Balance on two FM27 careers' finances screens, each time equal
+# to the previous month's closing balance less the month's expenditure the screen showed. It
+# stays unconfirmed because statuses describe FM26, where it reads None. The scouting pair
+# matched the Scouting Budget on the same screens, but only on days when nothing had been
+# spent, so neither screen tells the season's budget from what is left of it.
 register_field_statuses(
     ManagedClub,
-    verified=("balance",),
     unconfirmed=(
         "club_uid",
         "club_name",
         "club_short_name",
         "manager_name",
         "manager_staff_uid",
+        "balance",
         "scouting_budget",
         "scouting_budget_remaining",
     ),

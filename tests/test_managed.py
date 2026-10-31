@@ -77,7 +77,7 @@ EXAMPLE_CLUBS = (
 )
 
 
-def club_region_bytes() -> bytes:
+def club_region_bytes(*, northbridge_finance: bytes = b"") -> bytes:
     club_records = [
         club_record_bytes(
             club_index=club.club_index,
@@ -89,6 +89,7 @@ def club_region_bytes() -> bytes:
             short_name=club.short_name,
             team_ids=club.team_ids,
             float_anchor_only=club.float_anchor_only,
+            trailing_bytes=northbridge_finance if club.uid == NORTHBRIDGE_UID else b"",
         )
         for club in EXAMPLE_CLUBS
     ]
@@ -160,8 +161,9 @@ def example_game_db(
             selector=MANAGER_SELECTOR, team_id=NORTHBRIDGE_TEAM_A, end=packed_date(182, 2032)
         ),
     ),
+    northbridge_finance: bytes = b"",
 ) -> bytes:
-    payload = club_region_bytes() + bytes(64)
+    payload = club_region_bytes(northbridge_finance=northbridge_finance) + bytes(64)
     for person_header in person_headers:
         payload += person_header + bytes(64)
     for record in chain_records:
