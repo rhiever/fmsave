@@ -32,6 +32,7 @@ from fmsave.readers.clubs import (
 )
 from fmsave.readers.finances import (
     _sponsor_kind_labels,  # pyright: ignore[reportPrivateUsage]
+    _sponsor_row_struct,  # pyright: ignore[reportPrivateUsage]
     find_finance_layouts,
     locate_finance_chain,
     locate_sponsor_chain,
@@ -1147,3 +1148,10 @@ def test_sponsor_kind_names_must_be_distinct_members(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         _sponsor_kind_labels(kind_names)
+
+
+@pytest.mark.parametrize("build", (BUILD_STRING, FM27_BUILD))
+def test_sponsor_row_decoding_is_built_once_per_layout(build: str) -> None:
+    sponsors = find_finance_layouts(4000, build).sponsors
+    assert _sponsor_row_struct(sponsors) is _sponsor_row_struct(sponsors)
+    assert _sponsor_kind_labels(sponsors.kind_names) is _sponsor_kind_labels(sponsors.kind_names)

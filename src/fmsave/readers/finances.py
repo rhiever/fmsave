@@ -150,6 +150,7 @@ def _sponsor_kind_labels(kind_names: tuple[tuple[int, str], ...]) -> Mapping[int
     return FrozenMapping(labels)
 
 
+@functools.cache
 def _sponsor_row_struct(layout: SponsorChainLayout) -> tuple[struct.Struct, Mapping[str, int]]:
     """The layout's sponsor row struct and the position of each field in what it unpacks.
 
