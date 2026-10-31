@@ -72,7 +72,7 @@ def test_fm27_exact_experiment_reads_structured_metadata(tmp_path: Path) -> None
     assert BUILD not in known_builds()
 
 
-@pytest.mark.parametrize("build,schema", [("27.0.1+3000001", 47), (BUILD, 48)])
+@pytest.mark.parametrize("build,schema", [("27.0.1+3000001", 47), (BUILD, 48), ("0" + BUILD, 47)])
 def test_fm27_unknown_build_or_metadata_schema_fails_closed(
     tmp_path: Path, build: str, schema: int
 ) -> None:

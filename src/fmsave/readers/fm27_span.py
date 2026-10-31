@@ -36,12 +36,20 @@ _UNSUPPORTED_FIXTURE_FIELDS = (
 )
 
 
+# Byte ceilings from measured saves. Largest seen: FM27 8.4 MiB frame and 25.2 MiB in all
+# (first season, August); FM26 long careers 72.6 MiB frame and 164.6 MiB in all. Both
+# defaults leave at least 1.5x over those FM26 figures for growth. The pass holds one buffer
+# of at most the total, so this also bounds its memory.
+_DEFAULT_FRAME_BYTES = 128 * 1024**2
+_DEFAULT_SPAN_BYTES = 256 * 1024**2
+
+
 @dataclass(frozen=True, slots=True)
 class Fm27SpanLimits:
     """Allocation and work ceilings, independent of counts claimed by the input."""
 
-    maximum_span_bytes: int = 64 * 1024**2
-    maximum_frame_bytes: int = 8 * 1024**2
+    maximum_span_bytes: int = _DEFAULT_SPAN_BYTES
+    maximum_frame_bytes: int = _DEFAULT_FRAME_BYTES
     maximum_candidates: int = 100_000
     maximum_fixtures: int = 100_000
     maximum_rules: int = 4096
@@ -131,25 +139,24 @@ def _limit_error(what: str) -> CorruptSaveError:
 
 def _buffer_frames(
     frames: Iterable[bytes | bytearray | memoryview], limits: Fm27SpanLimits
-) -> tuple[bytes, int]:
-    chunks: list[bytes] = []
-    size = count = 0
+) -> tuple[bytearray, int]:
+    """Copy the frames into one owned buffer, so the span is held once rather than twice."""
+    data = bytearray()
+    count = 0
     for frame in frames:
         frame_bytes = frame.nbytes if isinstance(frame, memoryview) else len(frame)
         if frame_bytes > limits.maximum_frame_bytes:
             raise _limit_error("frame byte")
-        size += frame_bytes
-        if size > limits.maximum_span_bytes:
+        if len(data) + frame_bytes > limits.maximum_span_bytes:
             raise _limit_error("total byte")
         count += 1
         if count > limits.maximum_candidates:
             raise _limit_error("frame count")
-        # Own mutable input rather than retaining references that a producer may mutate.
-        chunks.append(bytes(frame))
-    return b"".join(chunks), count
+        data += frame
+    return data, count
 
 
-def _fixture_core(data: bytes, at: int, *, strict: bool) -> Fm27Fixture | None:
+def _fixture_core(data: bytearray, at: int, *, strict: bool) -> Fm27Fixture | None:
     if at < 12 or at + 53 > len(data) or data[at - 12] != 31:
         return None
     if strict and (data[at + 4] != 255 or data[at + 11] != 255):
@@ -178,7 +185,7 @@ def _fixture_core(data: bytes, at: int, *, strict: bool) -> Fm27Fixture | None:
 
 
 def _next_core(
-    data: bytes, at: int, end: int, limits: Fm27SpanLimits
+    data: bytearray, at: int, end: int, limits: Fm27SpanLimits
 ) -> tuple[int, bool, int | None, int | None] | None:
     prefix = at + 53
     if prefix >= end:
@@ -205,7 +212,7 @@ def _next_core(
 
 
 def _close_fixture_paths(
-    data: bytes, anchors: list[Fm27Fixture], limits: Fm27SpanLimits
+    data: bytearray, anchors: list[Fm27Fixture], limits: Fm27SpanLimits
 ) -> tuple[tuple[Fm27Fixture, ...], int]:
     fixtures = {row.offset: row for row in anchors}
     recovered = 0
@@ -253,7 +260,7 @@ def _close_fixture_paths(
     return tuple(fixtures[offset] for offset in sorted(fixtures)), recovered
 
 
-def _rules_parent(data: bytes, at: int, limits: Fm27SpanLimits) -> Fm27Rules | None:
+def _rules_parent(data: bytearray, at: int, limits: Fm27SpanLimits) -> Fm27Rules | None:
     if at < 28 or at + 9 > len(data) or data[at + 8] != 0:
         return None
     end = min(len(data), at + limits.maximum_parent_bytes)
@@ -287,7 +294,7 @@ def _rules_parent(data: bytes, at: int, limits: Fm27SpanLimits) -> Fm27Rules | N
     for row_number in range(count):
         if row_number:
             skipped = 0
-            while cursor + 4 <= end and data[cursor : cursor + 4] == b"\xff" * 4:
+            while cursor + 4 <= end and data.startswith(b"\xff" * 4, cursor):
                 if skipped >= limits.maximum_interstitials or cursor + 10 > end:
                     return None
                 cursor += 10
@@ -319,8 +326,8 @@ def read_fm27_span(
 ) -> Fm27Span:
     """Read only explicitly observed raw grammar, with bounded memory and search work.
 
-    Frames may split any field. This initial implementation owns at most the configured
-    span buffer plus its chunks, rather than joining an unbounded generator. Failed sibling
+    Frames may split any field. The frames are copied into one owned buffer of at most the
+    configured span size, rather than joining an unbounded generator. Failed sibling
     paths and malformed rule parents are discarded whole; no date resynchronization occurs.
     """
     if not 1900 <= clock_year <= 9991:

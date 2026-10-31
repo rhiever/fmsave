@@ -742,6 +742,28 @@ def test_the_vote_needs_half_the_members_and_reserves_no_competition() -> None:
     )
 
 
+def test_a_tied_vote_goes_to_the_competition_that_pairs_the_members() -> None:
+    """Every club of a division also plays friendlies, which cover every member too.
+
+    Only the division's own fixtures pair two members with each other, so a tie on coverage
+    goes to the competition holding those meetings even when its id is the higher one.
+    """
+    friendlies, division = 7, 50
+    members = [raw_block(1, 100), raw_block(2, 200), raw_block(3, 300)]
+    counts_by_team = {team_id: Counter({friendlies: 3, division: 2}) for team_id in (1, 2, 3)}
+    counts_by_pair = {
+        (1, 2): Counter({division: 2}),
+        (1, 3): Counter({division: 1}),
+        (2, 3): Counter({division: 2}),
+        (1, 900): Counter({friendlies: 1}),
+    }
+
+    assert resolve_group_competitions([members], counts_by_team) == (friendlies,)
+    assert resolve_group_competitions([members], counts_by_team, counts_by_pair) == (division,)
+    one_club = [raw_block(1, 100)]
+    assert resolve_group_competitions([one_club], counts_by_team, counts_by_pair) == (friendlies,)
+
+
 def test_a_division_is_counted_by_its_shape_alone(tmp_path: Path) -> None:
     """The shape rule needs no competition name, so it holds in any country.
 

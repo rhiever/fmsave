@@ -10,10 +10,11 @@ the table that block's rules govern. Where that run holds exactly one league tab
 clubs, and that table carries a competition the fixture calendar voted it, the row takes that
 competition; otherwise it keeps none. On the saves measured that is about seven blocks in ten,
 so 32% to 45% of rows carry no competition, and a run matching two tables at once carries none
-rather than being resolved to either. The calendar corroborates the alignment: 0.74 to 0.78 of
-a linked block's dated rounds fall on a date its competition plays a fixture on, against 0.55
-to 0.58 when each block is linked to the run stored *before* it. It rests on the league-table vote, so a row's competition is exactly as strong as
-`LeagueTable.competition_id` and no stronger.
+rather than being resolved to either. The calendar corroborates the alignment: 0.93 to 0.99 of
+a linked block's dated rounds fall on a date its competition plays a fixture on, against 0.66
+to 0.90 when each block is linked to the run stored *before* it, on five FM26 saves measured
+after the table vote stopped naming the friendlies. It rests on the league-table vote, so a
+row's competition is exactly as strong as `LeagueTable.competition_id` and no stronger.
 
 **The tagged rules groups are not read.** The save's rules database does hold groups of squad
 and financial rules -- a home-grown minimum, a maximum squad size, a salary cap, a wage-bill
@@ -211,10 +212,10 @@ def build_competition_rules(
     32% to 45% of rows, and a run matching two tables at once is turned away rather than
     resolved to either.
 
-    That is a position in a file rather than a stored key, so it is corroborated: 0.74 to 0.78
+    That is a position in a file rather than a stored key, so it is corroborated: 0.93 to 0.99
     of a linked block's dated rounds fall on a date its competition plays a fixture
-    on, against 0.55 to 0.58 when each block is linked to the run stored *before* it
-    instead. `rules_link_round_dates` is the check on that. The competition itself is a vote on
+    on, against 0.66 to 0.90 when each block is linked to the run stored *before* it
+    instead, on five FM26 saves measured. `rules_link_round_dates` is the check on that. The competition itself is a vote on
     the calendar rather than a stored value, so a row's competition is no stronger than
     `LeagueTable.competition_id`, and both are unconfirmed.
 

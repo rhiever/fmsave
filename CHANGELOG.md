@@ -4,9 +4,30 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-30
+
+### Added
+
+- `Stadium.seated_capacity` holds the seated capacity. `all_seater_capacity` is documented as the total.
+- Corporate facility ratings 3 and 4 read Fairly Basic and 16 reads Excellent. A new `NONE` rating covers 0.
+- FM27 sponsorship kinds named on the game's Sponsorships screen have labels.
+
+### Fixed
+
+- `stadiums()` includes the first ground in the stadium table, so its club's home matches resolve.
+- `Stadium.built_date` and `rebuilt_date` keep years before 1900.
+- `goals_outside_box` is now empty on FM26, as on FM27, because the stored count can exceed goals.
+- FM27 `experimental_span()` and `validate` no longer report a healthy save as corrupt as it grows. The span is held in memory once.
+- The human manager's `staff()` row has their name on FM27. On a new FM26 career it no longer shows the next person's details.
+- League tables and competition rules no longer take the friendlies competition's id when friendlies cover the same clubs.
+- A save whose version string the game cannot write raises `UnsupportedGameError` instead of a raw error or the wrong edition's layouts.
+- A save opened by a relative path keeps working after the working folder changes.
+
 ### Changed
 
 - CONTRIBUTING.md explains that changes come in through issues and how contributors are credited. The README lists contributors, and past changelog entries now thank the people whose reports, requests, testing and findings fed them.
+
+Thanks to @jeohist for the reports. Refs #9, #11, #37, #38, #39, #40, #41.
 
 ## [0.8.0] - 2026-10-30
 

@@ -1,11 +1,17 @@
 """The stadium table in `game_db`, and the calendar link that says who plays where.
 
-The table is a run of rows whose first field is the row's own place in it, counting from one.
+The table is a run of rows whose first field is the row's own place in it, counting from zero.
 That is what makes it findable: a pattern matching the words 1, 2 and 3 one row apart is
 common enough to hit dozens of places in a section this size, so a hit counts only when a
 dozen rows from there each store their own ordinal with the stadium uid written twice and a
 zero byte after it. One candidate survived that on every save measured, and the head sits at no
 fixed fraction of the section, so nothing here is a fixed offset.
+
+The row with ordinal zero sits one unnamed row before that head. A word of zero is too common
+for the locator to search on, so that row is taken only on its own evidence: it reads as a row
+with ordinal zero, carries no inline name, has a pitch length inside the range the pitch check
+judges, and repeats no uid the walk read. A row that fails any of those is left out, and the table then
+starts at ordinal one.
 
 The walk then steps row by row and stops at the first row that is not the next one. It never
 resynchronises, deliberately: a walk that skipped over bytes it could not read would turn a
@@ -25,6 +31,7 @@ the two disagree for about three grounds in ten.
 
 from __future__ import annotations
 
+import calendar
 import datetime
 import functools
 import re
@@ -36,7 +43,7 @@ from fmsave._errors import ReaderCheckError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import StadiumTableLayout, find_layout
 from fmsave._reader_stats import StadiumStats
-from fmsave._scan import decode_date
+from fmsave._scan import DAY_OF_YEAR_MASK, LATEST_GAME_YEAR
 from fmsave.models.clubs import Club
 from fmsave.models.fixtures import Fixture
 from fmsave.models.stadiums import Stadium
@@ -54,6 +61,15 @@ _FIRST_TEAM_SLOT = 0
 _DATE_BYTES = 4
 # One little-endian u32, which reads the third date as one int and a named row's name length.
 _WORD = struct.Struct("<I")
+# A stored date: the day of the year in the low bits of the first word, then the year.
+_DATE_WORDS = struct.Struct("<HH")
+# The date a row stores when it holds none: day 1 of 1900.
+_NO_GROUND_DATE = (1, 1900)
+# A ground can be older than any game date, so its dates keep their own floor rather than the
+# game clock's. The oldest year any row stores across the FM26 and FM27 saves measured is in
+# the 1800s, and the game's facilities screen shows such a ground's year as stored. A year
+# below this floor reads as no date, as does one past the latest year a game date decodes.
+_EARLIEST_GROUND_YEAR = 1800
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,7 +113,8 @@ class StadiumIndex:
     Attributes:
         rows: Every row the walk read, in table order.
         uid_by_ordinal: The stadium uid for each table ordinal, which is what a fixture's
-            stored ground resolves through. Ordinals run from one and stadium uids are unique.
+            stored ground resolves through. Ordinals run from zero, or from one when the row
+            before the located head is not accepted, and stadium uids are unique.
         locator_hits: How many places the locator pattern matched, accepted or not, which says
             how selective the acceptance test had to be.
         reached_table_end: Whether the walk stopped where the table ends, on the closing
@@ -337,6 +354,24 @@ def locate_stadium_table(game_db: bytes, scan: _StadiumTableScan) -> _LocatedHea
     return _LocatedHead(head_offset, locator_hits)
 
 
+def _ground_date(game_db: bytes, offset: int) -> datetime.date | None:
+    """A built or rebuilt date, or None for the no-date value and malformed values.
+
+    Unlike a game date, a ground's date may fall before 1901: a ground built in the 1800s
+    stores that year. Day 1 of 1900 is the value a row holds when it has no date.
+    """
+    packed, year = _DATE_WORDS.unpack_from(game_db, offset)
+    day_of_year = packed & DAY_OF_YEAR_MASK
+    if (day_of_year, year) == _NO_GROUND_DATE:
+        return None
+    if not _EARLIEST_GROUND_YEAR <= year <= LATEST_GAME_YEAR:
+        return None
+    days_in_year = 366 if calendar.isleap(year) else 365
+    if not 1 <= day_of_year <= days_in_year:
+        return None
+    return datetime.date(year, 1, 1) + datetime.timedelta(days=day_of_year - 1)
+
+
 def _decoded_row(
     game_db: bytes, row_offset: int, ordinal: int, name: str | None, scan: _StadiumTableScan
 ) -> RawStadium:
@@ -358,8 +393,8 @@ def _decoded_row(
         capacity=field_values[scan.capacity_index],
         pitch_length=field_values[scan.pitch_length_index],
         pitch_width=field_values[scan.pitch_width_index],
-        built=decode_date(game_db, row_offset + scan.built_offset),
-        rebuilt=decode_date(game_db, row_offset + scan.rebuilt_offset),
+        built=_ground_date(game_db, row_offset + scan.built_offset),
+        rebuilt=_ground_date(game_db, row_offset + scan.rebuilt_offset),
         date_58_raw=_WORD.unpack_from(game_db, row_offset + scan.date_58_offset)[0],
         pitch_min_length=field_values[scan.pitch_min_length_index],
         pitch_min_width=field_values[scan.pitch_min_width_index],
@@ -398,6 +433,30 @@ class _WalkedRows:
 
     rows: list[RawStadium]
     stop_offset: int
+
+
+def _ordinal_zero_row(
+    game_db: bytes, head_offset: int, scan: _StadiumTableScan, layout: StadiumTableLayout
+) -> RawStadium | None:
+    """The row with ordinal zero, one unnamed row before the head, or None when none reads.
+
+    The locator vouches for the rows from ordinal one on, but not for this one, so the row has
+    to stand on its own: the head of a row with ordinal zero, no inline name (a named row there
+    would end past the head rather than at it), and a pitch length inside the range the pitch
+    check judges, which a run of zero bytes does not hold. The ground's own pitch limits are
+    not required, because a few real grounds store a pitch past their own maximum. The uid
+    check against the walked rows is the caller's.
+    """
+    row_offset = head_offset - scan.row_bytes
+    if not _row_heads_at(game_db, row_offset, scan, 0):
+        return None
+    if game_db[row_offset + scan.flags_offset] & scan.inline_name_flag:
+        return None
+    row = _decoded_row(game_db, row_offset, 0, None, scan)
+    lowest_length, highest_length = layout.pitch_length_range
+    if not lowest_length <= row.pitch_length <= highest_length:
+        return None
+    return row
 
 
 def _walk_rows(game_db: bytes, head_offset: int, scan: _StadiumTableScan) -> _WalkedRows:
@@ -471,8 +530,15 @@ def read_stadium_index(game_db: bytes, layout: StadiumTableLayout, file_name: st
             raise layout_mismatch(file_name, "a stadium uid appears in two rows")
         ordinals_by_uid[row.uid] = row.ordinal
         uid_by_ordinal[row.ordinal] = row.uid
+    rows = walked.rows
+    # A uid the walk already read means the bytes before the head are not this table's first
+    # row, so they are left out rather than raised on: the walked table is still sound.
+    first_row = _ordinal_zero_row(game_db, located.head_offset, scan, layout)
+    if first_row is not None and first_row.uid not in ordinals_by_uid:
+        rows = [first_row, *rows]
+        uid_by_ordinal = {first_row.ordinal: first_row.uid, **uid_by_ordinal}
     return StadiumIndex(
-        rows=tuple(walked.rows),
+        rows=tuple(rows),
         uid_by_ordinal=FrozenMapping(uid_by_ordinal),
         locator_hits=located.locator_hits,
         reached_table_end=_reached_table_end(
@@ -644,6 +710,7 @@ def build_stadiums(
                 uid=raw_stadium.uid,
                 name=raw_stadium.name,
                 all_seater_capacity=raw_stadium.all_seater,
+                seated_capacity=raw_stadium.u17,
                 expansion_capacity=raw_stadium.expansion,
                 capacity=raw_stadium.capacity or None,
                 owner_club_uid=owner_club_uid,

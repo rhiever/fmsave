@@ -127,7 +127,7 @@ SEASON_STATS = replace(
     require_unique_keys=True,
 )
 
-STAFF = replace(FM26_STAFF, list_count_bytes=2)
+STAFF = replace(FM26_STAFF, list_count_bytes=2, human_personality_floor=0)
 
 TRAINING = replace(
     FM26_TRAINING,
@@ -166,7 +166,21 @@ MATCH_CACHE = replace(
 MATCH_RECORDS = replace(FM26_MATCH_RECORDS, cache_layout=MATCH_CACHE, nonempty_supported=False)
 
 # Keep stored boundary dates unchanged; this build can end a row 1 day before it starts.
-SPONSOR_CHAINS = replace(FM26_SPONSOR_CHAINS, minimum_row_days=-1, reject_invalid_lists=True)
+# Kinds one club's sponsorship screen displayed a type against; 3 and 23 both showed Stadium.
+SPONSOR_CHAINS = replace(
+    FM26_SPONSOR_CHAINS,
+    minimum_row_days=-1,
+    reject_invalid_lists=True,
+    kind_names=(
+        (1, "MAIN_KIT"),
+        (3, "STADIUM"),
+        (4, "GENERAL"),
+        (8, "AWAY_KIT"),
+        (9, "ADDITIONAL_KIT_SPONSOR"),
+        (11, "BACK_OF_SHIRT"),
+        (23, "STADIUM"),
+    ),
+)
 
 LAYOUTS = (
     LayoutEntry("game_info", 47, BUILD, GAME_INFO),

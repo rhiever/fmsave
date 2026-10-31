@@ -658,6 +658,8 @@
         'enum18_offset': 18,
         'flag10_maximum': 1,
         'flag10_offset': 10,
+        'kind_names': tuple(
+        ),
         'minimum_row_days': 1,
         'prefix_count_offset': 71,
         'prefix_date_offsets': tuple(
@@ -1468,6 +1470,7 @@
         'entry_bytes': 7,
         'entry_count_offset': 13,
         'human_kind': 9,
+        'human_personality_floor': 0,
         'kind_offset': 12,
         'list_count': 3,
         'list_count_bytes': 1,
@@ -2316,6 +2319,7 @@
           'calendar_year_international',
         ),
         'unsupported_fields': tuple(
+          'goals_outside_box',
         ),
       }),
       'region': 'unlisted_after_non_pl_hist_ls',
@@ -2648,7 +2652,7 @@
         ),
         'rules_link_minimum_applies_from_runs': 200,
         'rules_link_round_dates': tuple(
-          0.65,
+          0.87,
           None,
         ),
         'rules_linked_blocks_minimum': tuple(
@@ -3357,7 +3361,7 @@
         ),
         'rules_link_minimum_applies_from_runs': 200,
         'rules_link_round_dates': tuple(
-          0.65,
+          0.87,
           None,
         ),
         'rules_linked_blocks_minimum': tuple(
@@ -4101,6 +4105,7 @@
         'entry_bytes': 7,
         'entry_count_offset': 13,
         'human_kind': 9,
+        'human_personality_floor': 0,
         'kind_offset': 12,
         'list_count': 3,
         'list_count_bytes': 2,
@@ -5184,6 +5189,36 @@
         'enum18_offset': 18,
         'flag10_maximum': 1,
         'flag10_offset': 10,
+        'kind_names': tuple(
+          tuple(
+            1,
+            'MAIN_KIT',
+          ),
+          tuple(
+            3,
+            'STADIUM',
+          ),
+          tuple(
+            4,
+            'GENERAL',
+          ),
+          tuple(
+            8,
+            'AWAY_KIT',
+          ),
+          tuple(
+            9,
+            'ADDITIONAL_KIT_SPONSOR',
+          ),
+          tuple(
+            11,
+            'BACK_OF_SHIRT',
+          ),
+          tuple(
+            23,
+            'STADIUM',
+          ),
+        ),
         'minimum_row_days': -1,
         'prefix_count_offset': 71,
         'prefix_date_offsets': tuple(

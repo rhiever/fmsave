@@ -1605,9 +1605,12 @@ class Save:
         reproduce the game's displayed sponsorship income. An invalid structurally located
         FM27 list raises `ReaderCheckError`, regardless of save size.
 
-        Every `type` code is UNKNOWN: the save groups its sponsorships into about twenty kinds
-        and no displayed label has pinned one of those codes. Money is a whole number in the
-        save's base currency, as in `finances()`.
+        `kind` carries a label only for the codes an FM27 sponsorship screen displayed a type
+        against; every other code, and every FM26 code, is UNKNOWN. Take a contract's length
+        in years from `total_value / annual_value`, as the screen's Duration does, not from
+        `start` and `end`. On one FM27 club the screen's total income was the sum of
+        `annual_value` over its running rows, except one unexpired kind 6 row it left out.
+        Money is a whole number in the save's base currency, as in `finances()`.
 
         The table is read on the first call to `finances()` or `sponsorships()`, from one decode
         pass; later calls to either return the same tables. When a check of that pass fails,
@@ -1697,12 +1700,12 @@ class Save:
         series returns an empty table, and `fmsave validate` reports the counts.
 
         `corporate_facilities` is the rating the game's Facilities screen shows as a word on
-        its **Corporate** line, and the words rise with the stored number. Fifteen of the
-        twenty codes carry the word one club's own screen displayed against that exact number,
-        from 1 Basic to 20 Excellent; two more, 8 and 14, carry the word of the codes either
-        side of them, each of which a screen displayed the same word for. The three codes no
-        club in the save carries -- 3, 4 and 16 -- read UNKNOWN with the raw number kept,
-        rather than taking a word from where they sit on the scale. The screen's other facility
+        its **Corporate** line, and the words rise with the stored number. Nineteen codes
+        carry the word one club's own screen displayed against that exact number, from 0 None
+        and 1 Basic to 20 Excellent; FM27 screens named 0, 3, 4 and 16 and FM26 screens the
+        rest. Two more, 8 and 14, carry the word of the codes either side of them, each of
+        which a screen displayed the same word for. A code above 20 reads UNKNOWN with the raw
+        number kept, rather than taking a word from where it sits. The screen's other facility
         lines, the stadium and pitch, the training and youth grounds and the academy, are not
         stored anywhere near this byte and are not read at all.
 

@@ -379,7 +379,7 @@ class RulesStats:
     `linked_rounds` counts the dated rounds those blocks hold and `linked_rounds_in_calendar`
     the ones falling on a date that competition plays a fixture on. That is the corroboration
     the link is judged by, because it separates from its own misalignment: taking the run
-    before each block instead of the run after it leaves 0.55 to 0.58 against 0.74 to 0.78 on
+    before each block instead of the run after it leaves 0.66 to 0.79 against 0.95 to 0.99 on
     the saves measured. `linked_round_shape` counts the blocks whose number of rounds is what
     a table of that many clubs playing each other once or twice would hold. That one is a
     count and **not** a gate: it scores 0.71 to 0.77 linked against 0.56 to 0.62 misaligned, so

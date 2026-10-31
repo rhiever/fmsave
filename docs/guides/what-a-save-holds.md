@@ -32,11 +32,13 @@ only adaptability.
 `managed_clubs()` is the club you run, and is empty between jobs. `finances()` is monthly figures
 per club, in the save's own unit. `sponsorships()` includes historical contracts, so a row
 does not necessarily describe current income: an ended contract can keep a non-zero annual
-value, so filter on `end` against the save's date. `stadiums()` holds capacities and ownership;
-names are available for only some grounds.
+value, so filter on `end` against the save's date. A running contract can still sit outside
+the screen's sponsorship income. A contract's length is `total_value / annual_value` years, not
+the span between `start` and `end`. `stadiums()` holds capacities and ownership; names are
+available for only some grounds.
 
-Club data still has limits. The meaning of a zero corporate-facilities rating and some
-sponsorship amounts is unconfirmed. Some finance histories still fail continuity checks.
+Club data still has limits. The meaning of some sponsorship amounts is unconfirmed, and some
+finance histories still fail continuity checks.
 Passing the reader checks does not confirm every field's meaning.
 See [Trusting a number](trust.md) before using these fields in an analysis.
 

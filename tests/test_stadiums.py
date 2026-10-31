@@ -33,8 +33,9 @@ from fmsave.export import column_names
 from fmsave.models.fixtures import Fixture
 from fmsave.models.stadiums import Stadium
 from fmsave.readers._common import GAME_DB_SECTION
-from fmsave.readers.stadiums import build_stadiums, read_stadium_index
+from fmsave.readers.stadiums import RawStadium, build_stadiums, read_stadium_index
 from tests.fixtures.career import (
+    ATHLETIC_TEAM_A,
     ATHLETIC_UID,
     FIXTURE_STAGE_ID,
     LEAGUE_KICK_OFF_SLOT,
@@ -47,12 +48,16 @@ from tests.fixtures.career import (
     ExampleFixture,
     career_fragment,
 )
+from tests.fixtures.container import packed_date
 from tests.fixtures.stadiums import (
+    CAREER_FIRST_STADIUM_ORDINAL,
     CAREER_LAST_STADIUM_ORDINAL,
     CAREER_NAMED_STADIUM,
     CAREER_NAMED_STADIUM_ORDINAL,
     CAREER_STADIUM_ROW_COUNT,
+    CAREER_STADIUM_U17,
     CAREER_STADIUM_UID_BASE,
+    NULL_DATE,
     STADIUM_INLINE_NAME_FLAG,
     STADIUM_TABLE_LEADING_BYTES,
     stadium_row_bytes,
@@ -78,16 +83,18 @@ TABLE_GATE_NAMES = (
 )
 STADIUM_GATE_NAMES = (*TABLE_GATE_NAMES, "stadium_home_grounds_owned")
 
-# Positions in the table the reader returns, which is ordinal order.
-FIRST_OWNED_GROUND = 9
-SECOND_OWNED_GROUND = 19
-UNLISTED_OWNER_GROUND = 29
-UNOWNED_GROUND = 98
-NAMED_GROUND = CAREER_NAMED_STADIUM_ORDINAL - 1
-LAST_GROUND = CAREER_LAST_STADIUM_ORDINAL - 1
+# Positions in the table the reader returns, which is ordinal order from the row with
+# ordinal zero, so a ground's position is its ordinal.
+FIRST_GROUND = 0
+FIRST_OWNED_GROUND = 10
+SECOND_OWNED_GROUND = 20
+UNLISTED_OWNER_GROUND = 30
+UNOWNED_GROUND = 99
+NAMED_GROUND = CAREER_NAMED_STADIUM_ORDINAL
+LAST_GROUND = CAREER_LAST_STADIUM_ORDINAL
 ALL_GROUND_ROWS = CAREER_STADIUM_ROW_COUNT
 # The ground the reserve-side test sends Northbridge's second team to, which is row 30.
-RESERVE_STADIUM_ORDINAL = UNLISTED_OWNER_GROUND + 1
+RESERVE_STADIUM_ORDINAL = UNLISTED_OWNER_GROUND
 
 FIRST_GROUND_UID = CAREER_STADIUM_UID_BASE + 10
 SECOND_GROUND_UID = CAREER_STADIUM_UID_BASE + 20
@@ -103,6 +110,7 @@ EXPECTED_STADIUM_COLUMNS = (
     "uid",
     "name",
     "all_seater_capacity",
+    "seated_capacity",
     "expansion_capacity",
     "capacity",
     "owner_club_uid",
@@ -217,6 +225,7 @@ def test_every_field_of_one_fully_filled_ground(career_path: Path) -> None:
         ground = save.stadiums()[FIRST_OWNED_GROUND]
 
     assert ground.all_seater_capacity == 5_010
+    assert ground.seated_capacity == CAREER_STADIUM_U17
     assert ground.expansion_capacity == 6_010
     assert ground.capacity == 5_010
     assert ground.owner_club_uid == NORTHBRIDGE_UID
@@ -236,6 +245,19 @@ def test_every_field_of_one_fully_filled_ground(career_path: Path) -> None:
         "date_58": NULL_DATE_AS_INT,
         "flags_156": 0,
     }
+
+
+def test_the_seated_figure_keeps_its_old_unknown_key(career_path: Path) -> None:
+    """Code that read the seated figure from `unknown["u17"]` keeps reading the same value."""
+    with fmsave.open(career_path) as save:
+        stadiums = save.stadiums()
+
+    assert all(ground.unknown["u17"] == ground.seated_capacity for ground in stadiums)
+    assert (
+        stadiums[FIRST_OWNED_GROUND].seated_capacity
+        < stadiums[FIRST_OWNED_GROUND].all_seater_capacity
+    )
+    assert stadiums[UNOWNED_GROUND].seated_capacity == 0
 
 
 def test_an_owner_no_club_holds_and_a_ground_with_no_owner(career_path: Path) -> None:
@@ -272,6 +294,48 @@ def test_the_closing_header_is_not_returned_as_a_ground(career_path: Path) -> No
     assert stats.pitch_within_limits == ALL_GROUND_ROWS
     assert stats.table_end_reached == 1
     assert all(ground.uid != CAREER_STADIUM_UID_BASE + 102 for ground in stadiums)
+
+
+def dated_ground(*, built: bytes = NULL_DATE, rebuilt: bytes = NULL_DATE) -> RawStadium:
+    """The thirteenth row of a small table, storing these two dates."""
+    rows = example_rows(20)
+    rows[12] = stadium_row_bytes(
+        ordinal=13,
+        uid=CAREER_STADIUM_UID_BASE + 13,
+        all_seater=5_013,
+        expansion=6_013,
+        owner_club_index=None,
+        capacity=0,
+        built=built,
+        rebuilt=rebuilt,
+    )
+    index = read_stadium_index(stadium_table_bytes(rows), LAYOUT, FILE_NAME)
+    assert len(index.rows) == 20
+    return index.rows[12]
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        pytest.param(packed_date(183, 1884), date(1884, 7, 1), id="built-in-the-1880s"),
+        pytest.param(packed_date(1, 1800), date(1800, 1, 1), id="the-first-year-kept"),
+        pytest.param(packed_date(145, 1900), date(1900, 5, 25), id="a-day-of-1900-past-the-first"),
+        pytest.param(
+            packed_date(100, 1950, time_slot=3), date(1950, 4, 10), id="slot-bits-ignored"
+        ),
+        pytest.param(NULL_DATE, None, id="day-one-of-1900-is-no-date"),
+        pytest.param(packed_date(365, 1799), None, id="before-the-earliest-year"),
+        pytest.param(packed_date(1, 2201), None, id="past-the-latest-year"),
+        pytest.param(packed_date(366, 1950), None, id="a-day-the-year-does-not-have"),
+        pytest.param(packed_date(0, 1950), None, id="day-zero"),
+    ],
+)
+def test_a_grounds_dates_reach_back_before_any_game_date(
+    stored: bytes, expected: date | None
+) -> None:
+    """A ground built in the 1800s keeps its year, which no game date may hold."""
+    assert dated_ground(built=stored).built == expected
+    assert dated_ground(rebuilt=stored).rebuilt == expected
 
 
 def test_the_home_grounds_come_from_the_calendar(tmp_path: Path) -> None:
@@ -428,6 +492,145 @@ def test_a_decoy_run_of_ordinals_is_skipped_for_the_real_table() -> None:
 
     assert len(index.rows) == 20
     assert index.locator_hits >= 2
+
+
+def test_the_row_before_the_located_head_is_the_ground_with_ordinal_zero() -> None:
+    """The locator finds ordinals 1, 2, 3, so the row in front of them is read on its own.
+
+    The table starts at the very start of the section here, so the row is read right up to the
+    section's first byte.
+    """
+    rows = example_rows(21, first_ordinal=0)
+    game_db = stadium_table_bytes(rows, leading_bytes=0)
+
+    index = read_stadium_index(game_db, LAYOUT, FILE_NAME)
+
+    assert len(index.rows) == 21
+    assert index.rows[0].ordinal == 0
+    assert index.rows[0].uid == CAREER_STADIUM_UID_BASE
+    assert index.uid_by_ordinal[0] == CAREER_STADIUM_UID_BASE
+    assert index.uid_by_ordinal[1] == CAREER_STADIUM_UID_BASE + 1
+    assert index.reached_table_end is True
+
+
+def _zero_row_with(
+    *,
+    ordinal: int = 0,
+    uid: int = CAREER_STADIUM_UID_BASE,
+    pitch: tuple[int, int] = (1050, 680),
+    pitch_maximum: tuple[int, int] = (1200, 900),
+) -> bytes:
+    """The ground with ordinal zero, or a row standing where it would, with these fields."""
+    return stadium_row_bytes(
+        ordinal=ordinal,
+        uid=uid,
+        all_seater=5_000,
+        expansion=6_000,
+        owner_club_index=None,
+        capacity=0,
+        pitch=pitch,
+        pitch_maximum=pitch_maximum,
+    )
+
+
+def _with_byte(row: bytes, offset: int, value: int) -> bytes:
+    changed = bytearray(row)
+    changed[offset] = value
+    return bytes(changed)
+
+
+def _with_word(row: bytes, offset: int, value: int) -> bytes:
+    changed = bytearray(row)
+    struct.pack_into("<I", changed, offset, value)
+    return bytes(changed)
+
+
+@pytest.mark.parametrize(
+    "row_before_head",
+    [
+        pytest.param(bytes(LAYOUT.row_bytes), id="a-run-of-zero-bytes"),
+        pytest.param(_zero_row_with(ordinal=7), id="an-ordinal-that-is-not-zero"),
+        pytest.param(
+            _with_word(_zero_row_with(), LAYOUT.uid_copy_offset, 42), id="a-uid-not-doubled"
+        ),
+        pytest.param(
+            _with_byte(_zero_row_with(), LAYOUT.zero_byte_offset, 1), id="no-zero-byte-after-it"
+        ),
+        pytest.param(
+            _with_byte(_zero_row_with(), LAYOUT.flags_offset, STADIUM_INLINE_NAME_FLAG),
+            id="the-inline-name-flag",
+        ),
+        pytest.param(_zero_row_with(pitch=(500, 300)), id="a-pitch-below-the-length-range"),
+        pytest.param(_zero_row_with(pitch=(1400, 680)), id="a-pitch-above-the-length-range"),
+    ],
+)
+def test_a_row_before_the_head_that_does_not_read_as_ordinal_zero_is_left_out(
+    row_before_head: bytes,
+) -> None:
+    game_db = stadium_table_bytes([row_before_head, *example_rows(20)], leading_bytes=0)
+
+    index = read_stadium_index(game_db, LAYOUT, FILE_NAME)
+
+    assert [row.ordinal for row in index.rows] == list(range(1, 21))
+    assert 0 not in index.uid_by_ordinal
+    assert index.reached_table_end is True
+
+
+def test_a_ground_with_ordinal_zero_may_store_a_pitch_past_its_own_maximum() -> None:
+    """A few real grounds store a pitch longer than their own maximum, so only the range counts."""
+    past_its_maximum = _zero_row_with(pitch=(1250, 950), pitch_maximum=(1200, 900))
+    game_db = stadium_table_bytes([past_its_maximum, *example_rows(20)], leading_bytes=0)
+
+    index = read_stadium_index(game_db, LAYOUT, FILE_NAME)
+
+    assert len(index.rows) == 21
+    assert index.rows[0].pitch_length == 1250
+
+
+def test_a_row_before_the_head_repeating_a_walked_uid_is_left_out_without_raising() -> None:
+    """Two rows with one uid raise inside the walk, but this row is only a candidate.
+
+    A uid the walk already read says the bytes are not the table's first ground, so the table
+    the walk read is kept as it is.
+    """
+    repeated = _zero_row_with(uid=CAREER_STADIUM_UID_BASE + 5)
+    game_db = stadium_table_bytes([repeated, *example_rows(20)], leading_bytes=0)
+
+    index = read_stadium_index(game_db, LAYOUT, FILE_NAME)
+
+    assert len(index.rows) == 20
+    assert 0 not in index.uid_by_ordinal
+
+
+def test_a_ground_with_ordinal_zero_carries_its_matches_and_its_home_club(
+    tmp_path: Path,
+) -> None:
+    """A fixture storing ordinal zero resolves, so the club playing there gets a home ground."""
+    at_the_first_ground = tuple(
+        ExampleFixture(
+            FIXTURE_STAGE_ID,
+            ATHLETIC_TEAM_A,
+            SOUTHPORT_TEAM,
+            142 + 7 * step,
+            LEAGUE_KICK_OFF_SLOT,
+            14 + step,
+            True,
+            CAREER_FIRST_STADIUM_ORDINAL,
+        )
+        for step in range(4)
+    )
+    with fmsave.open(write_career(tmp_path, at_the_first_ground)) as save:
+        fixtures = save.fixtures()
+        stadiums = save.stadiums()
+        reader_check = save._reader_check("fixtures")
+
+    at_ground_zero = [fixture for fixture in fixtures if fixture.home_club_uid == ATHLETIC_UID]
+    assert len(at_ground_zero) == 4
+    assert {fixture.stadium_uid for fixture in at_ground_zero} == {CAREER_STADIUM_UID_BASE}
+    assert stadiums[FIRST_GROUND].uid == CAREER_STADIUM_UID_BASE
+    assert stadiums[FIRST_GROUND].home_club_uids == (ATHLETIC_UID,)
+    assert reader_check is not None
+    assert reader_check.anomalies["unresolved_stadiums"] == 0
 
 
 def test_a_name_that_is_not_utf8_ends_the_walk() -> None:
@@ -620,7 +823,14 @@ def test_the_field_statuses_follow_the_stadium_coverage() -> None:
         "rebuilt_date",
     ):
         assert field_status(Stadium, verified_field) == "verified", verified_field
-    for unconfirmed_field in ("uid", "name", "capacity", "owner_club_uid", "home_club_uids"):
+    for unconfirmed_field in (
+        "uid",
+        "name",
+        "seated_capacity",
+        "capacity",
+        "owner_club_uid",
+        "home_club_uids",
+    ):
         assert field_status(Stadium, unconfirmed_field) == "unconfirmed", unconfirmed_field
     assert Stadium.UNKNOWN_KEYS == ("u17", "u25", "b33", "date_58", "flags_156")
 

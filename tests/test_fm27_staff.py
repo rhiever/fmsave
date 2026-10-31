@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import struct
-from dataclasses import replace
+from dataclasses import astuple, replace
 
 import pytest
 
@@ -137,9 +137,11 @@ def test_exact_fm27_staff_registration_uses_two_byte_list_counts() -> None:
 
     layout = find_layout(StaffLayout, "game_db", 4000, "27.0.0+2486695").layout
     assert layout.list_count_bytes == 2
+    assert layout.human_personality_floor == 0
+    assert STAFF_LAYOUT.human_personality_floor == 0
 
 
-def person_block(legal_name: str) -> bytes:
+def person_block(legal_name: str, personality: tuple[int, ...] = (10,) * 8) -> bytes:
     from tests.fixtures.container import packed_date
     from tests.fixtures.game_db import person_block_bytes
 
@@ -150,7 +152,7 @@ def person_block(legal_name: str) -> bytes:
         legal_name=legal_name,
         birth=packed_date(60, 2004),
         nation_id=44,
-        personality=(10,) * 8,
+        personality=personality,
         trait_bits=0,
         relations=(),
     )
@@ -172,7 +174,13 @@ def own_contract() -> bytes:
     return record
 
 
-def unique_staff_rows(extra_staff: bytes, *, human_selector: int | None = None):
+def unique_staff_rows(
+    extra_staff: bytes,
+    *,
+    human_selector: int | None = None,
+    human_personality_floor: int | None = None,
+    require_unique_candidate: bool = True,
+):
     from datetime import date
 
     from fmsave.readers.clubs import read_club_index
@@ -190,7 +198,10 @@ def unique_staff_rows(extra_staff: bytes, *, human_selector: int | None = None):
     players = locate_player_records(db, pools.end_offset, PLAYER_LAYOUT, "career example.fm")
     layouts = replace(
         STAFF_LAYOUTS,
-        person_blocks=replace(STAFF_LAYOUTS.person_blocks, require_unique_candidate=True),
+        staff=replace(STAFF_LAYOUTS.staff, human_personality_floor=human_personality_floor),
+        person_blocks=replace(
+            STAFF_LAYOUTS.person_blocks, require_unique_candidate=require_unique_candidate
+        ),
     )
     rows, _lists, _stats = read_staff(
         db,
@@ -269,3 +280,140 @@ def test_human_contract_after_validated_object_end_is_not_owned_by_the_manager()
 
     assert not any(row.uid == 810_018 for row in rows)
     assert not any(row.is_human_manager for row in rows)
+
+
+# A new manager's profile stores a zero in one personality slot, below the range the ordinary
+# search for a name block accepts.
+ZERO_SLOT_PERSONALITY = (12, 10, 10, 10, 10, 10, 10, 0)
+
+
+def manager_and_neighbor(*, kind: int = 9, personality: tuple[int, ...] = ZERO_SLOT_PERSONALITY):
+    from tests.fixtures.staff import staff_object_bytes
+
+    own = staff_object_bytes(
+        person_id=18,
+        uid=810_018,
+        kind=kind,
+        contract=own_contract(),
+        person_block=person_block("Manager Example", personality),
+    )
+    neighbor = staff_object_bytes(
+        person_id=19,
+        uid=810_019,
+        person_block=person_block("Neighbor Example"),
+    )
+    return own + neighbor
+
+
+def test_human_manager_with_a_zero_personality_byte_is_named_under_the_floor() -> None:
+    rows = unique_staff_rows(manager_and_neighbor(), human_selector=19, human_personality_floor=0)
+    manager = next(row for row in rows if row.is_human_manager)
+
+    assert manager.uid == 810_018
+    assert manager.legal_name == "Manager Example"
+    assert manager.personality is not None
+    assert astuple(manager.personality) == ZERO_SLOT_PERSONALITY
+    assert manager.unique_id == 810_019
+
+
+def test_human_manager_with_a_zero_personality_byte_stays_unnamed_without_the_floor() -> None:
+    rows = unique_staff_rows(manager_and_neighbor(), human_selector=19)
+    manager = next(row for row in rows if row.is_human_manager)
+
+    assert manager.legal_name is None
+    assert manager.personality is None
+
+
+def test_the_floor_leaves_staff_who_are_not_the_human_manager_alone() -> None:
+    rows = unique_staff_rows(manager_and_neighbor(kind=1), human_personality_floor=0)
+    staff = next(row for row in rows if row.uid == 810_018)
+
+    assert staff.is_human_manager is False
+    assert staff.legal_name is None
+
+
+def test_the_floor_is_not_used_when_the_ordinary_search_finds_the_manager() -> None:
+    rows = unique_staff_rows(
+        manager_and_neighbor(personality=(10,) * 8), human_selector=19, human_personality_floor=0
+    )
+    manager = next(row for row in rows if row.is_human_manager)
+
+    assert manager.legal_name == "Manager Example"
+
+
+# FM26 layouts accept the first block a window holds rather than a unique one, so the human's
+# window has to end at his closing header or a neighbour's block is read as his.
+@pytest.mark.parametrize(
+    ("floor", "expected"), [(None, "Neighbor Example"), (0, "Manager Example")]
+)
+def test_fm26_human_window_ends_at_his_closing_header_under_the_floor(
+    floor: int | None, expected: str
+) -> None:
+    rows = unique_staff_rows(
+        manager_and_neighbor(),
+        human_selector=19,
+        human_personality_floor=floor,
+        require_unique_candidate=False,
+    )
+    manager = next(row for row in rows if row.is_human_manager)
+
+    assert manager.legal_name == expected
+
+
+def test_fm26_floor_leaves_a_human_whose_block_reads_normally_alone() -> None:
+    rows = unique_staff_rows(
+        manager_and_neighbor(personality=(10,) * 8),
+        human_selector=19,
+        human_personality_floor=0,
+        require_unique_candidate=False,
+    )
+    manager = next(row for row in rows if row.is_human_manager)
+
+    assert manager.legal_name == "Manager Example"
+    assert manager.personality is not None
+    assert manager.personality.controversy == 10
+
+
+def test_fm26_floor_does_not_change_the_window_of_staff_who_are_not_the_human() -> None:
+    # The fix is scoped to the human manager: another person's window, and the first block in
+    # it, are what they were without the floor.
+    with_floor, without_floor = (
+        next(
+            row
+            for row in unique_staff_rows(
+                manager_and_neighbor(kind=1),
+                human_personality_floor=floor,
+                require_unique_candidate=False,
+            )
+            if row.uid == 810_018
+        )
+        for floor in (0, None)
+    )
+
+    assert with_floor == without_floor
+
+
+@pytest.mark.parametrize(("floor", "has_row"), [(None, True), (0, False)])
+def test_fm26_human_contract_past_his_closing_header_is_not_his_under_the_floor(
+    floor: int | None, has_row: bool
+) -> None:
+    # His records and his name-block window end at the same closing header, so a record with
+    # his selector inside the next object is never read as his contract.
+    from tests.fixtures.staff import staff_object_bytes
+
+    human = staff_object_bytes(person_id=18, uid=810_018, kind=9)
+    neighbor = staff_object_bytes(
+        person_id=19,
+        uid=810_019,
+        contract=own_contract(),
+        person_block=person_block("Neighbor Example"),
+    )
+
+    rows = unique_staff_rows(
+        human + neighbor,
+        human_selector=19,
+        human_personality_floor=floor,
+        require_unique_candidate=False,
+    )
+
+    assert any(row.is_human_manager for row in rows) is has_row

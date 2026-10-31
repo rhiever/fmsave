@@ -259,6 +259,10 @@ class SponsorChainLayout:
     Nonempty lists retain the row tag, flag, date and monetary checks. Row field offsets
     count from each sponsor row; prefix offsets count from the finance chain's end, and
     suffix offsets count from the end of the preceding counted entries.
+
+    `kind_names` names stored sponsor kinds as `(code, SponsorType member name)` pairs, each
+    one a code a club's sponsorship screen displayed that type against on this build. Every
+    code the pairs leave out reads UNKNOWN and keeps its raw number.
     """
 
     prefix_marker: bytes
@@ -288,6 +292,7 @@ class SponsorChainLayout:
     value_maximum: int
     minimum_row_days: int = 1
     reject_invalid_lists: bool = False
+    kind_names: tuple[tuple[int, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1144,7 +1149,9 @@ class StadiumTableLayout:
     is at no fixed fraction of the section, so nothing here is an offset into `game_db`.
 
     The walk then steps row by row and stops at the first row that does not decode, so it
-    never resynchronises: a row whose ordinal is not the next one ends the table.
+    never resynchronises: a row whose ordinal is not the next one ends the table. The row with
+    ordinal zero sits `row_bytes` before the head and is taken only on its own evidence: no
+    inline name, and a pitch length inside `pitch_length_range`.
 
     Every other offset counts from a row start. A row is `row_bytes` long unless bit
     `inline_name_flag` of the byte at `flags_offset` is set, and then the u32 at
@@ -1590,6 +1597,10 @@ class StaffLayout:
     is searched for from `person_block_offset_after_tag` past the tag, for at most
     `person_block_search_bytes` and never past the next header. A person with no contract is
     searched for from just past his header for at most `list_only_block_search_bytes`.
+    Where `human_personality_floor` is set, the human manager's window also ends at his own
+    closing header, and when that search finds no block for him, the window is searched once
+    more with personality bytes accepted from that floor, because a new manager's profile can
+    store a zero there.
     """
 
     kind_offset: int
@@ -1629,6 +1640,7 @@ class StaffLayout:
     preference_slot_sentinels: tuple[tuple[int, int], ...] = ()
     non_staff_contract_kinds: tuple[int, ...] = ()
     list_count_bytes: int = 1
+    human_personality_floor: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1982,8 +1994,8 @@ class GateBounds:
     after it, and that permutes the same runs among the same blocks, so every share built from
     the link is invariant under it by construction: the share of blocks that link at all is
     0.55 to 0.68 whichever run is taken. `rules_link_round_dates` escapes that because it is a
-    share of *round dates* rather than of blocks, and it separates cleanly (0.74 to 0.78
-    against 0.55 to 0.58) -- but it is a share with no population of its own to fall back on,
+    share of *round dates* rather than of blocks, and it separates (0.947 to 0.987 against
+    0.657 to 0.790 on the saves it applies to) -- but it is a share with no population of its own to fall back on,
     so the empty-population rule leaves it unjudged when nothing links at all. `rules_linked_blocks_minimum` is what
     closes that hole: a link that quietly stops linking scores zero on it, which no share here
     would notice. It applies only above `rules_link_minimum_applies_from_runs` blocks with a

@@ -269,6 +269,17 @@ def test_deleted_file_raises_save_changed(fragment_path: Path) -> None:
         read_section(container_index, "humans")
 
 
+def test_a_relative_path_keeps_working_after_the_working_folder_changes(
+    tmp_path: Path, fragment_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(fragment_path.parent)
+    container_index = read_index(fragment_path.name)
+    other_folder = tmp_path / "elsewhere"
+    other_folder.mkdir()
+    monkeypatch.chdir(other_folder)
+    assert read_section(container_index, "humans") == default_sections()[5].body
+
+
 def test_file_handles_are_released(tmp_path: Path, fragment_path: Path) -> None:
     container_index = read_index(fragment_path)
     read_section(container_index, "humans")

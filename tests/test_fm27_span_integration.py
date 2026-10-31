@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import json
+from functools import partial
 from pathlib import Path
 
 import pytest
 
 import fmsave
-from fmsave._container import read_index, read_section
+import fmsave._save
+from fmsave._container import (
+    FM27_FRAME_DECOMPRESSED_CAP,
+    FM27_TOTAL_DECOMPRESSED_CAP,
+    read_index,
+    read_section,
+)
+from fmsave.readers.fm27_span import Fm27SpanLimits
 from tests.fixtures.container import SectionFrame, build_container_fragment, section_body, zstd
 from tests.test_fm27_experimental import fm27_fragment
 from tests.test_fm27_span import core, packet, rules
@@ -69,7 +77,20 @@ def test_raw_span_is_not_an_fm26_fallback(tmp_path: Path) -> None:
     assert "experimental_counts" not in fmsave.validate_save(fmsave.open(path)).to_json_dict()
 
 
-def test_integrated_raw_span_limits_decompression_before_parser_allocation(tmp_path: Path) -> None:
+def test_raw_span_byte_limits_sit_inside_the_fm27_read_budget() -> None:
+    limits = Fm27SpanLimits()
+    assert limits.maximum_frame_bytes <= limits.maximum_span_bytes
+    assert limits.maximum_span_bytes <= FM27_TOTAL_DECOMPRESSED_CAP
+    assert limits.maximum_frame_bytes <= FM27_FRAME_DECOMPRESSED_CAP
+
+
+def test_integrated_raw_span_limits_decompression_before_parser_allocation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    frame_limit = 64 * 1024
+    monkeypatch.setattr(
+        fmsave._save, "Fm27SpanLimits", partial(Fm27SpanLimits, maximum_frame_bytes=frame_limit)
+    )
     index = read_index(fm27_fragment(tmp_path))
     sections = [
         SectionFrame(name, read_section(index, name), entry.extension)
@@ -79,11 +100,11 @@ def test_integrated_raw_span_limits_decompression_before_parser_allocation(tmp_p
         SectionFrame(
             "non_pl_hist_ls",
             section_body(".dat", 4, bytes(4)),
-            unlisted_frames_after=(zstd.compress(bytes(8 * 1024**2 + 1)),),
+            unlisted_frames_after=(zstd.compress(bytes(frame_limit + 1)),),
         )
     )
     path = build_container_fragment(sections).write(tmp_path / "large-output.bin")
     with pytest.warns(fmsave.UnknownBuildWarning):
         save = fmsave.open(path)
-    with save, pytest.raises(fmsave.CorruptSaveError, match="more than 8388608 bytes"):
+    with save, pytest.raises(fmsave.CorruptSaveError, match=f"more than {frame_limit} bytes"):
         save.experimental_span()

@@ -725,6 +725,7 @@
         'uid',
         'name',
         'all_seater_capacity',
+        'seated_capacity',
         'expansion_capacity',
         'capacity',
         'owner_club_uid',

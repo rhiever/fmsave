@@ -35,8 +35,12 @@ is kept: some are whole tables the save stores as they stood partway through a s
 Nothing in a table names its competition. It is voted for from the fixture calendar: the
 competitions each member club plays in are tallied over the table, and the most covered one
 names it if it covers at least half the members, so a competition one member of twelve plays in
-never names the table. Several tables may name one competition, because a cup's group stage is
-one competition with a table per group; the corpus holds about 800 tables against about 520
+never names the table. Every club also plays friendlies, which cover as many members as a
+division does, so a tie goes to the competition holding the most meetings between two members;
+settled on the lower id instead, 11% to 31% of the tables on five FM26 saves went to a competition
+holding almost no meetings between their members, most often the friendlies.
+Several tables may name one competition, because a cup's group stage is one competition with a
+table per group; the corpus holds about 800 tables against about 520
 competitions, so reserving a competition for a single table would leave most tables unnamed. A
 table the vote cannot settle keeps `competition_id` None and is still returned, which on the
 corpus is about one table in a thousand.
@@ -76,6 +80,7 @@ from __future__ import annotations
 import math
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 
 from fmsave._frozen import FrozenMapping
@@ -237,15 +242,55 @@ def competition_counts_by_team(fixtures: Sequence[Fixture]) -> dict[int, Counter
     return counts_by_team
 
 
+def competition_counts_by_pair(fixtures: Sequence[Fixture]) -> dict[tuple[int, int], Counter[int]]:
+    """How often each pair of team ids meets in each competition, from the fixture calendar."""
+    counts_by_pair: dict[tuple[int, int], Counter[int]] = {}
+    for fixture in fixtures:
+        competition_id = fixture.competition_id
+        if competition_id is None:
+            continue
+        pair = _club_pair(fixture.home_team_id, fixture.away_team_id)
+        pair_counts = counts_by_pair.get(pair)
+        if pair_counts is None:
+            pair_counts = Counter[int]()
+            counts_by_pair[pair] = pair_counts
+        pair_counts[competition_id] += 1
+    return counts_by_pair
+
+
+def _meetings_between_members(
+    members: Sequence[RawTableBlock],
+    competition_ids: AbstractSet[int],
+    counts_by_pair: Mapping[tuple[int, int], Counter[int]],
+) -> Counter[int]:
+    """How many calendar meetings between two members of a table each competition holds."""
+    team_ids = sorted({block.team_id for block in members})
+    meetings: Counter[int] = Counter()
+    for position, team_id in enumerate(team_ids):
+        for other_team_id in team_ids[position + 1 :]:
+            pair_counts = counts_by_pair.get((team_id, other_team_id))
+            if pair_counts is None:
+                continue
+            for competition_id in competition_ids:
+                meetings[competition_id] += pair_counts.get(competition_id, 0)
+    return meetings
+
+
 def resolve_group_competitions(
-    groups: Sequence[Sequence[RawTableBlock]], counts_by_team: Mapping[int, Counter[int]]
+    groups: Sequence[Sequence[RawTableBlock]],
+    counts_by_team: Mapping[int, Counter[int]],
+    counts_by_pair: Mapping[tuple[int, int], Counter[int]] | None = None,
 ) -> tuple[int | None, ...]:
     """Vote each table's competition from the calendar; one entry per table, in table order.
 
     The competitions each member club plays in are tallied over the table, and the most
     covered one names it provided it covers at least half the members, so a competition one
-    member of twelve plays in never names the table. Ties are settled on the lower id, so the
-    result never depends on the order a dictionary happened to hold two competitions in.
+    member of twelve plays in never names the table. With `counts_by_pair`, competitions
+    that cover equally many members are told apart by how many calendar meetings between two
+    of the table's own members each holds: every club of a division also plays friendlies,
+    which cover every member as well, but only the division's own fixtures pair members with
+    each other. Remaining ties are settled on the lower id, so the result never depends on the
+    order a dictionary happened to hold two competitions in.
 
     Two tables may name the same competition, and most competitions name several: a cup's
     group stage is one competition holding a table per group, and the corpus holds about 800
@@ -264,11 +309,18 @@ def resolve_group_competitions(
         if not tally:
             resolved.append(None)
             continue
-        competition_id, members_covered = min(
-            tally.items(), key=lambda entry: (-entry[1], entry[0])
+        most_covered = max(tally.values())
+        tied = {
+            competition_id for competition_id, covered in tally.items() if covered == most_covered
+        }
+        meetings: Counter[int] = (
+            _meetings_between_members(members, tied, counts_by_pair)
+            if counts_by_pair is not None and len(tied) > 1
+            else Counter()
         )
+        competition_id = min(tied, key=lambda tied_id: (-meetings[tied_id], tied_id))
         needed = math.ceil(len(members) / 2)
-        resolved.append(competition_id if members_covered >= needed else None)
+        resolved.append(competition_id if most_covered >= needed else None)
     return tuple(resolved)
 
 
@@ -688,7 +740,9 @@ def build_league_tables(
     """
     kept_blocks, duplicate_blocks = distinct_blocks(span_records.table_blocks)
     groups, superseded_blocks = drop_superseded_groups(group_blocks(kept_blocks, layout), layout)
-    resolved = resolve_group_competitions(groups, competition_counts_by_team(fixtures))
+    resolved = resolve_group_competitions(
+        groups, competition_counts_by_team(fixtures), competition_counts_by_pair(fixtures)
+    )
     name_for = competition_index.name_for
 
     tables: list[LeagueTable] = []

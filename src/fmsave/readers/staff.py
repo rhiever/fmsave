@@ -869,7 +869,12 @@ def read_staff(
         human_header = header_by_person[human_person_id]
         next_header = _next_header_after(boundaries, human_header)
         object_end = next_header or len(game_db)
-        if layouts.person_blocks.require_unique_candidate:
+        # The same closing header ends his name-block window below, so his records and his
+        # block are looked for inside one object.
+        if (
+            layouts.person_blocks.require_unique_candidate
+            or staff_layout.human_personality_floor is not None
+        ):
             human_values = _header_values(
                 game_db, human_header, _header_reader(staff_layout), staff_layout
             )
@@ -933,8 +938,14 @@ def read_staff(
         next_header = _next_header_after(boundaries, header)
         closing = _closing_header(game_db, person_id, header, uid, next_header, staff_layout)
         unique_id = None if closing is None else closing[1]
+        human_floor = staff_layout.human_personality_floor
         person_boundary = next_header
-        if layouts.person_blocks.require_unique_candidate and closing is not None:
+        # Where the human's own block can store a personality byte the ordinary search skips,
+        # his window ends at his closing header, so the block of whoever follows is never his.
+        if closing is not None and (
+            layouts.person_blocks.require_unique_candidate
+            or (is_human_manager and human_floor is not None)
+        ):
             person_boundary = closing[0]
         own_records = records_by_person.get(person_id)
         tag_offset = None if own_records is None else _latest_started(own_records)[0]
@@ -942,6 +953,8 @@ def read_staff(
             game_db, header, tag_offset, person_boundary, staff_layout
         )
         person = person_decoder.decode(game_db, window_start, window_end)
+        if person is None and is_human_manager and human_floor is not None:
+            person = person_decoder.decode(game_db, window_start, window_end, human_floor)
         if person is not None:
             persons_with_block += 1
         objects[person_id] = _PersonObject(

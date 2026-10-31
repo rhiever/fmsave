@@ -122,6 +122,30 @@ def iter_marker_run_starts(
         position += step
 
 
+def iter_floor_run_starts(
+    game_db: bytes,
+    search_start: int,
+    window_end: int,
+    personality_range: tuple[int, int],
+    personality_count: int,
+) -> Iterator[int]:
+    """Yield each zero byte in `[search_start, window_end)` that `personality_count` bytes
+    inside `personality_range` follow, ascending, with the whole run inside the window.
+
+    The same search as `iter_marker_run_starts` for a range that takes in zero itself, which
+    a marker table cannot express, since its zero byte is the run's lead. It is a plain walk
+    over the window, so it is meant for one short window rather than a player's.
+    """
+    lowest, highest = personality_range
+    last_start = window_end - personality_count - 1
+    for position in range(max(search_start, 0), last_start + 1):
+        if game_db[position] == 0 and all(
+            lowest <= value <= highest
+            for value in game_db[position + 1 : position + 1 + personality_count]
+        ):
+            yield position
+
+
 def _trait_codes() -> tuple[CodedValue[Trait], ...]:
     return tuple(CodedValue.from_raw(Trait, bit) for bit in range(_TRAIT_BIT_COUNT))
 
@@ -214,6 +238,7 @@ class PersonBlockDecoder:
     marker_needle: bytes
     zero_offset_from_birth: int
     require_unique_candidate: bool
+    personality_highest: int
 
     # Candidate validation and name-block offsets.
     date_zero_bytes_offset: int
@@ -255,23 +280,43 @@ class PersonBlockDecoder:
     second_nation_entry_count: int = 0
     second_nation_qualifier_ok_count: int = 0
 
-    def decode(self, game_db: bytes, window_start: int, window_end: int) -> PersonTuple | None:
+    def decode(
+        self,
+        game_db: bytes,
+        window_start: int,
+        window_end: int,
+        personality_floor: int | None = None,
+    ) -> PersonTuple | None:
         """A validated person block in `[window_start, window_end)`, or None.
 
         Normally the first valid block wins. Layouts requiring uniqueness omit person
         fields when more than one candidate validates inside the window.
+
+        `personality_floor` lowers the smallest personality byte a candidate may hold, for a
+        block that stores one below the layout's range; None keeps the layout's range and its
+        fast search.
 
         Raises:
             CorruptSaveError: A validated block's relation header or entry list runs past
                 window_end, or its legal name is not valid UTF-8.
         """
         self.last_block_start = None
-        if self.require_unique_candidate:
-            return self._decode_unique(game_db, window_start, window_end)
         search_start = window_start + self.zero_offset_from_birth
-        for zero_position in iter_marker_run_starts(
-            game_db, search_start, window_end, self.marker_table, self.marker_needle
-        ):
+        if personality_floor is None:
+            zero_positions = iter_marker_run_starts(
+                game_db, search_start, window_end, self.marker_table, self.marker_needle
+            )
+        else:
+            zero_positions = iter_floor_run_starts(
+                game_db,
+                search_start,
+                window_end,
+                (personality_floor, self.personality_highest),
+                self.personality_count,
+            )
+        if self.require_unique_candidate:
+            return self._decode_unique(game_db, zero_positions, window_end)
+        for zero_position in zero_positions:
             birth_date_offset = zero_position - self.zero_offset_from_birth
             person = self._try_candidate(game_db, birth_date_offset, window_end)
             if person is not None:
@@ -279,7 +324,7 @@ class PersonBlockDecoder:
         return None
 
     def _decode_unique(
-        self, game_db: bytes, window_start: int, window_end: int
+        self, game_db: bytes, zero_positions: Iterator[int], window_end: int
     ) -> PersonTuple | None:
         """Accept exactly one candidate, counting only a successfully accepted block.
 
@@ -297,10 +342,7 @@ class PersonBlockDecoder:
         selected_start: int | None = None
         accepted = False
         try:
-            search_start = window_start + self.zero_offset_from_birth
-            for zero_position in iter_marker_run_starts(
-                game_db, search_start, window_end, self.marker_table, self.marker_needle
-            ):
+            for zero_position in zero_positions:
                 birth_date_offset = zero_position - self.zero_offset_from_birth
                 person = self._try_candidate(game_db, birth_date_offset, window_end)
                 if person is None:
@@ -669,6 +711,7 @@ def build_person_block_decoder(
         marker_needle=_build_marker_needle(layout.personality_count),
         zero_offset_from_birth=layout.personality_offset_from_birth - 1,
         require_unique_candidate=layout.require_unique_candidate,
+        personality_highest=layout.personality_range[1],
         date_zero_bytes_offset=layout.date_zero_bytes_offset_from_birth,
         zero_region_bytes=bytes(layout.date_zero_bytes_count),
         legal_name_length_min=layout.legal_name_length_min,

@@ -244,8 +244,9 @@ _ROW_FIELDS = tuple(field.name for field in dataclasses.fields(PlayerSeasonStats
 ]
 
 # Omitting a metric must preserve the public model's nullability contract. The
-# role-specific fields were nullable already; the three preview fields are withheld
-# until their changed meanings can be established independently.
+# role-specific fields were nullable already; the other three are withheld until their
+# meanings can be established independently: goals_outside_box on every game, the two
+# pressures fields on FM27.
 _NULLABLE_METRICS = frozenset(
     {
         "goals_outside_box",
