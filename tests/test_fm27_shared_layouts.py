@@ -90,12 +90,14 @@ def test_fm27_injury_checks_apply_to_early_season_sections_not_fragments() -> No
     assert observed.GATE_BOUNDS.injury_log_recent_team_matches == (0.90, None)
 
 
-def test_fm27_tactics_whitelist_allows_only_observed_empty_variants() -> None:
+def test_fm27_tactics_reads_records_but_still_rejects_named_routines() -> None:
     from fmsave._layouts import TacticsLayout
 
     layout = find_layout(TacticsLayout, "tactics_man", 26, BUILD).layout
     assert layout.selection_end_marker == b"\x44\x00"
-    assert not layout.tactic_records_supported
+    assert layout.tactic_records_supported
+    assert layout.user_signature == layout.alternate_signature
+    assert layout.preset_signature != layout.user_signature
     assert not layout.named_routines_supported
 
 

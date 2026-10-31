@@ -1,4 +1,4 @@
-"""Fictional zero-tactic FM27 blocks and fail-closed populated-shape probes."""
+"""Fictional FM27 tactic blocks: records the registered layout reads, and fail-closed probes."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from dataclasses import replace
 import pytest
 
 from fmsave._errors import ReaderCheckError, UnsupportedGameError
+from fmsave._layouts import TacticsLayout, find_layout
 from fmsave._layouts.fm26_26_3_2 import TACTICS as FM26_TACTICS
 from fmsave.readers.tactics import (
     _read_routine_name,  # pyright: ignore[reportPrivateUsage]
@@ -137,3 +138,116 @@ def test_fm26_default_preserves_named_routines_and_sentinel_override() -> None:
     assert rows[0].tactics == ()
     assert rows[0].routine_names == names
     assert counts.routine_blocks_complete == 1
+
+
+# The registered FM27 layout, read against bytes spelled out here rather than copied from it.
+FM27_BUILD = "27.0.0+2486695"
+FM27_LAYOUT = find_layout(TacticsLayout, "tactics_man", 26, FM27_BUILD).layout
+FM27_USER_SIGNATURE = bytes.fromhex("2244001b00000000")
+FM27_PRESET_SIGNATURE = bytes.fromhex("2244001b00000001")
+FM27_FIRST_TACTIC = "Example Shape"
+FM27_STYLE = "Example Style"
+FM27_INSTRUCTIONS = bytes([4, 21, 6, 6, 2, 3, 30, 48, 40, 41, 42, 84, 43, 44, 45, 46, 47, 0, 255])
+# Position bits per slot: a goalkeeper, the back four, two wide midfielders, two defensive
+# midfielders, a wide attacker who drops to the wide midfield out of possession, and two
+# strikers. The column flags tell each pair apart.
+FM27_SLOT_BITS = (
+    (0, 0),
+    (2, 2),
+    (4, 4),
+    (4, 4),
+    (3, 3),
+    (8, 8),
+    (7, 7),
+    (7, 7),
+    (12, 9),
+    (14, 14),
+    (14, 14),
+)
+FM27_COLUMN_FLAGS = {2: 1 << 21, 3: 1 << 20, 6: 1 << 21, 7: 1 << 20, 9: 1 << 21, 10: 1 << 20}
+
+
+def fm27_slot_block(mask: int, units: int, role_bit: int, index: int | None = None) -> bytes:
+    unit = bytes.fromhex("020202") + b"\x00" + bytes(7) + b"\xff" + (1 << 85).to_bytes(12, "little")
+    block = bytearray(bytes.fromhex("440002"))
+    block += struct.pack("<I", mask) + bytes.fromhex("000101") + struct.pack("<I", units)
+    block += (1 << role_bit).to_bytes(8, "little") + unit * units + struct.pack("<I", 0)
+    if index is not None:
+        block.append(index)
+    return bytes(block)
+
+
+def fm27_record(name: str, *, preset: bool = False) -> bytes:
+    record = bytearray(FM27_PRESET_SIGNATURE if preset else FM27_USER_SIGNATURE)
+    record += struct.pack("<I", len(name)) + name.encode() + bytes(12) + FM27_INSTRUCTIONS
+    record += struct.pack("<I", len(FM27_STYLE)) + FM27_STYLE.encode() + b"EXMP"
+    for number, (in_bit, out_bit) in enumerate(FM27_SLOT_BITS):
+        flag = FM27_COLUMN_FLAGS.get(number, 0)
+        record += fm27_slot_block((1 << in_bit) | flag, 2, 1)
+        record += fm27_slot_block((1 << out_bit) | flag, 1, 3, number)
+    return bytes(record)
+
+
+def fm27_section(records: tuple[bytes, ...], after_blocks: bytes = b"") -> bytes:
+    block = selection(TEAMS[0], tactic_count=len(records), tactics_value=0)
+    return tactics_man_body(
+        selector=9901,
+        blocks=(block + b"".join(records) + set_piece_area_bytes((None,) * 20),),
+        after_blocks=after_blocks,
+    )
+
+
+def test_fm27_user_record_decodes_its_name_mentality_and_eleven_slot_pairs() -> None:
+    rows, counts = walk_tactic_blocks(
+        fm27_section((fm27_record(FM27_FIRST_TACTIC),)), TEAMS[:1], FM27_LAYOUT, "fictional.bin"
+    )
+
+    (tactic,) = rows[0].tactics
+    assert tactic.name == FM27_FIRST_TACTIC
+    assert tactic.style_name == FM27_STYLE
+    assert tactic.mentality_raw == 6
+    assert tactic.walk_complete and tactic.oop_index_permutation
+    assert [slot.in_possession_mask & 0xFFFF for slot in tactic.slots] == [
+        1 << in_bit for in_bit, _out_bit in FM27_SLOT_BITS
+    ]
+    assert [slot.out_of_possession_mask & 0xFFFF for slot in tactic.slots] == [
+        1 << out_bit for _in_bit, out_bit in FM27_SLOT_BITS
+    ]
+    assert rows[0].routine_names == (None,) * 20
+    assert counts.tactic_blocks == counts.tactic_blocks_count_matching == 1
+    assert counts.preset_tactics == 0
+    assert counts.routine_blocks_complete == 1
+
+
+def test_fm27_preset_library_after_the_routines_is_not_a_team_tactic() -> None:
+    section = fm27_section(
+        (fm27_record(FM27_FIRST_TACTIC),), after_blocks=fm27_record("4-4-2", preset=True)
+    )
+    rows, counts = walk_tactic_blocks(section, TEAMS[:1], FM27_LAYOUT, "fictional.bin")
+
+    assert [tactic.name for tactic in rows[0].tactics] == [FM27_FIRST_TACTIC]
+    assert counts.preset_tactics == 0
+    assert counts.tactic_blocks_count_matching == 1
+
+
+def test_fm27_claimed_record_with_an_fm26_signature_is_not_found() -> None:
+    fm26_shaped = bytes.fromhex("2242001a03000102") + fm27_record(FM27_FIRST_TACTIC)[8:]
+    rows, counts = walk_tactic_blocks(
+        fm27_section((fm26_shaped,)), TEAMS[:1], FM27_LAYOUT, "fictional.bin"
+    )
+
+    assert rows[0].tactics == ()
+    assert counts.tactic_blocks == 1
+    assert counts.tactic_blocks_count_matching == 0
+
+
+def test_fm27_slot_block_in_the_fm26_shape_ends_the_slot_walk() -> None:
+    record = fm27_record(FM27_FIRST_TACTIC).replace(
+        bytes.fromhex("000101"), bytes.fromhex("ff000101"), 1
+    )
+    rows, _counts = walk_tactic_blocks(
+        fm27_section((record,)), TEAMS[:1], FM27_LAYOUT, "fictional.bin"
+    )
+
+    (tactic,) = rows[0].tactics
+    assert not tactic.walk_complete
