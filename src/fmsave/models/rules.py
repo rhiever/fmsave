@@ -153,10 +153,9 @@ class CompetitionRules:
     of clubs, and nearly all of those tables carry a voted competition. A run matching two
     tables at once names neither.
 
-    **That link is corroborated, and is no stronger than the vote behind it.** 0.74 to 0.78 of
+    **That link is corroborated, and is no stronger than the vote behind it.** 0.95 to 0.99 of
     a linked block's dated rounds fall on a date its competition plays a fixture on, against
-    0.55 to 0.58 when each block is linked to the run stored *before* it instead, and about
-    0.13 against a competition drawn at random for each block.
+    0.66 to 0.79 when each block is linked to the run stored *before* it instead.
     On the one division whose Rules screen was read in game, the linked block holds 20 clubs,
     38 rounds and 3 relegation places and its last round is the date that screen gives as the
     season's end. The competition it hands over is itself a vote on the fixture calendar rather
