@@ -942,6 +942,9 @@ def read_staff(
             game_db, header, tag_offset, person_boundary, staff_layout
         )
         person = person_decoder.decode(game_db, window_start, window_end)
+        human_floor = staff_layout.human_personality_floor
+        if person is None and is_human_manager and human_floor is not None:
+            person = person_decoder.decode(game_db, window_start, window_end, human_floor)
         if person is not None:
             persons_with_block += 1
         objects[person_id] = _PersonObject(

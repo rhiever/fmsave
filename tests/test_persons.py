@@ -29,6 +29,7 @@ from fmsave.readers.persons import (
     _build_marker_needle,
     _build_marker_table,
     build_person_block_decoder,
+    iter_floor_run_starts,
     iter_marker_run_starts,
 )
 from fmsave.readers.player_scan import locate_player_records, window_end
@@ -631,6 +632,44 @@ def test_chunked_search_matches_regex_on_a_window_shorter_than_one_chunk() -> No
         length = random_generator.randint(0, _CHUNK_BYTES // 2)
         buffer = bytes(random_generator.choice(_DIFFERENTIAL_DECOY_BYTES) for _ in range(length))
         assert _chunked_run_starts(buffer, 0, length) == _reference_run_starts(buffer, 0, length)
+
+
+_FLOOR_ZERO_REFERENCE_PATTERN = re.compile(rb"(?=\x00[\x00-\x14]{8})")
+
+
+def test_floor_search_matches_the_marker_search_when_the_floor_is_the_layouts() -> None:
+    random_generator = random.Random(20261030)
+    for _trial in range(200):
+        length = random_generator.randint(0, 1500)
+        buffer = bytes(random_generator.choice(_DIFFERENTIAL_DECOY_BYTES) for _ in range(length))
+        start = random_generator.randint(0, length)
+        end = random_generator.randint(start, length)
+        floor_starts = list(
+            iter_floor_run_starts(
+                buffer,
+                start,
+                end,
+                _DIFFERENTIAL_PERSONALITY_RANGE,
+                _DIFFERENTIAL_PERSONALITY_COUNT,
+            )
+        )
+        assert floor_starts == _chunked_run_starts(buffer, start, end)
+
+
+def test_floor_search_from_zero_takes_every_run_with_a_zero_in_it() -> None:
+    random_generator = random.Random(4041)
+    for _trial in range(200):
+        length = random_generator.randint(0, 600)
+        buffer = bytes(random_generator.choice(_DIFFERENTIAL_DECOY_BYTES) for _ in range(length))
+        start = random_generator.randint(0, length)
+        end = random_generator.randint(start, length)
+        expected = [
+            match.start() for match in _FLOOR_ZERO_REFERENCE_PATTERN.finditer(buffer[:end], start)
+        ]
+        floor_starts = list(
+            iter_floor_run_starts(buffer, start, end, (0, 20), _DIFFERENTIAL_PERSONALITY_COUNT)
+        )
+        assert floor_starts == expected
 
 
 def test_non_ascii_legal_name_round_trips() -> None:
