@@ -2226,9 +2226,8 @@ class Save:
         club has groups at all, and a team with none has no row here, which is ordinary -- on
         the saves measured only the first team and one other side mentor anybody.
 
-        `label` is the stored text. Every group of every save measured carries the game's own
-        default wording with the group's number, and whether renaming a group in game changes
-        what is stored has not been checked. A member whose stored selector names no player
+        `label` is the stored text: the game's own default wording with the group's number, or
+        the name the group was given in game. A member whose stored selector names no player
         record leaves that entry's uid and name empty rather than guessing.
 
         The table is read on the first call to `training()` or `mentoring()`, from one walk;

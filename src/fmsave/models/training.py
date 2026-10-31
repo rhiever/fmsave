@@ -157,9 +157,8 @@ class MentoringGroup:
             when the team resolves to no club (unconfirmed).
         group_number: The number the save stores with the group, which runs from one up
             within a team (unconfirmed).
-        label: The group's label as the save stores it. Every group of every save measured
-            carries the game's default wording with its number, and whether renaming a group
-            in game changes the stored text has not been checked.
+        label: The group's label as the save stores it: the game's default wording with its
+            number, or the name the group was given in game.
         member_uids: Uid of each member, in stored order, None for a member whose stored
             selector names no player record.
         member_names: Denormalised name of each entry of `member_uids`, aligned with it and
