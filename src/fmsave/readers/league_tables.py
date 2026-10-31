@@ -687,6 +687,7 @@ def _is_double_round_robin_division(
 
     A shape rule, not a name: it holds in any country and needs no competition name, which is
     what keeps it inside the rule that a meaning is named only where a displayed label pins it.
+    It reads the first row, so a group whose first row has no match slots does not count.
     """
     fewest_clubs, most_clubs = layout.division_club_range
     return fewest_clubs <= len(rows) <= most_clubs and rows[0].rounds_per_venue == len(rows) - 1

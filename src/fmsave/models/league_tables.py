@@ -15,8 +15,9 @@ disagreements are where the head-to-head rule decides.
 Derived views these records carry no field for:
 
 - goal difference is `goals_for - goals_against`;
-- a division is `18 <= club_count <= 26 and rows[0].rounds_per_venue == club_count - 1`, a shape
-  rule that holds in any country and needs no competition name;
+- a division is `18 <= club_count <= 26` with `rounds_per_venue == club_count - 1` on a row that
+  has match slots (it is None on a row stored without them), a shape rule that holds in any
+  country and needs no competition name;
 - a club's remaining fixtures are the set difference between the group's member teams and the
   opponents already in `matches`, per venue; the save stores no remaining-fixture list;
 - resolved groups only is `.filter(lambda table: table.competition_id is not None)`;
@@ -64,7 +65,8 @@ class LeagueTableSplit:
     Every field is unconfirmed. The save's own arithmetic holds on all four (played equals won
     plus drawn plus lost, and home and away add up to the total, as do the two halves), which
     is what the block acceptance checks require, but no in-game screen has yet been read back
-    against them, so none of the seven is verified.
+    against them, so none of the seven is verified. On FM27 some cup group stages count
+    matches in played that are none of won, drawn or lost.
 
     Attributes:
         played: Matches played in this split (unconfirmed).
@@ -156,7 +158,8 @@ class LeagueTableRow:
             resolve.
         team_slot: The team's slot in its club's team list, 0 for the first entry, or None when
             the team does not resolve (unconfirmed).
-        played: Matches played in total.
+        played: Matches played in total. On FM27 some cup group stages count matches here that
+            are none of won, drawn or lost.
         won: Matches won in total.
         drawn: Matches drawn in total.
         lost: Matches lost in total.

@@ -923,7 +923,7 @@ class LeagueTableLayout:
     match rows: 1 when it does and 0 when the block stores none, so its `matches` are empty.
     Any other value rejects the block. When None, every block is read with its match rows.
     `results_may_fall_short_of_played` accepts aggregate rows whose won, drawn and lost counts
-    add up to fewer matches than played, which the game shows for some cup group stages.
+    add up to fewer matches than played, which some FM27 cup group stages store.
     """
 
     row_bytes: int

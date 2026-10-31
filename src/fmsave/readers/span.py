@@ -453,7 +453,7 @@ def _fixture_search(layout: FixtureCalendarLayout, clock_year: int) -> _FixtureS
         or core_start != struct_start
         or any(index_by_name[name] != index for name, index in core_indices.items())
     ):
-        raise ValueError("the following fixture prefix must start immediately after the core")
+        raise ValueError("the following fixture prefix must start at or after the end of the core")
     lowest_team_id, highest_team_id = layout.team_id_range
     return _FixtureSearch(
         pattern=pattern,
@@ -808,7 +808,7 @@ class _FixtureContinuationState:
                 return False
             # Wait for the strict scanner's existing admission extent. Otherwise a split
             # frame could consume a future strict endpoint as a provisional middle before
-            # the strict scan sees it. Only the 67-byte core is actually unpacked below.
+            # the strict scan sees it. Only the core (67 bytes on FM26) is unpacked below.
             if at + search.record_bytes > len(window):
                 return False
             if (
@@ -818,7 +818,7 @@ class _FixtureContinuationState:
                 self.reset()
                 return False
             values = search.core_struct.unpack_from(window, at + search.core_start)
-            # The 67-byte core contains no current-record status. Insert the preceding
+            # The core contains no current-record status. Insert the preceding
             # owned prefix, rather than reading the next row or collection as that value.
             assert self.next_played is not None
             values = (

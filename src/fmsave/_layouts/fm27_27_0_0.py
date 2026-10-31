@@ -264,7 +264,8 @@ MATCH_SUMMARIES = FM26_MATCH_SUMMARIES
 # Some cup group stages count a match in played without counting it as won, drawn or lost.
 LEAGUE_TABLES = replace(FM26_LEAGUE_TABLES, results_may_fall_short_of_played=True)
 # Twenty bytes separate the doubled promotion quad from the marker, and each round record
-# carries six more bytes. Its interstitials are the ten bytes that open with four FF bytes.
+# carries six more bytes. Its interstitials are the ten bytes that open with four FF bytes; no
+# tagged interstitial shape has been seen, and the inherited tag can never match one of them.
 RULES_PREAMBLES = replace(
     FM26_RULES_PREAMBLES,
     marker=bytes.fromhex("ffff000001ffffff00"),
