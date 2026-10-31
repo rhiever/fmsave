@@ -245,12 +245,17 @@ _EMPTY_SELECTION_STATS = SelectionStats(
 
 
 class _TacticTables(NamedTuple):
-    """The three tables one walk over the manager's team blocks builds, and their _checks."""
+    """The three tables one walk over the manager's team blocks builds, and their _checks.
+
+    `failed_selection_check` is set when the selection check failed on a strict save: the
+    other two tables are kept, and only `selections()` raises.
+    """
 
     tactics: Table[Tactic]
     set_pieces: Table[SetPieceRoutine]
     selections: Table[Selection]
     reader_checks: tuple[ReaderCheck, ...]
+    failed_selection_check: ReaderCheck | None = None
 
 
 class _StaffTables(NamedTuple):
@@ -301,6 +306,17 @@ def _passed_suspensions(tables: _PlayerTables) -> Table[Suspension]:
     if tables.failed_suspension_check is not None:
         _checks.enforce_checks((tables.failed_suspension_check,), strict=True)
     return tables.suspensions
+
+
+def _passed_selections(tables: _TacticTables) -> Table[Selection]:
+    """The walk's selection table, or the error of the check it failed on its own.
+
+    Raises:
+        ReaderCheckError: The selection check failed on a strict save.
+    """
+    if tables.failed_selection_check is not None:
+        _checks.enforce_checks((tables.failed_selection_check,), strict=True)
+    return tables.selections
 
 
 def _check_cache_key(reader_name: str) -> str:
@@ -1972,9 +1988,9 @@ class Save:
         earned.
 
         The table is read on the first call to `tactics()`, `set_pieces()` or `selections()`,
-        from one walk; later calls to any of them return the same tables. When a check of that
-        walk fails, no table is kept, so all three raise. A cold call pays for the player pass,
-        because the selectors the reader's checks judge resolve through the player records.
+        from one walk; later calls to any of them return the same tables. When a tactic or
+        set-piece check fails, no table is kept, so all three raise; a failed selection check
+        stops only `selections()`. A cold call pays for the player pass, because the selectors the reader's checks judge resolve through the player records.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -2003,8 +2019,9 @@ class Save:
         A routine is recognised by its record structure, never by its name.
 
         The table is read on the first call to `tactics()`, `set_pieces()` or `selections()`,
-        from one walk; later calls to any of them return the same tables. When a check of that
-        walk fails, no table is kept, so all three raise.
+        from one walk; later calls to any of them return the same tables. When a tactic or
+        set-piece check fails, no table is kept, so all three raise; a failed selection check
+        stops only `selections()`.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -2034,9 +2051,10 @@ class Save:
         players picked for an earlier one. Only the manager's own teams are here.
 
         The table is read on the first call to `tactics()`, `set_pieces()` or `selections()`,
-        from one walk; later calls to any of them return the same tables. When a check of that
-        walk fails, no table is kept, so all three raise. A cold call pays for the player pass,
-        because every pick resolves through the player records.
+        from one walk; later calls to any of them return the same tables. When a tactic or
+        set-piece check fails, no table is kept, so all three raise. A failed selection check
+        stops only this reader on a strict save. A cold call pays for the player pass, because
+        every pick resolves through the player records.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -2062,7 +2080,11 @@ class Save:
         context = self._context
         context.cached(TACTICS_TABLE_CACHE_KEY, lambda: tables.tactics)
         context.cached(SET_PIECES_TABLE_CACHE_KEY, lambda: tables.set_pieces)
-        context.cached(SELECTIONS_TABLE_CACHE_KEY, lambda: tables.selections)
+        try:
+            context.cached(SELECTIONS_TABLE_CACHE_KEY, lambda: _passed_selections(tables))
+        except ReaderCheckError:
+            # Remembered under the selections key, so `selections()` raises it again.
+            pass
 
     def _tactics_table_entry_point(self) -> Table[Tactic]:
         tables = self._decode_tactics_tables()
@@ -2076,8 +2098,11 @@ class Save:
 
     def _selections_table_entry_point(self) -> Table[Selection]:
         tables = self._decode_tactics_tables()
-        self._keep_tactic_tables(tables)
-        return tables.selections
+        context = self._context
+        self._store_reader_checks(tables.reader_checks)
+        context.cached(TACTICS_TABLE_CACHE_KEY, lambda: tables.tactics)
+        context.cached(SET_PIECES_TABLE_CACHE_KEY, lambda: tables.set_pieces)
+        return _passed_selections(tables)
 
     def _decode_tactics_tables(self) -> _TacticTables:
         context = self._context
@@ -2132,19 +2157,26 @@ class Save:
         selections, selection_stats = build_selection_table(
             blocks, club_index, player_records, players, managed_club_uid, layout.slot_count
         )
-        # Every check runs before any table is built: when one fails, nothing is cached and
-        # the next call walks and checks again.
-        reader_checks = (
+        # The tactic and set-piece checks run before any table is built: when one fails,
+        # nothing is cached. A failed selection check on a strict save stops only
+        # `selections()`, since stale picks of players who have left are expected.
+        tactic_checks = (
             _checks.check_tactics(tactic_stats, gate_bounds, game_db_length),
             _checks.check_set_pieces(tactic_stats, gate_bounds, game_db_length),
-            _checks.check_selections(selection_stats, gate_bounds, game_db_length),
         )
-        self._enforce_checks(reader_checks)
+        selection_check = _checks.check_selections(selection_stats, gate_bounds, game_db_length)
+        self._enforce_checks(tactic_checks)
+        failed_selection_check = None
+        if self._strict and _checks_fail((selection_check,)):
+            failed_selection_check = selection_check
+        else:
+            self._enforce_checks((selection_check,))
         return _TacticTables(
             Table(tactics, Tactic),
             Table(set_pieces, SetPieceRoutine),
             Table(selections, Selection),
-            reader_checks,
+            (*tactic_checks, selection_check),
+            failed_selection_check,
         )
 
     def _empty_tactic_tables(self, gate_bounds: GateBounds) -> _TacticTables:

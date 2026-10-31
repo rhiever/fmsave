@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 import fmsave
-from fmsave._checks import validate_save
+import fmsave._save as save_module
+from fmsave import _checks
+from fmsave._checks import GateResult, ReaderCheck, validate_save
+from fmsave._frozen import FrozenMapping
 from fmsave.export import column_names
 from fmsave.models.tactics import Selection
 from tests.fixtures.career import (
@@ -154,13 +158,24 @@ def test_with_the_manager_between_jobs_there_are_no_selections(tmp_path: Path) -
         assert len(save.selections()) == 0
 
 
-def test_the_three_tactics_tables_come_from_one_walk(tmp_path: Path) -> None:
+def test_the_three_tactics_tables_come_from_one_walk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    walks: list[object] = []
+    walk = save_module.walk_tactic_blocks
+
+    def counted_walk(*args: Any) -> Any:
+        walks.append(args)
+        return walk(*args)
+
+    monkeypatch.setattr(save_module, "walk_tactic_blocks", counted_walk)
     save_path = career_fragment().write(tmp_path / "career.bin")
     with fmsave.open(save_path) as save:
         selections = save.selections()
         assert save.selections() is selections
         assert len(save.tactics()) == 2
         assert len(save.set_pieces()) == 2 * ROUTINE_COUNT
+    assert len(walks) == 1
 
     with pytest.raises(fmsave.SaveClosedError):
         save.selections()
@@ -192,3 +207,42 @@ def test_the_starter_count_is_the_tactic_slot_count(tmp_path: Path) -> None:
 
     rows = picks(save_path)
     assert [row[1] for row in rows] == [False] * STARTERS + [True]
+
+
+def failing_selection_check(*_args: object) -> ReaderCheck:
+    gate = GateResult("selection_picks_at_club", 0.5, 0.85, None, passed=False, applied=True)
+    return ReaderCheck("selections", 3, (gate,), FrozenMapping({}))
+
+
+@pytest.mark.parametrize("first_reader", ["tactics", "set_pieces", "selections"])
+def test_a_failed_selection_check_stops_only_selections(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first_reader: str
+) -> None:
+    monkeypatch.setattr(_checks, "check_selections", failing_selection_check)
+    save_path = career_fragment().write(tmp_path / "career.bin")
+    with fmsave.open(save_path, strict=True) as save:
+        if first_reader == "selections":
+            with pytest.raises(fmsave.ReaderCheckError, match="selection_picks_at_club"):
+                save.selections()
+        else:
+            getattr(save, first_reader)()
+        assert len(save.tactics()) == 2
+        assert len(save.set_pieces()) > 0
+        with pytest.raises(fmsave.ReaderCheckError, match="selection_picks_at_club"):
+            save.selections()
+
+
+def test_a_pick_of_a_player_at_another_club_resolves_but_is_not_at_the_club(
+    tmp_path: Path,
+) -> None:
+    # Player C is at the managed club and player A at another one.
+    tactics_section = body_with_slots((SELECTOR_C, SELECTOR_A))
+    save_path = career_fragment(tactics_section=tactics_section).write(tmp_path / "career.bin")
+    with fmsave.open(save_path) as save:
+        rows = save.selections()
+        report = validate_save(save)
+
+    assert [row.player_uid for row in rows] == [PLAYER_C_UID, PLAYER_A_UID]
+    (selection_report,) = [row for row in report.readers if row.reader == "selections"]
+    observed = {gate.name: gate.observed for gate in selection_report.gates}
+    assert observed == {"selection_picks_resolved": 1.0, "selection_picks_at_club": 0.5}
