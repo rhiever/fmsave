@@ -1,3 +1,9 @@
+<!--
+fmsave does not merge pull requests from other people. If you're not the maintainer, your pull
+request will be read as a detailed issue, the change reimplemented, and you credited as a
+co-author. See CONTRIBUTING.md. Opening an issue instead is preferred.
+-->
+
 ## Summary
 
 <!-- What does this change do, and why? -->

@@ -4,6 +4,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Changed
+
+- CONTRIBUTING.md explains that changes come in through issues and how contributors are credited. The README lists contributors, and past changelog entries now thank the people whose reports, requests, testing and findings fed them.
+
 ## [0.8.0] - 2026-10-30
 
 ### Added
@@ -27,6 +31,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 ### Changed
 
 - Validation reports `edited_attribute_players` for players stored past the 1 to 100 raw attribute scale, and the club-table rows that give no club by reason: `extended_table_rows`, `unanchored_table_rows` and `rejected_table_rows`.
+
+Thanks to @OdumWorld for the report and help testing, and @jeohist for the FM27 comparison. Refs #31.
 
 ## [0.7.0] - 2026-10-28
 
@@ -62,7 +68,7 @@ Thanks to @kdr6989 for the report.
 - Missing player details stay empty when only another person's data is available. Players no longer borrow that person's name or other personal details, and archived statistics use the same ownership boundary.
 - Failed reader caches release decompressed save sections. Repeated calls raise the saved failure without decoding again.
 
-Thanks to @thaffy for the feature request. Refs #13.
+Thanks to @thaffy for the archive lead. Refs #13.
 
 ## [0.5.11] - 2026-10-19
 
@@ -81,7 +87,7 @@ Refs #11.
 
 - `finances()`, `sponsorships()` and `facilities()` no longer give a club the data of a club record stored after it that the club scan does not accept, such as a club playing in another nation's league. Such data was reported under the wrong club, or failed `finance_clubs_with_two_chains` when both clubs stored a series. Other readers are unaffected and no slower.
 
-Refs #20.
+Thanks to @Namhahaha1110 for the report. Refs #20.
 
 ## [0.5.9] - 2026-10-10
 
@@ -92,7 +98,7 @@ Refs #20.
 - Tactics validation accepts managers who also run national teams, whose tactic blocks the section stores alongside the club's.
 - Newly generated players stored with object kind 3, and newly generated staff whose ability codes are outside the observed code set, are read instead of being dropped.
 
-Refs #20.
+Thanks to @Namhahaha1110 for the report and help testing, and @Buglerru and @hostlund for help testing. Refs #5, #20.
 
 ## [0.5.8] - 2026-10-07
 
@@ -101,7 +107,7 @@ Refs #20.
 - Unrecognized FM26 builds can open saves that use an already observed metadata layout, including older metadata variants, without requiring a build-specific registration.
 - Metadata detection rejects ambiguous or malformed candidates. Other readers retain their existing compatibility checks.
 
-Refs #18.
+Thanks to @jtstothard for the report. Refs #18.
 
 ## [0.5.7] - 2026-10-06
 
@@ -110,7 +116,7 @@ Refs #18.
 - Name pools accept longer UTF-8 names, including names exceeding 64 bytes, while retaining entry IDs, section bounds and a 1,024-byte safety ceiling.
 - Injury labels accept Unicode space separators, including fullwidth and nonbreaking spaces used in localized text. Invalid UTF-8 and control characters remain rejected.
 
-Refs #14.
+Thanks to @1e16miin for the report. Refs #14.
 
 ## [0.5.6] - 2026-10-06
 
@@ -120,7 +126,7 @@ Refs #14.
 - Localized names and larger player and staff populations read without rejecting valid tables.
 - Player, staff and injury readers handle additional record variants; tactics validation accepts the broader valid range.
 
-Refs #5.
+Thanks to @Buglerru for the report and help testing. Refs #5.
 
 ## [0.5.5] - 2026-10-04
 
@@ -138,6 +144,8 @@ Refs #5.
 - `league_tables()` validation applies `double_round_robin_divisions` only once the fixture calendar shows enough divisions under way, so preseason saves no longer fail it. New anomaly `started_calendar_divisions`.
 - `facilities()` counts a club that stores no corporate-facilities rating (a zero in an all-zero block) as unset instead of out of range. Saves tracking many nations no longer fail its checks. New check `facility_unset_ratings` and anomaly `unset_ratings`.
 - The "game_info does not match build" error says which build check failed.
+
+Thanks to @thaffy for researching possession statistics, @BWH95 and @johnmmcparland for the feature requests, and @hostlund for help testing. Refs #4, #5.
 
 ## [0.5.4] - 2026-09-30
 
@@ -163,6 +171,8 @@ Refs #5.
 - `players()` reads complete records with 0 current ability; their contracts no longer appear as staff contracts.
 - Fixture validation distinguishes stub teams from missing club joins with `fixture_club_teams_resolved`, without lowering the join threshold.
 
+Thanks to @hostlund for help testing. Refs #5.
+
 ## [0.5.2] - 2026-09-29
 
 ### Added
@@ -172,6 +182,8 @@ Refs #5.
 ### Fixed
 
 - `stages()` and dependent readers find older stage tables in continued careers.
+
+Thanks to @hostlund for the report and @matthiasvetter1104 for the feature request. Refs #5, #6.
 
 ## [0.5.1] - 2026-09-28
 
@@ -184,6 +196,8 @@ Refs #5.
 ### Added
 
 - `player_season_stats()` and the `player-season-stats` export: 56 current-season stats per competition type and team, including minutes, rating, xG, xA, passes, tackles, cards and saves. Types cover league, cup, continental, international, non-competitive, overall and 2 calendar-year totals.
+
+Thanks to @johnmmcparland for the feature request and @thaffy for researching season statistics. Refs #4.
 
 ## [0.4.8] - 2026-09-28
 
@@ -228,11 +242,15 @@ Refs #5.
 - Windows saves, including FM26 Console saves, no longer falsely fail with "game_info does not match build".
 - Smaller databases no longer fail name-pool checks that blocked players, contracts, staff and other name-resolving readers. Name IDs and lengths remain checked.
 
+Thanks to @GetChatGPTToDoIt and @johnmmcparland for the reports. Refs #1, #2.
+
 ## [0.4.2] - 2026-09-24
 
 ### Fixed
 
 - Stage-table misreads no longer cause false duplicate-stage errors, including on saves with many playable nations. This restores stages, competitions, fixtures, league tables and player match statistics.
+
+Thanks to @GetChatGPTToDoIt for the report. Refs #1.
 
 ## [0.4.1] - 2026-09-21
 
