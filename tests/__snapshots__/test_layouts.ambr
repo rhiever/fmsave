@@ -1468,7 +1468,7 @@
         'entry_bytes': 7,
         'entry_count_offset': 13,
         'human_kind': 9,
-        'human_personality_floor': None,
+        'human_personality_floor': 0,
         'kind_offset': 12,
         'list_count': 3,
         'list_count_bytes': 1,

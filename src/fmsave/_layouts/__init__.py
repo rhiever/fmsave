@@ -1592,9 +1592,10 @@ class StaffLayout:
     is searched for from `person_block_offset_after_tag` past the tag, for at most
     `person_block_search_bytes` and never past the next header. A person with no contract is
     searched for from just past his header for at most `list_only_block_search_bytes`.
-    Where `human_personality_floor` is set and that search finds no block for the human
-    manager, his window is searched once more with personality bytes accepted from that floor,
-    because a new manager's profile can store a zero there.
+    Where `human_personality_floor` is set, the human manager's window also ends at his own
+    closing header, and when that search finds no block for him, the window is searched once
+    more with personality bytes accepted from that floor, because a new manager's profile can
+    store a zero there.
     """
 
     kind_offset: int

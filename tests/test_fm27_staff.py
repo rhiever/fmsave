@@ -138,7 +138,7 @@ def test_exact_fm27_staff_registration_uses_two_byte_list_counts() -> None:
     layout = find_layout(StaffLayout, "game_db", 4000, "27.0.0+2486695").layout
     assert layout.list_count_bytes == 2
     assert layout.human_personality_floor == 0
-    assert STAFF_LAYOUT.human_personality_floor is None
+    assert STAFF_LAYOUT.human_personality_floor == 0
 
 
 def person_block(legal_name: str, personality: tuple[int, ...] = (10,) * 8) -> bytes:
@@ -179,6 +179,7 @@ def unique_staff_rows(
     *,
     human_selector: int | None = None,
     human_personality_floor: int | None = None,
+    require_unique_candidate: bool = True,
 ):
     from datetime import date
 
@@ -198,7 +199,9 @@ def unique_staff_rows(
     layouts = replace(
         STAFF_LAYOUTS,
         staff=replace(STAFF_LAYOUTS.staff, human_personality_floor=human_personality_floor),
-        person_blocks=replace(STAFF_LAYOUTS.person_blocks, require_unique_candidate=True),
+        person_blocks=replace(
+            STAFF_LAYOUTS.person_blocks, require_unique_candidate=require_unique_candidate
+        ),
     )
     rows, _lists, _stats = read_staff(
         db,
@@ -336,3 +339,55 @@ def test_the_floor_is_not_used_when_the_ordinary_search_finds_the_manager() -> N
     manager = next(row for row in rows if row.is_human_manager)
 
     assert manager.legal_name == "Manager Example"
+
+
+# FM26 layouts accept the first block a window holds rather than a unique one, so the human's
+# window has to end at his closing header or a neighbour's block is read as his.
+@pytest.mark.parametrize(
+    ("floor", "expected"), [(None, "Neighbor Example"), (0, "Manager Example")]
+)
+def test_fm26_human_window_ends_at_his_closing_header_under_the_floor(
+    floor: int | None, expected: str
+) -> None:
+    rows = unique_staff_rows(
+        manager_and_neighbor(),
+        human_selector=19,
+        human_personality_floor=floor,
+        require_unique_candidate=False,
+    )
+    manager = next(row for row in rows if row.is_human_manager)
+
+    assert manager.legal_name == expected
+
+
+def test_fm26_floor_leaves_a_human_whose_block_reads_normally_alone() -> None:
+    rows = unique_staff_rows(
+        manager_and_neighbor(personality=(10,) * 8),
+        human_selector=19,
+        human_personality_floor=0,
+        require_unique_candidate=False,
+    )
+    manager = next(row for row in rows if row.is_human_manager)
+
+    assert manager.legal_name == "Manager Example"
+    assert manager.personality is not None
+    assert manager.personality.controversy == 10
+
+
+def test_fm26_floor_does_not_change_the_window_of_staff_who_are_not_the_human() -> None:
+    # The fix is scoped to the human manager: another person's window, and the first block in
+    # it, are what they were without the floor.
+    with_floor, without_floor = (
+        next(
+            row
+            for row in unique_staff_rows(
+                manager_and_neighbor(kind=1),
+                human_personality_floor=floor,
+                require_unique_candidate=False,
+            )
+            if row.uid == 810_018
+        )
+        for floor in (0, None)
+    )
+
+    assert with_floor == without_floor

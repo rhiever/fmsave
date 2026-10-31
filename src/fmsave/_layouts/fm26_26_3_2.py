@@ -1270,6 +1270,8 @@ STAFF = StaffLayout(
     person_block_offset_after_tag=60,
     person_block_search_bytes=4_096,
     list_only_block_search_bytes=20_000,
+    # A new manager's profile stores a zero controversy byte (a day-one 26.0.0 save does).
+    human_personality_floor=0,
 )
 
 GATE_BOUNDS = GateBounds(
