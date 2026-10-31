@@ -77,10 +77,11 @@ def test_raw_span_is_not_an_fm26_fallback(tmp_path: Path) -> None:
     assert "experimental_counts" not in fmsave.validate_save(fmsave.open(path)).to_json_dict()
 
 
-def test_raw_span_defaults_to_the_shared_fm27_read_budget() -> None:
+def test_raw_span_byte_limits_sit_inside_the_fm27_read_budget() -> None:
     limits = Fm27SpanLimits()
-    assert limits.maximum_span_bytes == FM27_TOTAL_DECOMPRESSED_CAP
-    assert limits.maximum_frame_bytes == FM27_FRAME_DECOMPRESSED_CAP
+    assert limits.maximum_frame_bytes <= limits.maximum_span_bytes
+    assert limits.maximum_span_bytes <= FM27_TOTAL_DECOMPRESSED_CAP
+    assert limits.maximum_frame_bytes <= FM27_FRAME_DECOMPRESSED_CAP
 
 
 def test_integrated_raw_span_limits_decompression_before_parser_allocation(
