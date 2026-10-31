@@ -2787,6 +2787,10 @@
           0.98,
           None,
         ),
+        'suspension_entries_minimum': tuple(
+          1,
+          None,
+        ),
         'suspension_scopes_known': tuple(
           0.5,
           None,
@@ -3496,12 +3500,16 @@
           0.98,
           None,
         ),
+        'suspension_entries_minimum': tuple(
+          1,
+          None,
+        ),
         'suspension_scopes_known': tuple(
           0.5,
           None,
         ),
         'suspension_share_of_players': tuple(
-          0.001,
+          None,
           0.1,
         ),
         'table_block_duplicates_minimum': tuple(
@@ -5235,6 +5243,82 @@
         'unknown_s25_offset': 25,
         'unknown_s29_offset': 29,
         'zero_byte_offset': 12,
+      }),
+      'region': 'game_db',
+      'schema': 4000,
+    }),
+    dict({
+      'build': '27.0.0+2486695',
+      'layout': dict({
+        'competition_scope_code': 1,
+        'entry_core_bytes': 18,
+        'issued_date_offset': 9,
+        'linked_date_offset': 21,
+        'linked_entry_bytes': 46,
+        'linked_flag_offset': 29,
+        'linked_flag_values': tuple(
+          1,
+          2,
+        ),
+        'linked_signature': tuple(
+          tuple(
+            18,
+            3,
+          ),
+          tuple(
+            19,
+            1,
+          ),
+          tuple(
+            20,
+            1,
+          ),
+          tuple(
+            30,
+            0,
+          ),
+          tuple(
+            35,
+            0,
+          ),
+        ),
+        'nation_scope_codes': tuple(
+          5,
+          6,
+          10,
+        ),
+        'null_suffix': b'\xff\x00',
+        'owner_back_offset': 30,
+        'parent_prefix': b'\x01\x00',
+        'scope_code_offset': 14,
+        'scope_id_exclusive_range': tuple(
+          0,
+          60000,
+        ),
+        'scope_id_offset': 16,
+        'signature': tuple(
+          tuple(
+            4,
+            255,
+          ),
+          tuple(
+            5,
+            255,
+          ),
+          tuple(
+            13,
+            5,
+          ),
+          tuple(
+            15,
+            255,
+          ),
+          tuple(
+            18,
+            255,
+          ),
+        ),
+        'unknown_e7_offset': 7,
       }),
       'region': 'game_db',
       'schema': 4000,

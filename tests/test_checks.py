@@ -143,6 +143,7 @@ SUSPENSION_GATE_NAMES = (
     "suspension_share_of_players",
     "issued_after_clock",
     "suspension_scopes_known",
+    "suspension_entries_minimum",
 )
 
 REPORT_KEYS = {
@@ -614,10 +615,15 @@ def test_a_suspension_search_that_finds_nothing_fails_the_share_and_the_clock_ch
         entries_with_known_scope=0,
     )
     results = evaluate_suspensions(nothing_found, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
-    assert failed_gate_names(results) == ["suspension_share_of_players", "issued_after_clock"]
+    assert failed_gate_names(results) == [
+        "suspension_share_of_players",
+        "issued_after_clock",
+        "suspension_entries_minimum",
+    ]
     assert results[0].observed == 0.0
     assert results[1].observed is None
     assert not results[2].applied
+    assert results[3].observed == 0
     with pytest.raises(fmsave.ReaderCheckError, match=r"suspension_share_of_players=0 "):
         enforce("suspensions", results, strict=True)
     small_results = evaluate_suspensions(nothing_found, BOUNDS, SMALL_GAME_DB_BYTES)
@@ -1163,6 +1169,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         # Both entries carry a scope code the layout lists, one competition-wide and one
         # nation-wide.
         "suspension_scopes_known": 1.0,
+        "suspension_entries_minimum": 2,
     }
     assert readers["managed_clubs"].gates == ()
     assert {name: dict(reader.anomalies) for name, reader in readers.items()} == {

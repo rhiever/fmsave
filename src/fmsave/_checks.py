@@ -172,6 +172,7 @@ _LIKELY_CAUSES: FrozenMapping[str, str] = FrozenMapping(
     {
         "tails_without_clause_table": "an unrecognised bonus list shape in the contract tail",
         "suspension_share_of_players": "a suspension entry layout that has moved",
+        "suspension_entries_minimum": "a suspension entry layout that has moved",
         "suspension_scopes_known": "suspension scope codes this build no longer uses",
         "sponsor_clubs_minimum": (
             "a finance chain locator that found nothing, since a sponsor run is only looked "
@@ -511,7 +512,9 @@ def evaluate_suspensions(
     check with no rate, so an entry layout that has moved fails here rather than reporting a
     save whose players are never banned. The scope check judges what the entries that were
     found say rather than how many there are, so it is not applied when there are none and
-    the first check is what fails then.
+    the first check is what fails then. `suspension_entries_minimum` counts the entries
+    themselves, which is what judges an empty search on a build whose share has no floor
+    because a small ban list in a large database is ordinary there.
 
     `issued_after_clock` judges the bans covering ONE COMPETITION alone. A ban covering a
     whole nation carries a date ahead of the in-game date as ordinary career state, so over
@@ -539,6 +542,12 @@ def evaluate_suspensions(
             stats.entries_with_known_scope,
             stats.entries,
             bounds.suspension_scopes_known,
+            applied,
+        ),
+        _gate(
+            "suspension_entries_minimum",
+            stats.entries,
+            bounds.suspension_entries_minimum,
             applied,
         ),
     )

@@ -264,12 +264,37 @@ class _TrainingTables(NamedTuple):
 
 
 class _PlayerTables(NamedTuple):
-    """The three tables one decode pass over the player records builds, and their _checks."""
+    """The three tables one decode pass over the player records builds, and their _checks.
+
+    `failed_suspension_check` is set when a build that judges suspensions apart from the pass
+    failed that check: the suspension table is then empty and must not be handed out.
+    """
 
     players: Table[Player]
     contracts: Table[Contract]
     suspensions: Table[Suspension]
     reader_checks: tuple[ReaderCheck, ...]
+    failed_suspension_check: ReaderCheck | None = None
+
+
+def _checks_fail(reader_checks: Sequence[ReaderCheck]) -> bool:
+    """Whether these checks would stop a strict save."""
+    try:
+        _checks.enforce_checks(reader_checks, strict=True)
+    except ReaderCheckError:
+        return True
+    return False
+
+
+def _passed_suspensions(tables: _PlayerTables) -> Table[Suspension]:
+    """The pass's suspension table, or the error of the check it failed on its own.
+
+    Raises:
+        ReaderCheckError: The suspension check was judged apart from the pass and failed.
+    """
+    if tables.failed_suspension_check is not None:
+        _checks.enforce_checks((tables.failed_suspension_check,), strict=True)
+    return tables.suspensions
 
 
 def _check_cache_key(reader_name: str) -> str:
@@ -389,7 +414,8 @@ class Save:
         in from each player's person block, or stay None or empty when no block validates.
         The table is read on the first call to `players()`, `contracts()` or `suspensions()`,
         from one decode pass; later calls to any of them return the same tables. When a check
-        of that pass fails, none of the three tables is kept, so each of them raises.
+        of that pass fails, none of the three tables is kept, so each of them raises, except
+        that a failed FM27 suspension check stops only `suspensions()`.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -449,7 +475,10 @@ class Save:
         that controlling club. The table is read on the first call to
         `players()`, `contracts()` or `suspensions()`, from one decode pass; later calls to
         any of them return the same tables. When a check of that pass fails, none of the
-        three tables is kept, so each of them raises.
+        three tables is kept, so each of them raises. On FM27 the suspension checks are judged
+        on their own: when only they fail, this reader raises, and `players()` and
+        `contracts()` still read, with every `Player.suspensions` None. FM27 ban coverage has
+        not been compared with the game.
 
         A ban covering one competition carries `competition_id` in the stage id space, which
         joins `stages()`, `competitions()`, `fixtures()`, `league_tables()` and
@@ -476,12 +505,6 @@ class Save:
                 table does. A save opened with strict=True raises ReaderCheckError instead.
         """
         context = self._context
-        if self._info.game == "FM27":
-            self._require_open()
-            raise UnsupportedGameError(
-                "FM27 suspension coverage is not established; "
-                "Player.suspensions is None, not an empty list of bans"
-            )
         return context.cached(SUSPENSIONS_TABLE_CACHE_KEY, self._suspensions_table_entry_point)
 
     def managed_clubs(self) -> Table[ManagedClub]:
@@ -2424,7 +2447,7 @@ class Save:
         context = self._context
         self._store_reader_checks(tables.reader_checks)
         context.cached(CONTRACTS_TABLE_CACHE_KEY, lambda: tables.contracts)
-        context.cached(SUSPENSIONS_TABLE_CACHE_KEY, lambda: tables.suspensions)
+        self._cache_suspensions(tables)
         return tables.players
 
     def _contracts_table_entry_point(self) -> Table[Contract]:
@@ -2432,7 +2455,7 @@ class Save:
         context = self._context
         self._store_reader_checks(tables.reader_checks)
         context.cached(PLAYERS_TABLE_CACHE_KEY, lambda: tables.players)
-        context.cached(SUSPENSIONS_TABLE_CACHE_KEY, lambda: tables.suspensions)
+        self._cache_suspensions(tables)
         return tables.contracts
 
     def _suspensions_table_entry_point(self) -> Table[Suspension]:
@@ -2441,7 +2464,15 @@ class Save:
         self._store_reader_checks(tables.reader_checks)
         context.cached(PLAYERS_TABLE_CACHE_KEY, lambda: tables.players)
         context.cached(CONTRACTS_TABLE_CACHE_KEY, lambda: tables.contracts)
-        return tables.suspensions
+        return _passed_suspensions(tables)
+
+    def _cache_suspensions(self, tables: _PlayerTables) -> None:
+        """Keep the suspension table, or its failure, without failing the reader that asked."""
+        try:
+            self._context.cached(SUSPENSIONS_TABLE_CACHE_KEY, lambda: _passed_suspensions(tables))
+        except ReaderCheckError:
+            # Remembered under the suspension key, so `suspensions()` raises it again.
+            pass
 
     def _decode_player_tables(self) -> _PlayerTables:
         context = self._context
@@ -2473,15 +2504,28 @@ class Save:
                 contract_layout,
                 save_info.file_name,
             )
-            omit_suspensions = save_info.game == "FM27"
-            suspension_entries_by_position: Mapping[int, tuple[SuspensionEntry, ...]] = {}
-            if not omit_suspensions:
-                suspension_layout = find_layout(
-                    SuspensionLayout, GAME_DB_SECTION, game_db_schema, save_info.build
-                ).layout
-                suspension_entries_by_position = locate_suspensions(
-                    game_db, player_records, suspension_layout
+            suspension_layout = find_layout(
+                SuspensionLayout, GAME_DB_SECTION, game_db_schema, save_info.build
+            ).layout
+            suspension_entries_by_position: Mapping[int, tuple[SuspensionEntry, ...]] = (
+                locate_suspensions(game_db, player_records, suspension_layout)
+            )
+            # FM27 judges the bans before any player is decoded, so a failed suspension check
+            # stops only `suspensions()`: the players are then decoded with no bans at all,
+            # which leaves every Player.suspensions None rather than an empty list.
+            separate_suspension_check: ReaderCheck | None = None
+            omit_suspensions = False
+            if save_info.game == "FM27":
+                separate_suspension_check = _checks.check_suspensions(
+                    suspension_stats(
+                        suspension_entries_by_position, len(player_records.record_offsets), clock
+                    ),
+                    gate_bounds,
+                    len(game_db),
                 )
+                omit_suspensions = _checks_fail((separate_suspension_check,))
+                if omit_suspensions:
+                    suspension_entries_by_position = {}
             # With a name map the competitions are read first, checks and all. Every
             # competition name a ban carries comes out of the competition index, so that index
             # must have passed its own checks before a name of its leaves this reader: a build
@@ -2547,7 +2591,7 @@ class Save:
                 game_db_length,
             ),
         )
-        if not omit_suspensions:
+        if separate_suspension_check is None:
             reader_checks += (
                 _checks.check_suspensions(
                     suspension_stats(suspension_entries_by_position, player_count, clock),
@@ -2555,6 +2599,8 @@ class Save:
                     game_db_length,
                 ),
             )
+        elif not omit_suspensions:
+            reader_checks += (separate_suspension_check,)
         self._enforce_checks(reader_checks)
         context.cached(HISTORY_SELECTORS_CACHE_KEY, lambda: FrozenMapping(history_selectors))
         return _PlayerTables(
@@ -2562,6 +2608,7 @@ class Save:
             Table(tuple(decoded_contracts), Contract),
             Table(tuple(decoded_suspensions), Suspension),
             reader_checks,
+            separate_suspension_check if omit_suspensions else None,
         )
 
     def close(self) -> None:

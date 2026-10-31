@@ -1353,6 +1353,8 @@ GATE_BOUNDS = GateBounds(
     # not move with how big a save is, so the floor sits far below 1 and still fails long
     # before half the bans have gone unreadable.
     suspension_scopes_known=(0.50, None),
+    # Hundreds of entries on every save measured; the share above is the tighter check here.
+    suspension_entries_minimum=(1, None),
     # Around 8,000 rows and no gaps at all on every save measured; both bounds leave room for a
     # much shorter table and for a save whose table needs resynchronising a few times.
     stage_rows_minimum=(1_000, None),

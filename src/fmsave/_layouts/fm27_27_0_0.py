@@ -25,6 +25,7 @@ from fmsave._layouts.fm26_26_3_2 import (
     PLAYER_RECORDS,
     STADIUM_TABLE,
     STAGE_TABLE,
+    SUSPENSIONS,
     TAGGED_STREAM,
     TEAM_LISTS,
     TRANSFER_WINDOWS,
@@ -117,6 +118,11 @@ NATION_BOUNDS = replace(
     # Two season-start saves measured 0.852 and 0.887, and every recent row that missed named
     # another team of the player's current club. Later states measured 0.948 to 0.966.
     injury_log_recent_team_matches=(0.75, None),
+    # Early-season careers hold 13 to 33 players with a ban among 29,600 to 42,300, a share of
+    # 0.0003 to 0.0011 that falls either side of the FM26 floor within days. The count judges
+    # an empty search instead, and the ceiling stays.
+    suspension_share_of_players=(None, 0.10),
+    suspension_entries_minimum=(1, None),
 )
 CLUB_TABLE = replace(
     FM26_CLUB_TABLE,
@@ -275,6 +281,7 @@ LAYOUTS = (
             NAME_POOLS,
             CONTRACTS,
             STAGE_TABLE,
+            SUSPENSIONS,
             COMPETITION_ID_PAIRS,
             TAGGED_STREAM,
             TRANSFER_WINDOWS,

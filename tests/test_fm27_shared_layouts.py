@@ -20,6 +20,7 @@ SHARED = (
     ("game_db", 4000, observed.CONTRACTS),
     ("game_db", 4000, observed.STAGE_TABLE),
     ("game_db", 4000, observed.STADIUM_TABLE),
+    ("game_db", 4000, observed.SUSPENSIONS),
     ("game_db", 4000, observed.COMPETITION_ID_PAIRS),
     ("game_db", 4000, observed.TAGGED_STREAM),
     ("game_db", 4000, observed.TRANSFER_WINDOWS),
@@ -123,3 +124,12 @@ def test_fm27_sponsor_boundary_does_not_enable_unknown_schemas_or_builds() -> No
     for schema, build in ((4001, BUILD), (4000, "27.0.1+3000001")):
         with pytest.raises(UnsupportedGameError):
             find_layout(layout_type, "game_db", schema, build)
+
+
+def test_fm27_suspensions_judge_an_empty_search_by_count_not_by_share() -> None:
+    from fmsave._layouts import GateBounds
+
+    bounds = find_layout(GateBounds, "game_db", 4000, BUILD).layout
+    assert bounds.suspension_share_of_players == (None, 0.10)
+    assert bounds.suspension_entries_minimum == (1, None)
+    assert observed.GATE_BOUNDS.suspension_share_of_players == (0.001, 0.10)

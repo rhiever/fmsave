@@ -1910,10 +1910,11 @@ class GateBounds:
     far above its band, so either bound catches the shift on its own.
 
     Suspensions: `suspension_share_of_players` (players with an entry, of players),
-    `issued_after_clock` (entries issued after the in-game date, of entries) and
-    `suspension_scopes_known` (entries whose scope code the layout lists, of entries). The
-    first two apply whenever the section is large enough, so a search that finds no entry
-    fails the first on its lower bound and the second for want of a rate;
+    `issued_after_clock` (entries issued after the in-game date, of entries),
+    `suspension_scopes_known` (entries whose scope code the layout lists, of entries) and
+    `suspension_entries_minimum` (entries found). All but the scope check apply whenever the
+    section is large enough, so a search that finds no entry fails the share on its lower
+    bound, the clock check for want of a rate and the count on its floor;
     `suspension_scopes_known` judges the entries that were found, so it is not applied when
     there are none.
 
@@ -2284,6 +2285,7 @@ class GateBounds:
     suspension_share_of_players: BoundPair
     suspension_scopes_known: BoundPair
     issued_after_clock: BoundPair
+    suspension_entries_minimum: BoundPair
     stage_rows_minimum: BoundPair
     stage_walk_gaps: BoundPair
     stage_ids_ascending: BoundPair
