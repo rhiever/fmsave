@@ -58,7 +58,7 @@ from fmsave.models.season_stats import PlayerSeasonStats
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
-from fmsave.models.tactics import SetPieceRoutine, Tactic
+from fmsave.models.tactics import Selection, SetPieceRoutine, Tactic
 from fmsave.models.training import MentoringGroup, TeamTraining
 from fmsave.table import Table
 
@@ -940,6 +940,15 @@ def _set_piece_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[o
     return (routine for routine in set_pieces if keeps_club(routine.club_uid))
 
 
+def _selection_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[object]:
+    """The selections of the scope's clubs, which only the managed club has."""
+    selections = career_save.selections()
+    if scope.club_uids is None:
+        return selections
+    keeps_club = _club_uid_filter(career_save, scope)
+    return (pick for pick in selections if keeps_club(pick.club_uid))
+
+
 @dataclass(frozen=True, slots=True)
 class _ExportTable:
     """One table `export` writes: its record type, the scopes it takes and how it reads rows.
@@ -1017,6 +1026,9 @@ _EXPORT_TABLES: dict[str, _ExportTable] = {
     "tactics": _ExportTable(Tactic, _CLUB_SCOPES, _tactic_rows, note=_MANAGED_CLUB_ONLY_NOTE),
     "set-pieces": _ExportTable(
         SetPieceRoutine, _CLUB_SCOPES, _set_piece_rows, note=_MANAGED_CLUB_ONLY_NOTE
+    ),
+    "selections": _ExportTable(
+        Selection, _CLUB_SCOPES, _selection_rows, note=_MANAGED_CLUB_ONLY_NOTE
     ),
 }
 

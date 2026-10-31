@@ -188,6 +188,7 @@ READER_ORDER = (
     "mentoring",
     "tactics",
     "set_pieces",
+    "selections",
     "facilities",
 )
 EXAMPLE_COMPETITION_COUNT = 3
@@ -1104,6 +1105,7 @@ def test_validate_save_reports_every_reader_ok_with_gates_not_applied(
         "mentoring": 2,
         "tactics": 2,
         "set_pieces": 40,
+        "selections": 3,
     }
     assert report.game == save_info.game
     assert report.build == save_info.build
@@ -1344,6 +1346,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "unresolved_selectors": 5,
         },
         "set_pieces": {"named_routines": 2},
+        "selections": {"unresolved_picks": 2},
         "facilities": {
             "clubs_without_a_rating": 0,
             "ratings_out_of_range": 0,
@@ -1523,6 +1526,7 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered
         "mentoring": "failed",
         "tactics": "failed",
         "set_pieces": "failed",
+        "selections": "failed",
     }
     assert readers["contracts"].gates == (failing_gate("tails_parsed"),)
     assert tuple(gate.name for gate in readers["players"].gates) == PLAYER_GATE_NAMES
@@ -1677,6 +1681,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "mentoring": "ok",
         "tactics": "failed",
         "set_pieces": "ok",
+        "selections": "failed",
         "facilities": "failed",
     }
     assert {name: failed_gate_names(reader.gates) for name, reader in readers.items()} == {
@@ -1779,6 +1784,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # A club team without a stored tactics block does not imply a missed block.
         "tactics": ["tactic_selection_selectors_resolved"],
         "set_pieces": [],
+        "selections": ["selection_picks_resolved"],
         "facilities": ["facility_clubs_minimum"],
     }
 

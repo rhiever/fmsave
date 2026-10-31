@@ -9,7 +9,7 @@ myst:
 A save holds players, clubs and competitions across the game world. The available history
 varies by career; it is not a complete archive of every match or injury.
 
-29 readers get at it. Each one returns a `Table` of records, and each one reads the save
+30 readers get at it. Each one returns a `Table` of records, and each one reads the save
 you point it at and nothing else.
 
 ## People
@@ -72,11 +72,13 @@ Incomplete or unresolved histories fail the reader checks.
 
 ## Your own club's work
 
-`training()`, `mentoring()`, `tactics()`, `set_pieces()`
+`training()`, `mentoring()`, `tactics()`, `set_pieces()`, `selections()`
 
 These readers return data for the club you manage. Other clubs return no rows. `tactics()`
 includes stored preset and alternate tactics; a row is a copy for one team, so the same tactic
-can appear more than once.
+can appear more than once. `selections()` holds each team's stored starters and substitutes. A
+starter's slot is a tactic slot, but nothing stored says which tactic is selected, and the
+substitutes can keep players past the next match's bench size.
 
 ## Limits and missing values
 

@@ -70,20 +70,22 @@ positional arguments:
                         stats, player-season-history, stadiums, finances,
                         sponsorships, facilities, affiliates, job-vacancies,
                         staff, staff-lists, injury-types, injuries, training,
-                        mentoring, tactics, set-pieces; competition-rules (a
-                        rules block's competition is read from the table
-                        stored after it, so --competition returns only the
-                        blocks that link to one); player-season-stats (a club
-                        or nation scope keeps its current players, including
-                        their rows for other teams this season); player-
-                        season-history (club and nation scopes select players
-                        by current membership); training (only the manager's
-                        own club has these, so any other club returns no
-                        rows); mentoring (only the manager's own club has
-                        these, so any other club returns no rows); tactics
-                        (only the manager's own club has these, so any other
-                        club returns no rows); set-pieces (only the manager's
-                        own club has these, so any other club returns no rows)
+                        mentoring, tactics, set-pieces, selections;
+                        competition-rules (a rules block's competition is read
+                        from the table stored after it, so --competition
+                        returns only the blocks that link to one); player-
+                        season-stats (a club or nation scope keeps its current
+                        players, including their rows for other teams this
+                        season); player-season-history (club and nation scopes
+                        select players by current membership); training (only
+                        the manager's own club has these, so any other club
+                        returns no rows); mentoring (only the manager's own
+                        club has these, so any other club returns no rows);
+                        tactics (only the manager's own club has these, so any
+                        other club returns no rows); set-pieces (only the
+                        manager's own club has these, so any other club
+                        returns no rows); selections (only the manager's own
+                        club has these, so any other club returns no rows)
 
 options:
   -h, --help            show this help message and exit

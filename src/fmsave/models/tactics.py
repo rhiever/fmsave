@@ -1,4 +1,4 @@
-"""The manager's tactics and set-piece routines, as the save stores them per team.
+"""The manager's tactics, set-piece routines and selections, as the save stores them per team.
 
 **A tactic belongs to a team, not to a club.** The save keeps a separate copy of each tactic
 for each team that uses it, so a manager with two tactics and two teams using them has four
@@ -222,6 +222,49 @@ class SetPieceRoutine:
     name: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class Selection:
+    """One player picked in one team's stored selection: a starter or a substitute.
+
+    A team stores one selection of eleven starter places and fifteen substitute places. A row
+    is one place that holds a pick; an empty place has no row, so a team with nothing picked
+    has no rows at all. Only the manager's own teams store a selection in this form.
+
+    **A starter's place is a tactic slot.** The starter in `slot` n plays the position of
+    `TacticSlot.number` n, but only in the tactic the team has selected, and nothing stored
+    says which of a team's tactics that is.
+
+    **The substitutes are the stored list, not the next match's bench.** On one FM27 career
+    the stored starters and the first thirteen substitutes matched the tactics screen in its
+    order. The substitute places can keep players past the bench size of the next match, so
+    compare their count with the competition's bench size before treating them all as picks.
+
+    Attributes:
+        club_uid: Uid of the club the team plays for, None for a team no club lists
+            (unconfirmed).
+        club_name: Denormalised full name of club_uid (unconfirmed).
+        team_id: The team the selection belongs to, as the save stores it (unconfirmed).
+        team_slot: The team's place in that club's own team list, 0 for its first team; None
+            when the team resolves to no club (unconfirmed).
+        substitute: False for a starter, True for a substitute (unconfirmed).
+        slot: The place within the starters or within the substitutes, counting from zero in
+            stored order; a starter's is the tactic slot it fills, and a substitute's 0 is the
+            first substitute the game lists (unconfirmed).
+        player_uid: Uid of the picked player, None when the stored pick names no player record
+            (unconfirmed).
+        player_name: Denormalised name of player_uid (unconfirmed).
+    """
+
+    club_uid: int | None
+    club_name: str | None
+    team_id: int
+    team_slot: int | None
+    substitute: bool
+    slot: int
+    player_uid: int | None
+    player_name: str | None
+
+
 register_field_statuses(
     TacticSettingUnit,
     unconfirmed=(
@@ -275,4 +318,19 @@ register_field_statuses(
     SetPieceRoutine,
     verified=("name",),
     unconfirmed=("club_uid", "club_name", "team_id", "team_slot", "slot"),
+)
+# One FM27 tactics screen matched the picks; field statuses describe FM26, where no screen has
+# been compared and the picks only fit the positions of the slots they fill.
+register_field_statuses(
+    Selection,
+    unconfirmed=(
+        "club_uid",
+        "club_name",
+        "team_id",
+        "team_slot",
+        "substitute",
+        "slot",
+        "player_uid",
+        "player_name",
+    ),
 )

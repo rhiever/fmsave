@@ -59,6 +59,7 @@ from fmsave._reader_stats import (
     RulesStats,
     SeasonHistoryStats,
     SeasonStatsStats,
+    SelectionStats,
     StadiumStats,
     StaffStats,
     StageStats,
@@ -117,6 +118,7 @@ STAFF_READER = "staff"
 STAFF_LISTS_READER = "staff_lists"
 TACTICS_READER = "tactics"
 SET_PIECES_READER = "set_pieces"
+SELECTIONS_READER = "selections"
 TRAINING_READER = "training"
 MENTORING_READER = "mentoring"
 
@@ -144,9 +146,9 @@ _FINANCE_PASS_READERS = frozenset({FINANCES_READER, SPONSORSHIPS_READER})
 # The staff rows and the club staff lists come out of one pass over the club records and one
 # over the whole section, so they fail or succeed together.
 _STAFF_PASS_READERS = frozenset({STAFF_READER, STAFF_LISTS_READER})
-# The tactics and the set-piece routines come out of one walk over the manager's team blocks,
-# so they fail or succeed together.
-_TACTICS_PASS_READERS = frozenset({TACTICS_READER, SET_PIECES_READER})
+# The tactics, the set-piece routines and the selections come out of one walk over the
+# manager's team blocks, so they fail or succeed together.
+_TACTICS_PASS_READERS = frozenset({TACTICS_READER, SET_PIECES_READER, SELECTIONS_READER})
 # The calendars and the mentoring groups come out of one walk over the training section, so
 # they fail or succeed together.
 _TRAINING_PASS_READERS = frozenset({TRAINING_READER, MENTORING_READER})
@@ -2269,6 +2271,48 @@ def evaluate_set_pieces(
     )
 
 
+def evaluate_selections(
+    stats: SelectionStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The selection reader's checks: its picks name players, mostly the managed club's.
+
+    They reuse the bounds the tactic reader puts on every selector of the same blocks, of which
+    the picks are a part. Both are excused without a denominator, because a team can store no
+    pick at all, and the second is judged on the picks that resolved.
+    """
+    applied = _applies(bounds, game_db_bytes) and stats.managed_club_exists
+    return (
+        _share_gate(
+            "selection_picks_resolved",
+            stats.picks_resolved,
+            stats.picks,
+            bounds.tactic_selection_selectors_resolved,
+            applied,
+        ),
+        _share_gate(
+            "selection_picks_at_club",
+            stats.picks_at_club,
+            stats.picks_resolved,
+            bounds.tactic_selection_selectors_at_club,
+            applied,
+        ),
+    )
+
+
+def check_selections(stats: SelectionStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+    """The selection reader's checks, record count and anomaly count.
+
+    `unresolved_picks` counts the picks no player record names; their rows keep empty player
+    fields.
+    """
+    return ReaderCheck(
+        SELECTIONS_READER,
+        stats.picks,
+        evaluate_selections(stats, bounds, game_db_bytes),
+        FrozenMapping({"unresolved_picks": stats.picks - stats.picks_resolved}),
+    )
+
+
 def check_tactics(stats: TacticStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
     """The tactic reader's checks, record count and anomaly counts.
 
@@ -2546,7 +2590,8 @@ class ReaderValidation:
     competition rules and stadiums share the one streamed pass over the span the same way, and
     are reported together when that pass itself is what failed. Four more pairs share a decode
     in the same way: finances with sponsorships, staff with staff lists, training with
-    mentoring, and tactics with set pieces. A structural failure spreads the same way on any
+    mentoring, and tactics with set pieces and selections. A structural failure spreads the
+    same way on any
     save, since no mode reads a table from a decode that produced none.
 
     Attributes:
@@ -2555,8 +2600,8 @@ class ReaderValidation:
             "competition_rules", "player_match_stats", "player_season_stats",
             "player_season_history", "stadiums",
             "finances", "sponsorships", "affiliates", "job_vacancies", "staff", "staff_lists",
-            "injury_types", "injuries", "training", "mentoring", "tactics", "set_pieces" or
-            "facilities".
+            "injury_types", "injuries", "training", "mentoring", "tactics", "set_pieces",
+            "selections" or "facilities".
         status: "ok" when the reader returned its table and every applied check of its own
             passed, "failed" when a check did not, and "error" when it raised another fmsave
             error.
@@ -2683,8 +2728,8 @@ def validate_save(career_save: Save) -> ValidationReport:
     Readers run in the order clubs, players, contracts, suspensions, managed clubs, stages,
     competitions, fixtures, league tables, transfer windows, competition rules, per-match
     player stats, stadiums, finances, sponsorships, affiliates, job vacancies, staff, staff
-    lists, injury types, injury history, training, mentoring, tactics, set pieces, club
-    facilities. The order puts each reader after the ones whose work it reuses, so a shared
+    lists, injury types, injury history, training, mentoring, tactics, set pieces, selections,
+    club facilities. The order puts each reader after the ones whose work it reuses, so a shared
     decode that fails is reported where it failed: stadiums follow the fixtures whose calendar
     they read, injury types precede the injury history that names its types, and the two
     readers of each shared pass sit side by side. A reader whose checks fail is reported
@@ -2743,6 +2788,7 @@ def validate_save(career_save: Save) -> ValidationReport:
         (MENTORING_READER, career_save.mentoring),
         (TACTICS_READER, career_save.tactics),
         (SET_PIECES_READER, career_save.set_pieces),
+        (SELECTIONS_READER, career_save.selections),
         (FACILITIES_READER, career_save.facilities),
     )
     validations: list[ReaderValidation] = []

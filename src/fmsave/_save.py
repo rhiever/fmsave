@@ -29,7 +29,7 @@ from fmsave._layouts import (
     SuspensionLayout,
     find_layout,
 )
-from fmsave._reader_stats import ResultStats, TacticStats
+from fmsave._reader_stats import ResultStats, SelectionStats, TacticStats
 from fmsave._version import limit_game_index, read_save_info
 from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.clubs import Club
@@ -52,7 +52,7 @@ from fmsave.models.season_stats import PlayerSeasonStats
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
-from fmsave.models.tactics import SetPieceRoutine, Tactic
+from fmsave.models.tactics import Selection, SetPieceRoutine, Tactic
 from fmsave.models.training import MentoringGroup, TeamTraining
 from fmsave.name_maps import (
     _EMPTY_COMPETITION_NAMES,  # pyright: ignore[reportPrivateUsage]
@@ -148,6 +148,7 @@ from fmsave.readers.suspensions import (
     suspension_stats,
 )
 from fmsave.readers.tactics import (
+    build_selection_table,
     build_tactic_tables,
     find_tactics_layout,
     read_tactics_header,
@@ -190,6 +191,7 @@ STAFF_TABLE_CACHE_KEY = "table:staff"
 STAFF_LISTS_TABLE_CACHE_KEY = "table:staff_lists"
 TACTICS_TABLE_CACHE_KEY = "table:tactics"
 SET_PIECES_TABLE_CACHE_KEY = "table:set_pieces"
+SELECTIONS_TABLE_CACHE_KEY = "table:selections"
 TRAINING_TABLE_CACHE_KEY = "table:training"
 MENTORING_TABLE_CACHE_KEY = "table:mentoring"
 
@@ -237,13 +239,17 @@ _EMPTY_TACTIC_STATS = TacticStats(
     routines=0,
     named_routines=0,
 )
+_EMPTY_SELECTION_STATS = SelectionStats(
+    managed_club_exists=False, picks=0, picks_resolved=0, picks_at_club=0
+)
 
 
 class _TacticTables(NamedTuple):
-    """The two tables one walk over the manager's team blocks builds, and their _checks."""
+    """The three tables one walk over the manager's team blocks builds, and their _checks."""
 
     tactics: Table[Tactic]
     set_pieces: Table[SetPieceRoutine]
+    selections: Table[Selection]
     reader_checks: tuple[ReaderCheck, ...]
 
 
@@ -1966,10 +1972,10 @@ class Save:
         `unknown` and as `TacticSettingUnit` values rather than under names they have not
         earned.
 
-        The table is read on the first call to `tactics()` or `set_pieces()`, from one walk;
-        later calls to either return the same tables. When a check of that walk fails, neither
-        table is kept, so both raise. A cold call pays for the player pass, because the
-        selectors the reader's checks judge resolve through the player records.
+        The table is read on the first call to `tactics()`, `set_pieces()` or `selections()`,
+        from one walk; later calls to any of them return the same tables. When a check of that
+        walk fails, no table is kept, so all three raise. A cold call pays for the player pass,
+        because the selectors the reader's checks judge resolve through the player records.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -1997,9 +2003,9 @@ class Save:
         Groups can contain multiple routines, so a team can have more than twenty rows.
         A routine is recognised by its record structure, never by its name.
 
-        The table is read on the first call to `tactics()` or `set_pieces()`, from one walk;
-        later calls to either return the same tables. When a check of that walk fails, neither
-        table is kept, so both raise.
+        The table is read on the first call to `tactics()`, `set_pieces()` or `selections()`,
+        from one walk; later calls to any of them return the same tables. When a check of that
+        walk fails, no table is kept, so all three raise.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -2019,17 +2025,60 @@ class Save:
         context = self._context
         return context.cached(SET_PIECES_TABLE_CACHE_KEY, self._set_pieces_table_entry_point)
 
+    def selections(self) -> Table[Selection]:
+        """Every stored pick of the manager's teams: starters, then substitutes, by team.
+
+        A row is one starter or substitute place that holds a pick; an empty place has no row.
+        A starter's `slot` is the tactic slot it fills, in the tactic the team has selected,
+        which nothing stored identifies. **The substitutes are the stored list rather than the
+        next match's bench**: places past the bench size of the next match can still hold
+        players picked for an earlier one. Only the manager's own teams are here.
+
+        The table is read on the first call to `tactics()`, `set_pieces()` or `selections()`,
+        from one walk; later calls to any of them return the same tables. When a check of that
+        walk fails, no table is kept, so all three raise. A cold call pays for the player pass,
+        because every pick resolves through the player records.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: The tactics section is too short to hold its header, a constant a
+                team block is built around is not where fmsave expects it, a count inside a
+                block runs past the end of the section, a name does not decode, no club record
+                is accepted, a club uid or club index appears in two records, or a team id is
+                listed twice.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save that lists a managed club, what the walk
+                read falls outside the checks' bounds. A save opened with strict=True raises
+                ReaderCheckError instead.
+        """
+        context = self._context
+        return context.cached(SELECTIONS_TABLE_CACHE_KEY, self._selections_table_entry_point)
+
+    def _keep_tactic_tables(self, tables: _TacticTables) -> None:
+        """Keep the checks and all three tables of one walk, whichever reader ran it."""
+        self._store_reader_checks(tables.reader_checks)
+        context = self._context
+        context.cached(TACTICS_TABLE_CACHE_KEY, lambda: tables.tactics)
+        context.cached(SET_PIECES_TABLE_CACHE_KEY, lambda: tables.set_pieces)
+        context.cached(SELECTIONS_TABLE_CACHE_KEY, lambda: tables.selections)
+
     def _tactics_table_entry_point(self) -> Table[Tactic]:
         tables = self._decode_tactics_tables()
-        self._store_reader_checks(tables.reader_checks)
-        self._context.cached(SET_PIECES_TABLE_CACHE_KEY, lambda: tables.set_pieces)
+        self._keep_tactic_tables(tables)
         return tables.tactics
 
     def _set_pieces_table_entry_point(self) -> Table[SetPieceRoutine]:
         tables = self._decode_tactics_tables()
-        self._store_reader_checks(tables.reader_checks)
-        self._context.cached(TACTICS_TABLE_CACHE_KEY, lambda: tables.tactics)
+        self._keep_tactic_tables(tables)
         return tables.set_pieces
+
+    def _selections_table_entry_point(self) -> Table[Selection]:
+        tables = self._decode_tactics_tables()
+        self._keep_tactic_tables(tables)
+        return tables.selections
 
     def _decode_tactics_tables(self) -> _TacticTables:
         context = self._context
@@ -2081,25 +2130,35 @@ class Save:
             human_selector,
             walk_counts,
         )
-        # Both checks run before either table is built: when one fails, nothing is cached and
+        selections, selection_stats = build_selection_table(
+            blocks, club_index, player_records, players, managed_club_uid, layout.slot_count
+        )
+        # Every check runs before any table is built: when one fails, nothing is cached and
         # the next call walks and checks again.
         reader_checks = (
             _checks.check_tactics(tactic_stats, gate_bounds, game_db_length),
             _checks.check_set_pieces(tactic_stats, gate_bounds, game_db_length),
+            _checks.check_selections(selection_stats, gate_bounds, game_db_length),
         )
         self._enforce_checks(reader_checks)
         return _TacticTables(
-            Table(tactics, Tactic), Table(set_pieces, SetPieceRoutine), reader_checks
+            Table(tactics, Tactic),
+            Table(set_pieces, SetPieceRoutine),
+            Table(selections, Selection),
+            reader_checks,
         )
 
     def _empty_tactic_tables(self, gate_bounds: GateBounds) -> _TacticTables:
-        """Both tables empty, for a manager with no club: nothing here is judged."""
+        """All three tables empty, for a manager with no club: nothing here is judged."""
         empty_stats = _EMPTY_TACTIC_STATS
         reader_checks = (
             _checks.check_tactics(empty_stats, gate_bounds, 0),
             _checks.check_set_pieces(empty_stats, gate_bounds, 0),
+            _checks.check_selections(_EMPTY_SELECTION_STATS, gate_bounds, 0),
         )
-        return _TacticTables(Table((), Tactic), Table((), SetPieceRoutine), reader_checks)
+        return _TacticTables(
+            Table((), Tactic), Table((), SetPieceRoutine), Table((), Selection), reader_checks
+        )
 
     def training(self) -> Table[TeamTraining]:
         """The training calendar of each team of the club the save's manager runs.

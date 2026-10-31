@@ -831,6 +831,21 @@ class TacticStats:
 
 
 @dataclass(frozen=True, slots=True)
+class SelectionStats:
+    """What the selections built from the manager's team blocks counted.
+
+    `managed_club_exists` says whether the save lists a club for its manager at all. `picks`
+    counts the starter and substitute places that hold a stored pick, `picks_resolved` those
+    a player record names, and `picks_at_club` those of them registered with the managed club.
+    """
+
+    managed_club_exists: bool
+    picks: int
+    picks_resolved: int
+    picks_at_club: int
+
+
+@dataclass(frozen=True, slots=True)
 class TrainingStats:
     """What the training block walk and its club and player joins counted.
 

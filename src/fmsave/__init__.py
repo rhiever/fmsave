@@ -83,6 +83,7 @@ from fmsave.models.staff import Staff, StaffAttributes, StaffList, StaffPreferen
 from fmsave.models.suspensions import PlayerSuspension, Suspension, SuspensionScope
 from fmsave.models.tactics import (
     Mentality,
+    Selection,
     SetPieceRoutine,
     Tactic,
     TacticPosition,
@@ -167,6 +168,7 @@ __all__ = [
     "SaveInfo",
     "SeasonStatsKind",
     "SectionInfo",
+    "Selection",
     "SetPieceRoutine",
     "SponsorType",
     "Sponsorship",

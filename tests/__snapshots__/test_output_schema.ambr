@@ -698,6 +698,16 @@
         'clearances_per_90',
         'goals_allowed_per_90',
       ]),
+      'Selection': list([
+        'club_uid',
+        'club_name',
+        'team_id',
+        'team_slot',
+        'substitute',
+        'slot',
+        'player_uid',
+        'player_name',
+      ]),
       'SetPieceRoutine': list([
         'club_uid',
         'club_name',

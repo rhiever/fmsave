@@ -3,8 +3,7 @@
 Most of this section is a store of line-ups for other clubs, which this reader never walks.
 What it does walk is the stored blocks of the managed club's teams, found by team id.
 A team can have no stored block. Each block holds its team's selection, its copy of every
-tactic the manager has, and its
-set-piece routine groups.
+tactic the manager has, and its set-piece routine groups, which become three tables.
 
 Two rules keep the walk honest. A tactic record is bounded by the **next signature**, never by
 the walk: the bytes after a record's last slot block are not decoded at all, so a record whose
@@ -25,11 +24,12 @@ from dataclasses import dataclass, field
 from fmsave._errors import ReaderCheckError, UnsupportedGameError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import TacticsLayout, find_layout
-from fmsave._reader_stats import TacticStats
+from fmsave._reader_stats import SelectionStats, TacticStats
 from fmsave.models.common import CodedValue
 from fmsave.models.players import Player
 from fmsave.models.tactics import (
     Mentality,
+    Selection,
     SetPieceRoutine,
     Tactic,
     TacticPosition,
@@ -76,13 +76,16 @@ class RawTacticBlock:
     """One team block as the walk read it: its team, its tactics and its routine slots.
 
     `selectors` holds every player selector the block's selection part stores, which the table
-    builder resolves for the reader's checks and never ships.
+    builder resolves for the reader's checks. `selection_slots` holds the selection's starter
+    and substitute places exactly as stored, empty places included, which the selections are
+    built from.
     """
 
     team_id: int
     tactics: tuple[RawTactic, ...]
     routine_names: tuple[str | None, ...]
     selectors: tuple[int, ...] = field(repr=False)
+    selection_slots: tuple[int, ...] = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,9 +255,10 @@ def _expect_bytes(section: bytes, cursor: int, expected: bytes, file_name: str, 
 
 @dataclass(frozen=True, slots=True)
 class _SelectionPart:
-    """One block's selection part: its selectors, its stored value and its tactic count."""
+    """One block's selection part: its selectors, its stored places and its tactic count."""
 
     selectors: tuple[int, ...]
+    slots: tuple[int, ...]
     tactic_count: int
     end: int
 
@@ -264,9 +268,9 @@ def _read_selection_part(
 ) -> _SelectionPart:
     """Walk a block's selection part, which is read for its selectors and its tactic count.
 
-    Nothing of the selection itself ships: which players are picked, who takes which set piece
-    and how the squad is ordered are out of scope, and the walk is here to reach the tactic
-    count and to count how many selectors name a player.
+    The starter and substitute places ship as the selections. Who takes which set piece and how
+    the squad is ordered are out of scope: those lists are walked to reach the tactic count and
+    to count how many selectors name a player.
 
     Raises:
         ReaderCheckError: A constant the block is built around is not where the layout says,
@@ -283,6 +287,7 @@ def _read_selection_part(
     )
     _label, cursor = _read_text(section, cursor, block_end, layout, file_name, "a selection label")
     selectors: list[int] = []
+    slots_start = cursor
     slots_bytes = layout.selection_slot_count * _UINT32.size
     if cursor + slots_bytes > block_end:
         raise _too_short(file_name, "a block's selection slots")
@@ -353,6 +358,10 @@ def _read_selection_part(
         tactic_count = 0
     return _SelectionPart(
         tuple(selector for selector in selectors if selector != MISSING_REFERENCE),
+        tuple(
+            _UINT32.unpack_from(section, slots_start + slot * _UINT32.size)[0]
+            for slot in range(layout.selection_slot_count)
+        ),
         tactic_count,
         cursor + _UINT16.size,
     )
@@ -750,7 +759,11 @@ def walk_tactic_blocks(
         # not move their start past the area into trailing preset records.
         if routines_complete:
             routine_blocks_complete += 1
-        blocks.append(RawTacticBlock(team_id, tuple(tactics), routine_names, selection.selectors))
+        blocks.append(
+            RawTacticBlock(
+                team_id, tuple(tactics), routine_names, selection.selectors, selection.slots
+            )
+        )
     stored_block_count = (
         len(stored_starts) if stored_starts[:1] == [layout.first_block_offset] else 0
     )
@@ -886,3 +899,62 @@ def build_tactic_tables(
         named_routines=named_routines,
     )
     return tuple(tactics), tuple(routines), stats
+
+
+def build_selection_table(
+    blocks: Sequence[RawTacticBlock],
+    club_index: ClubIndex,
+    player_records: PlayerRecords,
+    players: Table[Player],
+    managed_club_uid: int,
+    starter_count: int,
+) -> tuple[tuple[Selection, ...], SelectionStats]:
+    """One row per stored pick of every block, and the counts the selection checks judge.
+
+    The first `starter_count` places of a block are its starters, one per tactic slot, and the
+    rest its substitutes. An empty place has no row. A pick no player record names keeps its
+    row with the player fields empty, and is counted.
+    """
+    position_by_pindex = player_records.position_by_pindex
+    player_uids = player_records.uids
+    rows: list[Selection] = []
+    picks = 0
+    picks_resolved = 0
+    picks_at_club = 0
+    for raw_block in blocks:
+        club_uid, club_name, team_slot = _team_fields(raw_block.team_id, club_index)
+        for place, selector in enumerate(raw_block.selection_slots):
+            if selector == MISSING_REFERENCE:
+                continue
+            picks += 1
+            substitute = place >= starter_count
+            player_uid: int | None = None
+            player_name: str | None = None
+            record_position = position_by_pindex.get(selector - 1)
+            if record_position is not None:
+                picks_resolved += 1
+                player_uid = player_uids[record_position]
+                player = players.get_by_uid(player_uid)
+                if player is not None:
+                    player_name = player.name
+                    if player.club_uid == managed_club_uid:
+                        picks_at_club += 1
+            rows.append(
+                Selection(
+                    club_uid,
+                    club_name,
+                    raw_block.team_id,
+                    team_slot,
+                    substitute,
+                    place - starter_count if substitute else place,
+                    player_uid,
+                    player_name,
+                )
+            )
+    stats = SelectionStats(
+        managed_club_exists=True,
+        picks=picks,
+        picks_resolved=picks_resolved,
+        picks_at_club=picks_at_club,
+    )
+    return tuple(rows), stats

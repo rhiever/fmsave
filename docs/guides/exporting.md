@@ -116,7 +116,8 @@ Keep counts such as `minutes` alongside rates such as `expected_goals_per_90` an
 `pass_completion_percent`. Rates are included automatically and become `None` when the
 count does not apply or the denominator is zero.
 
-`training`, `mentoring`, `tactics` and `set-pieces` return data for the club you manage.
+`training`, `mentoring`, `tactics`, `set-pieces` and `selections` return data for the club
+you manage.
 Selecting another club returns no rows.
 
 Archived player statistics are available through `player_season_history()` and the
