@@ -83,9 +83,8 @@ class PlayerMatchStats:
             entry, or None when the team does not resolve (unconfirmed).
         has_stats: Whether the record holds statistics for the match. A record without them
             keeps the date, the competition and the opponent and nothing else, so every field
-            below that can be None is None when this is false. On the saves measured such a
-            record is a match of his team's that his season totals do not count as an
-            appearance, so he did not play in it (unconfirmed).
+            below that can be None is None when this is false. On the saves measured, such a
+            record is a match of his team that he did not play in (unconfirmed).
         position: The position played, as a coded value over the mask the record stores. Only
             the goalkeeper bit is named; every other mask keeps its raw value and reads as
             UNKNOWN. None when the save holds no statistics for the match.

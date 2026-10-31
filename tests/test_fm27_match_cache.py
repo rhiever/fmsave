@@ -211,7 +211,9 @@ def test_declared_mode_reads_a_proven_empty_save_as_no_rows() -> None:
     assert located.history_declarations.null == 1
 
 
-@pytest.mark.parametrize("damage", ["short-list", "undeclared-list", "unknown-declaration"])
+@pytest.mark.parametrize(
+    "damage", ["short-list", "undeclared-list", "unknown-declaration", "unknown-without-a-list"]
+)
 def test_declared_mode_fails_closed_when_declarations_and_lists_disagree(damage: str) -> None:
     child = match_list_bytes(played_record(), team_id=100)
     if damage == "short-list":
@@ -222,8 +224,11 @@ def test_declared_mode_fails_closed_when_declarations_and_lists_disagree(damage:
     elif damage == "undeclared-list":
         # A null declaration, then a complete list no declaration names.
         declaration = b"\x00" + child
-    else:
+    elif damage == "unknown-declaration":
         declaration = b"\x02" + child
+    else:
+        # Only the unknown declaration itself fails this one: no list follows to disagree.
+        declaration = b"\x02"
     data = fm27_prefix() + fm27_predecessor() + declaration
     with pytest.raises(UnsupportedGameError, match="declaration"):
         locate_match_records(

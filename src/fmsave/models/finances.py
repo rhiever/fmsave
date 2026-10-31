@@ -3,8 +3,8 @@
 **Money is a whole number in the save's base currency, which can differ from the currency
 the game displays.** On one FM26 save the balance, the transfer and wage budgets, the wage
 bill and the month's income and expenditure all display at about 1.157 times what is stored,
-the one rate fitting each of them. FM27 screens in pounds show the stored figures unchanged.
-**Nothing here is converted** and no rate is applied.
+the one rate fitting each of them. One FM27 career shown in pounds displays the stored figures
+unchanged. **Nothing here is converted** and no rate is applied.
 
 The weekly fields are weekly amounts; every other money field is one month's amount, or a
 balance at the end of a month.

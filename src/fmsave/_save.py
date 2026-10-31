@@ -465,7 +465,8 @@ class Save:
         Only players whose contract is not None appear. The table is read on the first
         call to `players()`, `contracts()` or `suspensions()`, from one decode pass; later
         calls to any of them return the same tables. When a check of that pass fails, none
-        of the three tables is kept, so each of them raises.
+        of the three tables is kept, so each of them raises, except that a failed FM27
+        suspension check stops only `suspensions()`.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -1409,8 +1410,8 @@ class Save:
         rather than per competition**, and drops the oldest as new ones arrive. A player who has
         played more than that in his current spell has only his latest matches here, so **a
         per-competition total summed from these rows is short without saying so**. Nothing in a
-        row marks it as truncated. Rows also cover club friendlies, internationals and matches
-        for a club's other teams, so filter on `competition_id` before adding rows up.
+        row marks it as truncated. On FM26, rows also cover club friendlies, internationals and
+        matches for a club's other teams, so filter on `competition_id` before adding rows up.
 
         Each row carries the competition id the record itself stores, which is in the stage id
         space, and joins to a club through the opponent's team id; a team id no club lists
@@ -1436,6 +1437,8 @@ class Save:
                 player records share a uid; no stage table was found in the tail of the game
                 database; or the save's in-game date is unreadable, so the years a match may be
                 dated in cannot be worked out.
+            UnsupportedGameError: On FM27, a player's history declaration is unknown, or the
+                histories declared nonempty are not exactly the lists decoded.
 
         Warns:
             ReaderCheckWarning: On a full-size save, the records decoded fall outside the
@@ -1624,9 +1627,10 @@ class Save:
         positive for a net **spend**. **Money is a whole number in the save's base currency,
         which can differ from the currency the game displays**: on one FM26 save the balance,
         both budgets, the wage bill and the month's income and expenditure all display at
-        about 1.157 times the stored value, one rate fitting every one of them, while FM27
-        screens in pounds show the stored figures unchanged. Nothing here is converted and no
-        rate is applied. The weekly fields are weekly; every other money field is one month's amount.
+        about 1.157 times the stored value, one rate fitting every one of them, while one FM27
+        career shown in pounds displays the stored figures unchanged. Nothing here is converted
+        and no rate is applied. The weekly fields are weekly; every other money field is one
+        month's amount.
         `transfer_budget_allocated` is **not** the budget the board allocated: that screen
         showed a budget well above it with almost none of it spent, so what the field is stays
         unnamed.

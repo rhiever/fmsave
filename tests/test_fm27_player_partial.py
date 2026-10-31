@@ -75,3 +75,30 @@ def test_fm27_failed_suspension_check_stops_only_suspensions(
         assert len(save.contracts()) == 0
         with pytest.raises(fmsave.ReaderCheckError, match="suspension_entries_minimum"):
             save.suspensions()
+
+
+def test_fm27_suspension_check_that_passes_is_kept_for_validation(tmp_path: Path) -> None:
+    with fm27_player_save(tmp_path) as save:
+        save.players()
+        report = fmsave.validate_save(save)
+
+    (suspensions,) = [reader for reader in report.readers if reader.reader == "suspensions"]
+    assert suspensions.status == "ok"
+    assert "suspension_entries_minimum" in [gate.name for gate in suspensions.gates]
+
+
+def failing_player_check(*_args: object) -> ReaderCheck:
+    gate = GateResult("players_minimum", 0, 1, None, passed=False, applied=True)
+    return ReaderCheck("players", 0, (gate,), FrozenMapping({}))
+
+
+@pytest.mark.parametrize("reader", ["players", "contracts", "suspensions"])
+def test_fm27_failed_player_check_stops_all_three_readers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reader: str
+) -> None:
+    monkeypatch.setattr(_checks, "check_players", failing_player_check)
+    with (
+        fm27_player_save(tmp_path) as save,
+        pytest.raises(fmsave.ReaderCheckError, match="players_minimum"),
+    ):
+        getattr(save, reader)()

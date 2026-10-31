@@ -412,7 +412,6 @@ def locate_match_records(
             or declarations.slots == 0
             or declarations.unknown
             or declarations.nonempty
-            or declarations.containing_null + declarations.null + declarations.empty != len(offsets)
         ):
             raise UnsupportedGameError(
                 "FM27 per-match support requires independently established null or "
@@ -555,14 +554,7 @@ def locate_match_records(
     nonempty_offsets: set[int] = set()
     declarations = _cache_declarations(game_db, player_records, layout, search, nonempty_offsets)
     if layout.declared_histories_required and (
-        declarations is None
-        or declarations.unknown
-        or declarations.containing_null
-        + declarations.null
-        + declarations.empty
-        + declarations.nonempty
-        != len(offsets)
-        or nonempty_offsets != decoded_parents
+        declarations is None or declarations.unknown or nonempty_offsets != decoded_parents
     ):
         raise UnsupportedGameError(_UNDECLARED_HISTORIES)
     return LocatedMatchRecords(
