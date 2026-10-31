@@ -176,6 +176,7 @@ TRAINING = replace(
     week_record_fixed_bytes=80,
     header_entries_supported=False,
     mentoring_groups_supported=False,
+    session_labels_supported=True,
 )
 
 # Typed rows and nonempty lists walk the whole section exactly on every save state measured,

@@ -260,6 +260,8 @@ TRAINING = TrainingLayout(
     library_entry_marker_value=1,
     library_day_blocks_offset=6,
     library_folder_offset=55,
+    day_sessions_offset=1,
+    sessions_per_day=3,
 )
 
 NAME_POOLS = NamePoolLayout(

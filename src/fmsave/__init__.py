@@ -99,7 +99,9 @@ from fmsave.models.tactics import (
 from fmsave.models.training import (
     MentoringGroup,
     TeamTraining,
+    TrainingDay,
     TrainingSchedule,
+    TrainingSession,
     TrainingWeek,
 )
 from fmsave.name_maps import read_competition_names
@@ -195,7 +197,9 @@ __all__ = [
     "TacticSlot",
     "Team",
     "TeamTraining",
+    "TrainingDay",
     "TrainingSchedule",
+    "TrainingSession",
     "TrainingWeek",
     "Trait",
     "TransferValueState",

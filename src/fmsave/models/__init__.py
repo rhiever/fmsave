@@ -73,7 +73,9 @@ from fmsave.models.tactics import (
 from fmsave.models.training import (
     MentoringGroup,
     TeamTraining,
+    TrainingDay,
     TrainingSchedule,
+    TrainingSession,
     TrainingWeek,
 )
 
@@ -147,7 +149,9 @@ __all__ = [
     "TacticSlot",
     "Team",
     "TeamTraining",
+    "TrainingDay",
     "TrainingSchedule",
+    "TrainingSession",
     "TrainingWeek",
     "Trait",
     "TransferValueState",

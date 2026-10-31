@@ -120,5 +120,6 @@ only for the club the save's human manager runs.
 .. autoclass:: fmsave.TeamTraining
 .. autoclass:: fmsave.TrainingSchedule
 .. autoclass:: fmsave.TrainingWeek
+.. autoclass:: fmsave.TrainingDay
 .. autoclass:: fmsave.MentoringGroup
 ```

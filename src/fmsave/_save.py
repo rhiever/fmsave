@@ -2190,8 +2190,10 @@ class Save:
             ]
             active = max(started, default=None, key=lambda week: week.week_start)
 
-        What a schedule asks of a day is **not** read: each day of a week holds three codes
-        whose meaning is unknown. `schedule_library` is the manager's own saved schedules,
+        Each week carries its seven days and each day its three sessions, as
+        `TrainingSession` codes: on FM27 the sessions an FM27 Training screen named carry
+        their label, and every other code, including every FM26 code, reads UNKNOWN with its
+        raw number kept. `schedule_library` is the manager's own saved schedules,
         which the save keeps once per section rather than per team, so every row carries the
         same tuple, and the save may hold the same schedule twice over under two ids.
 

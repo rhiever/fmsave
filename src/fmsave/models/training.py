@@ -12,8 +12,10 @@ where pairing each name with the following week -- what one earlier reader of th
 -- would have been a week out on every one of them. The week's own start date is not in doubt
 either: consecutive weeks step exactly seven days on every pair of every calendar measured.
 
-What a week's sessions actually are is not read: each day holds three codes with no known
-meaning, and nothing here presents them.
+**Each week also holds its seven days, three sessions a day**, in the order the Training
+screen lists them. A session is a stored code: FM27's codes are named where a Training screen
+showed the session's full name against them, and every other code, including every FM26 code,
+reads as `TrainingSession.UNKNOWN` with its raw number kept.
 """
 
 from __future__ import annotations
@@ -21,9 +23,58 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
+from enum import IntEnum
 from typing import ClassVar
 
 from fmsave._status import register_field_statuses
+from fmsave.models.common import CodedValue
+
+
+class TrainingSession(IntEnum):
+    """What a training session is, as an FM27 save numbers it.
+
+    A member's value is the code the save stores. **Eleven codes are named by a screen**: an
+    FM27 manager's Training screen showed each of these names in full against the code stored
+    for that slot, on every day of three weeks. MATCH is the slot the screen fills with the
+    day's fixture rather than a word.
+
+    **Every other code is UNKNOWN** and keeps its raw number. Codes 3, 4, 7, 200 to 203 and 304
+    were on the same screen with their names cut short, so they are not completed by guesswork;
+    the codes other teams and later weeks use have not been seen named on a screen this project
+    has checked.
+
+    **An FM26 save numbers its sessions differently**: its calendars hold neither the FM27
+    code for rest nor the one for a match, although its match days carry a code of their own.
+    So no FM26 session is labelled: each reads UNKNOWN with its raw number.
+    """
+
+    UNKNOWN = -1
+    PASSING_STYLE = 0
+    BUILD_UP = 1
+    CHANCE_CREATION = 2
+    PRESSING_INTENSITY = 5
+    PRESSING_TRAP = 6
+    REST = 300
+    RECOVERY = 301
+    LIGHT_CONDITIONING = 302
+    CONDITIONING = 303
+    TRAVEL = 402
+    MATCH = 500
+
+
+@dataclass(frozen=True, slots=True)
+class TrainingDay:
+    """One day of a week of a team's training calendar.
+
+    Attributes:
+        day: The date, which is the week's start plus the day's place in the week; None when
+            the week's start does not decode.
+        sessions: The day's three sessions in the order the Training screen lists them, top to
+            bottom. On an FM26 save every session is UNKNOWN with its raw code (unconfirmed).
+    """
+
+    day: date | None
+    sessions: tuple[CodedValue[TrainingSession], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,10 +85,12 @@ class TrainingWeek:
         week_start: The day the week starts, None when the stored date does not decode.
         schedule_name: Name of the schedule the week runs, exactly as the save holds it. A
             schedule is a user's own file, so this is whatever it was called.
+        days: The week's seven days in calendar order, starting on `week_start`.
     """
 
     week_start: date | None
     schedule_name: str
+    days: tuple[TrainingDay, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,7 +182,16 @@ class MentoringGroup:
 # is the club record's own order, which no screen has named.
 register_field_statuses(
     TrainingWeek,
-    verified=("week_start", "schedule_name"),
+    verified=("week_start", "schedule_name", "days"),
+)
+# Where each day falls is pinned on both editions: an FM27 Training screen showed every session
+# of three consecutive weeks on the day this places it, and on two FM26 careers the code that
+# marks a match sits on exactly the dates of the team's fixtures and on no other date. What an
+# FM26 code means is not known, so the sessions stay unconfirmed.
+register_field_statuses(
+    TrainingDay,
+    verified=("day",),
+    unconfirmed=("sessions",),
 )
 register_field_statuses(
     TrainingSchedule,

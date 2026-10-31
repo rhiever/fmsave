@@ -1793,7 +1793,7 @@ class TrainingLayout:
     **A weekly record** is the byte `week_lead_byte`, a 4-byte date at `week_date_offset`
     carrying time-of-day bits, the byte `week_marker_value` at `week_marker_offset`,
     `day_block_count` blocks of `day_block_bytes` at `day_blocks_offset` each starting
-    `day_block_lead_byte` (session codes, not decoded), then at `week_name_offset` a u32 length
+    `day_block_lead_byte`, then at `week_name_offset` a u32 length
     of at most `longest_name_bytes` and that many text bytes. **The record is
     `week_record_fixed_bytes` plus that length**, so `week_trailer_bytes` follow the name:
     that length was measured on every record of every save by walking to the next record's lead
@@ -1821,6 +1821,11 @@ class TrainingLayout:
     `library_entry_marker_value` at `library_entry_marker_offset`, `day_block_count` day blocks
     at `library_day_blocks_offset`, then at `library_folder_offset` a folder name, a u32
     schedule id and a schedule name.
+
+    **A day block** holds `sessions_per_day` u16 session codes at `day_sessions_offset` from its
+    lead byte, one block per calendar day from the week's start. `session_labels_supported`
+    says whether the codes are the ones `TrainingSession` names; where it is False every
+    session reads UNKNOWN with its raw code.
 
     `seven_day_step` is how many days apart consecutive weeks are, which the reader counts.
     """
@@ -1858,8 +1863,11 @@ class TrainingLayout:
     library_entry_marker_value: int
     library_day_blocks_offset: int
     library_folder_offset: int
+    day_sessions_offset: int
+    sessions_per_day: int
     header_entries_supported: bool = True
     mentoring_groups_supported: bool = True
+    session_labels_supported: bool = False
 
     @property
     def week_trailer_bytes(self) -> int:

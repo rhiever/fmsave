@@ -26,7 +26,7 @@ from __future__ import annotations
 import struct
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 from itertools import pairwise
 
 from fmsave._errors import CorruptSaveError, UnsupportedGameError
@@ -34,8 +34,16 @@ from fmsave._frozen import FrozenMapping
 from fmsave._layouts import TrainingLayout, find_layout
 from fmsave._reader_stats import TrainingStats
 from fmsave._scan import decode_date, find_marker, read_length_prefixed_string
+from fmsave.models.common import CodedValue
 from fmsave.models.players import Player
-from fmsave.models.training import MentoringGroup, TeamTraining, TrainingSchedule, TrainingWeek
+from fmsave.models.training import (
+    MentoringGroup,
+    TeamTraining,
+    TrainingDay,
+    TrainingSchedule,
+    TrainingSession,
+    TrainingWeek,
+)
 from fmsave.readers._common import TRAINING_SECTION, layout_mismatch
 from fmsave.readers.clubs import ClubIndex
 from fmsave.readers.player_scan import PlayerRecords
@@ -109,6 +117,27 @@ def _read_text(
         ) from error
 
 
+def _session(code: int, layout: TrainingLayout) -> CodedValue[TrainingSession]:
+    """A stored session code, labelled only where the layout's codes are the enum's."""
+    if layout.session_labels_supported:
+        return CodedValue.from_raw(TrainingSession, code)
+    return CodedValue(TrainingSession.UNKNOWN, code)
+
+
+def _read_days(
+    section: bytes, cursor: int, layout: TrainingLayout, week_start: date | None
+) -> tuple[TrainingDay, ...]:
+    """The seven days of the weekly record at `cursor`, whose day blocks the caller checked."""
+    sessions_format = struct.Struct(f"<{layout.sessions_per_day}H")
+    days: list[TrainingDay] = []
+    for day_index in range(layout.day_block_count):
+        day_offset = cursor + layout.day_blocks_offset + day_index * layout.day_block_bytes
+        codes = sessions_format.unpack_from(section, day_offset + layout.day_sessions_offset)
+        day = None if week_start is None else week_start + timedelta(days=day_index)
+        days.append(TrainingDay(day, tuple(_session(code, layout) for code in codes)))
+    return tuple(days)
+
+
 def _read_week(
     section: bytes, cursor: int, layout: TrainingLayout, file_name: str
 ) -> tuple[TrainingWeek, int]:
@@ -157,7 +186,8 @@ def _read_week(
             section_name=TRAINING_SECTION,
         )
     week_start = decode_date(section, cursor + layout.week_date_offset)
-    return TrainingWeek(week_start, schedule_name), record_end
+    days = _read_days(section, cursor, layout, week_start)
+    return TrainingWeek(week_start, schedule_name, days), record_end
 
 
 def _read_group(
