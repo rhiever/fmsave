@@ -1822,12 +1822,13 @@ class Save:
         staff and no displayed label has named one, so it and the three codes beside it ship as
         raw numbers.
 
-        **The job title is not readable, and `unknown["r4"]` is not it.** A club's staff screen
-        settled that: over 78 displayed rows, 8 of the 16 codes on show carried two or more
-        different job titles and 7 titles appeared under two or three different codes, so the
-        byte keeps its raw number rather than becoming a named role. **The club's board is not
-        in this table either**: the president, the director and the managing director appear on
-        that same screen with no row here, while every other person on it matched a row.
+        **On FM27 every row carries its `job`, and `unknown["r4"]` is not it.** A club's staff
+        screen ruled `r4` out: over 78 displayed rows, 8 of the 16 codes on show carried two or
+        more different job titles. On FM27 a person who holds a club role with no contract, a
+        board member for one, is a row with `has_contract` false and the role's team, and a
+        contract a person has only been offered gives no row. On FM26 `job` is None, offers
+        are read as contracts, and the board is not in this table: the president, the director
+        and the managing director appear on a club's staff screen with no row here.
 
         Several useful figures are arithmetic on these rows rather than fields: a club's
         non-playing wage bill is the sum of `wage` over its rows, how many of its staff it

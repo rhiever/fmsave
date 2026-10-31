@@ -1615,6 +1615,15 @@ class StaffLayout:
     closing header, and when that search finds no block for him, the window is searched once
     more with personality bytes accepted from that floor, because a new manager's profile can
     store a zero there.
+
+    **Jobs, offers and roles with no contract.** Each of the next four is None, or empty, on a
+    layout where nothing has been measured, and that part is then not read. A person's job code
+    is the byte `job_offset` past his record's selector. A contract record whose job is followed
+    by a second contract tag at `offer_marker_offset` past the selector is an offer rather than
+    a job, and gives no row. A person who holds a club role with no contract, such as a board
+    member, has a record of his own that carries the contract tag, `no_contract_lead` and then
+    his selector at `no_contract_selector_offset` past the tag, followed by his team id, as a
+    contract record's is; his job sits at `job_offset` past that selector too.
     """
 
     kind_offset: int
@@ -1655,6 +1664,10 @@ class StaffLayout:
     non_staff_contract_kinds: tuple[int, ...] = ()
     list_count_bytes: int = 1
     human_personality_floor: int | None = None
+    job_offset: int | None = None
+    offer_marker_offset: int | None = None
+    no_contract_selector_offset: int | None = None
+    no_contract_lead: bytes = b""
 
 
 @dataclass(frozen=True, slots=True)

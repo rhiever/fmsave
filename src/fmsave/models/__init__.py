@@ -53,7 +53,13 @@ from fmsave.models.rules import (
 from fmsave.models.season_history import PlayerSeasonHistory
 from fmsave.models.season_stats import PlayerSeasonStats, SeasonStatsKind
 from fmsave.models.stadiums import Stadium
-from fmsave.models.staff import Staff, StaffAttributes, StaffList, StaffPreferences
+from fmsave.models.staff import (
+    Staff,
+    StaffAttributes,
+    StaffJob,
+    StaffList,
+    StaffPreferences,
+)
 from fmsave.models.suspensions import PlayerSuspension, Suspension, SuspensionScope
 from fmsave.models.tactics import (
     Mentality,
@@ -129,6 +135,7 @@ __all__ = [
     "Stadium",
     "Staff",
     "StaffAttributes",
+    "StaffJob",
     "StaffList",
     "StaffPreferences",
     "Stage",

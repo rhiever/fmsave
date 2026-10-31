@@ -157,7 +157,15 @@ SEASON_STATS = replace(
     require_unique_keys=True,
 )
 
-STAFF = replace(FM26_STAFF, list_count_bytes=2, human_personality_floor=0)
+STAFF = replace(
+    FM26_STAFF,
+    list_count_bytes=2,
+    human_personality_floor=0,
+    job_offset=16,
+    offer_marker_offset=19,
+    no_contract_selector_offset=16,
+    no_contract_lead=b"\x05\x05",
+)
 
 TRAINING = replace(
     FM26_TRAINING,

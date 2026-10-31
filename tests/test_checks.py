@@ -1320,6 +1320,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "merged_affiliate_pairs": 0,
             "human_manager_missing": 0,
             "non_staff_tailed_hits": 0,
+            "offer_records": 0,
         },
         "staff_lists": {"player_values_in_lists": 0, "unset_list_values": 0},
         "injury_types": {"match_entries": 1, "entries_without_magic": 1, "entries_tried": 0},

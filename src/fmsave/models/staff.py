@@ -4,9 +4,11 @@ A row is one person at one club: the department list the club keeps him in, the 
 contract, his ability, and the preferences a staff profile shows. The human manager is a row of
 his own with no readable ability.
 
-**The club's board is not here.** A club's staff screen shows its president, its director and
-its managing director beside the coaching and medical staff, and none of the three has a row in
-the staff structures this reads; the rest of that screen's people matched a row one for one.
+**On FM26 the club's board is not here.** A club's staff screen shows its president, its
+director and its managing director beside the coaching and medical staff, and none of the three
+has a row in the staff structures the FM26 layouts read; the rest of that screen's people
+matched a row one for one. On FM27 a person who holds a role at a club with no contract, the
+board among them, is a row with `has_contract` false, and every row carries its `job`.
 """
 
 from __future__ import annotations
@@ -14,10 +16,43 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
+from enum import IntEnum
 from typing import ClassVar
 
 from fmsave._status import register_field_statuses
+from fmsave.models.common import CodedValue
 from fmsave.models.players import Ability, Personality
+
+
+class StaffJob(IntEnum):
+    """A person's job at his club, as a club's All Staff screen shows it.
+
+    A code is named only where an in-game label confirms that exact code. Each named code
+    matched one FM27 club's All Staff screen, person for person, across its senior and under-18
+    staff and its board. A code no screen we hold has labelled is UNKNOWN and keeps its raw
+    number, even where a label has been reported for it.
+
+    MANAGER is the job of whoever manages a team, the first team's or a youth side's.
+    """
+
+    UNKNOWN = -1
+    COACH = 2
+    CHAIRPERSON = 4
+    DIRECTOR = 6
+    MANAGING_DIRECTOR = 8
+    DIRECTOR_OF_FOOTBALL = 10
+    PHYSIO = 12
+    SCOUT = 14
+    MANAGER = 16
+    ASSISTANT_MANAGER = 20
+    GOALKEEPING_COACH = 34
+    CHIEF_DOCTOR = 38
+    HEAD_OF_SPORTS_SCIENCE = 40
+    SPORTS_SCIENTIST = 48
+    HEAD_PHYSIO = 50
+    PERFORMANCE_ANALYST = 60
+    HEAD_OF_YOUTH_DEVELOPMENT = 64
+    TECHNICAL_DIRECTOR = 88
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,12 +123,15 @@ class Staff:
     they come from the same bytes but take different values on staff, and no displayed label has
     named one, so they ship as raw numbers and never as a `SquadStatus`.
 
-    **The job title is not readable, and `unknown["r4"]` is not it.** That byte was the one
-    candidate for it, and a club's staff screen ruled it out: over 78 displayed rows, 8 of the
-    16 codes on show carried two or more different job titles, 7 titles appeared under two or
-    three different codes, and one code carried seven titles on its own. So `r4` keeps its raw
-    number for good rather than becoming a named role, and the codes that happen to sit on one
-    title at one club are not evidence of a meaning the field demonstrably does not have.
+    **The job is `job`, read on FM27 only, and `unknown["r4"]` is not it.** That byte in the
+    ability block was once the candidate, and a club's staff screen ruled it out: over 78
+    displayed rows, 8 of the 16 codes on show carried two or more different job titles. So `r4`
+    keeps its raw number for good. On FM27 the job comes from the person's own contract record,
+    or from the record of a role he holds with no contract.
+
+    **On FM27 a contract offer is not a row.** A person can hold contract records for jobs he
+    has been offered, his own club's offer to renew among them; those are left out, so a row is
+    a job the person holds. FM26 layouts read every contract record as a job.
 
     The human manager is a row with `is_human_manager` true. His object is laid out differently,
     so `ability`, `preferences` and every `unknown` key read from the ability block are absent
@@ -119,9 +157,12 @@ class Staff:
         nation_id: Save-local nation id (unconfirmed).
         club_uid: Uid of the club the person works for.
         club_name: Denormalised full name of club_uid.
-        team_id: The team his contract registers him with, None without a contract.
-        team_slot: That team's slot in the club's team list, None without a contract
+        team_id: The team his contract registers him with, or on FM27 the team of a role he
+            holds with no contract; None when neither is read.
+        team_slot: That team's slot in the club's team list, None wherever team_id is
             (unconfirmed).
+        job: His job at the club, None where no record of it is read, which is every row on
+            FM26 (unconfirmed).
         listed_club_uid: The club whose own staff list holds him, which is club_uid unless an
             affiliate side lists him; None when no list holds him (unconfirmed).
         listed_club_name: Denormalised full name of listed_club_uid; None wherever
@@ -161,6 +202,7 @@ class Staff:
     club_name: str
     team_id: int | None
     team_slot: int | None
+    job: CodedValue[StaffJob] | None
     listed_club_uid: int | None
     listed_club_name: str | None
     in_club_lists: bool
@@ -278,6 +320,7 @@ register_field_statuses(
         "age",
         "nation_id",
         "team_slot",
+        "job",
         "listed_club_uid",
         "listed_club_name",
         "in_club_lists",

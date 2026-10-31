@@ -560,7 +560,8 @@ class StaffStats:
     those inside closed club records, and `untailed_hits` those
     whose record has no tail, which no person owns, `unowned_tailed_hits` those with a tail
     whose person has no header in front of them, and `owned_records` the records a person was
-    found to own.
+    found to own. `offer_records` counts the tailed records a layout marks as offers, which no
+    person owns, and `no_contract_roles` the club roles held with no contract that were read.
 
     Membership: `listed_pairs` counts the (club, person) pairs the lists give, and
     `listed_pairs_contracted_here` those whose person holds a contract at the listing club or
@@ -603,6 +604,8 @@ class StaffStats:
     rows: int
     list_rows: int
     non_staff_tailed_hits: int = 0
+    offer_records: int = 0
+    no_contract_roles: int = 0
 
 
 @dataclass(frozen=True, slots=True)

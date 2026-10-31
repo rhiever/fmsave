@@ -2082,7 +2082,8 @@ def check_staff(stats: StaffStats, bounds: GateBounds, game_db_bytes: int) -> Re
     the records naming a team no club lists, `repeat_contracts` the people holding two records
     at one club, and `merged_affiliate_pairs` the listings an affiliate side made that became a
     row at its parent. `human_manager_missing` is one where the save lists a human manager
-    whose own object or contract could not be read, and zero otherwise.
+    whose own object or contract could not be read, and zero otherwise. `offer_records`
+    counts the contract records a layout marks as offers, which give no row.
     """
     return ReaderCheck(
         STAFF_READER,
@@ -2099,6 +2100,7 @@ def check_staff(stats: StaffStats, bounds: GateBounds, game_db_bytes: int) -> Re
                 "merged_affiliate_pairs": stats.merged_affiliate_pairs,
                 "human_manager_missing": 0 if stats.human_found else 1,
                 "non_staff_tailed_hits": stats.non_staff_tailed_hits,
+                "offer_records": stats.offer_records,
             }
         ),
     )
