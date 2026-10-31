@@ -40,7 +40,8 @@ class FmsaveWarning(UserWarning):
 
 
 class UnknownBuildWarning(FmsaveWarning):
-    """The save comes from an FM26 build fmsave has no full set of layout tables for."""
+    """The save comes from an FM26 build fmsave has no full set of layout tables for, or from
+    FM27, which fmsave reads only in part."""
 
 
 class ReaderCheckWarning(FmsaveWarning):
