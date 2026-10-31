@@ -507,7 +507,8 @@ class ContractLayout:
     The fallback reader walks `FF FF FF FF` hits in `[record_offset +
     fallback_start_from_record, limit)`, where `limit` is `max(record_offset +
     fallback_start_from_record, next_record_offset - fallback_end_margin)` (`next_record_offset`
-    the end of `game_db` for the last record). For a hit at `i`, `j = i + 8`; when `j +
+    the end of `game_db` for the last record), and no later than the header closing the
+    player's object when one is found. For a hit at `i`, `j = i + 8`; when `j +
     fallback_gate_length <= limit` and the `fallback_nonzero_length` bytes at `j +
     fallback_nonzero_offset` are not all zero, an end date sits at `j +
     fallback_end_date_offset` and a start date at `j + fallback_start_date_offset`.
