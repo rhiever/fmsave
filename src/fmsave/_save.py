@@ -16,7 +16,7 @@ from fmsave._container import (
     read_section,
 )
 from fmsave._context import SaveContext, closed_save_error
-from fmsave._errors import CorruptSaveError, ReaderCheckError, UnsupportedGameError
+from fmsave._errors import ReaderCheckError, UnsupportedGameError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import (
     ContractLayout,
@@ -876,12 +876,16 @@ class Save:
     def _fm27_home_ground_calendar(self) -> Table[Fixture] | None:
         """The FM27 calendar for home-ground links, or None when it cannot be read.
 
-        The stadium table does not depend on the calendar, so a calendar that fails leaves
-        `home_club_uids` None, unknown, rather than failing the stadium rows too.
+        The stadium table does not depend on the calendar, so a calendar that fails its checks
+        or is unsupported leaves `home_club_uids` None, unknown, rather than failing the stadium
+        rows too. A damaged save still raises.
+
+        Raises:
+            CorruptSaveError: The save is damaged or was being written.
         """
         try:
             return self.fixtures()
-        except (CorruptSaveError, ReaderCheckError, UnsupportedGameError):
+        except (ReaderCheckError, UnsupportedGameError):
             return None
 
     def _stadium_layout(self) -> StadiumTableLayout:

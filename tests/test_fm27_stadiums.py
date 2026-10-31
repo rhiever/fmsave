@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import struct
 from pathlib import Path
 
 import pytest
@@ -12,11 +13,13 @@ import fmsave
 from fmsave._checks import evaluate_stadiums
 from fmsave._errors import ReaderCheckError
 from fmsave._layouts import FALLBACK_BUILD, GateBounds, StadiumTableLayout, find_layout
+from fmsave.models.fixtures import Fixture
 from fmsave.models.stadiums import Stadium
 from fmsave.readers.clubs import ClubIndex
 from fmsave.readers.stadiums import StadiumIndex, build_stadiums, read_stadium_index
 from fmsave.table import Table
 from tests.fixtures.career import NORTHBRIDGE_UID, career_fragment
+from tests.fixtures.game_db import name_pools_bytes
 from tests.fixtures.stadiums import stadium_row_bytes, stadium_table_bytes
 
 LAYOUT = find_layout(StadiumTableLayout, "game_db", 4000, FALLBACK_BUILD).layout
@@ -97,7 +100,7 @@ def test_missing_calendar_does_not_disable_intrinsic_table_end_check(tmp_path: P
         build_stadiums(damaged, clubs, None, LAYOUT)
 
 
-def test_fm27_validation_does_not_carry_unsupported_calendar_into_independent_stadiums(
+def test_fm27_validation_does_not_carry_a_failed_calendar_into_independent_stadiums(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from tests.test_fm27_experimental import fm27_fragment
@@ -110,6 +113,53 @@ def test_fm27_validation_does_not_carry_unsupported_calendar_into_independent_st
     with save:
         report = fmsave.validate_save(save)
     readers = {reader.reader: reader for reader in report.readers}
-    assert readers["fixtures"].status != "ok"
+    assert readers["fixtures"].status == "failed"
     assert readers["stadiums"].status == "ok"
     assert readers["stadiums"].record_count == 0
+
+
+def fm27_stadium_save(tmp_path: Path) -> fmsave.Save:
+    from tests.test_fm27_club_table import club_body
+    from tests.test_fm27_experimental import fm27_fragment
+
+    clubs = struct.pack("<IB", 1, 0) + club_body(finance=0) + struct.pack("<III", 0, 6100, 6100)
+    rows = [
+        stadium_row_bytes(
+            ordinal=ordinal,
+            uid=70_000 + ordinal,
+            all_seater=10_000,
+            expansion=12_000,
+            owner_club_index=1,
+            capacity=8_000,
+            name=None,
+        )
+        for ordinal in range(1, 14)
+    ]
+    data = name_pools_bytes(("Alex",), ("Example",), ()) + clubs + bytes(256)
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        return fmsave.open(fm27_fragment(tmp_path, game_db=data + stadium_table_bytes(rows)))
+
+
+def test_fm27_stadiums_read_with_unknown_home_grounds_when_the_calendar_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failing(_save: fmsave.Save) -> Table[Fixture]:
+        raise ReaderCheckError("fictional calendar failure")
+
+    monkeypatch.setattr(fmsave.Save, "fixtures", failing)
+    with fm27_stadium_save(tmp_path) as save:
+        rows = save.stadiums()
+
+    assert len(rows) == 13
+    assert all(row.home_club_uids is None for row in rows)
+
+
+def test_fm27_stadiums_raise_when_the_calendar_finds_the_save_damaged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def damaged(_save: fmsave.Save) -> Table[Fixture]:
+        raise fmsave.CorruptSaveError("fictional damage")
+
+    monkeypatch.setattr(fmsave.Save, "fixtures", damaged)
+    with fm27_stadium_save(tmp_path) as save, pytest.raises(fmsave.CorruptSaveError):
+        save.stadiums()
