@@ -178,7 +178,8 @@ def read_index(
     path: str | os.PathLike[str], limits: ContainerLimits | None = None
 ) -> ContainerIndex:
     """Read the header and trailer directory; the file is closed before this returns."""
-    save_path = Path(path)
+    # Later reads reopen the file, so a relative path must not follow a change of folder.
+    save_path = Path(path).absolute()
     file_name = save_path.name
     effective_limits = limits or ContainerLimits()
     with save_path.open("rb") as save_file:
