@@ -646,3 +646,42 @@ def test_an_affiliate_listing_of_a_role_with_no_contract_at_its_parent_is_one_ro
 
     assert rows == {(parent, person): (None, (0,), side)}
     assert counts.merged_affiliate_pairs == 1
+
+
+def test_a_listed_person_with_a_role_at_the_same_club_is_one_row_with_the_roles_team() -> None:
+    from types import SimpleNamespace
+    from typing import cast
+
+    from fmsave.readers.staff import _merge_membership, _row_roles
+    from tests.test_staff import STAFF_LAYOUTS
+
+    club, person, team, job = 5_001, 18, 70_001, 38
+    clubs = cast(
+        "ClubIndex", SimpleNamespace(clubs=(SimpleNamespace(uid=club, parent_club_uid=None),))
+    )
+    roles = {(club, person): (0, team, job)}
+
+    rows, _counts = _merge_membership({(club, person): (1,)}, {}, {person: 100}, clubs, roles)
+
+    assert rows == {(club, person): (None, (1,), club)}
+    assert _row_roles(b"", rows, roles, STAFF_LAYOUTS) == {(club, person): (team, job)}
+
+
+def test_the_human_managers_job_comes_from_his_own_contract() -> None:
+    from fmsave import StaffJob
+    from tests.fixtures.staff import staff_object_bytes
+
+    human = staff_object_bytes(
+        person_id=18,
+        uid=810_018,
+        kind=9,
+        contract=job_contract(job=16),
+        person_block=person_block("Manager Example"),
+    )
+    neighbor = staff_object_bytes(person_id=19, uid=810_019, person_block=person_block("Neighbor"))
+
+    rows = unique_staff_rows(human + neighbor, human_selector=19, fm27_jobs=True)
+    manager = next(row for row in rows if row.is_human_manager)
+
+    assert manager.job is not None
+    assert manager.job.label is StaffJob.MANAGER

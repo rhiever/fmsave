@@ -91,11 +91,11 @@ table; `strict=True` raises instead. Structural failures raise in either mode. S
   on, so you can supply your own map. See [Competition names](#competition-names).
 - **Links the save does not store**, such as which competition a rules block belongs to, or which
   ground a club plays at. Worked out from the fixture calendar where possible, left empty where not.
-- **Meanings for numbers the game never displayed**, such as staff job titles or the settings
-  inside a tactic. These come back as raw numbers rather than as labels fmsave guessed at.
+- **Meanings for numbers the game never displayed**, such as most settings inside a tactic, or
+  staff job titles on FM26. These come back as raw numbers rather than as labels fmsave guessed at.
 - **Partial history and unsupported fields**: match-score coverage that varies by save,
-  older injuries, and today's availability, line-ups, staff
-  attribute values, club debt and asking prices.
+  older injuries, and today's availability, the next match's line-up (`selections()` holds the
+  stored picks), staff attribute values, club debt and asking prices.
 
 ## Competition names
 
