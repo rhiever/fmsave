@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import struct
 from collections.abc import Mapping, Sequence
 from datetime import date
@@ -382,6 +383,95 @@ def test_a_block_whose_home_and_away_do_not_add_up_is_rejected() -> None:
 
     assert records.table_blocks == ()
     assert records.table_block_candidates > 0
+
+
+# The byte after the last aggregate row, which a layout may read as a match-row flag.
+MATCH_ROWS_FLAG_OFFSET = 84
+
+
+def flagged_layouts(**options: object) -> SpanLayouts:
+    layouts = span_layouts()
+    return dataclasses.replace(
+        layouts,
+        tables=dataclasses.replace(
+            layouts.tables, match_rows_flag_offset=MATCH_ROWS_FLAG_OFFSET, **options
+        ),
+    )
+
+
+def flagged_block(flag: int, *, word_after_flag: int = 2) -> bytes:
+    """The example block with its match-row flag set and the word after it overwritten."""
+    blob = bytearray(example_table_block())
+    blob[TABLE_HEAD_INDEX + MATCH_ROWS_FLAG_OFFSET] = flag
+    struct.pack_into("<H", blob, TABLE_HEAD_INDEX + 85, word_after_flag)
+    return bytes(blob)
+
+
+def test_a_block_flagged_without_match_rows_keeps_its_aggregates_only() -> None:
+    # The word where a round count would sit is out of range here, and must not reject it.
+    records = scan_span(
+        [flagged_block(0, word_after_flag=0x0102)], flagged_layouts(), CLOCK, FILE_NAME
+    )
+
+    (block,) = records.table_blocks
+    assert block.rounds_per_venue is None
+    assert block.matches == ()
+    assert (block.aggregates[0].played, block.aggregates[0].points) == (4, 7)
+
+
+def test_a_block_flagged_with_match_rows_reads_them() -> None:
+    records = scan_span([flagged_block(1)], flagged_layouts(), CLOCK, FILE_NAME)
+
+    (block,) = records.table_blocks
+    assert block.rounds_per_venue == 2
+    assert len(block.matches) == 4
+    assert block.matches[0].key == 70002
+
+
+def test_a_match_row_flag_that_is_neither_zero_nor_one_rejects_the_block() -> None:
+    records = scan_span([flagged_block(2)], flagged_layouts(), CLOCK, FILE_NAME)
+
+    assert records.table_blocks == ()
+    assert records.table_block_candidates > 0
+
+
+def test_a_layout_without_the_flag_reads_match_rows_whatever_the_byte_holds() -> None:
+    (block,) = scan([flagged_block(0)]).table_blocks
+
+    assert block.rounds_per_venue == 2
+    assert len(block.matches) == 4
+
+
+def test_a_match_row_flag_must_lie_before_the_match_rows() -> None:
+    layouts = span_layouts()
+    misplaced = dataclasses.replace(
+        layouts,
+        tables=dataclasses.replace(layouts.tables, match_rows_flag_offset=TABLE_MATCHES_OFFSET),
+    )
+    with pytest.raises(ValueError, match="match-row flag"):
+        scan_span([flagged_block(1)], misplaced, CLOCK, FILE_NAME)
+
+
+def short_results_block(*, won: int) -> bytes:
+    """Four played, but won, drawn and lost counting `won + 1` matches between them."""
+    return example_table_block(
+        total={"played": 4, "won": won, "drawn": 1, "lost": 0, "points": 3 * won + 2},
+        home={"played": 2, "won": 1, "drawn": 0, "lost": 0},
+        away={"played": 2, "won": 0, "drawn": 1, "lost": 0},
+    )
+
+
+def test_results_short_of_played_are_accepted_only_where_the_layout_allows_it() -> None:
+    allowing = flagged_layouts(results_may_fall_short_of_played=True)
+    allowing = dataclasses.replace(
+        allowing, tables=dataclasses.replace(allowing.tables, match_rows_flag_offset=None)
+    )
+
+    assert scan([short_results_block(won=2)]).table_blocks == ()
+    (block,) = scan_span([short_results_block(won=2)], allowing, CLOCK, FILE_NAME).table_blocks
+    assert (block.aggregates[0].played, block.aggregates[0].won) == (4, 2)
+    # More results than matches played is never a table row.
+    assert scan_span([short_results_block(won=4)], allowing, CLOCK, FILE_NAME).table_blocks == ()
 
 
 def test_a_block_with_too_many_rounds_per_venue_is_rejected() -> None:

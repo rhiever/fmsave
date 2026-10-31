@@ -171,8 +171,10 @@ class LeagueTableRow:
         second_half: The club's record in the second half of the season (every field
             unconfirmed).
         rounds_per_venue: How many rounds the group plays at each venue, so the row holds twice
-            this many match slots (unconfirmed).
-        matches: One entry per match slot, in stored order, including slots never played.
+            this many match slots; None where the save stores the row without match slots,
+            which FM27 does for some tables (unconfirmed).
+        matches: One entry per match slot, in stored order, including slots never played;
+            empty where the save stores the row without them.
         unknown: The 19 bytes stored in front of the block, one int per byte. The first of
             them is the row's own place in its table, which is what tells one table from the
             next and is already reported as `position`; it is kept here so the blob ships
@@ -197,7 +199,7 @@ class LeagueTableRow:
     away: LeagueTableSplit
     first_half: LeagueTableSplit
     second_half: LeagueTableSplit
-    rounds_per_venue: int
+    rounds_per_venue: int | None
     matches: tuple[LeagueTableMatch, ...]
     unknown: Mapping[str, int]
 

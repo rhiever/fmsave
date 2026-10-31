@@ -132,14 +132,15 @@ class RawTableBlock:
     `aggregates` holds the five rows in their stored order: total, home, away, first half,
     second half. `matches` holds two rows per round, whose venue alternates with the slot's
     parity. `team_id` is the first-team id of the club the block belongs to, which the block
-    itself does not guarantee to be a real team.
+    itself does not guarantee to be a real team. A block whose layout flag says it stores no
+    match rows has no `matches` and a `rounds_per_venue` of None.
     """
 
     span_offset: int
     team_id: int
     head_bytes: tuple[int, ...]
     aggregates: tuple[RawTableRow, ...]
-    rounds_per_venue: int
+    rounds_per_venue: int | None
     matches: tuple[RawTableRow, ...]
 
 
@@ -353,6 +354,8 @@ class _TableSearch:
     flag_index: int
     lowest_offset: int
     search_back_bytes: int
+    match_rows_flag_offset: int | None
+    results_may_fall_short: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -442,9 +445,11 @@ def _fixture_search(layout: FixtureCalendarLayout, clock_year: int) -> _FixtureS
     core_struct, core_start, core_indices = build_gap_padded_struct(
         [entry for entry in fields if entry[2] != "played"]
     )
-    core_end = core_start + core_struct.size
+    # Undecoded core bytes may sit between the last named field and the prefix; the prefix
+    # is still read at `played_offset`, never earlier.
+    core_end = layout.played_offset
     if (
-        core_end != layout.played_offset
+        core_start + core_struct.size > core_end
         or core_start != struct_start
         or any(index_by_name[name] != index for name, index in core_indices.items())
     ):
@@ -496,6 +501,9 @@ def _table_search(layout: LeagueTableLayout) -> _TableSearch:
         raise ValueError("the row key must start a row, since the aggregate rows locate a block")
     if layout.aggregate_count < 2:
         raise ValueError("a block is located by at least two aggregate rows")
+    flag_offset = layout.match_rows_flag_offset
+    if flag_offset is not None and not 0 <= flag_offset < layout.matches_offset:
+        raise ValueError("the match-row flag must lie between the block head and its match rows")
     key_bytes = _UINT32.pack(layout.unplayed_key)
     keyed_row = re.escape(key_bytes) + _byte_run(layout.row_bytes - _UINT32.size)
     pattern = re.compile(keyed_row * (layout.aggregate_count - 1) + re.escape(key_bytes), re.DOTALL)
@@ -542,6 +550,8 @@ def _table_search(layout: LeagueTableLayout) -> _TableSearch:
         flag_index=index_by_name["flag"],
         lowest_offset=lowest_offset,
         search_back_bytes=longest_block,
+        match_rows_flag_offset=layout.match_rows_flag_offset,
+        results_may_fall_short=layout.results_may_fall_short_of_played,
     )
 
 
@@ -1013,6 +1023,8 @@ def _collect_table_blocks(
     points_index = search.points_index
     flag_index = search.flag_index
     lowest_offset = search.lowest_offset
+    match_rows_flag_offset = search.match_rows_flag_offset
+    results_may_fall_short = search.results_may_fall_short
     unpack_rounds = _UINT16.unpack_from
     unpack_team_id = _UINT32.unpack_from
     add_block = table_blocks.append
@@ -1027,9 +1039,19 @@ def _collect_table_blocks(
             continue
         if head + matches_offset > window_length:
             break
-        rounds_per_venue: int = unpack_rounds(window, head + rounds_per_venue_offset)[0]
-        in_range = lowest_rounds_per_venue <= rounds_per_venue <= highest_rounds_per_venue
-        match_count = 2 * rounds_per_venue
+        match_rows_flag = (
+            1 if match_rows_flag_offset is None else window[head + match_rows_flag_offset]
+        )
+        # A block that stores no match rows stores no round count either: the word where the
+        # count would be holds something else, so it is neither range-checked nor kept.
+        rounds_per_venue: int | None = None
+        in_range = match_rows_flag == 0
+        match_count = 0
+        if match_rows_flag == 1:
+            stored_rounds: int = unpack_rounds(window, head + rounds_per_venue_offset)[0]
+            rounds_per_venue = stored_rounds
+            in_range = lowest_rounds_per_venue <= stored_rounds <= highest_rounds_per_venue
+            match_count = 2 * stored_rounds
         block_end = head + matches_offset + row_bytes * match_count
         if in_range and block_end > window_length:
             # Deferred, so the scan of this window stops here rather than moving on. A block
@@ -1056,7 +1078,11 @@ def _collect_table_blocks(
             continue
         if any(
             row[played_index] != row[played_copy_index]
-            or row[played_index] != row[won_index] + row[drawn_index] + row[lost_index]
+            or row[played_index] < row[won_index] + row[drawn_index] + row[lost_index]
+            or (
+                not results_may_fall_short
+                and row[played_index] != row[won_index] + row[drawn_index] + row[lost_index]
+            )
             for row in aggregate_rows
         ):
             continue
@@ -1522,6 +1548,9 @@ def scan_span(
                 table_blocks,
             )
             for block in table_blocks[first_new_table:]:
+                if block.rounds_per_venue is None:
+                    # A block without match rows has no known end for a cache to follow.
+                    continue
                 block_end = (
                     block.span_offset
                     + layouts.tables.matches_offset

@@ -301,6 +301,7 @@ def test_a_slot_carries_its_outcome_points_and_opponent_or_keeps_its_place_empty
         first_row = tables[0].rows[0]
         drawn = tables[1].rows[0].matches[0]
 
+    assert first_row.rounds_per_venue is not None
     assert len(first_row.matches) == 2 * first_row.rounds_per_venue
     assert [match_row.slot for match_row in first_row.matches] == [0, 1, 2, 3]
     won, lost = first_row.matches[0], first_row.matches[3]

@@ -895,6 +895,12 @@ class LeagueTableLayout:
     `match_goals_maximum` is the most goals a played match slot may record for either club
     before the reader treats the slot as unreadable, alongside the slot's own counters naming
     one match whose result its score bears out.
+
+    `match_rows_flag_offset`, when set, is the byte that says whether the block stores its
+    match rows: 1 when it does and 0 when the block stores none, so its `matches` are empty.
+    Any other value rejects the block. When None, every block is read with its match rows.
+    `results_may_fall_short_of_played` accepts aggregate rows whose won, drawn and lost counts
+    add up to fewer matches than played, which the game shows for some cup group stages.
     """
 
     row_bytes: int
@@ -922,6 +928,8 @@ class LeagueTableLayout:
     division_club_range: tuple[int, int]
     home_slot_parity: int | None
     match_goals_maximum: int
+    match_rows_flag_offset: int | None = None
+    results_may_fall_short_of_played: bool = False
 
 
 @dataclass(frozen=True, slots=True)

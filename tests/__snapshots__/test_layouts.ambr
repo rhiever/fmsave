@@ -1882,10 +1882,12 @@
         'key_offset': 0,
         'lost_offset': 8,
         'match_goals_maximum': 40,
+        'match_rows_flag_offset': None,
         'matches_offset': 87,
         'played_copy_offset': 5,
         'played_offset': 4,
         'points_offset': 14,
+        'results_may_fall_short_of_played': False,
         'rounds_per_venue_offset': 85,
         'rounds_per_venue_range': tuple(
           1,
