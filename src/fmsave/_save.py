@@ -30,7 +30,7 @@ from fmsave._layouts import (
     find_layout,
 )
 from fmsave._reader_stats import ResultStats, SelectionStats, TacticStats
-from fmsave._version import limit_game_index, read_save_info
+from fmsave._version import read_save_info
 from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
@@ -2795,7 +2795,6 @@ def open_save(
     names = _normalized_competition_names(competition_names)
     container_index = read_index(path)
     info = read_save_info(container_index)
-    container_index = limit_game_index(container_index, info.game)
     return Save(
         container_index,
         info,

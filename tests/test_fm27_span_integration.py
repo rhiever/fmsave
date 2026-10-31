@@ -11,8 +11,8 @@ import pytest
 import fmsave
 import fmsave._save
 from fmsave._container import (
-    FM27_FRAME_DECOMPRESSED_CAP,
-    FM27_TOTAL_DECOMPRESSED_CAP,
+    DEFAULT_FRAME_DECOMPRESSED_CAP,
+    DEFAULT_TOTAL_DECOMPRESSED_CAP,
     read_index,
     read_section,
 )
@@ -80,8 +80,8 @@ def test_raw_span_is_not_an_fm26_fallback(tmp_path: Path) -> None:
 def test_raw_span_byte_limits_sit_inside_the_fm27_read_budget() -> None:
     limits = Fm27SpanLimits()
     assert limits.maximum_frame_bytes <= limits.maximum_span_bytes
-    assert limits.maximum_span_bytes <= FM27_TOTAL_DECOMPRESSED_CAP
-    assert limits.maximum_frame_bytes <= FM27_FRAME_DECOMPRESSED_CAP
+    assert limits.maximum_span_bytes <= DEFAULT_TOTAL_DECOMPRESSED_CAP
+    assert limits.maximum_frame_bytes <= DEFAULT_FRAME_DECOMPRESSED_CAP
 
 
 def test_integrated_raw_span_limits_decompression_before_parser_allocation(
@@ -106,5 +106,5 @@ def test_integrated_raw_span_limits_decompression_before_parser_allocation(
     path = build_container_fragment(sections).write(tmp_path / "large-output.bin")
     with pytest.warns(fmsave.UnknownBuildWarning):
         save = fmsave.open(path)
-    with save, pytest.raises(fmsave.CorruptSaveError, match=f"more than {frame_limit} bytes"):
+    with save, pytest.raises(fmsave.SaveTooLargeError, match=f"limit of {frame_limit:,} bytes"):
         save.experimental_span()

@@ -15,6 +15,14 @@ class CorruptSaveError(FmsaveError):
     """The save is damaged, truncated, or was being written while it was read."""
 
 
+class SaveTooLargeError(CorruptSaveError):
+    """The save holds more data than fmsave's memory limits allow, so it was not read.
+
+    The save itself may be sound. It subclasses `CorruptSaveError`, so code that already
+    catches that error keeps working.
+    """
+
+
 class UnsupportedGameError(FmsaveError):
     """The save comes from a Football Manager version fmsave cannot read."""
 

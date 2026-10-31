@@ -7,20 +7,17 @@ import re
 import struct
 import warnings
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
 import fmsave
 from fmsave._container import (
-    FM27_FRAME_DECOMPRESSED_CAP,
-    FM27_TOTAL_DECOMPRESSED_CAP,
     ContainerIndex,
     damaged_part_error,
     read_section,
     read_section_heads,
     section_entry,
-    validate_entries,
 )
 from fmsave._errors import (
     ISSUES_URL,
@@ -412,31 +409,11 @@ def read_game_info_facts(
         ) from error
 
 
-def limit_game_index(container_index: ContainerIndex, game: str) -> ContainerIndex:
-    """Apply FM27's tighter budgets before bulk reads, preserving stricter caller limits."""
-    if game != "FM27":
-        return container_index
-    limits = replace(
-        container_index.limits,
-        total_decompressed_cap=min(
-            container_index.limits.total_decompressed_cap, FM27_TOTAL_DECOMPRESSED_CAP
-        ),
-        frame_decompressed_cap=min(
-            container_index.limits.frame_decompressed_cap, FM27_FRAME_DECOMPRESSED_CAP
-        ),
-    )
-    validate_entries(
-        container_index.entries, container_index.trailer_offset, limits, container_index.file_name
-    )
-    return replace(container_index, limits=limits)
-
-
 def read_save_info(container_index: ContainerIndex) -> SaveInfo:
     """Detect the game and build and read save metadata. Warns on unknown FM26 builds and incomplete FM27 coverage."""
     file_name = container_index.file_name
     summary_facts = read_summary_facts(container_index)
     version = summary_facts.version
-    container_index = limit_game_index(container_index, version.game)
     known_build = version.build in known_builds()
     if not known_build and version.major != 27:
         warnings.warn(

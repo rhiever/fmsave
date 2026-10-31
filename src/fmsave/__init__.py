@@ -10,6 +10,7 @@ from fmsave._errors import (
     ReaderCheckWarning,
     SaveChangedError,
     SaveClosedError,
+    SaveTooLargeError,
     UnknownBuildWarning,
     UnsupportedGameError,
 )
@@ -174,6 +175,7 @@ __all__ = [
     "SaveChangedError",
     "SaveClosedError",
     "SaveInfo",
+    "SaveTooLargeError",
     "SeasonStatsKind",
     "SectionInfo",
     "Selection",

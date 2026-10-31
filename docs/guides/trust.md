@@ -115,7 +115,7 @@ rejected. Failed checks always stop an FM27 reader, even with `strict=False`. Th
 report lists unsupported readers and marks every FM27 field unconfirmed. Global field-status
 labels describe FM26; they do not certify FM27 meanings.
 
-The reader uses a 256 MiB per-frame and 512 MiB declared-total decompression cap for FM27.
-Larger careers can be rejected. These limits do not reduce FM26's existing budget.
+FM27 uses the same decompression caps as FM26: 1 GiB for one part of a save and 4 GiB in all.
+A save past them raises `SaveTooLargeError`, which says the save is probably sound.
 Finance rows describe historical snapshots, not current-month live totals; stored money is
 not converted to the game's display currency. Match the period and units before comparing.

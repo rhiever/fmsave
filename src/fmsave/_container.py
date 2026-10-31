@@ -21,7 +21,13 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import BinaryIO
 
-from fmsave._errors import CorruptSaveError, NotAFmSaveError, SaveChangedError
+from fmsave._errors import (
+    ISSUES_URL,
+    CorruptSaveError,
+    NotAFmSaveError,
+    SaveChangedError,
+    SaveTooLargeError,
+)
 from fmsave._scan import read_length_prefixed_string, read_u32, read_u64
 
 if sys.version_info >= (3, 14):
@@ -38,11 +44,10 @@ SECTION_EXTENSIONS = frozenset({".dat", ".cmt"})
 # The directory entries that are not sections but hold one per-match file each. They carry the
 # injury-type name table, which no section holds.
 MATCH_FILE_EXTENSIONS = frozenset({".apm", ".scm"})
+# The same caps hold for FM26 and FM27. Large-database FM26 careers declare up to about 2.2 GiB
+# in all, with single parts up to just under 1 GiB.
 DEFAULT_TOTAL_DECOMPRESSED_CAP = 4 * 1024**3
 DEFAULT_FRAME_DECOMPRESSED_CAP = 1024**3
-# FM27's tighter budgets, shared by every FM27 read including the raw span pass.
-FM27_TOTAL_DECOMPRESSED_CAP = 512 * 1024**2
-FM27_FRAME_DECOMPRESSED_CAP = 256 * 1024**2
 MAX_TRAILER_COMPRESSED_BYTES = 64 * 1024**2
 MAX_TRAILER_DECOMPRESSED_BYTES = 64 * 1024**2
 MAX_SAVE_NAME_BYTES = 4096
@@ -142,9 +147,19 @@ def read_exact(save_file: BinaryIO, offset: int, length: int, file_name: str) ->
 
 
 def decompress_frame(
-    compressed: bytes, *, expected_size: int | None, cap: int, what: str, file_name: str
+    compressed: bytes,
+    *,
+    expected_size: int | None,
+    cap: int,
+    what: str,
+    file_name: str,
+    cap_is_size_limit: bool = True,
 ) -> bytes:
-    """Decompress exactly one frame without ever producing more than the allowed bytes."""
+    """Decompress exactly one frame without ever producing more than the allowed bytes.
+
+    Output past `cap` raises `SaveTooLargeError` when `cap_is_size_limit` holds, since a sound
+    save can grow past a size cap; output past a declared size is always `CorruptSaveError`.
+    """
     output_limit = cap if expected_size is None else min(expected_size, cap)
     decompressor = zstd.ZstdDecompressor()
     try:
@@ -154,6 +169,11 @@ def decompress_frame(
             f"{file_name}: {what} could not be decompressed. {RETRY_HINT}"
         ) from error
     if len(data) > output_limit:
+        if cap_is_size_limit and (expected_size is None or expected_size > cap):
+            raise too_large_error(
+                f"{file_name}: {what} is larger than fmsave's limit of {format_size(cap)} "
+                "for one part of a save"
+            )
         raise CorruptSaveError(
             f"{file_name}: {what} decompresses to more than {output_limit} bytes"
         )
@@ -207,6 +227,8 @@ def read_index(
         cap=MAX_TRAILER_DECOMPRESSED_BYTES,
         what="the save directory",
         file_name=file_name,
+        # Even the largest directory fmsave accepts is far smaller, so this is damage.
+        cap_is_size_limit=False,
     )
     save_name, entries = parse_directory(trailer_payload, file_name)
     validate_entries(entries, trailer_offset, effective_limits, file_name)
@@ -314,11 +336,32 @@ def validate_entries(
                 f"{file_name}: {label} points outside the frame area. {RETRY_HINT}"
             )
         if entry.decompressed_size > limits.frame_decompressed_cap:
-            raise CorruptSaveError(f"{file_name}: {label} is larger than the per-frame cap")
+            raise too_large_error(
+                f"{file_name}: {label} is larger than fmsave's limit of "
+                f"{format_size(limits.frame_decompressed_cap)} for one part of a save"
+            )
         total_decompressed += entry.decompressed_size
         previous_end = entry.frame_end
     if total_decompressed > limits.total_decompressed_cap:
-        raise CorruptSaveError(f"{file_name}: the save declares more data than the total cap")
+        raise too_large_error(
+            f"{file_name}: the save holds more data than fmsave's limit of "
+            f"{format_size(limits.total_decompressed_cap)} for a whole save"
+        )
+
+
+def format_size(size: int) -> str:
+    """A byte count as whole GiB or MiB where it is one, otherwise in bytes."""
+    for unit, unit_bytes in (("GiB", 1024**3), ("MiB", 1024**2)):
+        if size >= unit_bytes and size % unit_bytes == 0:
+            return f"{size // unit_bytes} {unit}"
+    return f"{size:,} bytes"
+
+
+def too_large_error(message: str) -> SaveTooLargeError:
+    """The error for a save over a size cap, which says the save itself may be sound."""
+    return SaveTooLargeError(
+        f"{message}. The save itself is probably fine; please report this at {ISSUES_URL}"
+    )
 
 
 def build_regions(
@@ -734,9 +777,9 @@ def read_chosen_region_frames(
         frame_bytes = read_region_frame(container_index, region_name, span)
         total_decompressed += len(frame_bytes)
         if total_decompressed > limits.total_decompressed_cap:
-            raise CorruptSaveError(
-                f"{container_index.file_name}: region {region_name!r} exceeds the total "
-                "decompression cap"
+            raise too_large_error(
+                f"{container_index.file_name}: region {region_name!r} takes the save past "
+                f"fmsave's limit of {format_size(limits.total_decompressed_cap)} for a whole save"
             )
         yield frame_bytes
 
@@ -760,7 +803,8 @@ def decompress_region_frames(
         )
         total_decompressed += len(frame_bytes)
         if total_decompressed > limits.total_decompressed_cap:
-            raise CorruptSaveError(
-                f"{file_name}: region {region_name!r} exceeds the total decompression cap"
+            raise too_large_error(
+                f"{file_name}: region {region_name!r} takes the save past fmsave's limit of "
+                f"{format_size(limits.total_decompressed_cap)} for a whole save"
             )
         yield frame_bytes

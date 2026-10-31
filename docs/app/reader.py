@@ -67,6 +67,13 @@ def friendly_error(error: BaseException) -> str:
             "This save comes from a game or build fmsave cannot read yet. fmsave reads "
             "Football Manager 26 and supported 27 builds (reader 0.8.0 or later)."
         )
+    # The page installs the newest published reader, which can predate this error.
+    too_large = getattr(fmsave, "SaveTooLargeError", None)
+    if too_large is not None and isinstance(error, too_large):
+        return (
+            "This save is bigger than fmsave's size limit, so it was not read. The save is "
+            "probably fine. Please report it on fmsave's GitHub issues page."
+        )
     if isinstance(error, fmsave.CorruptSaveError):
         return "This save looks damaged or incomplete. Try a fresh copy of the save file."
     if isinstance(error, fmsave.SaveChangedError):

@@ -4,6 +4,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Added
+
+- `SaveTooLargeError`, a `CorruptSaveError` raised when a save passes fmsave's size limits. Its message says the save is probably fine and asks for a report. (#52)
+
+### Fixed
+
+- Large-database FM27 saves open: FM27 now uses FM26's size limits, 1 GiB for one part of a save and 4 GiB in all, instead of 256 MiB and 512 MiB. (#52)
+- The app no longer calls a save damaged when it only passes fmsave's size limits. (#52)
+
 ## [0.9.0] - 2026-10-30
 
 ### Added

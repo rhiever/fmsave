@@ -245,6 +245,7 @@ def test_a_file_that_is_not_a_save_gives_a_message_without_its_content(tmp_path:
     [
         (fmsave.UnsupportedGameError("Alex Example"), "cannot read yet"),
         (fmsave.CorruptSaveError("Alex Example"), "damaged"),
+        (fmsave.SaveTooLargeError("Alex Example"), "size limit"),
         (fmsave.SaveChangedError("Alex Example"), "changed while"),
         (fmsave.ReaderCheckError("Alex Example"), "ReaderCheckError"),
         (MemoryError(), "out of memory"),
