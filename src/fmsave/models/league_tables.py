@@ -217,9 +217,9 @@ class LeagueTable:
 
     Attributes:
         competition_id: The competition the table was voted to belong to, in the stage id
-            space (not the id space a suspension's competition id belongs to); None when the
-            vote could not settle it, which on the corpus is one table in a thousand. Read that
-            beside the shape of the tables: 20% to 28% of them hold one block, and a one-block
+            space, which `Suspension.competition_id` also uses; None when the vote could not
+            settle it, which on the corpus is one table in a thousand. Read that beside the
+            shape of the tables: 20% to 28% of them hold one block, and a one-block
             table meets the vote's half-the-members rule on a majority of one, so it resolves
             trivially; over the tables of two blocks or more resolution is 0.998 to 1.000. One
             competition names several tables, because a cup's group stage is one competition
