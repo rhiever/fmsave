@@ -59,6 +59,7 @@ SCHEMA_OFFSET = 6
 LENGTH_PREFIX_BYTES = 4
 GAME_INFO_SECTION = "game_info"
 VERSION_CANDIDATE_START = re.compile(rb"(?<![0-9.])[0-9]{1,3}\.")
+MAX_BUILD_NUMBER = 0xFFFFFFFF
 MAX_MIGRATION_NAMES = 4096
 MAX_MIGRATION_NAME_BYTES = 4096
 UNSET_GAME_INFO_CLOCK = struct.pack("<HH", 1, 1900)
@@ -112,10 +113,15 @@ def find_game_version(summary: bytes, layout: SaveSummaryLayout, file_name: str)
         version_match = version_pattern.fullmatch(summary, version_start, version_end)
         if version_match is None:
             continue
+        build_number = int(version_match.group(4))
+        # The game writes no leading zero on the major, which picks the edition's layouts, and
+        # stores the build number as a u32.
+        if version_match.group(1).startswith(b"0") or build_number > MAX_BUILD_NUMBER:
+            continue
         return GameVersion(
             major=int(version_match.group(1)),
             build=version_match.group(0).decode("ascii"),
-            build_number=int(version_match.group(4)),
+            build_number=build_number,
         )
     raise UnsupportedGameError(
         f"{file_name}: no game version found. fmsave reads Football Manager 26 and registered 27 builds; for other versions see {ISSUES_URL}"

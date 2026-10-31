@@ -227,6 +227,19 @@ def test_version_without_length_prefix_is_ignored(tmp_path: Path) -> None:
         read_save_info(build_index(tmp_path, sections_with(save_game_summary=body)))
 
 
+@pytest.mark.parametrize("version", ["26.3.2+4294967296", "026.3.2+2329565"])
+def test_a_version_the_game_cannot_write_is_not_a_version(tmp_path: Path, version: str) -> None:
+    body = save_summary_body(version=version)
+    with pytest.raises(UnsupportedGameError, match="no game version found"):
+        read_save_info(build_index(tmp_path, sections_with(save_game_summary=body)))
+
+
+def test_the_largest_u32_build_number_is_still_a_version(tmp_path: Path) -> None:
+    body = save_summary_body(version="26.3.2+4294967295")
+    with pytest.warns(UnknownBuildWarning), pytest.raises(ReaderCheckError, match="does not match"):
+        read_save_info(build_index(tmp_path, sections_with(save_game_summary=body)))
+
+
 def test_unknown_fm26_build_warns_once_and_uses_fallback(tmp_path: Path) -> None:
     sections = sections_with(
         save_game_summary=save_summary_body(version="26.4.0+2400000"),
