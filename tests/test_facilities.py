@@ -37,10 +37,14 @@ FACILITY_LAYOUT = find_facility_layout(GAME_DB_SCHEMA, BUILD_STRING)
 CLUB_LAYOUTS = find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING)
 FULL_SIZE_GAME_DB_BYTES = 100 * 1024 * 1024
 EXAMPLE_CLUB_UID = 4001
-# The fifteen ratings a club's own screen named, with the word it displayed for each.
+# The ratings in range a club's own screen named, with the word it displayed for each: 3, 4 and
+# 16 on FM27 screens, the rest on FM26 screens. Zero, which an FM27 screen showed as None, is
+# tested with the unset ratings.
 NAMED_RATINGS = (
     (1, CorporateFacilities.BASIC),
     (2, CorporateFacilities.BASIC),
+    (3, CorporateFacilities.FAIRLY_BASIC),
+    (4, CorporateFacilities.FAIRLY_BASIC),
     (5, CorporateFacilities.FAIRLY_BASIC),
     (6, CorporateFacilities.ADEQUATE),
     (7, CorporateFacilities.ADEQUATE),
@@ -50,6 +54,7 @@ NAMED_RATINGS = (
     (12, CorporateFacilities.AVERAGE),
     (13, CorporateFacilities.GOOD),
     (15, CorporateFacilities.GOOD),
+    (16, CorporateFacilities.EXCELLENT),
     (17, CorporateFacilities.EXCELLENT),
     (18, CorporateFacilities.EXCELLENT),
     (19, CorporateFacilities.EXCELLENT),
@@ -61,9 +66,6 @@ BRACKETED_RATINGS = (
     (8, CorporateFacilities.ADEQUATE),
     (14, CorporateFacilities.GOOD),
 )
-# The codes no club in the save carries, which no screen and no bracket names: 3 and 4 sit
-# below the lowest word seen and 16 between a Good and an Excellent.
-UNNAMED_RATINGS = (3, 4, 16)
 
 
 def test_facilities_lists_every_club_with_a_series_in_club_index_order(
@@ -153,13 +155,14 @@ def test_a_bracketed_rating_carries_the_word_its_neighbours_share(
     assert row.corporate_facilities.raw == facility_byte
 
 
-@pytest.mark.parametrize("facility_byte", UNNAMED_RATINGS)
-def test_an_unnamed_rating_reads_unknown_and_keeps_its_number(facility_byte: int) -> None:
-    """No club in the save carries these, so neither a screen nor a bracket names them."""
-    rows, _stats = one_club_facilities(facility_byte)
-    (row,) = rows
-    assert row.corporate_facilities.label is CorporateFacilities.UNKNOWN
-    assert row.corporate_facilities.raw == facility_byte
+def test_every_code_in_the_range_carries_a_word() -> None:
+    lowest, highest = FACILITY_LAYOUT.value_range
+    named = {code for code, _label in NAMED_RATINGS + BRACKETED_RATINGS}
+    assert named == set(range(lowest, highest + 1))
+    assert all(
+        CodedValue.from_raw(CorporateFacilities, code).label is not CorporateFacilities.UNKNOWN
+        for code in named
+    )
 
 
 def test_a_rating_outside_the_range_is_returned_and_counted_out_of_range() -> None:
@@ -189,7 +192,7 @@ def test_a_zero_rating_in_a_zeroed_block_is_returned_and_counted_unset() -> None
 
     rows, stats = facilities_of(game_db)
     (row,) = rows
-    assert row.corporate_facilities.label is CorporateFacilities.UNKNOWN
+    assert row.corporate_facilities.label is CorporateFacilities.NONE
     assert row.corporate_facilities.raw == 0
     assert stats == FacilityStats(
         clubs_with_series=1, rows=1, in_range=0, managed_club_exists=True, unset=1

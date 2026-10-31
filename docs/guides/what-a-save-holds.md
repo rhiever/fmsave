@@ -35,8 +35,8 @@ does not necessarily describe current income: an ended contract can keep a non-z
 value, so filter on `end` against the save's date. `stadiums()` holds capacities and ownership;
 names are available for only some grounds.
 
-Club data still has limits. The meaning of a zero corporate-facilities rating and some
-sponsorship amounts is unconfirmed. Some finance histories still fail continuity checks.
+Club data still has limits. The meaning of some sponsorship amounts is unconfirmed, and some
+finance histories still fail continuity checks.
 Passing the reader checks does not confirm every field's meaning.
 See [Trusting a number](trust.md) before using these fields in an analysis.
 

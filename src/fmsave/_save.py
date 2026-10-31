@@ -1697,12 +1697,12 @@ class Save:
         series returns an empty table, and `fmsave validate` reports the counts.
 
         `corporate_facilities` is the rating the game's Facilities screen shows as a word on
-        its **Corporate** line, and the words rise with the stored number. Fifteen of the
-        twenty codes carry the word one club's own screen displayed against that exact number,
-        from 1 Basic to 20 Excellent; two more, 8 and 14, carry the word of the codes either
-        side of them, each of which a screen displayed the same word for. The three codes no
-        club in the save carries -- 3, 4 and 16 -- read UNKNOWN with the raw number kept,
-        rather than taking a word from where they sit on the scale. The screen's other facility
+        its **Corporate** line, and the words rise with the stored number. Nineteen codes
+        carry the word one club's own screen displayed against that exact number, from 0 None
+        and 1 Basic to 20 Excellent; FM27 screens named 0, 3, 4 and 16 and FM26 screens the
+        rest. Two more, 8 and 14, carry the word of the codes either side of them, each of
+        which a screen displayed the same word for. A code above 20 reads UNKNOWN with the raw
+        number kept, rather than taking a word from where it sits. The screen's other facility
         lines, the stadium and pitch, the training and youth grounds and the academy, are not
         stored anywhere near this byte and are not read at all.
 
