@@ -77,7 +77,7 @@ Each reader returns a `Table`: `where(...)`, `filter(...)`, `sorted_by(...)`, `f
 Every field is either verified against the game or unconfirmed; ask with
 `fmsave.field_status(fmsave.Player, "contract.wage")`. Values come from the save as stored, a value
 fmsave cannot read is `None` rather than a guess, and money is kept in the unit the game stores it
-in, which is not the currency it displays.
+in, which can differ from the currency it displays.
 
 Reader checks test completeness, joins and expected ranges. A failed check warns and returns the
 table; `strict=True` raises instead. Structural failures raise in either mode. See

@@ -1604,11 +1604,11 @@ class Save:
 
         `balance` is the balance at the **end** of the row's month, and `net_transfers` is
         positive for a net **spend**. **Money is a whole number in the save's base currency,
-        which is not the currency the game displays**: on the save whose screens were read the
-        balance, both budgets, the wage bill and the month's income and expenditure all display
-        at about 1.157 times the stored value, one rate fitting every one of them, which is
-        what says the stored unit is its own unit. Nothing here is converted and no rate is
-        applied. The weekly fields are weekly; every other money field is one month's amount.
+        which can differ from the currency the game displays**: on one FM26 save the balance,
+        both budgets, the wage bill and the month's income and expenditure all display at
+        about 1.157 times the stored value, one rate fitting every one of them, while FM27
+        screens in pounds show the stored figures unchanged. Nothing here is converted and no
+        rate is applied. The weekly fields are weekly; every other money field is one month's amount.
         `transfer_budget_allocated` is **not** the budget the board allocated: that screen
         showed a budget well above it with almost none of it spent, so what the field is stays
         unnamed.
