@@ -710,6 +710,7 @@ def build_stadiums(
                 uid=raw_stadium.uid,
                 name=raw_stadium.name,
                 all_seater_capacity=raw_stadium.all_seater,
+                seated_capacity=raw_stadium.u17,
                 expansion_capacity=raw_stadium.expansion,
                 capacity=raw_stadium.capacity or None,
                 owner_club_uid=owner_club_uid,

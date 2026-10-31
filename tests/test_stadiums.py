@@ -55,6 +55,7 @@ from tests.fixtures.stadiums import (
     CAREER_NAMED_STADIUM,
     CAREER_NAMED_STADIUM_ORDINAL,
     CAREER_STADIUM_ROW_COUNT,
+    CAREER_STADIUM_U17,
     CAREER_STADIUM_UID_BASE,
     NULL_DATE,
     STADIUM_INLINE_NAME_FLAG,
@@ -109,6 +110,7 @@ EXPECTED_STADIUM_COLUMNS = (
     "uid",
     "name",
     "all_seater_capacity",
+    "seated_capacity",
     "expansion_capacity",
     "capacity",
     "owner_club_uid",
@@ -223,6 +225,7 @@ def test_every_field_of_one_fully_filled_ground(career_path: Path) -> None:
         ground = save.stadiums()[FIRST_OWNED_GROUND]
 
     assert ground.all_seater_capacity == 5_010
+    assert ground.seated_capacity == CAREER_STADIUM_U17
     assert ground.expansion_capacity == 6_010
     assert ground.capacity == 5_010
     assert ground.owner_club_uid == NORTHBRIDGE_UID
@@ -242,6 +245,19 @@ def test_every_field_of_one_fully_filled_ground(career_path: Path) -> None:
         "date_58": NULL_DATE_AS_INT,
         "flags_156": 0,
     }
+
+
+def test_the_seated_figure_keeps_its_old_unknown_key(career_path: Path) -> None:
+    """Code that read the seated figure from `unknown["u17"]` keeps reading the same value."""
+    with fmsave.open(career_path) as save:
+        stadiums = save.stadiums()
+
+    assert all(ground.unknown["u17"] == ground.seated_capacity for ground in stadiums)
+    assert (
+        stadiums[FIRST_OWNED_GROUND].seated_capacity
+        < stadiums[FIRST_OWNED_GROUND].all_seater_capacity
+    )
+    assert stadiums[UNOWNED_GROUND].seated_capacity == 0
 
 
 def test_an_owner_no_club_holds_and_a_ground_with_no_owner(career_path: Path) -> None:
@@ -807,7 +823,14 @@ def test_the_field_statuses_follow_the_stadium_coverage() -> None:
         "rebuilt_date",
     ):
         assert field_status(Stadium, verified_field) == "verified", verified_field
-    for unconfirmed_field in ("uid", "name", "capacity", "owner_club_uid", "home_club_uids"):
+    for unconfirmed_field in (
+        "uid",
+        "name",
+        "seated_capacity",
+        "capacity",
+        "owner_club_uid",
+        "home_club_uids",
+    ):
         assert field_status(Stadium, unconfirmed_field) == "unconfirmed", unconfirmed_field
     assert Stadium.UNKNOWN_KEYS == ("u17", "u25", "b33", "date_58", "flags_156")
 

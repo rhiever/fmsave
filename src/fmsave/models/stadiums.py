@@ -41,11 +41,21 @@ class Stadium:
         name: The ground's name as the save stores it inline, or None when the save stores
             none, which is the case for nearly every ground: the game takes the name from its
             installed database instead (unconfirmed).
-        all_seater_capacity: How many seated spectators the ground holds.
+        all_seater_capacity: The ground's total capacity, seated and standing together: the
+            first figure the game's facilities screen shows. Despite the name it is not the
+            seated figure, which is `seated_capacity`; the two are equal on a ground the
+            screen calls all-seater.
+        seated_capacity: How many of the total are seats: the figure the facilities screen
+            shows in brackets as seated, and the same as the total on an all-seater ground.
+            It is at or below the total on all but one ground across the saves measured, and
+            it is zero on roughly two grounds in five, where what the game shows has not been
+            compared (unconfirmed).
         expansion_capacity: The capacity the ground would hold expanded, which is at or above
-            the all-seater capacity on all but a handful of grounds.
+            the total capacity on all but a handful of grounds.
         capacity: A further capacity the save stores, empty where the save stores zero, which
-            is about four grounds in five (unconfirmed).
+            is about four grounds in five. It is at or below the total on all but a handful of
+            grounds and equals it on most that store one; which figure the game uses it for has
+            not been compared with a screen (unconfirmed).
         owner_club_uid: Uid of the club that owns the ground, or None when the save names no
             owner or names a club it does not list. A ground with no stored owner is the
             council's: the game's own facilities screen shows one such ground as owned by the
@@ -61,8 +71,12 @@ class Stadium:
             fixture calendar is unavailable, not that no club uses the ground (unconfirmed).
         home_club_names: Denormalised names of home_club_uids, in the same order; None
             when the fixture calendar is unavailable (unconfirmed).
-        pitch_length_dm: The pitch's length in decimetres.
-        pitch_width_dm: The pitch's width in decimetres.
+        pitch_length_dm: The pitch's length in decimetres. The facilities screen shows whole
+            metres and drops the rest, so a stored 1005 shows as 100 m. A few grounds store a
+            length past `pitch_max_length_dm`, and the screen shows the maximum for such a
+            ground; the value is returned as stored.
+        pitch_width_dm: The pitch's width in decimetres. As with the length, a few grounds
+            store a width past `pitch_max_width_dm`, and it is returned as stored.
         pitch_min_length_dm: The shortest pitch length the ground allows (unconfirmed).
         pitch_min_width_dm: The narrowest pitch width the ground allows (unconfirmed).
         pitch_max_length_dm: The longest pitch length the ground allows.
@@ -74,12 +88,15 @@ class Stadium:
         rebuilt_date: The date the ground was last rebuilt, or None when the save stores none.
         unknown: Numeric fields with no known meaning: two capacity-like words, a small code,
             a third date as one little-endian int, and the whole flags byte whose 0x10 bit is
-            what says the row carries its name inline (unconfirmed).
+            what says the row carries its name inline. "u17" is the first capacity-like word,
+            which `seated_capacity` now carries; it stays here, with the same value, so code
+            that reads it keeps working (unconfirmed).
     """
 
     uid: int
     name: str | None
     all_seater_capacity: int
+    seated_capacity: int
     expansion_capacity: int
     capacity: int | None
     owner_club_uid: int | None
@@ -104,7 +121,9 @@ class Stadium:
 # maximum pitch dimensions included, in yards against the stored decimetres. The uid
 # convention, the owner's id space, the smallest pitch a ground allows and the
 # calendar-derived home grounds are measured rather than displayed anywhere, so they stay
-# unconfirmed until an in-game screen names one.
+# unconfirmed until an in-game screen names one. The seated figure matched three FM27
+# facilities screens, two grounds with standing room and one all-seater, but no FM26 screen
+# of a ground with standing room has been compared, so it stays unconfirmed here.
 register_field_statuses(
     Stadium,
     verified=(
@@ -120,6 +139,7 @@ register_field_statuses(
     unconfirmed=(
         "uid",
         "name",
+        "seated_capacity",
         "capacity",
         "owner_club_uid",
         "owner_club_name",
