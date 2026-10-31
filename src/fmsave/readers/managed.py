@@ -15,12 +15,15 @@ Route 1 is the primary answer and route 2 checks it. When neither route finds a 
 example while the manager is between jobs, no managed club is listed. The manager's person uid
 comes from the single person header in `game_db` that stores the person id followed by a
 doubled uid.
+
+The club's current balance is read behind its own monthly finance chain, and the scouting
+budget from `humans`, each only on a build whose layouts place it.
 """
 
 from __future__ import annotations
 
 import struct
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import NamedTuple
@@ -29,7 +32,7 @@ from fmsave._container import damaged_part_error
 from fmsave._errors import CorruptSaveError
 from fmsave._layouts import ContractLayout, HumansLayout, SummaryStringsLayout, find_layout
 from fmsave._reader_stats import ManagedStats
-from fmsave._scan import read_u16, read_u32
+from fmsave._scan import decode_date, read_u16, read_u32
 from fmsave.models.clubs import Club
 from fmsave.models.managed import ManagedClub
 from fmsave.readers._common import (
@@ -40,13 +43,14 @@ from fmsave.readers._common import (
     build_gap_padded_struct,
     layout_mismatch,
 )
-from fmsave.readers.clubs import ClubIndex
+from fmsave.readers.clubs import ClubIndex, ClubRecordSpan
 from fmsave.readers.contracts import (
     CHAIN_RECORD_CLUB_UID,
     CHAIN_RECORD_END,
     CHAIN_RECORD_HAS_TERMS,
     build_contract_decoder,
 )
+from fmsave.readers.finances import FinanceLayouts, find_finance_layouts, read_current_balance
 
 _U32 = struct.Struct("<I")
 _U32_BYTES = _U32.size
@@ -60,6 +64,7 @@ class ManagedClubLayouts:
     humans: HumansLayout
     summary_strings: SummaryStringsLayout
     contracts: ContractLayout
+    finances: FinanceLayouts
 
 
 def find_managed_club_layouts(section_schemas: Mapping[str, int], build: str) -> ManagedClubLayouts:
@@ -77,6 +82,7 @@ def find_managed_club_layouts(section_schemas: Mapping[str, int], build: str) ->
         contracts=find_layout(
             ContractLayout, GAME_DB_SECTION, section_schemas.get(GAME_DB_SECTION), build
         ).layout,
+        finances=find_finance_layouts(section_schemas.get(GAME_DB_SECTION), build),
     )
 
 
@@ -245,6 +251,44 @@ def _first_human(humans: bytes, layout: HumansLayout, file_name: str) -> tuple[i
         raise damaged_part_error(file_name, f"section {HUMANS_SECTION!r}", error) from error
 
 
+def scouting_budget(humans: bytes, layout: HumansLayout) -> tuple[int, int] | None:
+    """(the season's scouting budget, what is left of it), or None.
+
+    Every hit of the layout's marker with a valid date in front of it is a candidate. The pair
+    is returned only when exactly one candidate holds a non-zero budget and that pair passes
+    the layout's checks; no candidate, a budget of zero, or two candidates with money give
+    None, as does a build whose layout has no marker. Never raises.
+    """
+    marker = layout.scouting_budget_marker
+    if not marker:
+        return None
+    word_offsets = (
+        layout.scouting_date_offset,
+        layout.scouting_budget_offset,
+        layout.scouting_remaining_offset,
+    )
+    last_word_offset = len(humans) - _U32_BYTES
+    found: tuple[int, int] | None = None
+    hit = humans.find(marker)
+    while hit >= 0:
+        if all(0 <= hit + offset <= last_word_offset for offset in word_offsets) and (
+            decode_date(humans, hit + layout.scouting_date_offset) is not None
+        ):
+            budget: int = _U32.unpack_from(humans, hit + layout.scouting_budget_offset)[0]
+            remaining: int = _U32.unpack_from(humans, hit + layout.scouting_remaining_offset)[0]
+            if budget:
+                if found is not None:
+                    return None
+                found = (budget, remaining)
+        hit = humans.find(marker, hit + 1)
+    if found is None:
+        return None
+    budget, remaining = found
+    if budget > layout.scouting_budget_maximum or remaining > budget:
+        return None
+    return found
+
+
 def first_human_selector(humans: bytes, layout: HumansLayout, file_name: str) -> int | None:
     """The first human manager's selector (person id plus 1), or None.
 
@@ -275,6 +319,7 @@ def resolve_managed_clubs(
     clock: date,
     layouts: ManagedClubLayouts,
     file_name: str,
+    record_spans: Callable[[], Sequence[ClubRecordSpan]],
 ) -> ManagedClubsResult:
     """The club run by the save's first human manager, as a one-row tuple or (), with counts.
 
@@ -285,6 +330,10 @@ def resolve_managed_clubs(
 
     With one human manager, the summary must not link the manager to any club other than the
     one route 1 finds. With several, it is enough that one summary link names that club.
+
+    `record_spans` gives the club records' own spans; it is called only on a build whose layout
+    places the current balance, to find the managed club's finance chain. The scouting budget
+    is read only on a save with a single human manager.
 
     Raises:
         CorruptSaveError: The `humans` section ends before the human count or the selector, or
@@ -340,12 +389,21 @@ def resolve_managed_clubs(
     manager_staff_uid = (
         _manager_staff_uid(game_db, selector, layouts.humans) if has_person_id else None
     )
+    balance: int | None = None
+    if layouts.finances.sponsors.balance_offset is not None:
+        span = next((span for span in record_spans() if span.club_uid == club.uid), None)
+        if span is not None:
+            balance = read_current_balance(game_db, span, layouts.finances)
+    scouting = scouting_budget(humans, layouts.humans) if human_count == 1 else None
     managed_club = ManagedClub(
         club_uid=club.uid,
         club_name=club.name,
         club_short_name=club.short_name,
         manager_name=manager_name,
         manager_staff_uid=manager_staff_uid,
+        balance=balance,
+        scouting_budget=None if scouting is None else scouting[0],
+        scouting_budget_remaining=None if scouting is None else scouting[1],
     )
     return ManagedClubsResult(
         (managed_club,), ManagedStats(human_count, route_one_resolved, route_two_resolved, 1)

@@ -74,12 +74,24 @@ class HumansLayout:
     person's header is the u32 person id followed by the same uid at `person_uid_offset` and at
     `person_uid_copy_offset`, both counted from the person id; a uid of 0 or FFFFFFFF does not
     count.
+
+    The scouting budget is a pair of u32 words in `humans`, the season's budget and what is
+    left of it, at `scouting_budget_offset` and `scouting_remaining_offset` from a hit of
+    `scouting_budget_marker`; a hit counts only when a valid date sits at
+    `scouting_date_offset` from it, and a pair only when neither word exceeds
+    `scouting_budget_maximum` and the remainder does not exceed the budget. An empty marker
+    means the build has no layout for it.
     """
 
     human_count_offset: int
     first_selector_offset: int
     person_uid_offset: int
     person_uid_copy_offset: int
+    scouting_budget_marker: bytes = b""
+    scouting_date_offset: int = 0
+    scouting_budget_offset: int = 0
+    scouting_remaining_offset: int = 0
+    scouting_budget_maximum: int = 0
 
 
 # Count checks (such as the name pool minimum) apply only to a decompressed `game_db` at
@@ -263,6 +275,9 @@ class SponsorChainLayout:
     `kind_names` names stored sponsor kinds as `(code, SponsorType member name)` pairs, each
     one a code a club's sponsorship screen displayed that type against on this build. Every
     code the pairs leave out reads UNKNOWN and keeps its raw number.
+
+    `balance_offset` is where the club's current balance, a signed 32-bit word, sits in that
+    suffix; None on a build where no screen has pinned it.
     """
 
     prefix_marker: bytes
@@ -293,6 +308,7 @@ class SponsorChainLayout:
     minimum_row_days: int = 1
     reject_invalid_lists: bool = False
     kind_names: tuple[tuple[int, str], ...] = ()
+    balance_offset: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

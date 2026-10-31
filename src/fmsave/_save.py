@@ -2421,7 +2421,14 @@ class Save:
         ):
             club_index = context.club_index()
             managed_clubs, managed_stats = resolve_managed_clubs(
-                humans, game_db, summary, club_index, clock, layouts, save_info.file_name
+                humans,
+                game_db,
+                summary,
+                club_index,
+                clock,
+                layouts,
+                save_info.file_name,
+                context.own_club_record_spans,
             )
             game_db_length = len(game_db)
         managed_check = _checks.check_managed(managed_stats, gate_bounds, game_db_length)

@@ -528,7 +528,16 @@ def test_all_managed_clubs_without_a_managed_club_writes_no_rows(
     exit_code, output_text, _ = run_export(capsys, str(between_jobs_path), "managed-clubs", "--all")
     assert exit_code == cli.EXIT_OK
     assert csv_rows(output_text) == [
-        ["club_uid", "club_name", "club_short_name", "manager_name", "manager_staff_uid"]
+        [
+            "club_uid",
+            "club_name",
+            "club_short_name",
+            "manager_name",
+            "manager_staff_uid",
+            "balance",
+            "scouting_budget",
+            "scouting_budget_remaining",
+        ]
     ]
 
 

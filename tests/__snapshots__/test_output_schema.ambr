@@ -208,6 +208,9 @@
         'club_short_name',
         'manager_name',
         'manager_staff_uid',
+        'balance',
+        'scouting_budget',
+        'scouting_budget_remaining',
       ]),
       'MentoringGroup': list([
         'team_id',

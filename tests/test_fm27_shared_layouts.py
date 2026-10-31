@@ -26,7 +26,6 @@ SHARED = (
     ("game_db", 4000, observed.TRANSFER_WINDOWS),
     ("game_db", 4000, observed.FINANCE_CHAINS),
     ("game_db", 4000, observed.FACILITY_BYTE),
-    ("humans", 24, observed.HUMANS),
     ("feeder_man", 5, observed.AFFILIATE_GROUPS),
     ("job_centre", 1, observed.JOB_CENTRE),
 )
@@ -41,6 +40,23 @@ def test_fm27_observed_structures_are_explicit_not_fallback(region, schema, layo
         find_layout(type(layout), region, schema + 1, BUILD)
     with pytest.raises(UnsupportedGameError):
         find_layout(type(layout), region, schema, "27.0.1+3000001")
+
+
+def test_fm27_humans_layout_adds_only_the_scouting_budget_to_the_shared_one() -> None:
+    from dataclasses import replace
+
+    from fmsave._layouts import HumansLayout
+
+    match = find_layout(HumansLayout, "humans", 24, BUILD)
+    assert match.exact
+    assert match.layout.scouting_budget_marker
+    assert replace(match.layout, scouting_budget_marker=b"") == replace(
+        observed.HUMANS,
+        scouting_date_offset=match.layout.scouting_date_offset,
+        scouting_budget_offset=match.layout.scouting_budget_offset,
+        scouting_remaining_offset=match.layout.scouting_remaining_offset,
+        scouting_budget_maximum=match.layout.scouting_budget_maximum,
+    )
 
 
 def test_fm27_affiliate_groups_walk_every_count_and_reject_trailing_data() -> None:

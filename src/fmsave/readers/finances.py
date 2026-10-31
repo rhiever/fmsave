@@ -30,6 +30,7 @@ from fmsave.readers.clubs import ClubIndex, ClubRecordSpan
 
 _MONTHS_PER_YEAR = 12
 _ROW_COUNT_STRUCT = struct.Struct("<I")
+_BALANCE = struct.Struct("<i")
 
 _FINANCE_ROW_FIELDS = (
     "balance",
@@ -294,6 +295,7 @@ class _SponsorChainResult:
     first_row: int
     row_count: int
     valid: bool
+    suffix_start: int
 
 
 def locate_sponsor_chain(
@@ -351,11 +353,11 @@ def _inspect_sponsor_chain(
     first_row = primary_count_at - layout.count_offset
     row_count = game_db[primary_count_at]
     run_end = first_row + layout.row_bytes * row_count
-    rejected = _SponsorChainResult(first_row, row_count, valid=False)
+    rejected = _SponsorChainResult(first_row, row_count, valid=False, suffix_start=entries_end)
     if run_end > record_end:
         return rejected
     if row_count == 0:
-        return _SponsorChainResult(first_row, 0, valid=True)
+        return _SponsorChainResult(first_row, 0, valid=True, suffix_start=entries_end)
 
     row_struct, index_by_name = _sponsor_row_struct(layout)
     for row_offset in range(first_row, run_end, layout.row_bytes):
@@ -372,7 +374,38 @@ def _inspect_sponsor_chain(
         end = decode_date(game_db, row_offset + layout.end_offset)
         if start is None or end is None or (end - start).days < layout.minimum_row_days:
             return rejected
-    return _SponsorChainResult(first_row, row_count, valid=True)
+    return _SponsorChainResult(first_row, row_count, valid=True, suffix_start=entries_end)
+
+
+def read_current_balance(
+    game_db: bytes, span: ClubRecordSpan, layouts: FinanceLayouts
+) -> int | None:
+    """A club's balance on the save's date, or None.
+
+    The word sits in the fixed suffix of the sponsor prefix behind the club's monthly finance
+    chain, so it is read only when the chain is found and the prefix and its suffix pass their
+    checks. None means the build has no layout for it, the record holds no chain, the prefix
+    fails its checks, or the value is outside the chain layout's balance range.
+    """
+    balance_offset = layouts.sponsors.balance_offset
+    # The word must lie inside the suffix, before the primary sponsor count that closes it.
+    if balance_offset is None or not (
+        0 <= balance_offset <= layouts.sponsors.prefix_suffix_bytes - 1 - _BALANCE.size
+    ):
+        return None
+    chain_layout = layouts.chains
+    located_chain = locate_finance_chain(game_db, span, chain_layout)
+    if located_chain is None:
+        return None
+    head, row_count, _chains_found = located_chain
+    sponsor_result = _inspect_sponsor_chain(
+        game_db, head + chain_layout.row_bytes * row_count, span.record_end, layouts.sponsors
+    )
+    if sponsor_result is None:
+        return None
+    balance: int = _BALANCE.unpack_from(game_db, sponsor_result.suffix_start + balance_offset)[0]
+    lowest_balance, highest_balance = chain_layout.balance_range
+    return balance if lowest_balance <= balance <= highest_balance else None
 
 
 def month_labels(clock: date, row_count: int, month_lag: int) -> tuple[date, ...]:

@@ -18,7 +18,6 @@ from fmsave._layouts.fm26_26_3_2 import (
     FACILITY_BYTE,
     FINANCE_CHAINS,
     GATE_BOUNDS,
-    HUMANS,
     JOB_CENTRE,
     NAME_POOLS,
     NATION_TABLE,
@@ -35,6 +34,9 @@ from fmsave._layouts.fm26_26_3_2 import (
 )
 from fmsave._layouts.fm26_26_3_2 import (
     FIXTURE_CALENDAR as FM26_FIXTURE_CALENDAR,
+)
+from fmsave._layouts.fm26_26_3_2 import (
+    HUMANS as FM26_HUMANS,
 )
 from fmsave._layouts.fm26_26_3_2 import (
     INJURY_MANAGER as FM26_INJURY_MANAGER,
@@ -221,10 +223,12 @@ MATCH_RECORDS = replace(
 
 # Keep stored boundary dates unchanged; this build can end a row 1 day before it starts.
 # Kinds one club's sponsorship screen displayed a type against; 3 and 23 both showed Stadium.
+# The balance word matched the finances screen's Overall Balance on two careers.
 SPONSOR_CHAINS = replace(
     FM26_SPONSOR_CHAINS,
     minimum_row_days=-1,
     reject_invalid_lists=True,
+    balance_offset=22,
     kind_names=(
         (1, "MAIN_KIT"),
         (3, "STADIUM"),
@@ -269,6 +273,17 @@ RULES_PREAMBLES = replace(
     round_record_bytes=21,
     moved_match_sentinel_offset=0,
     moved_match_tail_offset=0,
+)
+
+# The pair matched the finances screen's Scouting Budget on two careers. Each save measured
+# holds two hits of the marker, and the second pair is zero on all of them.
+HUMANS = replace(
+    FM26_HUMANS,
+    scouting_budget_marker=bytes.fromhex("01006c07 01006c07 40000002 0f2d0764"),
+    scouting_date_offset=-4,
+    scouting_budget_offset=16,
+    scouting_remaining_offset=20,
+    scouting_budget_maximum=100_000_000,
 )
 
 LAYOUTS = (

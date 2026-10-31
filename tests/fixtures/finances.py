@@ -65,12 +65,15 @@ def finance_chain_bytes(rows: Sequence[bytes]) -> bytes:
     return struct.pack("<I", len(rows)) + b"".join(rows)
 
 
-def chain_gap_bytes(*, facility_byte: int = 17, prefix_entries: Sequence[bytes] = ()) -> bytes:
+def chain_gap_bytes(
+    *, facility_byte: int = 17, prefix_entries: Sequence[bytes] = (), balance: int = 0
+) -> bytes:
     """An independent counted sponsor prefix, excluding the final sponsor count.
 
     A 72-byte header carries a null date, two more dates, the facilities byte and an
     entry count. Each entry is nineteen bytes; the following 67 bytes hold reserved
-    markers and three dates before the sponsor count itself.
+    markers, the club's current balance just after the first of them, and three dates
+    before the sponsor count itself.
     """
     header = bytearray(72)
     for at in (0, 25, 29):
@@ -79,6 +82,7 @@ def chain_gap_bytes(*, facility_byte: int = 17, prefix_entries: Sequence[bytes] 
     header[71] = len(prefix_entries)
     suffix = bytearray(67)
     suffix[20:22] = b"\xff\x00"
+    suffix[22:26] = struct.pack("<i", balance)
     for at in (30, 34, 38):
         suffix[at : at + 4] = CHAIN_GAP_LEADING_DATE
     return bytes(header) + b"".join(prefix_entries) + bytes(suffix)
