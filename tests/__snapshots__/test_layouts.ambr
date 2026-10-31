@@ -2649,7 +2649,7 @@
         ),
         'rules_link_minimum_applies_from_runs': 200,
         'rules_link_round_dates': tuple(
-          0.65,
+          0.87,
           None,
         ),
         'rules_linked_blocks_minimum': tuple(
@@ -3358,7 +3358,7 @@
         ),
         'rules_link_minimum_applies_from_runs': 200,
         'rules_link_round_dates': tuple(
-          0.65,
+          0.87,
           None,
         ),
         'rules_linked_blocks_minimum': tuple(

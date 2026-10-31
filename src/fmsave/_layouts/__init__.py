@@ -1989,8 +1989,8 @@ class GateBounds:
     after it, and that permutes the same runs among the same blocks, so every share built from
     the link is invariant under it by construction: the share of blocks that link at all is
     0.55 to 0.68 whichever run is taken. `rules_link_round_dates` escapes that because it is a
-    share of *round dates* rather than of blocks, and it separates cleanly (0.74 to 0.78
-    against 0.55 to 0.58) -- but it is a share with no population of its own to fall back on,
+    share of *round dates* rather than of blocks, and it separates (0.947 to 0.987 against
+    0.657 to 0.790 on the saves it applies to) -- but it is a share with no population of its own to fall back on,
     so the empty-population rule leaves it unjudged when nothing links at all. `rules_linked_blocks_minimum` is what
     closes that hole: a link that quietly stops linking scores zero on it, which no share here
     would notice. It applies only above `rules_link_minimum_applies_from_runs` blocks with a

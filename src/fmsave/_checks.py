@@ -866,8 +866,8 @@ def evaluate_competition_rules(
 
     `rules_link_round_dates` is the share of a linked block's dated rounds that fall on a date
     the linked competition plays a fixture on. Its misalignment is taking the run of table
-    blocks stored before a block rather than the run after it, which drops the share from 0.74
-    to 0.78 down to 0.55 to 0.58 on the saves measured. It is a share with no population of
+    blocks stored before a block rather than the run after it, which drops the share from 0.947
+    to 0.987 down to 0.657 to 0.790 on the saves the gate applies to. It is a share with no population of
     its own to fall back on, so an empty link leaves it without a denominator and is reported
     rather than failed.
 

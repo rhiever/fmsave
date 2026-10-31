@@ -78,20 +78,20 @@ HEALTHY_QUAD_DOUBLED = 950
 HEALTHY_BLOCKS_WITH_RUN = 700
 HEALTHY_BLOCKS_LINKED = 610
 HEALTHY_BLOCKS_LINKED_WITH_COMPETITION = 600
-# 0.75 of the rounds fall in the calendar, above the 0.65 floor; the shape count is reported
+# 0.96 of the rounds fall in the calendar, above the 0.87 floor; the shape count is reported
 # rather than gated, so any value inside the population will do.
-HEALTHY_LINKED_ROUNDS_IN_CALENDAR = 7_500
+HEALTHY_LINKED_ROUNDS_IN_CALENDAR = 9_600
 HEALTHY_LINKED_ROUND_SHAPE = 700
 # 0.80 of 1,000 blocks, so these two counts sit either side of the parsed floor by one block.
 JUST_ABOVE_THE_PARSED_FLOOR = 800
 JUST_BELOW_THE_PARSED_FLOOR = 799
 THREE_QUARTERS_PARSED = 750
-# 0.65 of 10,000 rounds, so these two sit either side of the round-date floor by one round. The
-# misaligned share is the one the layout records for taking the run before each block instead of
-# the run after it, which is a property of the format rather than of any career.
-JUST_ABOVE_THE_ROUND_DATE_FLOOR = 6_500
-JUST_BELOW_THE_ROUND_DATE_FLOOR = 6_499
-MISALIGNED_ROUND_DATE_SHARE = 0.58
+# 0.87 of 10,000 rounds, so these two sit either side of the round-date floor by one round. The
+# misaligned share is the highest the layout records for taking the run before each block
+# instead of the run after it, on the saves the gate applies to.
+JUST_ABOVE_THE_ROUND_DATE_FLOOR = 8_700
+JUST_BELOW_THE_ROUND_DATE_FLOOR = 8_699
+MISALIGNED_ROUND_DATE_SHARE = 0.79
 MISALIGNED_ROUNDS_IN_CALENDAR = round(MISALIGNED_ROUND_DATE_SHARE * HEALTHY_LINKED_ROUNDS)
 # The linked-block floor is 90 and applies from 200 blocks with a run.
 JUST_ABOVE_THE_LINKED_BLOCK_FLOOR = 90

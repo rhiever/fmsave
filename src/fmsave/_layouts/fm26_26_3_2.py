@@ -1725,16 +1725,15 @@ GATE_BOUNDS = GateBounds(
     # observed value clears by more than three times.
     rules_linked_blocks_minimum=(90, None),
     rules_link_minimum_applies_from_runs=200,
-    # At least 0.747 of the dated rounds of a linked block fall on a date its
-    # competition plays a fixture on. Linking each block to the table run stored *before* it
-    # instead of the run after it leaves at most 0.583, so the floor sits between
-    # the two: it clears the lowest observed value by 28% of the bound's width and fails the
-    # misalignment by a wide margin; against a competition drawn at random for each block it
-    # leaves about 0.13. The round-count shape was measured beside it -- at least 0.71 linked
-    # against at most 0.62 misaligned -- and is reported as a count
-    # only: a bound would have to sit between 0.62 and 0.64 to both fail the misalignment and
-    # keep the 20% margin, and a window two points wide is not one to rest a gate on.
-    rules_link_round_dates=(0.65, None),
+    # On the four saves this gate applies to, 0.947 to 0.987 of the dated rounds of a linked
+    # block fall on a date its competition plays a fixture on. Linking each block to the table
+    # run stored *before* it instead of the run after it leaves 0.657 to 0.790, so the floor
+    # sits near the middle of that gap: 0.077 below the lowest aligned value and 0.080 above
+    # the highest misaligned one. The misaligned share is high because the run before a cup
+    # group's block is often the previous group of the same competition, which plays on the
+    # same dates. On a day-one save too small for the gate to apply, the two are 0.934 and
+    # 0.899, so the floor is not evidence for small or day-one saves.
+    rules_link_round_dates=(0.87, None),
     # Every record of 25 corpus saves is keyed to a player except two on the multination
     # snapshots (0.99998), and every player there has a record. The overall line equals the
     # league, cup and continental lines added up on every record except a few dozen the database
