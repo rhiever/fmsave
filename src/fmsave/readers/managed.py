@@ -14,7 +14,8 @@ plus 1. Two independent routes link that manager to a club:
 Route 1 is the primary answer and route 2 checks it. When neither route finds a club, for
 example while the manager is between jobs, no managed club is listed. The manager's person uid
 comes from the single person header in `game_db` that stores the person id followed by a
-doubled uid.
+doubled uid, or, when several do, from the only one of them that carries the human manager's
+object kind.
 
 The club's current balance is read behind its own monthly finance chain, and the scouting
 budget from `humans`, each only on a build whose layouts place it.
@@ -30,7 +31,13 @@ from typing import NamedTuple
 
 from fmsave._container import damaged_part_error
 from fmsave._errors import CorruptSaveError
-from fmsave._layouts import ContractLayout, HumansLayout, SummaryStringsLayout, find_layout
+from fmsave._layouts import (
+    ContractLayout,
+    HumansLayout,
+    StaffLayout,
+    SummaryStringsLayout,
+    find_layout,
+)
 from fmsave._reader_stats import ManagedStats
 from fmsave._scan import decode_date, read_u16, read_u32
 from fmsave.models.clubs import Club
@@ -62,6 +69,7 @@ class ManagedClubLayouts:
     """The layouts the managed-club reader uses."""
 
     humans: HumansLayout
+    staff: StaffLayout
     summary_strings: SummaryStringsLayout
     contracts: ContractLayout
     finances: FinanceLayouts
@@ -72,6 +80,9 @@ def find_managed_club_layouts(section_schemas: Mapping[str, int], build: str) ->
     return ManagedClubLayouts(
         humans=find_layout(
             HumansLayout, HUMANS_SECTION, section_schemas.get(HUMANS_SECTION), build
+        ).layout,
+        staff=find_layout(
+            StaffLayout, GAME_DB_SECTION, section_schemas.get(GAME_DB_SECTION), build
         ).layout,
         summary_strings=find_layout(
             SummaryStringsLayout,
@@ -205,11 +216,15 @@ def _chain_record_club(
     return best_club
 
 
-def _manager_staff_uid(game_db: bytes, selector: int, layout: HumansLayout) -> int | None:
-    """The uid of the only person header for person id `selector - 1`, or None.
+def _manager_staff_uid(
+    game_db: bytes, selector: int, layout: HumansLayout, staff_layout: StaffLayout
+) -> int | None:
+    """The uid of the person header for person id `selector - 1`, or None.
 
-    A header is the person id followed by a doubled uid that is neither 0 nor FFFFFFFF. No
-    header, or more than one, gives None.
+    A header is the person id followed by a doubled uid that is neither 0 nor FFFFFFFF. One
+    header gives its uid. Several give the uid of the only one whose object kind is the human
+    manager's, which is the header `staff()` marks as his. No header, or several with no
+    single human one, gives None.
 
     Raises:
         ValueError: The layout's two uid fields overlap.
@@ -224,16 +239,20 @@ def _manager_staff_uid(game_db: bytes, selector: int, layout: HumansLayout) -> i
     last_header_offset = len(game_db) - uid_struct_offset - uid_struct.size
     person_id_bytes = _U32.pack(selector - 1)
     find = game_db.find
-    found_uid: int | None = None
+    found_uids: list[int] = []
+    human_uids: list[int] = []
     hit = find(person_id_bytes)
     while 0 <= hit <= last_header_offset:
         person_uid, person_uid_copy = unpack_uids(game_db, hit + uid_struct_offset)
         if person_uid == person_uid_copy and person_uid not in _NO_PERSON_UIDS:
-            if found_uid is not None:
-                return None
-            found_uid = person_uid
+            found_uids.append(person_uid)
+            kind_at = hit + staff_layout.kind_offset
+            if kind_at < len(game_db) and game_db[kind_at] == staff_layout.human_kind:
+                human_uids.append(person_uid)
         hit = find(person_id_bytes, hit + 1)
-    return found_uid
+    if len(found_uids) == 1:
+        return found_uids[0]
+    return human_uids[0] if len(human_uids) == 1 else None
 
 
 def _first_human(humans: bytes, layout: HumansLayout, file_name: str) -> tuple[int, int] | None:
@@ -387,7 +406,9 @@ def resolve_managed_clubs(
         )
 
     manager_staff_uid = (
-        _manager_staff_uid(game_db, selector, layouts.humans) if has_person_id else None
+        _manager_staff_uid(game_db, selector, layouts.humans, layouts.staff)
+        if has_person_id
+        else None
     )
     balance: int | None = None
     if layouts.finances.sponsors.balance_offset is not None:
