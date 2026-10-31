@@ -65,14 +65,28 @@ def test_fm27_training_whitelist_does_not_guess_unobserved_substructures() -> No
     assert not layout.mentoring_groups_supported
 
 
-def test_fm27_injury_whitelist_rejects_unobserved_nonempty_variants() -> None:
+def test_fm27_injury_layouts_are_the_observed_fm26_layouts_registered_exactly() -> None:
     from fmsave._layouts import InjuryManagerLayout, InjuryTypeTableLayout
 
-    types = find_layout(InjuryTypeTableLayout, "match_file", None, BUILD).layout
-    manager = find_layout(InjuryManagerLayout, "injury_manager", 8, BUILD).layout
-    assert not types.allow_match_entries
-    assert not manager.allow_typed_rows
-    assert manager.require_empty_lists
+    types = find_layout(InjuryTypeTableLayout, "match_file", None, BUILD)
+    manager = find_layout(InjuryManagerLayout, "injury_manager", 8, BUILD)
+    assert types.exact and types.layout == observed.INJURY_TYPE_TABLE
+    assert manager.exact and manager.layout == observed.INJURY_MANAGER
+    assert types.layout.allow_match_entries
+    assert manager.layout.allow_typed_rows
+    assert not manager.layout.require_empty_lists
+    with pytest.raises(UnsupportedGameError):
+        find_layout(InjuryManagerLayout, "injury_manager", 9, BUILD)
+
+
+def test_fm27_injury_checks_apply_to_early_season_sections_not_fragments() -> None:
+    from fmsave._layouts import GateBounds
+
+    bounds = find_layout(GateBounds, "game_db", 4000, BUILD).layout
+    assert bounds.injury_manager_minimum_applies_from_bytes == 16 * 1024
+    assert bounds.injury_log_recent_team_matches == (0.75, None)
+    assert observed.GATE_BOUNDS.injury_manager_minimum_applies_from_bytes == 256 * 1024
+    assert observed.GATE_BOUNDS.injury_log_recent_team_matches == (0.90, None)
 
 
 def test_fm27_tactics_whitelist_allows_only_observed_empty_variants() -> None:
@@ -84,11 +98,13 @@ def test_fm27_tactics_whitelist_allows_only_observed_empty_variants() -> None:
     assert not layout.named_routines_supported
 
 
-def test_fm27_match_whitelist_requires_proven_absence_not_unobserved_rows() -> None:
+def test_fm27_match_whitelist_reads_rows_only_behind_declared_histories() -> None:
     from fmsave._layouts import MatchRecordLayout
 
     layout = find_layout(MatchRecordLayout, "game_db", 4000, BUILD).layout
-    assert not layout.nonempty_supported
+    assert layout.nonempty_supported
+    assert layout.declared_histories_required
+    assert not observed.MATCH_RECORDS.declared_histories_required
     cache = layout.cache_layout
     assert cache is not None
     assert cache.header_marker == b"\x0c\x07"

@@ -111,6 +111,12 @@ NATION_BOUNDS = replace(
     # Only blocks with a played match are kept, and two careers measured at the start of a
     # season keep 171 and 232 of them, under the FM26 floor of 200.
     table_blocks_minimum=(120, None),
+    # The injury section of an early-season career is 21 KB to 50 KB, far below the FM26
+    # threshold, so the checks would never run. Fragments stay below this one.
+    injury_manager_minimum_applies_from_bytes=16 * 1024,
+    # Two season-start saves measured 0.852 and 0.887, and every recent row that missed named
+    # another team of the player's current club. Later states measured 0.948 to 0.966.
+    injury_log_recent_team_matches=(0.75, None),
 )
 CLUB_TABLE = replace(
     FM26_CLUB_TABLE,
@@ -158,8 +164,10 @@ TRAINING = replace(
     mentoring_groups_supported=False,
 )
 
-INJURY_MANAGER = replace(FM26_INJURY_MANAGER, allow_typed_rows=False, require_empty_lists=True)
-INJURY_TYPE_TABLE = replace(FM26_INJURY_TYPE_TABLE, allow_match_entries=False)
+# Typed rows and nonempty lists walk the whole section exactly on every save state measured,
+# and the name table in a per-match entry matches the FM26 table record for record.
+INJURY_MANAGER = FM26_INJURY_MANAGER
+INJURY_TYPE_TABLE = FM26_INJURY_TYPE_TABLE
 
 TACTICS = replace(
     FM26_TACTICS,
@@ -181,7 +189,11 @@ MATCH_CACHE = replace(
     nullable_suffix_first_marker=b"\x01\x04",
     nullable_suffix_first_date_offset=38,
 )
-MATCH_RECORDS = replace(FM26_MATCH_RECORDS, cache_layout=MATCH_CACHE, nonempty_supported=False)
+# Populated histories use the FM26 record shape. They are read only while every player's
+# declaration is located and the nonempty ones are exactly the lists decoded.
+MATCH_RECORDS = replace(
+    FM26_MATCH_RECORDS, cache_layout=MATCH_CACHE, declared_histories_required=True
+)
 
 # Keep stored boundary dates unchanged; this build can end a row 1 day before it starts.
 # Kinds one club's sponsorship screen displayed a type against; 3 and 23 both showed Stadium.

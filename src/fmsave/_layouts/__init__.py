@@ -681,6 +681,11 @@ class MatchRecordLayout:
 
     `maximum_minutes`, `maximum_rating` and `maximum_goals` bound what fmsave's own sanity flag
     accepts as a sound body, and `rating_scale` is what the stored rating is divided by.
+
+    With `nonempty_supported` false, only an independently established absence of every
+    player's history is accepted. With `declared_histories_required`, populated lists are read
+    only when `cache_layout` locates every player's history declaration and the nonempty
+    declarations are exactly the parents decoded completely.
     """
 
     lead_byte_offset: int
@@ -720,6 +725,7 @@ class MatchRecordLayout:
     parent_count_offset: int
     cache_layout: MatchCacheLayout | None = None
     nonempty_supported: bool = True
+    declared_histories_required: bool = False
 
 
 @dataclass(frozen=True, slots=True)

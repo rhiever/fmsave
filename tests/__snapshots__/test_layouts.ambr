@@ -944,6 +944,7 @@
           65535,
         ),
         'date_offset': 1,
+        'declared_histories_required': False,
         'goals_offset': 24,
         'header_bytes': 15,
         'lead_byte_offset': 0,
@@ -3226,14 +3227,14 @@
           None,
         ),
         'injury_log_recent_team_matches': tuple(
-          0.9,
+          0.75,
           None,
         ),
         'injury_log_teams_resolved': tuple(
           0.95,
           None,
         ),
-        'injury_manager_minimum_applies_from_bytes': 262144,
+        'injury_manager_minimum_applies_from_bytes': 16384,
         'injury_type_entries_minimum': tuple(
           20,
           None,
@@ -4438,6 +4439,7 @@
           65535,
         ),
         'date_offset': 1,
+        'declared_histories_required': True,
         'goals_offset': 24,
         'header_bytes': 15,
         'lead_byte_offset': 0,
@@ -4454,7 +4456,7 @@
         'maximum_minutes': 130,
         'maximum_rating': 100,
         'minutes_offset': 39,
-        'nonempty_supported': False,
+        'nonempty_supported': True,
         'opponent_team_id_offset': 5,
         'owner_back_offset': 30,
         'parent_count_offset': 1,
@@ -5604,7 +5606,7 @@
     dict({
       'build': '27.0.0+2486695',
       'layout': dict({
-        'allow_typed_rows': False,
+        'allow_typed_rows': True,
         'array_strides': tuple(
           14,
           14,
@@ -5624,7 +5626,7 @@
         'log_severity_offset': 14,
         'log_team_offset': 9,
         'recent_log_days': 30,
-        'require_empty_lists': True,
+        'require_empty_lists': False,
         'selector_offset': 5,
         'tail': b'\x01\x00\x00\x00\x00\x00\xff\xff',
         'typed_array_index': 2,
@@ -5639,7 +5641,7 @@
     dict({
       'build': '27.0.0+2486695',
       'layout': dict({
-        'allow_match_entries': False,
+        'allow_match_entries': True,
         'flag_values': tuple(
           0,
           1,

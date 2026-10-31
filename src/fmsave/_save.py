@@ -1361,7 +1361,9 @@ class Save:
         played more than that in his current spell has only his latest matches here, so **a
         per-competition total summed from these rows is short without saying so**. Nothing in a
         row marks it as truncated. Friendlies, internationals and youth matches are kept apart
-        from these records and are not here at all.
+        from these records and are not here at all. On FM27 that has not been established: a
+        pre-season save holds matches under one competition id in which a side fields twenty or
+        more players, more than a competitive match allows.
 
         Each row carries the competition id the record itself stores, which is in the stage id
         space, and joins to a club through the opponent's team id; a team id no club lists
