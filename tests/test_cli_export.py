@@ -16,6 +16,7 @@ import pytest
 import fmsave
 from fmsave import AmbiguousNameError, Club, Stage, Table, cli, export
 from fmsave._checks import GateResult
+from fmsave.models.injuries import InjuryType
 from fmsave.models.players import Player
 from tests.fixtures.career import (
     ATHLETIC_NATION_ID,
@@ -1138,6 +1139,53 @@ def test_league_table_scopes_keep_whole_tables(
     )
     assert exit_code == cli.EXIT_OK, error_text
     assert len(output_text.splitlines()) == expected_count
+    assert "fmsave: note:" not in error_text
+
+
+def test_an_empty_league_table_export_says_why_on_standard_error(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A scope with no table still writes valid output, and the note goes to standard error."""
+    exit_code, output_text, error_text = run_export(
+        capsys, str(save_path), "league-tables", "--nation", "99", "--format", "json"
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert json.loads(output_text) == []
+    assert f"fmsave: note: {cli._NO_LEAGUE_TABLES_NOTE}" in error_text
+
+
+def test_an_empty_injury_type_export_says_why_on_standard_error(
+    save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A save holding no per-match file has no injury-type names, as before a first match."""
+
+    def no_injury_types(_career_save: fmsave.Save) -> Table[InjuryType]:
+        return Table([], InjuryType)
+
+    monkeypatch.setattr(fmsave.Save, "injury_types", no_injury_types)
+    exit_code, output_text, error_text = run_export(capsys, str(save_path), "injury-types", "--all")
+    assert exit_code == cli.EXIT_OK, error_text
+    assert csv_rows(output_text) == [list(export.column_names(InjuryType))]
+    assert f"fmsave: note: {cli._NO_INJURY_TYPES_NOTE}" in error_text
+
+
+def test_a_nonempty_injury_type_export_writes_no_note(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, output_text, error_text = run_export(capsys, str(save_path), "injury-types", "--all")
+    assert exit_code == cli.EXIT_OK, error_text
+    assert len(csv_records(output_text)) == INJURY_TYPE_COUNT
+    assert "fmsave: note:" not in error_text
+
+
+def test_an_empty_table_without_an_empty_note_writes_no_note(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code, _, error_text = run_export(
+        capsys, str(save_path), "players", "--nation", "99", "--format", "json"
+    )
+    assert exit_code == cli.EXIT_OK, error_text
+    assert "fmsave: note:" not in error_text
 
 
 def test_transfer_windows_all_writes_every_window(

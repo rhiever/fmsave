@@ -46,7 +46,9 @@ class SaveInfo:
         game: Game edition, for example "FM26".
         build: Version and build that last wrote the save, for example "26.3.2+2329565".
         build_number: The numeric build.
-        known_build: Whether fmsave has a full set of layout tables for this build.
+        known_build: Whether fmsave has a full set of layout tables for this build. False on
+            every FM27 save, the supported build included, while FM27 coverage is partial;
+            `fmsave info` shows such a build as partial coverage.
         db_version: Game database version string stored in the save (unconfirmed).
         game_date: In-game date, falling back to the structured save summary before the first
             Continue when the normal clock is null; None when neither is readable (unconfirmed).

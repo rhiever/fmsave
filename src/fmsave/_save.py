@@ -943,7 +943,8 @@ class Save:
         The names are the game's own text, as the save stores it, in the language the save was
         written in. They are in no section of the save: each per-match file it holds carries
         one copy of the table, so **a save with no per-match file has no names at all** and
-        this table is then empty. Some injury codes have no entry in the table, so a code an
+        this table is then empty. On the saves measured, a new career and a pre-season save
+        held none, and one appeared after the first competitive match. Some injury codes have no entry in the table, so a code an
         injury carries need not be named here. This table holds only what the save itself
         stores: fmsave ships no injury names of its own, so a code the save leaves out has no
         name here or anywhere else.
@@ -1275,6 +1276,11 @@ class Save:
         parity the save alternates venue by; the same calendar checks that parity on every
         table whose results account for one season of it. The table is read on the first call;
         later calls return the same table.
+
+        **A table is read only once its clubs have played in it.** Before a division's first
+        match there is no table for it here, although the game shows one with every club on
+        zero; `fixtures()` lists its clubs and matches. Rules blocks take their competition from
+        these tables, so `competition_rules()` links fewer blocks before the season starts.
 
         Raises:
             SaveClosedError: The save is closed.

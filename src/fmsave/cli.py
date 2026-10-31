@@ -85,6 +85,14 @@ _COMPETITION_RULES_NOTE = (
     "returns only the blocks that link to one"
 )
 _MANAGED_CLUB_ONLY_NOTE = "only the manager's own club has these, so any other club returns no rows"
+_NO_LEAGUE_TABLES_NOTE = (
+    "no league table was written: fmsave reads a table only once its clubs have played in it, "
+    "so a division yet to start has none; the fixtures table lists its clubs and matches"
+)
+_NO_INJURY_TYPES_NOTE = (
+    "no injury types were written: the save keeps their names only in per-match files, which "
+    "a save from before its first competitive match may not hold"
+)
 _SEASON_STATS_NOTE = (
     "a club or nation scope keeps its current players, including their rows for other teams "
     "this season"
@@ -973,12 +981,15 @@ class _ExportTable:
             is closed, and every one of them is read through the reader that enforces its own
             checks.
         note: A fact about this table's scopes that both its message and its help text carry.
+        empty_note: Why the table can hold no rows, printed to standard error when an export
+            writes none, or empty when an empty export needs no explanation.
     """
 
     record_type: type[object]
     scopes: frozenset[str]
     rows: Callable[[fmsave.Save, _ExportScope], Iterable[object]]
     note: str = ""
+    empty_note: str = ""
 
 
 _EVERY_SCOPE = frozenset(_SCOPE_OPTIONS)
@@ -1001,7 +1012,9 @@ _EXPORT_TABLES: dict[str, _ExportTable] = {
     "competitions": _ExportTable(Competition, _COMPETITION_SCOPES, _competition_rows),
     "nations": _ExportTable(Nation, frozenset({_NATION_SCOPE, _EVERY_ROW_SCOPE}), _nation_rows),
     "fixtures": _ExportTable(Fixture, _EVERY_SCOPE, _fixture_rows),
-    "league-tables": _ExportTable(LeagueTable, _EVERY_SCOPE, _league_table_rows),
+    "league-tables": _ExportTable(
+        LeagueTable, _EVERY_SCOPE, _league_table_rows, empty_note=_NO_LEAGUE_TABLES_NOTE
+    ),
     "transfer-windows": _ExportTable(TransferWindow, _EVERY_ROW_ONLY, _transfer_window_rows),
     "competition-rules": _ExportTable(
         CompetitionRules, _COMPETITION_SCOPES, _competition_rules_rows, note=_COMPETITION_RULES_NOTE
@@ -1027,7 +1040,9 @@ _EXPORT_TABLES: dict[str, _ExportTable] = {
     "job-vacancies": _ExportTable(JobVacancy, _EVERY_SCOPE, _job_vacancy_rows),
     "staff": _ExportTable(Staff, _CLUB_AND_NATION_SCOPES, _staff_rows),
     "staff-lists": _ExportTable(StaffList, _CLUB_AND_NATION_SCOPES, _staff_list_rows),
-    "injury-types": _ExportTable(InjuryType, _EVERY_ROW_ONLY, _injury_type_rows),
+    "injury-types": _ExportTable(
+        InjuryType, _EVERY_ROW_ONLY, _injury_type_rows, empty_note=_NO_INJURY_TYPES_NOTE
+    ),
     "injuries": _ExportTable(InjuryRecord, _CLUB_AND_NATION_SCOPES, _injury_rows),
     "training": _ExportTable(
         TeamTraining, _CLUB_SCOPES, _training_rows, note=_MANAGED_CLUB_ONLY_NOTE
@@ -1194,11 +1209,19 @@ def _run_export(arguments: argparse.Namespace) -> int:
     ) as career_save:
         scope = _resolve_scope(career_save, arguments)
         records = export_table.rows(career_save, scope)
+        if export_table.empty_note:
+            # Only these small tables are held whole, so an empty export can be explained.
+            records = tuple(records)
+            writes_nothing = not records
+        else:
+            writes_nothing = False
     with (
         _output_write_errors(to_standard_output=output_path is None),
         _output_stream(output_path) as stream,
     ):
         _write_records(records, record_type, arguments.format, column_names, stream)
+    if writes_nothing:
+        print(f"fmsave: note: {export_table.empty_note}", file=sys.stderr)
     return EXIT_OK
 
 
