@@ -16,7 +16,7 @@ from fmsave._container import (
     read_section,
 )
 from fmsave._context import SaveContext, closed_save_error
-from fmsave._errors import ReaderCheckError, UnsupportedGameError
+from fmsave._errors import CorruptSaveError, ReaderCheckError, UnsupportedGameError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import (
     ContractLayout,
@@ -789,7 +789,8 @@ class Save:
             CorruptSaveError: The save is damaged or was being written.
             ReaderCheckError: No stadium table was found, or a stadium uid appears in two
                 rows. The club and fixture readers run first and raise here too, since a row
-                carries club names and a calendar-derived link.
+                carries club names and a calendar-derived link. On FM27 a calendar that
+                cannot be read leaves `home_club_uids` None instead.
 
         Warns:
             ReaderCheckWarning: On a full-size save, what the table or the calendar link
@@ -805,7 +806,9 @@ class Save:
         # The calendar and the clubs are read first and in full, checks and all: a stadium row
         # carries its owner's club name and a home-ground link built out of fixture rows, so
         # neither may reach it from a table whose own checks did not pass.
-        fixtures = None if self._info.game == "FM27" else self.fixtures()
+        fixtures = (
+            self._fm27_home_ground_calendar() if self._info.game == "FM27" else self.fixtures()
+        )
         self.clubs()
         # No game_db borrow here on purpose. The calendar above reads the club and stadium
         # indexes inside its own borrow, so both are cached by now and a borrow would only
@@ -824,6 +827,17 @@ class Save:
         self._enforce_checks((stadium_check,))
         self._store_reader_checks((stadium_check,))
         return Table(stadiums, Stadium)
+
+    def _fm27_home_ground_calendar(self) -> Table[Fixture] | None:
+        """The FM27 calendar for home-ground links, or None when it cannot be read.
+
+        The stadium table does not depend on the calendar, so a calendar that fails leaves
+        `home_club_uids` None, unknown, rather than failing the stadium rows too.
+        """
+        try:
+            return self.fixtures()
+        except (CorruptSaveError, ReaderCheckError, UnsupportedGameError):
+            return None
 
     def _stadium_layout(self) -> StadiumTableLayout:
         save_info = self._context.info

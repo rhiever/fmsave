@@ -33,16 +33,28 @@ from fmsave._layouts.fm26_26_3_2 import (
     CLUB_TABLE as FM26_CLUB_TABLE,
 )
 from fmsave._layouts.fm26_26_3_2 import (
+    FIXTURE_CALENDAR as FM26_FIXTURE_CALENDAR,
+)
+from fmsave._layouts.fm26_26_3_2 import (
     INJURY_MANAGER as FM26_INJURY_MANAGER,
 )
 from fmsave._layouts.fm26_26_3_2 import (
     INJURY_TYPE_TABLE as FM26_INJURY_TYPE_TABLE,
 )
 from fmsave._layouts.fm26_26_3_2 import (
+    LEAGUE_TABLES as FM26_LEAGUE_TABLES,
+)
+from fmsave._layouts.fm26_26_3_2 import (
     MATCH_RECORDS as FM26_MATCH_RECORDS,
 )
 from fmsave._layouts.fm26_26_3_2 import (
+    MATCH_SUMMARIES as FM26_MATCH_SUMMARIES,
+)
+from fmsave._layouts.fm26_26_3_2 import (
     PERSON_BLOCKS as FM26_PERSON_BLOCKS,
+)
+from fmsave._layouts.fm26_26_3_2 import (
+    RULES_PREAMBLES as FM26_RULES_PREAMBLES,
 )
 from fmsave._layouts.fm26_26_3_2 import (
     SEASON_HISTORY as FM26_SEASON_HISTORY,
@@ -55,6 +67,9 @@ from fmsave._layouts.fm26_26_3_2 import (
 )
 from fmsave._layouts.fm26_26_3_2 import (
     STAFF as FM26_STAFF,
+)
+from fmsave._layouts.fm26_26_3_2 import (
+    STAGE_RESULTS as FM26_STAGE_RESULTS,
 )
 from fmsave._layouts.fm26_26_3_2 import (
     TACTICS as FM26_TACTICS,
@@ -93,6 +108,9 @@ NATION_BOUNDS = replace(
     season_stats_players_with_record=(1, 1),
     season_stats_overall_sums_competitions=(1, 1),
     season_stats_minutes_in_range=(1, 1),
+    # Only blocks with a played match are kept, and two careers measured at the start of a
+    # season keep 171 and 232 of them, under the FM26 floor of 200.
+    table_blocks_minimum=(120, None),
 )
 CLUB_TABLE = replace(
     FM26_CLUB_TABLE,
@@ -182,6 +200,41 @@ SPONSOR_CHAINS = replace(
     ),
 )
 
+# The calendar record is two bytes shorter: four fewer bytes before the season year, and two
+# undecoded bytes after the last named field. Its locator and packet markers are 0x1F.
+FIXTURE_CALENDAR = replace(
+    FM26_FIXTURE_CALENDAR,
+    record_bytes=66,
+    marker_byte_value=0x1F,
+    season_start_year_offset=22,
+    match_record_id_offset=28,
+    phase_offset=32,
+    leg_offset=33,
+    round_index_offset=34,
+    r39_42_offset=35,
+    match_rules_template_offset=39,
+    r47_54_offset=43,
+    played_offset=53,
+    secondary_marker=0x1F,
+    cache_primary_bytes=61,
+    cache_primary_suffix_offset=43,
+)
+STAGE_RESULTS = FM26_STAGE_RESULTS
+MATCH_SUMMARIES = FM26_MATCH_SUMMARIES
+# Some cup group stages count a match in played without counting it as won, drawn or lost.
+LEAGUE_TABLES = replace(FM26_LEAGUE_TABLES, results_may_fall_short_of_played=True)
+# Twenty bytes separate the doubled promotion quad from the marker, and each round record
+# carries six more bytes. Its interstitials are the ten bytes that open with four FF bytes.
+RULES_PREAMBLES = replace(
+    FM26_RULES_PREAMBLES,
+    marker=bytes.fromhex("ffff000001ffffff00"),
+    promotion_quad_offset=-28,
+    body_offset=9,
+    round_record_bytes=21,
+    moved_match_sentinel_offset=0,
+    moved_match_tail_offset=0,
+)
+
 LAYOUTS = (
     LayoutEntry("game_info", 47, BUILD, GAME_INFO),
     LayoutEntry("save_game_summary", 31, BUILD, SAVE_SUMMARY),
@@ -199,6 +252,11 @@ LAYOUTS = (
     LayoutEntry("game_db", 4000, BUILD, MATCH_RECORDS),
     LayoutEntry("unlisted_after_non_pl_hist_ls", None, BUILD, SEASON_HISTORY),
     LayoutEntry("unlisted_after_non_pl_hist_ls", None, BUILD, SEASON_STATS),
+    *(
+        LayoutEntry("unlisted_after_non_pl_hist_ls", None, BUILD, layout)
+        for layout in (FIXTURE_CALENDAR, STAGE_RESULTS, LEAGUE_TABLES, RULES_PREAMBLES)
+    ),
+    LayoutEntry("game_db", 4000, BUILD, MATCH_SUMMARIES),
     *(
         LayoutEntry("game_db", 4000, BUILD, layout)
         for layout in (
