@@ -2322,6 +2322,7 @@ def check_tactics(stats: TacticStats, bounds: GateBounds, game_db_bytes: int) ->
     list. They are decoded along with its other stored tactics.
     `tactic_blocks_count_mismatched` counts the blocks that claim more tactic records than the
     walk found signatures for, and `unresolved_selectors` the selectors no player record names.
+    The other counts tell apart why a team shows no tactics, as `TacticWalkCounts` describes.
     """
     return ReaderCheck(
         TACTICS_READER,
@@ -2337,6 +2338,11 @@ def check_tactics(stats: TacticStats, bounds: GateBounds, game_db_bytes: int) ->
                 "unresolved_selectors": (
                     stats.selection_selectors - stats.selection_selectors_resolved
                 ),
+                "empty_tactic_blocks": stats.empty_tactic_blocks,
+                "flagged_tactic_counts": stats.flagged_tactic_counts,
+                "missing_tactics": stats.missing_tactics,
+                "unknown_signature_records": stats.unknown_signature_records,
+                "signatures_after_routines": stats.signatures_after_routines,
             }
         ),
     )

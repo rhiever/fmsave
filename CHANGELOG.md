@@ -7,6 +7,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 ### Added
 
 - `SaveTooLargeError`, a `CorruptSaveError` raised when a save passes fmsave's size limits. Its message says the save is probably fine and asks for a report. (#52)
+- Validation reports five more `tactics` counts that show why a team has no tactic rows: `empty_tactic_blocks`, `flagged_tactic_counts`, `missing_tactics`, `unknown_signature_records`, and `signatures_after_routines`. (#31)
 
 ### Fixed
 

@@ -59,6 +59,7 @@ from tests.fixtures.career import (
 from tests.fixtures.tactics import (
     HAS_TACTICS_VALUE,
     NO_SELECTOR,
+    NO_TACTICS_VALUE,
     ROUTINE_COUNT,
     selection_part_bytes,
     set_piece_area_bytes,
@@ -1110,3 +1111,109 @@ def test_a_routine_marker_in_setting_bits_does_not_bound_a_tactic(tmp_path: Path
     assert len(tactics[0].slots) == 11
     assert len(routines) == 40
     assert stats.routine_blocks_complete == 2
+
+
+def _diagnostic_block(team_id: int, *, tactics_value: int, tactic_count: int) -> bytes:
+    return selection_part_bytes(
+        team_id=team_id,
+        label="",
+        slots=(),
+        list_a=(),
+        list_b=(),
+        single=NO_SELECTOR,
+        tactics_value=tactics_value,
+        tactic_count=tactic_count,
+    )
+
+
+def _example_record(**overrides: object) -> bytes:
+    fields: dict[str, object] = {
+        "name": "Example Diagnostic",
+        "team_instructions": bytes(19),
+        "style_name": "Example Style",
+        "style_code": b"EXMP",
+        "slots": career_tactic_slots(),
+    }
+    return tactic_record_bytes(**(fields | overrides))  # type: ignore[arg-type]
+
+
+def test_a_healthy_walk_reports_only_its_empty_blocks(career_path: Path) -> None:
+    _tactics, _routines, stats = decoded_tactics(career_path)
+
+    assert stats.empty_tactic_blocks == 1
+    assert stats.flagged_tactic_counts == stats.missing_tactics == 0
+    assert stats.unknown_signature_records == stats.signatures_after_routines == 0
+
+
+def test_a_no_tactics_value_over_a_nonzero_count_is_counted() -> None:
+    body = tactics_man_body(
+        selector=MANAGER_SELECTOR,
+        blocks=(
+            _diagnostic_block(NORTHBRIDGE_TEAM_A, tactics_value=NO_TACTICS_VALUE, tactic_count=2)
+            + set_piece_area_bytes(career_routine_names()),
+            _diagnostic_block(NORTHBRIDGE_TEAM_B, tactics_value=NO_TACTICS_VALUE, tactic_count=0)
+            + set_piece_area_bytes((None,) * ROUTINE_COUNT),
+        ),
+    )
+    blocks, counts = walk_tactic_blocks(body, CAREER_TEAM_IDS, LAYOUT, FILE_NAME)
+
+    assert all(not block.tactics for block in blocks)
+    assert counts.tactic_blocks == counts.missing_tactics == 0
+    assert counts.empty_tactic_blocks == 2
+    assert counts.flagged_tactic_counts == 1
+
+
+def test_a_record_with_an_unlisted_signature_variant_is_counted_as_missing() -> None:
+    body = tactics_man_body(
+        selector=MANAGER_SELECTOR,
+        blocks=(
+            _diagnostic_block(NORTHBRIDGE_TEAM_A, tactics_value=HAS_TACTICS_VALUE, tactic_count=1)
+            + _example_record(record_variant=7)
+            + set_piece_area_bytes(career_routine_names()),
+        ),
+    )
+    blocks, counts = walk_tactic_blocks(body, CAREER_TEAM_IDS[:1], LAYOUT, FILE_NAME)
+
+    assert not blocks[0].tactics
+    assert counts.tactic_blocks == counts.missing_tactics == 1
+    assert counts.tactic_blocks_count_matching == 0
+    assert counts.unknown_signature_records == 1
+    assert counts.signatures_after_routines == 0
+
+
+def test_a_record_behind_the_routine_area_is_counted_but_not_read() -> None:
+    body = tactics_man_body(
+        selector=MANAGER_SELECTOR,
+        blocks=(
+            _diagnostic_block(NORTHBRIDGE_TEAM_A, tactics_value=HAS_TACTICS_VALUE, tactic_count=1)
+            + set_piece_area_bytes(career_routine_names())
+            + _example_record(),
+            _diagnostic_block(NORTHBRIDGE_TEAM_B, tactics_value=NO_TACTICS_VALUE, tactic_count=0)
+            + set_piece_area_bytes((None,) * ROUTINE_COUNT),
+        ),
+    )
+    blocks, counts = walk_tactic_blocks(body, CAREER_TEAM_IDS, LAYOUT, FILE_NAME)
+
+    assert not blocks[0].tactics
+    assert counts.routine_blocks_complete == 2
+    assert counts.missing_tactics == counts.signatures_after_routines == 1
+    assert counts.unknown_signature_records == 0
+
+
+@pytest.mark.parametrize("preset", (True, False))
+def test_records_behind_the_last_block_are_not_counted_as_stray_signatures(
+    preset: bool,
+) -> None:
+    trailing = _example_record(preset=preset, slots=())
+    body = tactics_man_body(
+        selector=MANAGER_SELECTOR,
+        blocks=(
+            _diagnostic_block(NORTHBRIDGE_TEAM_A, tactics_value=NO_TACTICS_VALUE, tactic_count=0)
+            + set_piece_area_bytes(career_routine_names()),
+        ),
+        after_blocks=trailing * 3,
+    )
+    _blocks, counts = walk_tactic_blocks(body, CAREER_TEAM_IDS[:1], LAYOUT, FILE_NAME)
+
+    assert counts.empty_tactic_blocks == 1
+    assert counts.signatures_after_routines == counts.unknown_signature_records == 0

@@ -805,6 +805,10 @@ class TacticStats:
     counts records whose 22 slot blocks walked and `oop_index_permutations` those whose
     out-of-possession index bytes are a permutation of the slot numbers.
 
+    `empty_tactic_blocks`, `flagged_tactic_counts`, `missing_tactics`,
+    `unknown_signature_records` and `signatures_after_routines` are the walk's diagnostic
+    counts, described on `TacticWalkCounts`; no check judges them.
+
     `routine_blocks` counts the blocks whose routines were searched for,
     `routine_blocks_complete` those whose default runs and counted user groups
     decoded completely, `routines` the rows built from them and `named_routines` those with a
@@ -831,6 +835,11 @@ class TacticStats:
     routine_blocks_complete: int
     routines: int
     named_routines: int
+    empty_tactic_blocks: int = 0
+    flagged_tactic_counts: int = 0
+    missing_tactics: int = 0
+    unknown_signature_records: int = 0
+    signatures_after_routines: int = 0
 
 
 @dataclass(frozen=True, slots=True)
