@@ -435,8 +435,19 @@ def test_a_match_row_flag_that_is_neither_zero_nor_one_rejects_the_block() -> No
     assert records.table_block_candidates > 0
 
 
+def test_fm26_reads_a_block_flagged_without_match_rows_as_a_summary() -> None:
+    (block,) = scan([flagged_block(0, word_after_flag=0x0102)]).table_blocks
+
+    assert block.rounds_per_venue is None
+    assert block.matches == ()
+
+
 def test_a_layout_without_the_flag_reads_match_rows_whatever_the_byte_holds() -> None:
-    (block,) = scan([flagged_block(0)]).table_blocks
+    layouts = span_layouts()
+    unflagged = dataclasses.replace(
+        layouts, tables=dataclasses.replace(layouts.tables, match_rows_flag_offset=None)
+    )
+    (block,) = scan_span([flagged_block(0)], unflagged, CLOCK, FILE_NAME).table_blocks
 
     assert block.rounds_per_venue == 2
     assert len(block.matches) == 4

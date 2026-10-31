@@ -612,6 +612,42 @@ def test_a_table_holding_only_an_earlier_state_of_a_row_kept_elsewhere_is_droppe
     )
 
 
+def summary_block(team_id: int, span_offset: int, *, played: int, won: int) -> RawTableBlock:
+    """A block stored without match slots, whose five aggregates repeat one record."""
+    row = RawTableRow(
+        key=TABLE_LAYOUT.unplayed_key,
+        played=played,
+        won=won,
+        drawn=played - won,
+        lost=0,
+        goals_for=2 * won,
+        goals_against=0,
+        points=3 * won + played - won,
+        flag=0,
+    )
+    return RawTableBlock(
+        span_offset=span_offset,
+        team_id=team_id,
+        head_bytes=tuple(stored_index_head_bytes(0)),
+        aggregates=(row,) * 5,
+        rounds_per_venue=None,
+        matches=(),
+    )
+
+
+def test_a_one_club_summary_row_gives_way_only_to_a_later_state_of_itself() -> None:
+    """Without match slots, an earlier state is one whose every counter is at most the later's."""
+    later = summary_block(NORTHBRIDGE_TEAM_A, 1_000, played=4, won=2)
+    table = (later, summary_block(SOUTHPORT_TEAM, 1_100, played=4, won=1))
+    earlier = summary_block(NORTHBRIDGE_TEAM_A, 5_000, played=2, won=1)
+    not_earlier = summary_block(NORTHBRIDGE_TEAM_A, 5_000, played=3, won=3)
+
+    kept, dropped = drop_superseded_groups([table, (earlier,)], TABLE_LAYOUT)
+    assert (kept, dropped) == ((table,), 1)
+    kept, dropped = drop_superseded_groups([table, (not_earlier,)], TABLE_LAYOUT)
+    assert (kept, dropped) == ((table, (not_earlier,)), 0)
+
+
 def test_a_one_club_table_whose_match_the_kept_row_does_not_hold_is_kept(
     tmp_path: Path,
 ) -> None:

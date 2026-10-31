@@ -180,11 +180,25 @@ def _is_earlier_state(
     `block` holds is held identically in the same slot of `later`. A club in another stage of
     one competition, or in last season's table, holds other matches in its slots, so it is
     never taken for an earlier state.
+
+    A block stored without match slots has none to compare, so it is taken for an earlier
+    state of a later block stored the same way when every counter of every aggregate row it
+    holds, played, won, drawn, lost and both goal counts, is at most the later block's.
     """
     if later.team_id != block.team_id or later.rounds_per_venue != block.rounds_per_venue:
         return False
     if later.aggregates[_TOTAL].played <= block.aggregates[_TOTAL].played:
         return False
+    if block.rounds_per_venue is None:
+        return all(
+            earlier_row.played <= later_row.played
+            and earlier_row.won <= later_row.won
+            and earlier_row.drawn <= later_row.drawn
+            and earlier_row.lost <= later_row.lost
+            and earlier_row.goals_for <= later_row.goals_for
+            and earlier_row.goals_against <= later_row.goals_against
+            for earlier_row, later_row in zip(block.aggregates, later.aggregates, strict=True)
+        )
     played_slots = [
         (slot, row) for slot, row in enumerate(block.matches) if row.key != layout.unplayed_key
     ]

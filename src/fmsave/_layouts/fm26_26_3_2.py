@@ -978,6 +978,9 @@ LEAGUE_TABLES = LeagueTableLayout(
     # Far above any score a match has ever finished on, so this turns away noise rather than
     # any real result.
     match_goals_maximum=40,
+    # The last aggregate row's final byte is 1 when match rows follow and 0 when the block
+    # stores none; the word after a 0 is then not a round count.
+    match_rows_flag_offset=84,
 )
 
 # The round-record offsets and the moved-match rule were measured on the corpus: the date

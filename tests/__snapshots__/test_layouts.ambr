@@ -1882,7 +1882,7 @@
         'key_offset': 0,
         'lost_offset': 8,
         'match_goals_maximum': 40,
-        'match_rows_flag_offset': None,
+        'match_rows_flag_offset': 84,
         'matches_offset': 87,
         'played_copy_offset': 5,
         'played_offset': 4,

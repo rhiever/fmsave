@@ -172,7 +172,7 @@ class LeagueTableRow:
             unconfirmed).
         rounds_per_venue: How many rounds the group plays at each venue, so the row holds twice
             this many match slots; None where the save stores the row without match slots,
-            which FM27 does for some tables (unconfirmed).
+            which it does for some tables (unconfirmed).
         matches: One entry per match slot, in stored order, including slots never played;
             empty where the save stores the row without them.
         unknown: The 19 bytes stored in front of the block, one int per byte. The first of
