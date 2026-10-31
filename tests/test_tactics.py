@@ -201,7 +201,7 @@ def test_a_tactic_holds_eleven_slots_with_both_phases_of_each(career_path: Path)
 
     assert [slot.number for slot in first.slots] == list(range(11))
     goalkeeper = first.slots[0]
-    assert goalkeeper.in_possession_positions == (CodedValue(TacticPosition.UNKNOWN, 0),)
+    assert goalkeeper.in_possession_positions == (CodedValue(TacticPosition.GOALKEEPER, 0),)
     assert goalkeeper.in_possession_mask == 1
     assert goalkeeper.in_possession_setting_count == 2
     assert goalkeeper.out_of_possession_setting_count == 1
@@ -221,8 +221,55 @@ def test_a_column_flag_is_not_a_position_and_the_index_byte_is_per_slot(
         first = save.tactics()[0]
 
     assert first.slots[2].in_possession_mask == 1_048_584
-    assert first.slots[2].in_possession_positions == (CodedValue(TacticPosition.UNKNOWN, 3),)
+    assert first.slots[2].in_possession_positions == (CodedValue(TacticPosition.DEFENDER_LEFT, 3),)
     assert first.slots[10].unknown["out_of_possession_position_index"] == 10
+
+
+def test_only_position_bits_a_screen_showed_are_named(career_path: Path) -> None:
+    with fmsave.open(career_path) as save:
+        first = save.tactics()[0]
+
+    labels = [[position.label for position in slot.in_possession_positions] for slot in first.slots]
+    assert labels == [
+        [TacticPosition.GOALKEEPER],
+        [TacticPosition.UNKNOWN],
+        [TacticPosition.DEFENDER_LEFT],
+        [TacticPosition.DEFENDER_LEFT],
+        [TacticPosition.UNKNOWN],
+        [TacticPosition.UNKNOWN],
+        [TacticPosition.DEFENSIVE_MIDFIELDER],
+        [TacticPosition.DEFENSIVE_MIDFIELDER],
+        [TacticPosition.ATTACKING_MIDFIELDER_LEFT],
+        [TacticPosition.STRIKER_CENTRE],
+        [TacticPosition.STRIKER_CENTRE],
+    ]
+    assert [position.raw for position in first.slots[1].in_possession_positions] == [5]
+
+
+@pytest.mark.parametrize(
+    ("bit", "label"),
+    (
+        (0, TacticPosition.GOALKEEPER),
+        (2, TacticPosition.DEFENDER_RIGHT),
+        (3, TacticPosition.DEFENDER_LEFT),
+        (4, TacticPosition.DEFENDER_CENTRE),
+        (7, TacticPosition.DEFENSIVE_MIDFIELDER),
+        (8, TacticPosition.MIDFIELDER_RIGHT),
+        (9, TacticPosition.MIDFIELDER_LEFT),
+        (11, TacticPosition.ATTACKING_MIDFIELDER_RIGHT),
+        (12, TacticPosition.ATTACKING_MIDFIELDER_LEFT),
+        (13, TacticPosition.ATTACKING_MIDFIELDER_CENTRE),
+        (14, TacticPosition.STRIKER_CENTRE),
+        (1, TacticPosition.UNKNOWN),
+        (5, TacticPosition.UNKNOWN),
+        (6, TacticPosition.UNKNOWN),
+        (10, TacticPosition.UNKNOWN),
+    ),
+)
+def test_each_position_bit_reads_its_screen_label_or_unknown(
+    bit: int, label: TacticPosition
+) -> None:
+    assert CodedValue.from_raw(TacticPosition, bit) == CodedValue(label, bit)
 
 
 def test_a_slots_setting_units_ship_as_their_head_byte_and_bit_words(career_path: Path) -> None:
@@ -716,7 +763,9 @@ def test_the_columns_the_export_flattens(career_path: Path) -> None:
     assert isinstance(slots, list)
     first_slot = slots[0]
     assert first_slot["in_possession_settings"][0]["head_byte"] == 0
-    assert first_slot["in_possession_positions"] == ["unknown"]
+    assert first_slot["in_possession_positions"] == ["goalkeeper"]
+    assert slots[1]["in_possession_positions"] == ["unknown"]
+    assert slots[1]["in_possession_positions_code"] == [5]
     assert first_slot["in_possession_positions_code"] == [0]
 
 

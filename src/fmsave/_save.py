@@ -1959,9 +1959,9 @@ class Save:
 
         `mentality` carries the word the game shows: the seven codes are the seven mentalities
         it offers, from Very Defensive to Very Attacking, confirmed against a manager's own
-        tactics. **Every position bit is still a raw code with the label UNKNOWN**: the bits
-        are read from offsets a strict walk of every record lands on exactly, but no displayed
-        formation has been matched to one of those numbers. The 19 team instructions and the
+        tactics. Eleven position bits carry the label a tactics screen showed for them, from
+        goalkeeper to centre striker; **the others read UNKNOWN** with their bit number kept.
+        Roles have no label. The 19 team instructions and the
         setting units of each slot are unidentified numbers in the same way, and ship in
         `unknown` and as `TacticSettingUnit` values rather than under names they have not
         earned.
