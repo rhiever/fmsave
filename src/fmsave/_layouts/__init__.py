@@ -1920,7 +1920,8 @@ class GateBounds:
     `height_median`, `age_median`, `aged_in_range` (of known ages),
     `condition_sharpness_in_range`, `join_date_valid`, `world_not_above_current`,
     `home_near_current`, `team_resolved` (of players with a team) and
-    `home_grown_club_refs_resolved` (of home-grown club references).
+    `home_grown_club_refs_resolved` (of home-grown club references, less those to unanchored
+    or rejected club-table rows).
 
     Contracts: `players_with_chain` (of players), `no_contract_in_effect` (players whose
     chain records all start after the in-game date, of players with a chain),

@@ -299,7 +299,15 @@ def _span_applies(bounds: GateBounds, span_bytes: int) -> bool:
 def evaluate_players(
     stats: PlayerStats, bounds: GateBounds, game_db_bytes: int
 ) -> tuple[GateResult, ...]:
-    """The player reader's checks, in a fixed order."""
+    """The player reader's checks, in a fixed order.
+
+    `home_grown_club_refs_resolved` leaves out the references that land on a counted
+    club-table row the club reader omits as unanchored or rejected. Those rows are walked and
+    framed club records the reader gives no club: their references are in range, and on the
+    saves measured nearly all of them name a club of a nation the player is home grown in, so
+    they are reported as anomalies rather than failing the decode. References to an extended
+    row, past the table's end, empty or unplaced still count as unresolved.
+    """
     applied = _applies(bounds, game_db_bytes)
     records = stats.records
     ages = stats.ages
@@ -391,7 +399,12 @@ def evaluate_players(
         ),
         _gate(
             "home_grown_club_refs_resolved",
-            _rate(stats.home_grown_club_refs_resolved, stats.home_grown_club_refs),
+            _rate(
+                stats.home_grown_club_refs_resolved,
+                stats.home_grown_club_refs
+                - stats.home_grown_refs_to_unanchored_rows
+                - stats.home_grown_refs_to_rejected_rows,
+            ),
             bounds.home_grown_club_refs_resolved,
             applied,
         ),
@@ -920,6 +933,12 @@ def check_players(stats: PlayerStats, bounds: GateBounds, game_db_bytes: int) ->
 
     `edited_attribute_players` counts players storing an attribute past the 1 to 100 raw scale,
     which only an edited record does; their display attributes read past 20.
+
+    The `home_grown_refs_*` counts are home-grown club references no club resolves, by where
+    they point: an extended, unanchored or rejected row of the counted club table (see the
+    club reader's `*_table_rows`), a value at or past the table's last row, the
+    missing-reference value, or anything else. Only the unanchored and rejected ones are left
+    out of `home_grown_club_refs_resolved` (see `evaluate_players`).
     """
     return ReaderCheck(
         PLAYERS_READER,
@@ -930,6 +949,12 @@ def check_players(stats: PlayerStats, bounds: GateBounds, game_db_bytes: int) ->
                 "markerless_players": stats.markerless,
                 "unresolved_teams": stats.with_team - stats.team_resolved,
                 "edited_attribute_players": stats.edited_attributes,
+                "home_grown_refs_to_extended_rows": stats.home_grown_refs_to_extended_rows,
+                "home_grown_refs_to_unanchored_rows": stats.home_grown_refs_to_unanchored_rows,
+                "home_grown_refs_to_rejected_rows": stats.home_grown_refs_to_rejected_rows,
+                "home_grown_refs_out_of_range": stats.home_grown_refs_out_of_range,
+                "home_grown_refs_empty": stats.home_grown_refs_empty,
+                "home_grown_refs_other": stats.home_grown_refs_other,
             }
         ),
     )

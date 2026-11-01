@@ -276,3 +276,45 @@ def test_table_rows_that_give_no_club_are_counted_by_reason() -> None:
         "unanchored_table_rows": 1,
         "rejected_table_rows": 1,
     }
+
+
+def test_omitted_table_rows_are_kept_by_kind_and_place_unresolved_references() -> None:
+    from dataclasses import replace
+
+    from tests.fixtures.club_tables import club_body
+
+    nation_at, anchor_at = 1, 5
+    initial = club_body("Example Initial", "Initial", (71001,))
+    extended = bytes((12,)) + bytes(4) + club_body("Example Extended", "Extended", (71002,))[1:]
+    unanchored = bytearray(club_body("Example Unanchored", "Unanchored", (71003,)))
+    struct.pack_into("<I", unanchored, anchor_at, 7)
+    rejected = bytearray(club_body("Example Rejected", "Rejected", (71004,)))
+    struct.pack_into("<I", rejected, nation_at, 0xFFFFFFFF)
+    following = club_body("Example Following", "Following", (71005,))
+    bodies = (initial, extended, bytes(unanchored), bytes(rejected), following)
+    data = struct.pack("<IB", len(bodies), 0)
+    for ordinal, body in enumerate(bodies):
+        data += body + struct.pack("<III", ordinal, 6100 + ordinal, 6100 + ordinal)
+
+    index = read_club_index(data, LAYOUTS, "example.fm")
+
+    assert [club.name for club in index.clubs] == ["Example Initial", "Example Following"]
+    assert dict(index.uid_by_club_index) == {0: 0, 4: 6104}
+    assert dict(index.omitted_table_rows) == {1: "extended", 2: "unanchored", 3: "rejected"}
+    assert index.table_row_count == 5
+    stats = index.stats
+    assert (stats.table_rows_extended, stats.table_rows_unanchored, stats.table_rows_rejected) == (
+        1,
+        1,
+        1,
+    )
+    assert [index.unresolved_reference(value) for value in (1, 2, 3, 5, 0xFFFFFFFF)] == [
+        "extended_row",
+        "unanchored_row",
+        "rejected_row",
+        "out_of_range",
+        "empty",
+    ]
+    unbound = replace(index, omitted_table_rows={}, table_row_count=None)
+    assert unbound.unresolved_reference(5) == "other"
+    assert unbound.unresolved_reference(0xFFFFFFFF) == "empty"

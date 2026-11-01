@@ -479,6 +479,7 @@ def collect_player_stats(
             home_grown_club_refs_resolved += reference_count - home_grown_club_uids.count(None)
     lowest_height, highest_height = bounds.height_range_cm
     person_decoder = decoder.person_decoder
+    unresolved_home_grown = person_decoder.home_grown_unresolved_refs
     return PlayerStats(
         records=len(players),
         markerless=markerless_count,
@@ -505,6 +506,12 @@ def collect_player_stats(
         home_grown_club_refs_resolved=home_grown_club_refs_resolved,
         ages=ages,
         heights_median=_low_median_of_counts(height_counts),
+        home_grown_refs_to_extended_rows=unresolved_home_grown.get("extended_row", 0),
+        home_grown_refs_to_unanchored_rows=unresolved_home_grown.get("unanchored_row", 0),
+        home_grown_refs_to_rejected_rows=unresolved_home_grown.get("rejected_row", 0),
+        home_grown_refs_out_of_range=unresolved_home_grown.get("out_of_range", 0),
+        home_grown_refs_empty=unresolved_home_grown.get("empty", 0),
+        home_grown_refs_other=unresolved_home_grown.get("other", 0),
     )
 
 

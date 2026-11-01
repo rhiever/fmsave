@@ -20,6 +20,11 @@ class PlayerStats:
     goal, and `outfield_goalkeeper_block_low` those of them whose raw handling and raw throwing
     are both at most `GateBounds.goalkeeper_block_low_maximum`. `edited_attributes` counts
     records storing an attribute above the layout's ordinary attribute range.
+
+    The `home_grown_refs_*` counts split the home-grown club references no accepted club holds
+    by where they point (see `fmsave.readers.clubs.UnresolvedClubReference`): a counted-table
+    row the club reader omits as an extended, unanchored or rejected row, a value at or past
+    the table's last row, the missing-reference value, or anything else.
     """
 
     records: int
@@ -47,6 +52,12 @@ class PlayerStats:
     ages: array[int]
     heights_median: int | None
     edited_attributes: int = 0
+    home_grown_refs_to_extended_rows: int = 0
+    home_grown_refs_to_unanchored_rows: int = 0
+    home_grown_refs_to_rejected_rows: int = 0
+    home_grown_refs_out_of_range: int = 0
+    home_grown_refs_empty: int = 0
+    home_grown_refs_other: int = 0
 
 
 @dataclass(frozen=True, slots=True)
