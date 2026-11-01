@@ -25,7 +25,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - Docs: injury types and league tables can be empty before a season's first matches. (#31)
 - `players()` no longer fails `home_grown_club_refs_resolved` on saves where many players are home grown at clubs the club reader leaves out. References to unanchored or rejected club-table rows are left out of that check, since they point at real club records; they still read as None and are counted in the new validation counts. References to extended rows, past the table's end, or empty still count against the check. (#53)
 
-Thanks to @rui7avares-create for the report, and @OdumWorld and @jeohist for help testing. Refs #31, #52.
+Thanks to @guyluzon64 and @rui7avares-create for the reports, and @OdumWorld and @jeohist for help testing. Refs #31, #52, #53.
 
 ## [0.9.0] - 2026-10-30
 

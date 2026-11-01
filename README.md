@@ -155,6 +155,7 @@ game stores its data:
 - [@Buglerru](https://github.com/Buglerru)
 - [@BWH95](https://github.com/BWH95)
 - [@GetChatGPTToDoIt](https://github.com/GetChatGPTToDoIt)
+- [@guyluzon64](https://github.com/guyluzon64)
 - [@hostlund](https://github.com/hostlund)
 - [@jeohist](https://github.com/jeohist)
 - [@johnmmcparland](https://github.com/johnmmcparland)
