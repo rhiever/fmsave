@@ -33,5 +33,6 @@ random bytes without atheris, so the harness is checked on every platform.
 ## FM27 inputs
 
 Normal fuzzing includes a fictional FM27 seed that reaches the raw span parser. FM27 reads
-stay strict, and the harness retains its 16 MiB total declared output cap and 4 MiB per-frame
-cap. The raw span result exposes fixture and rules collections; it is not a table.
+stay strict, and the harness keeps its own 16 MiB total and 4 MiB per-frame output caps on top
+of fmsave's file-relative bounds. The raw span result exposes fixture and rules collections; it
+is not a table.

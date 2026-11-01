@@ -768,10 +768,13 @@ function onWorkerMessage({ data: msg }) {
     case "ready":
       readerReady = true;
       setStatus("ok", `Reader ready, fmsave ${msg.fmsave}`);
-      const [major, minor] = msg.fmsave.split(".").map(Number);
-      $("game-support").textContent = major > 0 || minor >= 8
-        ? "FM26 and FM27 build 27.0.0+2486695. Some FM27 fields remain unconfirmed."
-        : "This published reader supports FM26. FM27 needs fmsave 0.8.0 or later.";
+      const [major, minor, patch] = msg.fmsave.split(".").map(Number);
+      const opensOtherFm27Builds = major > 0 || minor > 9 || (minor === 9 && patch >= 1);
+      $("game-support").textContent = opensOtherFm27Builds
+        ? "FM26 and FM27. FM27 builds other than 27.0.0+2486695 open as unverified builds. Some FM27 fields remain unconfirmed."
+        : major > 0 || minor >= 8
+          ? "FM26 and FM27 build 27.0.0+2486695. Some FM27 fields remain unconfirmed."
+          : "This published reader supports FM26. FM27 needs fmsave 0.8.0 or later.";
       break;
     case "stage": setStage(msg.stage); break;
     case "meta": pendingMeta = msg.meta; break;

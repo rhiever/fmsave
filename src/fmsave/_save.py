@@ -30,7 +30,7 @@ from fmsave._layouts import (
     find_layout,
 )
 from fmsave._reader_stats import ResultStats, SelectionStats, TacticStats
-from fmsave._version import limit_game_index, read_save_info
+from fmsave._version import read_save_info
 from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
@@ -396,9 +396,7 @@ class Save:
         frames = read_region_frames_bounded(
             index,
             SPAN_REGION,
-            maximum_compressed_bytes=limits.maximum_span_bytes * 9 // 8,
-            maximum_compressed_frame_bytes=limits.maximum_frame_bytes * 9 // 8,
-            maximum_frames=limits.maximum_candidates,
+            maximum_frames=limits.maximum_frames,
             maximum_decompressed_bytes=limits.maximum_span_bytes,
             maximum_frame_output_bytes=limits.maximum_frame_bytes,
         )
@@ -943,7 +941,8 @@ class Save:
         The names are the game's own text, as the save stores it, in the language the save was
         written in. They are in no section of the save: each per-match file it holds carries
         one copy of the table, so **a save with no per-match file has no names at all** and
-        this table is then empty. Some injury codes have no entry in the table, so a code an
+        this table is then empty. On the saves measured, a new career and a pre-season save
+        held none, and one appeared after the first competitive match. Some injury codes have no entry in the table, so a code an
         injury carries need not be named here. This table holds only what the save itself
         stores: fmsave ships no injury names of its own, so a code the save leaves out has no
         name here or anywhere else.
@@ -1275,6 +1274,11 @@ class Save:
         parity the save alternates venue by; the same calendar checks that parity on every
         table whose results account for one season of it. The table is read on the first call;
         later calls return the same table.
+
+        **A table is read only once its clubs have played in it.** Before a division's first
+        match there is no table for it here, although the game shows one with every club on
+        zero; `fixtures()` lists its clubs and matches. Rules blocks take their competition from
+        these tables, so `competition_rules()` links fewer blocks before the season starts.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -2758,7 +2762,7 @@ def open_save(
     strict: bool = False,
     competition_names: Mapping[int, str] | str | os.PathLike[str] | None = None,
 ) -> Save:
-    """Open a Football Manager 26 or supported 27 save file for reading.
+    """Open a Football Manager 26 or 27 save file for reading.
 
     Args:
         path: The save file to read.
@@ -2780,7 +2784,9 @@ def open_save(
         FileNotFoundError: The file does not exist.
         NotAFmSaveError: The file is not a Football Manager save.
         CorruptSaveError: The save is damaged or was being written.
-        UnsupportedGameError: The save is from another Football Manager version.
+        UnsupportedGameError: The save is from another Football Manager version, or from an
+            FM27 build with no layouts registered whose save summary or game_info section
+            schema differs from the registered build's.
         ReaderCheckError: The save metadata does not match the expected layout.
         OSError: A competition name CSV cannot be opened or read.
         TypeError: A competition name mapping holds a key that is not an int, or a name that is
@@ -2788,14 +2794,14 @@ def open_save(
         ValueError: A competition name CSV is malformed, or a supplied name is empty.
 
     Warns:
-        UnknownBuildWarning: An FM26 build lacks layout tables, or FM27 coverage is incomplete.
+        UnknownBuildWarning: An FM26 build lacks layout tables, an FM27 build has no layouts
+            registered and borrows them by schema, or FM27 coverage is incomplete.
     """
     # The map is checked before the file is touched, so a mistake in it costs none of the work
     # of opening a save.
     names = _normalized_competition_names(competition_names)
     container_index = read_index(path)
     info = read_save_info(container_index)
-    container_index = limit_game_index(container_index, info.game)
     return Save(
         container_index,
         info,

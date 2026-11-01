@@ -130,3 +130,7 @@ options:
 `--nation`, or `--all`. Club and nation scopes use current player membership and retain the
 selected players' archived rows for previous teams. See [exporting](../guides/exporting.md)
 for unconfirmed metadata and sparse imported counts.
+
+When `league-tables` or `injury-types` writes no rows, `export` still exits 0 and prints a
+`fmsave: note:` line on standard error saying when that table is empty, such as before a
+division's first match.

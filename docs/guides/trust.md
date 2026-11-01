@@ -105,17 +105,34 @@ the game displays. Check that unit before interpreting a difference.
 
 `UnknownBuildWarning` means fmsave does not recognize that FM26 build. Readers still run; inspect
 their checks before relying on the output. fmsave also issues it for every FM27 save, because
-FM27 coverage is partial.
+FM27 coverage is partial, and for an FM27 build with no registered layouts it also says that
+fmsave borrows the registered build's layouts where section schemas match.
 
 
 ## FM27 coverage
 
-FM27 build `27.0.0+2486695` opens normally. Other FM27 builds and unregistered layouts are
-rejected. Failed checks always stop an FM27 reader, even with `strict=False`. The validation
+FM27 build `27.0.0+2486695` opens normally and reports `known_build` true: every reader has a
+layout registered for it, which does not confirm any field's meaning.
+
+Other FM27 builds open as unverified builds and report `known_build` false; `fmsave info` shows
+them as "unverified build". For each section whose schema equals the one registered for
+`27.0.0+2486695`, fmsave borrows that build's layout. A reader of a section whose schema
+differs raises `UnsupportedGameError` naming the section, schema and build, and the other
+readers still run. The save summary and `game_info` must fit a registered layout, or the save
+is refused. Regions with no schema number, such as the one fixtures, league tables and season
+statistics come from, are borrowed too; their readers locate their data by stored markers and
+check what they read. FM26 layouts are never used for FM27 saves, and FM28 or later saves are
+refused. Please report any problem with an unverified build.
+
+Failed checks always stop an FM27 reader, even with `strict=False`. The validation
 report lists unsupported readers and marks every FM27 field unconfirmed. Global field-status
 labels describe FM26; they do not certify FM27 meanings.
 
-The reader uses a 256 MiB per-frame and 512 MiB declared-total decompression cap for FM27.
-Larger careers can be rejected. These limits do not reduce FM26's existing budget.
+fmsave sets no fixed size limit on a save, for FM26 or FM27, so a large database opens however
+big it grows. To refuse a damaged or crafted file before memory is spent, a part of a save
+past 64 MiB may decompress to at most 64 times its compressed size, and a whole save to at
+most 32 times its file size. Real saves stay far below both: no part over 1 MiB expands more
+than about 41 times, and no save more than about 5 times. A save past either bound raises
+`CorruptSaveError`, whose message gives the ratio and asks for a report if the game opens it.
 Finance rows describe historical snapshots, not current-month live totals; stored money is
 not converted to the game's display currency. Match the period and units before comparing.

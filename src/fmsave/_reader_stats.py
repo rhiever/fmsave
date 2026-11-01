@@ -20,6 +20,11 @@ class PlayerStats:
     goal, and `outfield_goalkeeper_block_low` those of them whose raw handling and raw throwing
     are both at most `GateBounds.goalkeeper_block_low_maximum`. `edited_attributes` counts
     records storing an attribute above the layout's ordinary attribute range.
+
+    The `home_grown_refs_*` counts split the home-grown club references no accepted club holds
+    by where they point (see `fmsave.readers.clubs.UnresolvedClubReference`): a counted-table
+    row the club reader omits as an extended, unanchored or rejected row, a value at or past
+    the table's last row, the missing-reference value, or anything else.
     """
 
     records: int
@@ -47,6 +52,12 @@ class PlayerStats:
     ages: array[int]
     heights_median: int | None
     edited_attributes: int = 0
+    home_grown_refs_to_extended_rows: int = 0
+    home_grown_refs_to_unanchored_rows: int = 0
+    home_grown_refs_to_rejected_rows: int = 0
+    home_grown_refs_out_of_range: int = 0
+    home_grown_refs_empty: int = 0
+    home_grown_refs_other: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -805,6 +816,10 @@ class TacticStats:
     counts records whose 22 slot blocks walked and `oop_index_permutations` those whose
     out-of-possession index bytes are a permutation of the slot numbers.
 
+    `empty_tactic_blocks`, `flagged_tactic_counts`, `missing_tactics`,
+    `unknown_signature_records` and `signatures_after_routines` are the walk's diagnostic
+    counts, described on `TacticWalkCounts`; no check judges them.
+
     `routine_blocks` counts the blocks whose routines were searched for,
     `routine_blocks_complete` those whose default runs and counted user groups
     decoded completely, `routines` the rows built from them and `named_routines` those with a
@@ -831,6 +846,11 @@ class TacticStats:
     routine_blocks_complete: int
     routines: int
     named_routines: int
+    empty_tactic_blocks: int = 0
+    flagged_tactic_counts: int = 0
+    missing_tactics: int = 0
+    unknown_signature_records: int = 0
+    signatures_after_routines: int = 0
 
 
 @dataclass(frozen=True, slots=True)

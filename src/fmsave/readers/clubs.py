@@ -15,6 +15,7 @@ import struct
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from statistics import median_low
+from typing import Literal
 
 from fmsave._layouts import (
     FULL_SAVE_MINIMUM_GAME_DB_BYTES,
@@ -60,6 +61,20 @@ def find_club_layouts(game_db_schema: int | None, build: str) -> ClubLayouts:
         statuses=find_layout(ClubStatusLayout, GAME_DB_SECTION, game_db_schema, build).layout,
         table=find_layout(ClubTableLayout, GAME_DB_SECTION, game_db_schema, build).layout,
     )
+
+
+type OmittedRowKind = Literal["extended", "unanchored", "rejected"]
+"""Why the counted club table walked a row but gave it no club."""
+
+type UnresolvedClubReference = Literal[
+    "extended_row", "unanchored_row", "rejected_row", "out_of_range", "empty", "other"
+]
+"""Where a club index that no accepted club holds points.
+
+A row the table omits (`extended_row`, `unanchored_row`, `rejected_row`), a value at or past the
+table's last row (`out_of_range`), the missing-reference value (`empty`), or anything else
+(`other`), which only a save with no counted table bound can hold.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +123,9 @@ class ClubIndex:
         record_spans: The byte range of each club record and where its team ids end, for
             readers that work inside a club's own record. One span per accepted record, in
             record (file) order, which is not the club index order the clubs come in.
+        omitted_table_rows: Why each counted-table row that gives no club was omitted, keyed
+            by its club index. Empty when no counted table was bound.
+        table_row_count: How many rows the counted table holds; None when none was bound.
     """
 
     clubs: tuple[Club, ...]
@@ -119,9 +137,31 @@ class ClubIndex:
     game_db_bytes: int
     record_spans: tuple[ClubRecordSpan, ...] = field(repr=False)
     stub_team_ids: frozenset[int] = field(default=frozenset[int](), repr=False)
+    omitted_table_rows: Mapping[int, OmittedRowKind] = field(
+        default_factory=dict[int, OmittedRowKind], repr=False
+    )
+    table_row_count: int | None = field(default=None, repr=False)
+
+    def unresolved_reference(self, club_index: int) -> UnresolvedClubReference:
+        """Where `club_index`, which no accepted club holds, points (see `UnresolvedClubReference`)."""
+        if club_index == MISSING_REFERENCE:
+            return "empty"
+        omitted_kind = self.omitted_table_rows.get(club_index)
+        if omitted_kind is not None:
+            return _UNRESOLVED_BY_OMITTED_KIND[omitted_kind]
+        if self.table_row_count is not None and club_index >= self.table_row_count:
+            return "out_of_range"
+        return "other"
 
     def __repr__(self) -> str:
         return f"<fmsave ClubIndex {len(self.clubs)} clubs, {len(self.team_to_club)} teams>"
+
+
+_UNRESOLVED_BY_OMITTED_KIND: Mapping[OmittedRowKind, UnresolvedClubReference] = {
+    "extended": "extended_row",
+    "unanchored": "unanchored_row",
+    "rejected": "rejected_row",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,9 +228,10 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
             records; or a team id is listed twice (by one club or by two).
     """
     records, scan_end = _scan_club_records(game_db, layouts.records)
-    records, (extended_rows, unanchored_rows, rejected_rows) = _bind_club_table(
+    records, omitted_table_rows, table_row_count = _bind_club_table(
         game_db, records, layouts, file_name
     )
+    omitted_kinds = list(omitted_table_rows.values())
     if not records:
         raise layout_mismatch(file_name, "no club records found")
     _reject_repeated_club_keys(records, file_name)
@@ -264,9 +305,9 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         affiliate_refs_linked=affiliates.linked,
         reputation_found=len(reputations),
         reputations_median=median_low(reputations) if reputations else None,
-        table_rows_extended=extended_rows,
-        table_rows_unanchored=unanchored_rows,
-        table_rows_rejected=rejected_rows,
+        table_rows_extended=omitted_kinds.count("extended"),
+        table_rows_unanchored=omitted_kinds.count("unanchored"),
+        table_rows_rejected=omitted_kinds.count("rejected"),
     )
     record_spans = tuple(
         ClubRecordSpan(
@@ -288,6 +329,8 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         game_db_bytes=len(game_db),
         stub_team_ids=read_stub_team_ids(game_db, layouts.statuses),
         record_spans=record_spans,
+        omitted_table_rows=omitted_table_rows,
+        table_row_count=table_row_count,
     )
 
 
@@ -342,11 +385,12 @@ def _footer_unique_ids(
 
 def _bind_club_table(
     game_db: bytes, records: list[_ClubRecord], layouts: ClubLayouts, file_name: str
-) -> tuple[list[_ClubRecord], tuple[int, int, int]]:
+) -> tuple[list[_ClubRecord], dict[int, OmittedRowKind], int | None]:
     """Authenticate a counted table before admitting its initial club and footer bounds.
 
-    Also returns how many rows after the first give no club: (extended variant, no record
-    anchor, fields rejected).
+    Also returns why each row after the first that gives no club was omitted (extended variant,
+    no record anchor, or fields rejected), keyed by club index, and the table's row count,
+    which is None when no table is bound.
     """
     record_layout, table_layout = layouts.records, layouts.table
     prefix_end = (
@@ -381,7 +425,7 @@ def _bind_club_table(
     if not headers:
         if len(game_db) >= FULL_SAVE_MINIMUM_GAME_DB_BYTES:
             raise layout_mismatch(file_name, "no complete club table was found")
-        return records, (0, 0, 0)
+        return records, {}, None
     tables: list[tuple[ClubTableRecord, ...]] = []
     for head in sorted(headers):
         rows = walk_club_table(game_db, head, table_layout)
@@ -397,7 +441,7 @@ def _bind_club_table(
         raise layout_mismatch(file_name, "club table framing is invalid or ambiguous")
     rows = tables[0]
     bounded: list[_ClubRecord] = []
-    extended_rows = unanchored_rows = rejected_rows = 0
+    omitted: dict[int, OmittedRowKind] = {}
     for ordinal, row in enumerate(rows):
         extra = (
             table_layout.extended_prefix_bytes
@@ -406,12 +450,12 @@ def _bind_club_table(
         )
         start = row.body_start + extra - record_layout.zero_byte_offset
         if ordinal and extra:
-            extended_rows += 1
+            omitted[ordinal] = "extended"
             continue
         if ordinal and not game_db.startswith(
             record_layout.anchor, start + record_layout.anchor_offset
         ):
-            unanchored_rows += 1
+            omitted[ordinal] = "unanchored"
             continue
         uid = 0 if ordinal == 0 else rows[ordinal - 1].unique_id + 1
         record = _accepted_record(
@@ -420,7 +464,7 @@ def _bind_club_table(
         if record is None:
             if ordinal == 0:
                 raise layout_mismatch(file_name, "the initial club has invalid fields")
-            rejected_rows += 1
+            omitted[ordinal] = "rejected"
             continue
         bounded.append(
             replace(
@@ -430,7 +474,7 @@ def _bind_club_table(
                 team_counts_start=row.team_counts_start,
             )
         )
-    return bounded, (extended_rows, unanchored_rows, rejected_rows)
+    return bounded, omitted, len(rows)
 
 
 def _reject_repeated_club_keys(records: Sequence[_ClubRecord], file_name: str) -> None:

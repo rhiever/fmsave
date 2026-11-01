@@ -4,6 +4,29 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-01
+
+### Added
+
+- Validation reports five more `tactics` counts that show why a team has no tactic rows: `empty_tactic_blocks`, `flagged_tactic_counts`, `missing_tactics`, `unknown_signature_records`, and `signatures_after_routines`. (#31)
+- `fmsave export league-tables` and `injury-types` print a note on standard error when they write no rows. (#31)
+- Validation reports six `players` counts that say where unresolved home-grown club references point: `home_grown_refs_to_extended_rows`, `home_grown_refs_to_unanchored_rows`, `home_grown_refs_to_rejected_rows`, `home_grown_refs_out_of_range`, `home_grown_refs_empty`, and `home_grown_refs_other`. (#53)
+
+### Changed
+
+- FM27 build 27.0.0+2486695 now reports `known_build` true; its fields stay unconfirmed and `fmsave info` still shows partial coverage. (#31)
+- Unregistered FM27 builds open, borrowing 27.0.0+2486695 layouts where section schemas match. A reader whose section schema differs raises `UnsupportedGameError`, `known_build` stays false, `fmsave info` shows "unverified build", and `UnknownBuildWarning` says so.
+
+### Fixed
+
+- Large saves open however big they grow: fmsave no longer caps a save at fixed sizes (FM27 at 256 MiB for one part and 512 MiB in all, FM26 at 1 GiB and 4 GiB). A part past 64 MiB that claims or decompresses to more than 64 times its compressed size, or a save whose parts add up to more than 32 times its file size, raises `CorruptSaveError` before that memory is spent. The message gives the ratio and asks for a report if the game opens the save. (#52)
+- `experimental_span()` reads large FM27 spans: its 128 MiB, 256 MiB, 100,000-fixture and 4,096-rule limits are gone, and its count limits grow with the span. (#52)
+- The app asks for a report when a fresh copy of a save still reads as damaged. (#52)
+- Docs: injury types and league tables can be empty before a season's first matches. (#31)
+- `players()` no longer fails `home_grown_club_refs_resolved` on saves where many players are home grown at clubs the club reader leaves out. References to unanchored or rejected club-table rows are left out of that check, since they point at real club records; they still read as None and are counted in the new validation counts. References to extended rows, past the table's end, or empty still count against the check. (#53)
+
+Thanks to @guyluzon64 and @rui7avares-create for the reports, and @OdumWorld and @jeohist for help testing. Refs #31, #52, #53.
+
 ## [0.9.0] - 2026-10-30
 
 ### Added

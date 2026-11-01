@@ -46,6 +46,9 @@ _UINT16 = struct.Struct("<H")
 _UINT32 = struct.Struct("<I")
 _UNIT_WORD_BITS = 32
 _UNIT_WORD_MASK = (1 << _UNIT_WORD_BITS) - 1
+# How many leading bytes the tactic signatures share before the bytes that tell their
+# variants apart, used only to count records whose variant is not one the layout lists.
+_SIGNATURE_LEAD_BYTES = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,9 +104,19 @@ class TacticWalkCounts:
     A club team can have no stored block. Duplicate blocks count separately here, so the
     team-id locator must still account for each stored block.
     `tactic_blocks` counts blocks whose stored count claims a tactic record, and
-    `tactic_blocks_count_matching` those where every record the count claims was found. `preset_tactics` counts the records carrying the preset signature, which are
+    `tactic_blocks_count_matching` those where every record the count claims was found.
+    `preset_tactics` counts the records carrying the preset signature, which are
     decoded along with the other records in the team's declared list. `routine_blocks_complete`
     counts blocks whose default runs and counted routine groups were all read completely.
+
+    The rest say why records are missing without deciding anything. `empty_tactic_blocks`
+    counts blocks that claim no record, `flagged_tactic_counts` those of them whose stored
+    count was nonzero but overridden by the no-tactics value, and `missing_tactics` the
+    records claimed but not found. `unknown_signature_records` counts places in front of a
+    block's routine area that open like a tactic signature but match none the layout lists,
+    and `signatures_after_routines` the user or alternate signatures stored behind a block's
+    routine area and before the next block, which the walk never reads as that block's
+    records. The last block is left out of it: other records follow its routines.
     """
 
     club_team_count: int
@@ -115,6 +128,11 @@ class TacticWalkCounts:
     tactic_blocks_count_matching: int
     preset_tactics: int
     routine_blocks_complete: int
+    empty_tactic_blocks: int = 0
+    flagged_tactic_counts: int = 0
+    missing_tactics: int = 0
+    unknown_signature_records: int = 0
+    signatures_after_routines: int = 0
 
 
 def find_tactics_layout(schema: int | None, build: str) -> TacticsLayout:
@@ -255,12 +273,16 @@ def _expect_bytes(section: bytes, cursor: int, expected: bytes, file_name: str, 
 
 @dataclass(frozen=True, slots=True)
 class _SelectionPart:
-    """One block's selection part: its selectors, its stored places and its tactic count."""
+    """One block's selection part: its selectors, its stored places and its tactic count.
+
+    `count_flagged` is True when the no-tactics value overrode a nonzero stored count.
+    """
 
     selectors: tuple[int, ...]
     slots: tuple[int, ...]
     tactic_count: int
     end: int
+    count_flagged: bool = False
 
 
 def _read_selection_part(
@@ -354,6 +376,7 @@ def _read_selection_part(
     # The word in front of the count is the layout's no-tactics value on exactly the blocks
     # whose count is zero, on every block of every save measured, so it is read as the flag it
     # is: a block that carries it holds no record whatever the count says.
+    count_flagged = tactics_value == layout.no_tactics_value and tactic_count != 0
     if tactics_value == layout.no_tactics_value:
         tactic_count = 0
     return _SelectionPart(
@@ -364,6 +387,7 @@ def _read_selection_part(
         ),
         tactic_count,
         cursor + _UINT16.size,
+        count_flagged,
     )
 
 
@@ -689,6 +713,28 @@ def _next_signature(
     return min((hit for hit in found if hit[0] >= 0), default=(None, False))
 
 
+def _unknown_signature_count(
+    section: bytes, search_from: int, records_end: int, layout: TacticsLayout
+) -> int:
+    """Places before `records_end` that open like a tactic signature but match no listed one."""
+    lead = layout.user_signature[:_SIGNATURE_LEAD_BYTES]
+    known = {layout.user_signature, layout.alternate_signature, layout.preset_signature}
+    width = len(layout.user_signature)
+    unknown = 0
+    at = section.find(lead, search_from, records_end)
+    while at >= 0:
+        if section[at : at + width] not in known:
+            unknown += 1
+        at = section.find(lead, at + 1, records_end)
+    return unknown
+
+
+def _user_signature_count(section: bytes, start: int, end: int, layout: TacticsLayout) -> int:
+    """User and alternate signatures between `start` and `end`, each counted once."""
+    signatures = {layout.user_signature, layout.alternate_signature}
+    return sum(section.count(signature, start, end) for signature in signatures)
+
+
 def walk_tactic_blocks(
     section: bytes,
     club_team_ids: Sequence[int],
@@ -718,6 +764,11 @@ def walk_tactic_blocks(
     tactic_blocks = 0
     tactic_blocks_count_matching = 0
     preset_tactics = 0
+    empty_tactic_blocks = 0
+    flagged_tactic_counts = 0
+    missing_tactics = 0
+    unknown_signature_records = 0
+    signatures_after_routines = 0
     for team_id, block_start in ordered_starts:
         # A block ends where the next stored block begins, whichever team that block is for:
         # the manager's national teams have blocks too, and the club index lists none of them.
@@ -755,6 +806,18 @@ def walk_tactic_blocks(
             tactic_blocks += 1
             if records_found == selection.tactic_count:
                 tactic_blocks_count_matching += 1
+        else:
+            empty_tactic_blocks += 1
+            flagged_tactic_counts += selection.count_flagged
+        missing_tactics += selection.tactic_count - records_found
+        unknown_signature_records += _unknown_signature_count(
+            section, selection.end, records_end, layout
+        )
+        # The last block has no next block to end it, and other records follow its routines.
+        if block_end < len(section):
+            signatures_after_routines += _user_signature_count(
+                section, records_end, block_end, layout
+            )
         # Routine groups have their own counts and boundary; an incomplete tactic walk must
         # not move their start past the area into trailing preset records.
         if routines_complete:
@@ -785,6 +848,11 @@ def walk_tactic_blocks(
         tactic_blocks_count_matching,
         preset_tactics,
         routine_blocks_complete,
+        empty_tactic_blocks,
+        flagged_tactic_counts,
+        missing_tactics,
+        unknown_signature_records,
+        signatures_after_routines,
     )
     return tuple(blocks), counts
 
@@ -891,6 +959,11 @@ def build_tactic_tables(
         tactic_blocks_count_matching=counts.tactic_blocks_count_matching,
         stored_tactics=len(tactics),
         preset_tactics=counts.preset_tactics,
+        empty_tactic_blocks=counts.empty_tactic_blocks,
+        flagged_tactic_counts=counts.flagged_tactic_counts,
+        missing_tactics=counts.missing_tactics,
+        unknown_signature_records=counts.unknown_signature_records,
+        signatures_after_routines=counts.signatures_after_routines,
         slot_walks_complete=slot_walks_complete,
         oop_index_permutations=index_permutations,
         routine_blocks=len(blocks),

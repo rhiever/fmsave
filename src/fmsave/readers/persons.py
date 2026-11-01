@@ -16,7 +16,7 @@ from __future__ import annotations
 import functools
 import struct
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import cast
 
@@ -26,7 +26,7 @@ from fmsave._scan import DAY_OF_YEAR_MASK, EARLIEST_GAME_YEAR, TIME_SLOT_SHIFT, 
 from fmsave.models.common import CodedValue
 from fmsave.models.players import Personality, Trait
 from fmsave.readers._common import MISSING_REFERENCE, build_gap_padded_struct, section_label
-from fmsave.readers.clubs import ClubIndex
+from fmsave.readers.clubs import ClubIndex, UnresolvedClubReference
 from fmsave.readers.names import NamePools, PoolIndex
 
 # One player's decoded person block, in `Player`'s person-field order:
@@ -279,6 +279,10 @@ class PersonBlockDecoder:
     relation_sentinel_ok_count: int = 0
     second_nation_entry_count: int = 0
     second_nation_qualifier_ok_count: int = 0
+    # Home-grown club references no accepted club holds, by where they point.
+    home_grown_unresolved_refs: dict[UnresolvedClubReference, int] = field(
+        default_factory=dict[UnresolvedClubReference, int]
+    )
 
     def decode(
         self,
@@ -338,6 +342,7 @@ class PersonBlockDecoder:
             self.second_nation_entry_count,
             self.second_nation_qualifier_ok_count,
         )
+        previous_unresolved_refs = dict(self.home_grown_unresolved_refs)
         selected: PersonTuple | None = None
         selected_start: int | None = None
         accepted = False
@@ -363,6 +368,7 @@ class PersonBlockDecoder:
                     self.second_nation_entry_count,
                     self.second_nation_qualifier_ok_count,
                 ) = previous_counts
+                self.home_grown_unresolved_refs = previous_unresolved_refs
                 self.last_block_start = None
 
     def _try_candidate(
@@ -655,7 +661,13 @@ class PersonBlockDecoder:
             ):
                 seen_home_grown_club_referenced.append(referenced)
                 club_uid = club_index.uid_by_club_index.get(referenced)
-                club = None if club_uid is None else club_index.club_by_uid.get(club_uid)
+                if club_uid is None:
+                    club = None
+                    unresolved_kind = club_index.unresolved_reference(referenced)
+                    unresolved_refs = self.home_grown_unresolved_refs
+                    unresolved_refs[unresolved_kind] = unresolved_refs.get(unresolved_kind, 0) + 1
+                else:
+                    club = club_index.club_by_uid.get(club_uid)
                 home_grown_club_uids.append(club_uid)
                 home_grown_club_names.append(None if club is None else club.name)
         self.relation_entry_count += relation_count

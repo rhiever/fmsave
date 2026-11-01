@@ -485,6 +485,50 @@ def test_relation_present_zero_with_an_overrunning_count_raises_no_error() -> No
     assert person.second_nation_ids == ()
 
 
+def test_unresolved_home_grown_clubs_are_counted_by_where_they_point() -> None:
+    relations = (
+        relation_entry_bytes(SOUTHPORT_CLUB_INDEX, 1, 72),
+        relation_entry_bytes(10, 1, 72),
+        relation_entry_bytes(11, 1, 72),
+        relation_entry_bytes(12, 1, 72),
+        # A repeated reference counts once, as it does in the list.
+        relation_entry_bytes(12, 1, 72),
+        relation_entry_bytes(13, 1, 72),
+        relation_entry_bytes(25, 1, 72),
+        relation_entry_bytes(0xFFFFFFFF, 1, 72),
+    )
+    block = person_block_bytes(
+        first_name_id=0,
+        surname_id=0,
+        common_name_id=0xFFFFFFFF,
+        legal_name=None,
+        birth=packed_date(60, 2004),
+        nation_id=44,
+        personality=DEFAULT_PERSONALITY,
+        trait_bits=0,
+        relations=relations,
+    )
+    prefix = game_db_prefix()
+    game_db = prefix + block
+    decoder = build_decoder(game_db)
+    decoder.club_index = dataclasses.replace(
+        decoder.club_index,
+        omitted_table_rows={10: "extended", 11: "unanchored", 12: "rejected"},
+        table_row_count=20,
+    )
+    person = as_person_view(decoder.decode(game_db, len(prefix), len(game_db)))
+    assert person is not None
+    assert person.home_grown_club_uids == (5002, None, None, None, None, None, None)
+    assert decoder.home_grown_unresolved_refs == {
+        "extended_row": 1,
+        "unanchored_row": 1,
+        "rejected_row": 1,
+        "other": 1,
+        "out_of_range": 1,
+        "empty": 1,
+    }
+
+
 def test_unresolved_home_grown_club_keeps_its_list_position() -> None:
     relations = (
         relation_entry_bytes(SOUTHPORT_CLUB_INDEX, 1, 72),

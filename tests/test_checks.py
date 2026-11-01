@@ -368,6 +368,45 @@ def test_one_record_short_of_the_minimum_fails_only_the_players_minimum_gate() -
 
 
 @pytest.mark.parametrize(
+    ("unresolved_field", "expected_failures"),
+    [
+        pytest.param("home_grown_refs_to_unanchored_rows", [], id="unanchored-row"),
+        pytest.param("home_grown_refs_to_rejected_rows", [], id="rejected-row"),
+        pytest.param(
+            "home_grown_refs_to_extended_rows", ["home_grown_club_refs_resolved"], id="extended"
+        ),
+        pytest.param(
+            "home_grown_refs_out_of_range", ["home_grown_club_refs_resolved"], id="out-of-range"
+        ),
+        pytest.param("home_grown_refs_empty", ["home_grown_club_refs_resolved"], id="empty"),
+        pytest.param("home_grown_refs_other", ["home_grown_club_refs_resolved"], id="other"),
+    ],
+)
+def test_home_grown_refs_to_omitted_club_rows_leave_the_resolution_share(
+    unresolved_field: str, expected_failures: list[str]
+) -> None:
+    unresolved = 500
+    healthy = healthy_player_stats()
+    stats = dataclasses.replace(
+        healthy,
+        home_grown_club_refs_resolved=healthy.home_grown_club_refs - unresolved,
+        **{unresolved_field: unresolved},
+    )
+    results = evaluate_players(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert failed_gate_names(results) == expected_failures
+    observed = {result.name: result.observed for result in results}
+    if not expected_failures:
+        assert observed["home_grown_club_refs_resolved"] == 1.0
+    anomalies = _checks.check_players(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES).anomalies
+    assert anomalies[unresolved_field] == unresolved
+    home_grown_anomalies = {
+        name: count for name, count in anomalies.items() if name.startswith("home_grown_refs_")
+    }
+    assert sum(home_grown_anomalies.values()) == unresolved
+    assert len(home_grown_anomalies) == 6
+
+
+@pytest.mark.parametrize(
     ("valid_join_dates", "expected_failures"),
     [
         pytest.param(1_000, [], id="lower-edge"),
@@ -1185,6 +1224,14 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "markerless_players": 1,
             "unresolved_teams": 1,
             "edited_attribute_players": 0,
+            # The fixture binds no counted club table, so its one unresolved home-grown
+            # reference cannot be placed.
+            "home_grown_refs_to_extended_rows": 0,
+            "home_grown_refs_to_unanchored_rows": 0,
+            "home_grown_refs_to_rejected_rows": 0,
+            "home_grown_refs_out_of_range": 0,
+            "home_grown_refs_empty": 0,
+            "home_grown_refs_other": 1,
         },
         "contracts": {
             "past_dated_tail_ends": 1,
@@ -1345,6 +1392,11 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "non_club_blocks": 0,
             "tactic_blocks_count_mismatched": 0,
             "unresolved_selectors": 5,
+            "empty_tactic_blocks": 1,
+            "flagged_tactic_counts": 0,
+            "missing_tactics": 0,
+            "unknown_signature_records": 0,
+            "signatures_after_routines": 0,
         },
         "set_pieces": {"named_routines": 2},
         "selections": {"unresolved_picks": 2},
@@ -1536,6 +1588,12 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered
         "markerless_players": 1,
         "unresolved_teams": 1,
         "edited_attribute_players": 0,
+        "home_grown_refs_to_extended_rows": 0,
+        "home_grown_refs_to_unanchored_rows": 0,
+        "home_grown_refs_to_rejected_rows": 0,
+        "home_grown_refs_out_of_range": 0,
+        "home_grown_refs_empty": 0,
+        "home_grown_refs_other": 1,
     }
 
 

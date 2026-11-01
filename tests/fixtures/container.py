@@ -146,19 +146,27 @@ def build_container_fragment(
     save_name: str = "Example Career",
     attachments: tuple[tuple[str, str, bytes], ...] = (("1_2_3", ".apm", b"attachment"),),
     declared_sizes: dict[str, tuple[int, int]] | None = None,
+    padding_after: dict[str, int] | None = None,
     trailer_unidentified: int = 300,
 ) -> ContainerFragment:
+    """A fictional container. `declared_sizes` overrides an entry's (compressed, decompressed)
+    sizes; `padding_after` follows an entry's frame with a skippable frame of that many bytes
+    (at least 8), counted in the entry's compressed size, so a test can declare a large part
+    at a plausible ratio without compressing that much data."""
     chosen_sections = default_sections() if sections is None else sections
     overrides = declared_sizes or {}
+    paddings = padding_after or {}
     stream = bytearray()
     directory_rows: list[tuple[str, str, int, int, int]] = []
     frame_offsets: dict[str, int] = {}
 
     def add_listed_frame(name: str, extension: str, body: bytes) -> None:
+        key = name + extension
         compressed = zstd.compress(body)
+        if key in paddings:
+            compressed += skippable_frame(bytes(paddings[key] - 8))
         relative_offset = len(stream)
         stream.extend(compressed)
-        key = name + extension
         frame_offsets[key] = HEADER_SIZE + relative_offset
         compressed_size, decompressed_size = overrides.get(key, (len(compressed), len(body)))
         directory_rows.append(
@@ -171,9 +179,11 @@ def build_container_fragment(
             stream.extend(raw_frame)
     for attachment_name, attachment_extension, attachment_payload in attachments:
         add_listed_frame(attachment_name, attachment_extension, attachment_payload)
-    unknown_keys = sorted(set(overrides) - set(frame_offsets))
+    unknown_keys = sorted((set(overrides) | set(paddings)) - set(frame_offsets))
     if unknown_keys:
-        raise ValueError(f"declared_sizes keys name no listed frame: {unknown_keys}")
+        raise ValueError(
+            f"declared_sizes or padding_after keys name no listed frame: {unknown_keys}"
+        )
 
     trailer_payload = bytearray(length_prefixed(save_name))
     trailer_payload.extend(struct.pack("<I", trailer_unidentified))

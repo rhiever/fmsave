@@ -14,14 +14,19 @@ import os
 import re
 import struct
 import sys
-from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import BinaryIO
 
-from fmsave._errors import CorruptSaveError, NotAFmSaveError, SaveChangedError
+from fmsave._errors import (
+    ISSUES_URL,
+    CorruptSaveError,
+    NotAFmSaveError,
+    SaveChangedError,
+)
 from fmsave._scan import read_length_prefixed_string, read_u32, read_u64
 
 if sys.version_info >= (3, 14):
@@ -38,11 +43,18 @@ SECTION_EXTENSIONS = frozenset({".dat", ".cmt"})
 # The directory entries that are not sections but hold one per-match file each. They carry the
 # injury-type name table, which no section holds.
 MATCH_FILE_EXTENSIONS = frozenset({".apm", ".scm"})
-DEFAULT_TOTAL_DECOMPRESSED_CAP = 4 * 1024**3
-DEFAULT_FRAME_DECOMPRESSED_CAP = 1024**3
-# FM27's tighter budgets, shared by every FM27 read including the raw span pass.
-FM27_TOTAL_DECOMPRESSED_CAP = 512 * 1024**2
-FM27_FRAME_DECOMPRESSED_CAP = 256 * 1024**2
+# Decompressed output is bounded relative to the file, not by fixed sizes, so a save opens
+# however large it grows while a damaged or crafted part claiming far more than its compressed
+# bytes could hold is refused before the memory is spent. Measured on 56 FM26 and FM27 saves of
+# 32 MiB to 953 MiB: no part over 1 MiB expands more than 41 times and none over 64 MiB more
+# than 11 times, while some nearly empty parts under 1 MiB expand over 1,000 times; no save's
+# parts and unlisted frames add up to more than 4.7 times its file size.
+EXPANSION_ALLOWANCE = 64 * 1024**2
+MAX_PART_EXPANSION = 64
+MAX_SAVE_EXPANSION = 32
+# What the measured saves show, quoted when a bound is exceeded.
+OBSERVED_PART_EXPANSION = 41
+OBSERVED_SAVE_EXPANSION = 5
 MAX_TRAILER_COMPRESSED_BYTES = 64 * 1024**2
 MAX_TRAILER_DECOMPRESSED_BYTES = 64 * 1024**2
 MAX_SAVE_NAME_BYTES = 4096
@@ -65,10 +77,32 @@ BLOCK_TYPE_RESERVED = 3
 
 @dataclass(frozen=True, slots=True)
 class ContainerLimits:
-    """Caps that bound memory use on hostile or damaged input."""
+    """Bounds on decompressed output that hold off damaged or crafted input.
 
-    total_decompressed_cap: int = DEFAULT_TOTAL_DECOMPRESSED_CAP
-    frame_decompressed_cap: int = DEFAULT_FRAME_DECOMPRESSED_CAP
+    One part may decompress to `part_expansion` times its compressed size, and the whole save
+    to `save_expansion` times the file's size, but each may always reach `expansion_allowance`
+    bytes, so a small, highly compressible part reads whatever its ratio. The absolute caps
+    are `int | None`: None, the default, sets no fixed cap, and a caller's own cap applies on
+    top of the ratio bounds.
+    """
+
+    total_decompressed_cap: int | None = None
+    frame_decompressed_cap: int | None = None
+    part_expansion: int = MAX_PART_EXPANSION
+    save_expansion: int = MAX_SAVE_EXPANSION
+    expansion_allowance: int = EXPANSION_ALLOWANCE
+
+    def part_bound(self, compressed_size: int) -> int:
+        """The most bytes a part of `compressed_size` compressed bytes may decompress to."""
+        bound = max(self.expansion_allowance, self.part_expansion * compressed_size)
+        cap = self.frame_decompressed_cap
+        return bound if cap is None else min(bound, cap)
+
+    def save_bound(self, file_size: int) -> int:
+        """The most bytes a save of `file_size` bytes may decompress to in all."""
+        bound = max(self.expansion_allowance, self.save_expansion * file_size)
+        cap = self.total_decompressed_cap
+        return bound if cap is None else min(bound, cap)
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,9 +176,20 @@ def read_exact(save_file: BinaryIO, offset: int, length: int, file_name: str) ->
 
 
 def decompress_frame(
-    compressed: bytes, *, expected_size: int | None, cap: int, what: str, file_name: str
+    compressed: bytes,
+    *,
+    expected_size: int | None,
+    cap: int,
+    what: str,
+    file_name: str,
+    overrun: Callable[[], CorruptSaveError] | None = None,
 ) -> bytes:
-    """Decompress exactly one frame without ever producing more than the allowed bytes."""
+    """Decompress exactly one frame without ever producing more than the allowed bytes.
+
+    The decompressor itself stops one byte past `cap`, so no more memory is spent. Output past
+    `cap` raises the error `overrun` builds, which names the bound `cap` came from, or a plain
+    `CorruptSaveError` without one; output past a declared size is always the plain error.
+    """
     output_limit = cap if expected_size is None else min(expected_size, cap)
     decompressor = zstd.ZstdDecompressor()
     try:
@@ -154,6 +199,8 @@ def decompress_frame(
             f"{file_name}: {what} could not be decompressed. {RETRY_HINT}"
         ) from error
     if len(data) > output_limit:
+        if overrun is not None and (expected_size is None or expected_size > cap):
+            raise overrun()
         raise CorruptSaveError(
             f"{file_name}: {what} decompresses to more than {output_limit} bytes"
         )
@@ -209,7 +256,7 @@ def read_index(
         file_name=file_name,
     )
     save_name, entries = parse_directory(trailer_payload, file_name)
-    validate_entries(entries, trailer_offset, effective_limits, file_name)
+    validate_entries(entries, trailer_offset, effective_limits, file_name, file_size)
     sections = {entry.name: entry for entry in entries if entry.is_section}
     if len(sections) != sum(entry.is_section for entry in entries):
         raise CorruptSaveError(f"{file_name}: the save directory lists a section twice")
@@ -300,7 +347,9 @@ def validate_entries(
     trailer_offset: int,
     limits: ContainerLimits,
     file_name: str,
+    file_size: int,
 ) -> None:
+    """Check every entry's frame bounds and declared size before anything is decompressed."""
     previous_end = HEADER_SIZE
     total_decompressed = 0
     for entry in entries:
@@ -313,12 +362,101 @@ def validate_entries(
             raise CorruptSaveError(
                 f"{file_name}: {label} points outside the frame area. {RETRY_HINT}"
             )
-        if entry.decompressed_size > limits.frame_decompressed_cap:
-            raise CorruptSaveError(f"{file_name}: {label} is larger than the per-frame cap")
+        if entry.decompressed_size > limits.part_bound(entry.compressed_size):
+            raise part_bound_error(
+                limits, entry.compressed_size, label, file_name, entry.decompressed_size
+            )
         total_decompressed += entry.decompressed_size
         previous_end = entry.frame_end
-    if total_decompressed > limits.total_decompressed_cap:
-        raise CorruptSaveError(f"{file_name}: the save declares more data than the total cap")
+    if total_decompressed > limits.save_bound(file_size):
+        raise save_bound_error(limits, file_size, "the save", file_name, total_decompressed)
+
+
+def format_size(size: int) -> str:
+    """A byte count as whole GiB or MiB where it is one, otherwise in bytes."""
+    for unit, unit_bytes in (("GiB", 1024**3), ("MiB", 1024**2)):
+        if size >= unit_bytes and size % unit_bytes == 0:
+            return f"{size // unit_bytes} {unit}"
+    return f"{size:,} bytes"
+
+
+def format_ratio(ratio: float) -> str:
+    return f"{ratio:,.0f}" if ratio >= 10 else f"{ratio:.1f}"
+
+
+def report_hint(file_name: str) -> str:
+    return (
+        f"The save is probably damaged. {RETRY_HINT} If the game opens {file_name} and a "
+        f"fresh copy fails too, please report it at {ISSUES_URL}"
+    )
+
+
+def part_bound_error(
+    limits: ContainerLimits,
+    compressed_size: int,
+    what: str,
+    file_name: str,
+    claimed: int | None = None,
+) -> CorruptSaveError:
+    """The error for a part that claims, or decompresses to, more than `limits` allow.
+
+    `claimed` is the declared size; without one, the part decompressed past its bound.
+    """
+    bound = limits.part_bound(compressed_size)
+    cap = limits.frame_decompressed_cap
+    if (
+        cap is not None
+        and replace(limits, frame_decompressed_cap=None).part_bound(compressed_size) > cap
+    ):
+        return CorruptSaveError(
+            f"{file_name}: {what} is larger than the limit of {format_size(cap)} set for one "
+            "part of a save"
+        )
+    compressed_size = max(compressed_size, 1)
+    if claimed is None:
+        claim = f"decompresses to more than {bound:,} bytes"
+        ratio = f"over {limits.part_expansion}"
+    else:
+        claim = f"claims {claimed:,} bytes"
+        ratio = format_ratio(claimed / compressed_size)
+    return CorruptSaveError(
+        f"{file_name}: {what} {claim} from {compressed_size:,} compressed bytes, {ratio} times "
+        f"as many. fmsave allows up to {limits.part_expansion} times for a part over "
+        f"{format_size(limits.expansion_allowance)}, and parts of real saves expand at most "
+        f"about {OBSERVED_PART_EXPANSION} times. {report_hint(file_name)}"
+    )
+
+
+def save_bound_error(
+    limits: ContainerLimits,
+    file_size: int,
+    what: str,
+    file_name: str,
+    claimed: int | None = None,
+) -> CorruptSaveError:
+    """The error for a save whose parts add up to more than `limits` allow.
+
+    `claimed` is the total so far; without one, a frame decompressed past what was left.
+    """
+    bound = limits.save_bound(file_size)
+    cap = limits.total_decompressed_cap
+    if cap is not None and replace(limits, total_decompressed_cap=None).save_bound(file_size) > cap:
+        return CorruptSaveError(
+            f"{file_name}: {what} holds more than the limit of {format_size(cap)} set for a "
+            "whole save"
+        )
+    file_size = max(file_size, 1)
+    if claimed is None:
+        claim = f"decompresses to more than {bound:,} bytes in all"
+        ratio = f"over {limits.save_expansion}"
+    else:
+        claim = f"claims {claimed:,} bytes in all"
+        ratio = format_ratio(claimed / file_size)
+    return CorruptSaveError(
+        f"{file_name}: {what} {claim}, {ratio} times the file's {file_size:,} bytes. fmsave "
+        f"allows up to {limits.save_expansion} times, and real saves stay under "
+        f"{OBSERVED_SAVE_EXPANSION} times. {report_hint(file_name)}"
+    )
 
 
 def build_regions(
@@ -418,12 +556,24 @@ def read_section(container_index: ContainerIndex, name: str) -> bytes:
         compressed = read_exact(
             save_file, entry.frame_offset, entry.compressed_size, container_index.file_name
         )
+    return decompress_entry(container_index, entry, compressed, f"section {name!r}")
+
+
+def decompress_entry(
+    container_index: ContainerIndex, entry: DirectoryEntry, compressed: bytes, what: str
+) -> bytes:
+    """Decompress a directory entry's frame, never past its declared size or its bound."""
+    limits = container_index.limits
+    file_name = container_index.file_name
     return decompress_frame(
         compressed,
         expected_size=entry.decompressed_size,
-        cap=container_index.limits.frame_decompressed_cap,
-        what=f"section {name!r}",
-        file_name=container_index.file_name,
+        cap=limits.part_bound(entry.compressed_size),
+        what=what,
+        file_name=file_name,
+        overrun=lambda: part_bound_error(
+            limits, entry.compressed_size, what, file_name, entry.decompressed_size
+        ),
     )
 
 
@@ -443,19 +593,15 @@ def match_file_entries(container_index: ContainerIndex) -> tuple[DirectoryEntry,
 def read_directory_entry(container_index: ContainerIndex, entry: DirectoryEntry) -> bytes:
     """The decompressed bytes of one directory entry that is not a section.
 
-    The frame is read and decompressed under the same bounds and per-frame cap a section read
-    uses, so a damaged entry cannot decompress past the cap.
+    The frame is read and decompressed under the same bounds a section read uses, so a damaged
+    entry cannot decompress past them.
     """
     file_name = container_index.file_name
     with open_verified(container_index) as save_file:
         compressed = read_exact(save_file, entry.frame_offset, entry.compressed_size, file_name)
     try:
-        return decompress_frame(
-            compressed,
-            expected_size=entry.decompressed_size,
-            cap=container_index.limits.frame_decompressed_cap,
-            what=f"entry {entry.name}{entry.extension}",
-            file_name=file_name,
+        return decompress_entry(
+            container_index, entry, compressed, f"entry {entry.name}{entry.extension}"
         )
     except CorruptSaveError as error:
         # The frame was read while the file was verified, so bytes that no longer decompress
@@ -608,48 +754,61 @@ def read_region_frames_bounded(
     container_index: ContainerIndex,
     region_name: str,
     *,
-    maximum_compressed_bytes: int,
-    maximum_compressed_frame_bytes: int,
-    maximum_frames: int,
-    maximum_decompressed_bytes: int,
-    maximum_frame_output_bytes: int,
+    maximum_compressed_bytes: int | None = None,
+    maximum_compressed_frame_bytes: int | None = None,
+    maximum_frames: int | None = None,
+    maximum_decompressed_bytes: int | None = None,
+    maximum_frame_output_bytes: int | None = None,
 ) -> Iterator[bytes]:
-    """Read one frame at a time with input, output and work caps before allocation.
+    """Read one frame at a time under the container's bounds and any caller budgets.
 
-    No compressed-frame list is retained and no file handle survives a yielded frame.
-    The remaining aggregate output budget also limits each decompressor call itself.
+    Budgets left as None add nothing to the container's bounds. No compressed-frame list is
+    retained and no file handle survives a yielded frame. The remaining output budgets also
+    limit each decompressor call itself.
     """
-    if (
-        min(
-            maximum_compressed_bytes,
-            maximum_compressed_frame_bytes,
-            maximum_frames,
-            maximum_decompressed_bytes,
-            maximum_frame_output_bytes,
-        )
-        <= 0
-    ):
+    budgets = (
+        maximum_compressed_bytes,
+        maximum_compressed_frame_bytes,
+        maximum_frames,
+        maximum_decompressed_bytes,
+        maximum_frame_output_bytes,
+    )
+    if any(budget is not None and budget <= 0 for budget in budgets):
         raise ValueError("bounded region budgets must be positive")
     region = region_named(container_index, region_name)
-    if region.end - region.start > maximum_compressed_bytes:
+    if (
+        maximum_compressed_bytes is not None
+        and region.end - region.start > maximum_compressed_bytes
+    ):
         raise CorruptSaveError("region exceeds its compressed byte budget")
     spans = walk_frames(container_index, region_name, maximum_frames=maximum_frames)
-    if any(span.size > maximum_compressed_frame_bytes for span in spans):
+    if maximum_compressed_frame_bytes is not None and any(
+        span.size > maximum_compressed_frame_bytes for span in spans
+    ):
         raise CorruptSaveError("region exceeds its compressed frame byte budget")
+    counted = declared_total(container_index)
     produced = 0
     for span in spans:
         if span.skippable:
             continue
-        cap = min(
-            container_index.limits.frame_decompressed_cap,
-            maximum_frame_output_bytes,
-            maximum_decompressed_bytes - produced,
-        )
+        caps = [
+            cap
+            for cap in (
+                container_index.limits.frame_decompressed_cap,
+                maximum_frame_output_bytes,
+                None
+                if maximum_decompressed_bytes is None
+                else maximum_decompressed_bytes - produced,
+            )
+            if cap is not None
+        ]
         bounded = replace(
             container_index,
-            limits=replace(container_index.limits, frame_decompressed_cap=cap),
+            limits=replace(
+                container_index.limits, frame_decompressed_cap=min(caps) if caps else None
+            ),
         )
-        frame = read_region_frame(bounded, region_name, span)
+        frame = read_region_frame(bounded, region_name, span, counted=counted + produced)
         produced += len(frame)
         yield frame
 
@@ -665,13 +824,7 @@ def read_region_frames(container_index: ContainerIndex, region_name: str) -> Ite
             for span in spans
             if not span.skippable
         ]
-    return decompress_region_frames(
-        compressed_frames,
-        container_index.limits,
-        declared_total(container_index),
-        region_name,
-        file_name,
-    )
+    return decompress_region_frames(container_index, compressed_frames, region_name)
 
 
 def declared_total(container_index: ContainerIndex) -> int:
@@ -699,18 +852,27 @@ def region_frame_heads(
     return tuple(heads)
 
 
-def read_region_frame(container_index: ContainerIndex, region_name: str, span: FrameSpan) -> bytes:
-    """Decompress one frame of a region, located by `region_frame_heads`."""
+def read_region_frame(
+    container_index: ContainerIndex,
+    region_name: str,
+    span: FrameSpan,
+    *,
+    counted: int | None = None,
+) -> bytes:
+    """Decompress one frame of a region, located by `region_frame_heads`.
+
+    `counted` is the output already counted against the whole-save bound, by default the
+    directory's declared total; the frame may not take the save past that bound.
+    """
     file_name = container_index.file_name
     with open_verified(container_index) as save_file:
         compressed = read_exact(save_file, span.offset, span.size, file_name)
     try:
-        return decompress_frame(
+        return decompress_region_frame(
+            container_index,
             compressed,
-            expected_size=None,
-            cap=container_index.limits.frame_decompressed_cap,
-            what=f"a frame of region {region_name!r}",
-            file_name=file_name,
+            declared_total(container_index) if counted is None else counted,
+            f"a frame of region {region_name!r}",
         )
     except CorruptSaveError as error:
         # As for a directory entry: the frame was read while the file was verified, so bytes
@@ -720,47 +882,62 @@ def read_region_frame(container_index: ContainerIndex, region_name: str, span: F
         raise
 
 
+def decompress_region_frame(
+    container_index: ContainerIndex, compressed: bytes, counted: int, what: str
+) -> bytes:
+    """Decompress a frame with no declared size, stopping at the first bound it would pass.
+
+    The frame may expand no further than a part of its compressed size may, and may not take
+    the save's output past the whole-save bound once `counted` bytes are already counted.
+    """
+    limits = container_index.limits
+    file_name = container_index.file_name
+    file_size = container_index.fingerprint.file_size
+    part_cap = limits.part_bound(len(compressed))
+    save_left = max(limits.save_bound(file_size) - counted, 0)
+    if part_cap <= save_left:
+        cap = part_cap
+
+        def overrun() -> CorruptSaveError:
+            return part_bound_error(limits, len(compressed), what, file_name)
+    else:
+        cap = save_left
+
+        def overrun() -> CorruptSaveError:
+            return save_bound_error(limits, file_size, "the save", file_name)
+
+    return decompress_frame(
+        compressed, expected_size=None, cap=cap, what=what, file_name=file_name, overrun=overrun
+    )
+
+
 def read_chosen_region_frames(
     container_index: ContainerIndex, region_name: str, spans: Iterable[FrameSpan]
 ) -> Iterator[bytes]:
     """Decompress the chosen frames of a region one at a time, located by `region_frame_heads`.
 
-    As in `decompress_region_frames`, the frames count against the total cap after the
+    As in `decompress_region_frames`, the frames count against the whole-save bound after the
     directory's data, so a region of many chosen frames cannot decompress past it.
     """
-    limits = container_index.limits
-    total_decompressed = declared_total(container_index)
+    counted = declared_total(container_index)
     for span in spans:
-        frame_bytes = read_region_frame(container_index, region_name, span)
-        total_decompressed += len(frame_bytes)
-        if total_decompressed > limits.total_decompressed_cap:
-            raise CorruptSaveError(
-                f"{container_index.file_name}: region {region_name!r} exceeds the total "
-                "decompression cap"
-            )
+        frame_bytes = read_region_frame(container_index, region_name, span, counted=counted)
+        counted += len(frame_bytes)
         yield frame_bytes
 
 
 def decompress_region_frames(
-    compressed_frames: list[bytes],
-    limits: ContainerLimits,
-    declared_total: int,
-    region_name: str,
-    file_name: str,
+    container_index: ContainerIndex, compressed_frames: list[bytes], region_name: str
 ) -> Iterator[bytes]:
-    """Yield each frame's bytes; unlisted data counts against the total cap after the directory's."""
-    total_decompressed = declared_total
+    """Yield each frame's bytes; unlisted data counts against the whole-save bound after the
+    directory's."""
+    counted = declared_total(container_index)
     for frame_number, compressed_frame in enumerate(compressed_frames):
-        frame_bytes = decompress_frame(
+        frame_bytes = decompress_region_frame(
+            container_index,
             compressed_frame,
-            expected_size=None,
-            cap=limits.frame_decompressed_cap,
-            what=f"frame {frame_number} of region {region_name!r}",
-            file_name=file_name,
+            counted,
+            f"frame {frame_number} of region {region_name!r}",
         )
-        total_decompressed += len(frame_bytes)
-        if total_decompressed > limits.total_decompressed_cap:
-            raise CorruptSaveError(
-                f"{file_name}: region {region_name!r} exceeds the total decompression cap"
-            )
+        counted += len(frame_bytes)
         yield frame_bytes

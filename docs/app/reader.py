@@ -68,7 +68,11 @@ def friendly_error(error: BaseException) -> str:
             "Football Manager 26 and supported 27 builds (reader 0.8.0 or later)."
         )
     if isinstance(error, fmsave.CorruptSaveError):
-        return "This save looks damaged or incomplete. Try a fresh copy of the save file."
+        return (
+            "This save looks damaged or incomplete. Try a fresh copy of the save file. If the "
+            "game opens it and a fresh copy fails too, please report it on fmsave's GitHub "
+            "issues page."
+        )
     if isinstance(error, fmsave.SaveChangedError):
         return "The save changed while it was being read. Wait for the game to finish saving."
     if isinstance(error, fmsave.FmsaveError):

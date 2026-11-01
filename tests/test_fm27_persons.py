@@ -24,7 +24,12 @@ from tests.test_persons import (
 )
 
 
-def shifted_block(*, legal_name: str | None = None, relations: bool = True) -> bytes:
+def shifted_block(
+    *, legal_name: str | None = None, relations: bool = True, home_grown_club: int | None = None
+) -> bytes:
+    relation_entries = (relation_entry_bytes(12, 8, 9, 100),) if relations else ()
+    if home_grown_club is not None:
+        relation_entries += (relation_entry_bytes(home_grown_club, 1, 72),)
     block = person_block_bytes(
         first_name_id=0,
         surname_id=0,
@@ -34,7 +39,7 @@ def shifted_block(*, legal_name: str | None = None, relations: bool = True) -> b
         nation_id=44,
         personality=DEFAULT_PERSONALITY,
         trait_bits=1 << 27,
-        relations=(relation_entry_bytes(12, 8, 9, 100),) if relations else (),
+        relations=relation_entries,
     )
     inserted_at = person_block_birth_offset(legal_name) + 4
     return block[:inserted_at] + b"\xa5" + block[inserted_at:]
@@ -111,6 +116,18 @@ def test_unique_decode_omits_duplicate_candidates_and_restores_previous_counts()
 
     assert decoder.last_block_start is None
     assert relation_counts(decoder) == (1, 1, 1, 1)
+
+
+def test_unique_decode_restores_unresolved_home_grown_counts_of_dropped_candidates() -> None:
+    block = shifted_block(home_grown_club=99)
+    game_db, start, decoder = build_shifted_decoder(block + block + block)
+    first_end = start + len(block)
+    assert decoder.decode(game_db, start, first_end) is not None
+    assert decoder.home_grown_unresolved_refs == {"other": 1}
+
+    assert decoder.decode(game_db, first_end, len(game_db)) is None
+
+    assert decoder.home_grown_unresolved_refs == {"other": 1}
 
 
 def test_nonunique_decode_keeps_existing_first_candidate_behavior() -> None:

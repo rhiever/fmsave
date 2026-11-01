@@ -7,20 +7,17 @@ import re
 import struct
 import warnings
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
 import fmsave
 from fmsave._container import (
-    FM27_FRAME_DECOMPRESSED_CAP,
-    FM27_TOTAL_DECOMPRESSED_CAP,
     ContainerIndex,
     damaged_part_error,
     read_section,
     read_section_heads,
     section_entry,
-    validate_entries,
 )
 from fmsave._errors import (
     ISSUES_URL,
@@ -37,6 +34,7 @@ from fmsave._layouts import (
     SummaryStringsLayout,
     find_layout,
     known_builds,
+    registered_fm27_builds,
     registered_layouts,
 )
 from fmsave._package import __version__
@@ -124,7 +122,7 @@ def find_game_version(summary: bytes, layout: SaveSummaryLayout, file_name: str)
             build_number=build_number,
         )
     raise UnsupportedGameError(
-        f"{file_name}: no game version found. fmsave reads Football Manager 26 and registered 27 builds; for other versions see {ISSUES_URL}"
+        f"{file_name}: no game version found. fmsave reads Football Manager 26 and 27 saves; for other versions see {ISSUES_URL}"
     )
 
 
@@ -205,7 +203,7 @@ def read_summary_facts(container_index: ContainerIndex) -> SummaryFacts:
         ).layout
     elif version.major != SUPPORTED_GAME_MAJOR:
         raise UnsupportedGameError(
-            f"{file_name} is an {version.game} save ({version.build}). fmsave {__version__} reads FM26 and registered FM27 builds; "
+            f"{file_name} is an {version.game} save ({version.build}). fmsave {__version__} reads FM26 and FM27 saves; "
             f"{version.game} build {version.build} is not supported. See {ISSUES_URL}"
         )
     strings_layout = find_layout(
@@ -412,31 +410,14 @@ def read_game_info_facts(
         ) from error
 
 
-def limit_game_index(container_index: ContainerIndex, game: str) -> ContainerIndex:
-    """Apply FM27's tighter budgets before bulk reads, preserving stricter caller limits."""
-    if game != "FM27":
-        return container_index
-    limits = replace(
-        container_index.limits,
-        total_decompressed_cap=min(
-            container_index.limits.total_decompressed_cap, FM27_TOTAL_DECOMPRESSED_CAP
-        ),
-        frame_decompressed_cap=min(
-            container_index.limits.frame_decompressed_cap, FM27_FRAME_DECOMPRESSED_CAP
-        ),
-    )
-    validate_entries(
-        container_index.entries, container_index.trailer_offset, limits, container_index.file_name
-    )
-    return replace(container_index, limits=limits)
-
-
 def read_save_info(container_index: ContainerIndex) -> SaveInfo:
-    """Detect the game and build and read save metadata. Warns on unknown FM26 builds and incomplete FM27 coverage."""
+    """Detect the game and build and read save metadata.
+
+    Warns on unknown FM26 builds, on unregistered FM27 builds and on incomplete FM27 coverage.
+    """
     file_name = container_index.file_name
     summary_facts = read_summary_facts(container_index)
     version = summary_facts.version
-    container_index = limit_game_index(container_index, version.game)
     known_build = version.build in known_builds()
     if not known_build and version.major != 27:
         warnings.warn(
@@ -456,9 +437,22 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
     }
     facts = read_game_info_facts(container_index, section_schemas, version, known_build)
     if version.major == 27:
+        # Warned only once the metadata fits, so a save refused at opening adds no warning.
+        unverified = (
+            ""
+            if known_build
+            else (
+                f"{file_name} was saved by FM27 build {version.build}, an unverified build: "
+                f"fmsave {__version__} has no layouts registered for it. It borrows the "
+                f"{', '.join(registered_fm27_builds())} layouts for each section whose schema "
+                "matches, and a reader of a section whose schema differs raises "
+                "UnsupportedGameError. Readers check their results and raise ReaderCheckError "
+                f"if they do not fit. Please report problems at {ISSUES_URL}. "
+            )
+        )
         warnings.warn(
             UnknownBuildWarning(
-                "FM27 coverage: only registered layouts are enabled; "
+                f"{unverified}FM27 coverage: only registered layouts are enabled; "
                 "unsupported readers fail closed. Structural checks are not semantic or "
                 "in-game verification; global field-status labels describe FM26; FM27 fields remain unconfirmed."
             ),

@@ -56,6 +56,13 @@ Nation names are not stored in the save.
 
 Fixtures provide dates, teams, rounds and scores where fmsave can decode an unambiguous result.
 
+`league_tables()` holds a table only once its clubs have played in it. Before a division's
+first match it has no table for that division, although the game shows one with every club on
+zero, and `fmsave export league-tables` notes on standard error when it writes no table. Use
+`fixtures()` for the division's clubs and matches until then. `competition_rules()` takes a
+rules block's competition from the table stored after it, so before the season starts fewer
+blocks carry a `competition_id`.
+
 `player_season_stats()` is each player's current season, as the squad and player screens show it:
 one row per competition type and team, with counts such as minutes, xG, passes and tackles, and
 the per-90 and percentage figures the game shows. `player_match_stats()` reads individual match
@@ -69,6 +76,12 @@ Incomplete or unresolved histories fail the reader checks.
 `injury_types()`, `injuries()`
 
 `injuries()` reads retained injury history, not a complete career medical record.
+
+Only a `TYPED` row, a recent or current episode, carries an injury `type_id`. A `HISTORY` row
+never does, so a save with no recent injuries has no types on any row. The names come from
+`injury_types()`, which the save keeps only in per-match files. On the saves measured, a new
+career and a pre-season save held none, so `injury_types()` was empty and `type_name` stayed
+`None` even where `type_id` was set; they appeared after the first competitive match.
 
 ## Your own club's work
 

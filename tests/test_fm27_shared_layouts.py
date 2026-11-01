@@ -15,6 +15,7 @@ from fmsave.readers.affiliates import walk_affiliate_groups
 from tests.fixtures.club_sections import feeder_body
 
 BUILD = "27.0.0+2486695"
+UNREGISTERED_BUILD = "27.0.1+3000001"
 SHARED = (
     ("game_db", 4000, observed.NAME_POOLS),
     ("game_db", 4000, observed.CONTRACTS),
@@ -38,8 +39,12 @@ def test_fm27_observed_structures_are_explicit_not_fallback(region, schema, layo
     assert match.layout == layout
     with pytest.raises(UnsupportedGameError):
         find_layout(type(layout), region, schema + 1, BUILD)
-    with pytest.raises(UnsupportedGameError):
-        find_layout(type(layout), region, schema, "27.0.1+3000001")
+    # Another FM27 build borrows the registered layout at the same schema, never at another.
+    borrowed = find_layout(type(layout), region, schema, UNREGISTERED_BUILD)
+    assert borrowed.layout is match.layout
+    assert not borrowed.exact
+    with pytest.raises(UnsupportedGameError, match=f"schema {schema + 1} differs"):
+        find_layout(type(layout), region, schema + 1, UNREGISTERED_BUILD)
 
 
 def test_fm27_humans_layout_adds_only_the_scouting_budget_to_the_shared_one() -> None:
@@ -136,12 +141,14 @@ def test_fm27_match_whitelist_reads_rows_only_behind_declared_histories() -> Non
     assert cache.nullable_suffix_first_date_offset == 38
 
 
-def test_fm27_sponsor_boundary_does_not_enable_unknown_schemas_or_builds() -> None:
+def test_fm27_sponsor_boundary_does_not_enable_unknown_schemas() -> None:
     layout_type = type(observed.SPONSOR_CHAINS)
-    assert find_layout(layout_type, "game_db", 4000, BUILD).exact
-    for schema, build in ((4001, BUILD), (4000, "27.0.1+3000001")):
+    registered = find_layout(layout_type, "game_db", 4000, BUILD)
+    assert registered.exact
+    assert find_layout(layout_type, "game_db", 4000, UNREGISTERED_BUILD).layout is registered.layout
+    for build in (BUILD, UNREGISTERED_BUILD):
         with pytest.raises(UnsupportedGameError):
-            find_layout(layout_type, "game_db", schema, build)
+            find_layout(layout_type, "game_db", 4001, build)
 
 
 def test_fm27_suspensions_judge_an_empty_search_by_count_not_by_share() -> None:
