@@ -819,8 +819,8 @@ def _stadium_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[obj
         return stadiums
     if any(stadium.home_club_uids is None for stadium in stadiums):
         raise UnsupportedGameError(
-            "stadium club/nation scopes require verified home-ground links; "
-            "these links are unknown in FM27. Use --all for raw stadium rows"
+            "stadium club/nation scopes require home-ground links, which this save's "
+            "calendar does not give. Use --all for raw stadium rows"
         )
     keeps_club = _club_uid_filter(career_save, scope)
     return (
