@@ -163,6 +163,7 @@ game stores its data:
 - [@matthiasvetter1104](https://github.com/matthiasvetter1104)
 - [@Namhahaha1110](https://github.com/Namhahaha1110)
 - [@OdumWorld](https://github.com/OdumWorld)
+- [@rui7avares-create](https://github.com/rui7avares-create)
 - [@thaffy](https://github.com/thaffy)
 
 ## Support
