@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from fmsave._container import ContainerLimits, decompress_frame, read_exact, read_index
-from fmsave._errors import CorruptSaveError, NotAFmSaveError, SaveTooLargeError
+from fmsave._errors import CorruptSaveError, NotAFmSaveError
 from tests.fixtures.container import (
     FILE_MAGIC,
     HEADER_SIZE,
@@ -181,29 +181,43 @@ def test_duplicate_section_names_are_corrupt(tmp_path: Path) -> None:
         read_index(build_container_fragment(sections).write(tmp_path / "fragment.bin"))
 
 
-def test_frame_cap_is_enforced(fragment_path: Path) -> None:
-    with pytest.raises(SaveTooLargeError, match="limit of 100 bytes for one part") as error_info:
+def test_a_callers_frame_cap_still_applies(fragment_path: Path) -> None:
+    with pytest.raises(CorruptSaveError, match="limit of 100 bytes set for one part"):
         read_index(fragment_path, ContainerLimits(frame_decompressed_cap=100))
-    assert isinstance(error_info.value, CorruptSaveError)
-    assert "report this at" in str(error_info.value)
 
 
-def test_total_cap_is_enforced(fragment_path: Path) -> None:
-    with pytest.raises(SaveTooLargeError, match="limit of 500 bytes for a whole save"):
+def test_a_callers_total_cap_still_applies(fragment_path: Path) -> None:
+    with pytest.raises(CorruptSaveError, match="limit of 500 bytes set for a whole save"):
         read_index(fragment_path, ContainerLimits(total_decompressed_cap=500))
 
 
-def test_output_past_a_declared_size_is_damage_not_a_size_limit() -> None:
+def test_output_past_a_declared_size_is_plain_damage() -> None:
     compressed = zstd.compress(bytes(64))
-    with pytest.raises(CorruptSaveError, match="more than 32 bytes") as error_info:
-        decompress_frame(compressed, expected_size=32, cap=1024, what="a part", file_name="x.fm")
-    assert not isinstance(error_info.value, SaveTooLargeError)
+
+    def overrun() -> CorruptSaveError:
+        return CorruptSaveError("the bound's own error")
+
+    with pytest.raises(CorruptSaveError, match="more than 32 bytes"):
+        decompress_frame(
+            compressed,
+            expected_size=32,
+            cap=1024,
+            what="a part",
+            file_name="x.fm",
+            overrun=overrun,
+        )
 
 
-def test_output_past_the_cap_of_an_unsized_frame_is_a_size_limit() -> None:
+def test_output_past_the_cap_of_an_unsized_frame_raises_the_bounds_error() -> None:
     compressed = zstd.compress(bytes(64))
-    with pytest.raises(SaveTooLargeError, match="limit of 32 bytes"):
-        decompress_frame(compressed, expected_size=None, cap=32, what="a part", file_name="x.fm")
+
+    def overrun() -> CorruptSaveError:
+        return CorruptSaveError("the bound's own error")
+
+    with pytest.raises(CorruptSaveError, match="the bound's own error"):
+        decompress_frame(
+            compressed, expected_size=None, cap=32, what="a part", file_name="x.fm", overrun=overrun
+        )
 
 
 def test_non_ascii_save_name(tmp_path: Path) -> None:
@@ -269,9 +283,8 @@ def test_undecodable_directory_is_corrupt(tmp_path: Path) -> None:
 
 def test_directory_decompressing_past_its_cap_is_corrupt(tmp_path: Path) -> None:
     content = with_trailer_frame(zstd.compress(bytes(64 * 1024**2 + 1)))
-    with pytest.raises(CorruptSaveError, match="more than") as error_info:
+    with pytest.raises(CorruptSaveError, match="more than"):
         read_index(write_bytes(tmp_path, content))
-    assert not isinstance(error_info.value, SaveTooLargeError)
 
 
 def test_truncated_directory_frame_names_the_file_only(tmp_path: Path) -> None:

@@ -128,7 +128,11 @@ Failed checks always stop an FM27 reader, even with `strict=False`. The validati
 report lists unsupported readers and marks every FM27 field unconfirmed. Global field-status
 labels describe FM26; they do not certify FM27 meanings.
 
-FM27 uses the same decompression caps as FM26: 2 GiB for one part of a save and 4 GiB in all.
-A save past them raises `SaveTooLargeError`, which says the save is probably sound.
+fmsave sets no fixed size limit on a save, for FM26 or FM27, so a large database opens however
+big it grows. To refuse a damaged or crafted file before memory is spent, a part of a save
+past 64 MiB may decompress to at most 64 times its compressed size, and a whole save to at
+most 32 times its file size. Real saves stay far below both: no part over 1 MiB expands more
+than about 41 times, and no save more than about 5 times. A save past either bound raises
+`CorruptSaveError`, whose message gives the ratio and asks for a report if the game opens it.
 Finance rows describe historical snapshots, not current-month live totals; stored money is
 not converted to the game's display currency. Match the period and units before comparing.

@@ -288,8 +288,14 @@ def test_fm27_validation_does_not_claim_fm26_semantic_verification(tmp_path: Pat
     assert statuses["players"] != "ok"
 
 
-def fm27_fragment_declaring(tmp_path: Path, sizes: dict[str, int], *extra: str) -> Path:
-    """An FM27 fragment whose directory declares `sizes` for some sections, plus `extra` ones."""
+def fm27_fragment_declaring(
+    tmp_path: Path, sizes: dict[str, int], *extra: str, padding: dict[str, int] | None = None
+) -> Path:
+    """An FM27 fragment whose directory declares `sizes` for some sections, plus `extra` ones.
+
+    `padding` gives a section that many compressed bytes on disk (as a skippable frame after
+    its frame), so its declared size can sit at a plausible ratio.
+    """
     from fmsave._container import read_index, read_section
 
     index = read_index(fm27_fragment(tmp_path))
@@ -298,54 +304,57 @@ def fm27_fragment_declaring(tmp_path: Path, sizes: dict[str, int], *extra: str) 
         for name, entry in index.sections.items()
     ]
     sections.extend(SectionFrame(name, section_body(".dat", 1, bytes(4))) for name in extra)
+    paddings = padding or {}
     return build_container_fragment(
         sections,
         declared_sizes={
             section.name + section.extension: (
-                len(zstd.compress(section.body)),
+                len(zstd.compress(section.body)) + paddings.get(section.name, 0),
                 sizes[section.name],
             )
             for section in sections
             if section.name in sizes
         },
+        padding_after={name + ".dat": size for name, size in paddings.items()},
     ).write(tmp_path / "declared.bin")
 
 
-def test_fm27_opens_a_large_database_under_the_fm26_budget(tmp_path: Path) -> None:
-    # Larger than the old FM27-only per-part cap, which rejected large-database careers.
-    path = fm27_fragment_declaring(tmp_path, {"game_db": 600 * 1024**2})
+def test_fm27_opens_a_large_database_part_at_a_plausible_ratio(tmp_path: Path) -> None:
+    from fmsave._container import ContainerLimits
+
+    # Past the old FM27-only 256 MiB cap and the 64 MiB allowance, at 25 times its 12 MiB.
+    path = fm27_fragment_declaring(
+        tmp_path, {"game_db": 300 * 1024**2}, padding={"game_db": 12 * 1024**2}
+    )
     # Opening reads bounded metadata, not the deliberately oversized fictional database.
     with pytest.warns(fmsave.UnknownBuildWarning):
         save = fmsave.open(path)
     with save:
         assert save.info.game == "FM27"
-        assert save._container_index.limits.frame_decompressed_cap == 2 * 1024**3
-        assert save._container_index.limits.total_decompressed_cap == 4 * 1024**3
+        assert save._container_index.limits == ContainerLimits()
 
 
-def test_fm27_opens_a_part_past_the_old_one_gib_limit(tmp_path: Path) -> None:
-    path = fm27_fragment_declaring(tmp_path, {"game_db": 1024**3 + 512 * 1024**2})
-    with pytest.warns(fmsave.UnknownBuildWarning):
-        save = fmsave.open(path)
-    with save:
-        assert save.info.game == "FM27"
-
-
-def test_fm27_rejects_an_oversized_part_as_too_large_before_reading_it(tmp_path: Path) -> None:
-    path = fm27_fragment_declaring(tmp_path, {"game_db": 2 * 1024**3 + 1})
+def test_fm27_refuses_a_bomb_shaped_part_before_reading_it(tmp_path: Path) -> None:
+    path = fm27_fragment_declaring(tmp_path, {"game_db": 65 * 1024**2})
     with pytest.raises(
-        fmsave.SaveTooLargeError,
-        match="game_db.dat is larger than fmsave.s limit of 2 GiB for one part",
-    ):
+        fmsave.CorruptSaveError, match="game_db.dat claims 68,157,440 bytes"
+    ) as error:
         fmsave.open(path)
+    message = str(error.value)
+    assert "fmsave allows up to 64 times" in message
+    assert "expand at most about 41 times" in message
+    assert "please report it at" in message
 
 
-def test_fm27_checks_total_declared_budget_before_payloads(tmp_path: Path) -> None:
+def test_fm27_checks_the_whole_save_bound_before_payloads(tmp_path: Path) -> None:
+    # Each part sits under the 64 MiB allowance; together they claim far more than the file.
     extra = ("extra_a", "extra_b", "extra_c", "extra_d")
-    sizes: dict[str, int] = dict.fromkeys(("game_db", *extra), 1024**3)
-    path = fm27_fragment_declaring(tmp_path, sizes, *extra)
-    with pytest.raises(fmsave.SaveTooLargeError, match="limit of 4 GiB for a whole save"):
+    path = fm27_fragment_declaring(
+        tmp_path, dict.fromkeys(("game_db", *extra), 60 * 1024**2), *extra
+    )
+    with pytest.raises(fmsave.CorruptSaveError, match="the save claims .* bytes in all") as error:
         fmsave.open(path)
+    assert "real saves stay under 5 times" in str(error.value)
 
 
 def test_unknown_fm26_metadata_never_tries_an_fm27_layout(tmp_path: Path) -> None:

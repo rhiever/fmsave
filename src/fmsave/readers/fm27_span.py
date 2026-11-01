@@ -36,23 +36,30 @@ _UNSUPPORTED_FIXTURE_FIELDS = (
 )
 
 
-# Byte ceilings from measured saves. Largest seen: FM27 8.4 MiB frame and 25.2 MiB in all
-# (first season, August); FM26 long careers 72.6 MiB frame and 164.6 MiB in all. Both
-# defaults leave at least 1.5x over those FM26 figures for growth. The pass holds one buffer
-# of at most the total, so this also bounds its memory.
-_DEFAULT_FRAME_BYTES = 128 * 1024**2
-_DEFAULT_SPAN_BYTES = 256 * 1024**2
+# No fixed byte ceiling: the container bounds each frame and the whole save relative to the
+# file, and the pass holds one buffer of what the region decompressed to. Counts scale with
+# that buffer instead, at one per `_BYTES_PER_COUNT` bytes or the allowance if more. Measured
+# spans hold at most one candidate per 800 bytes: FM27 1,253 per MiB, and FM26 spans of up to
+# 343 MiB 852 per MiB. Frame counts barely grow with a save: at most 1,232 in any span.
+_COUNT_ALLOWANCE = 100_000
+_BYTES_PER_COUNT = 64
 
 
 @dataclass(frozen=True, slots=True)
 class Fm27SpanLimits:
-    """Allocation and work ceilings, independent of counts claimed by the input."""
+    """Allocation and work ceilings, independent of counts claimed by the input.
 
-    maximum_span_bytes: int = _DEFAULT_SPAN_BYTES
-    maximum_frame_bytes: int = _DEFAULT_FRAME_BYTES
-    maximum_candidates: int = 100_000
-    maximum_fixtures: int = 100_000
-    maximum_rules: int = 4096
+    The byte ceilings default to None, adding nothing to the container's bounds. The candidate,
+    fixture and rule ceilings default to None, scaling with the span's bytes (see
+    `count_limit`); a caller may set any of them to a fixed number.
+    """
+
+    maximum_span_bytes: int | None = None
+    maximum_frame_bytes: int | None = None
+    maximum_frames: int = 100_000
+    maximum_candidates: int | None = None
+    maximum_fixtures: int | None = None
+    maximum_rules: int | None = None
     maximum_parent_bytes: int = 1024**2
     maximum_event_rows: int = 4096
     maximum_interstitials: int = 64
@@ -61,8 +68,18 @@ class Fm27SpanLimits:
     maximum_tie_breaks: int = 16
 
     def __post_init__(self) -> None:
-        if any(getattr(self, field) <= 0 for field in self.__dataclass_fields__):
+        if any(
+            value is not None and value <= 0
+            for value in (getattr(self, field) for field in self.__dataclass_fields__)
+        ):
             raise ValueError("FM27 span limits must all be positive")
+
+    @staticmethod
+    def count_limit(fixed: int | None, span_bytes: int) -> int:
+        """`fixed`, or when it is None the allowance or one per 64 span bytes, whichever is more."""
+        if fixed is not None:
+            return fixed
+        return max(_COUNT_ALLOWANCE, span_bytes // _BYTES_PER_COUNT)
 
 
 _DEFAULT_LIMITS = Fm27SpanLimits()
@@ -145,12 +162,15 @@ def _buffer_frames(
     count = 0
     for frame in frames:
         frame_bytes = frame.nbytes if isinstance(frame, memoryview) else len(frame)
-        if frame_bytes > limits.maximum_frame_bytes:
+        if limits.maximum_frame_bytes is not None and frame_bytes > limits.maximum_frame_bytes:
             raise _limit_error("frame byte")
-        if len(data) + frame_bytes > limits.maximum_span_bytes:
+        if (
+            limits.maximum_span_bytes is not None
+            and len(data) + frame_bytes > limits.maximum_span_bytes
+        ):
             raise _limit_error("total byte")
         count += 1
-        if count > limits.maximum_candidates:
+        if count > limits.maximum_frames:
             raise _limit_error("frame count")
         data += frame
     return data, count
@@ -212,7 +232,7 @@ def _next_core(
 
 
 def _close_fixture_paths(
-    data: bytearray, anchors: list[Fm27Fixture], limits: Fm27SpanLimits
+    data: bytearray, anchors: list[Fm27Fixture], limits: Fm27SpanLimits, maximum_fixtures: int
 ) -> tuple[tuple[Fm27Fixture, ...], int]:
     fixtures = {row.offset: row for row in anchors}
     recovered = 0
@@ -236,7 +256,7 @@ def _close_fixture_paths(
                     away_goals=away,
                     status_source="sibling_prefix",
                 )
-                if len(fixtures) + len(pending) > limits.maximum_fixtures:
+                if len(fixtures) + len(pending) > maximum_fixtures:
                     raise _limit_error("fixture count")
                 fixtures.update((row.offset, row) for row in pending)
                 fixtures[at] = endpoint
@@ -245,7 +265,7 @@ def _close_fixture_paths(
             middle = _fixture_core(data, at, strict=False)
             if middle is None:
                 break
-            if len(fixtures) + len(pending) + 1 > limits.maximum_fixtures:
+            if len(fixtures) + len(pending) + 1 > maximum_fixtures:
                 raise _limit_error("fixture count")
             pending.append(
                 replace(
@@ -326,13 +346,16 @@ def read_fm27_span(
 ) -> Fm27Span:
     """Read only explicitly observed raw grammar, with bounded memory and search work.
 
-    Frames may split any field. The frames are copied into one owned buffer of at most the
+    Frames may split any field. The frames are copied into one owned buffer, of at most any
     configured span size, rather than joining an unbounded generator. Failed sibling
     paths and malformed rule parents are discarded whole; no date resynchronization occurs.
     """
     if not 1900 <= clock_year <= 9991:
         raise ValueError("clock_year must leave the observed search window inside u16 years")
     data, frame_count = _buffer_frames(frames, limits)
+    maximum_candidates = limits.count_limit(limits.maximum_candidates, len(data))
+    maximum_fixtures = limits.count_limit(limits.maximum_fixtures, len(data))
+    maximum_rules = limits.count_limit(limits.maximum_rules, len(data))
     years = b"|".join(re.escape(_U16.pack(year)) for year in range(clock_year - 7, clock_year + 9))
     pattern = re.compile(rb"\xff.{6}\xff.{3}(?:" + years + rb")", re.DOTALL)
     anchors: list[Fm27Fixture] = []
@@ -341,27 +364,27 @@ def read_fm27_span(
     while (match := pattern.search(data, cursor)) is not None:
         cursor = match.start() + 1
         fixture_candidates += 1
-        if fixture_candidates > limits.maximum_candidates:
+        if fixture_candidates > maximum_candidates:
             raise _limit_error("candidate count")
         row = _fixture_core(data, match.start() - 4, strict=True)
         if row is not None:
-            if len(anchors) >= limits.maximum_fixtures:
+            if len(anchors) >= maximum_fixtures:
                 raise _limit_error("fixture count")
             anchors.append(row)
-    fixtures, recovered = _close_fixture_paths(data, anchors, limits)
+    fixtures, recovered = _close_fixture_paths(data, anchors, limits, maximum_fixtures)
     rules: list[Fm27Rules] = []
     rule_candidates = rejected = 0
     cursor = 0
     while (at := data.find(_RULE_MARKER, cursor)) != -1:
         cursor = at + 1
         rule_candidates += 1
-        if fixture_candidates + rule_candidates > limits.maximum_candidates:
+        if fixture_candidates + rule_candidates > maximum_candidates:
             raise _limit_error("candidate count")
         parent = _rules_parent(data, at, limits)
         if parent is None:
             rejected += 1
         else:
-            if len(rules) >= limits.maximum_rules:
+            if len(rules) >= maximum_rules:
                 raise _limit_error("rule count")
             rules.append(parent)
     return Fm27Span(

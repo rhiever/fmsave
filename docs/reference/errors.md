@@ -7,10 +7,13 @@ myst:
 # Errors
 
 Every error fmsave raises on purpose is a `FmsaveError`; every warning it issues on purpose is a
-`FmsaveWarning`. Two errors are more specific than their base. `GateCheckError` is the
-`ReaderCheckError` a save opened with `strict=True` raises for a failed check.
-`SaveTooLargeError` is the `CorruptSaveError` for a save that holds more data than fmsave's
-memory limits allow; the save itself may be sound.
+`FmsaveWarning`. `GateCheckError` is the one exception that is also more specific than its base:
+it is the `ReaderCheckError` a save opened with `strict=True` raises for a failed check.
+
+fmsave sets no fixed size limit on a save. A part that claims or decompresses to far more than
+its compressed bytes could plausibly hold raises `CorruptSaveError` before that memory is spent;
+the message gives the ratio, what real saves show, and asks for a report if the game opens the
+save.
 
 ```{eval-rst}
 .. autoexception:: fmsave.FmsaveError
@@ -18,8 +21,6 @@ memory limits allow; the save itself may be sound.
 .. autoexception:: fmsave.NotAFmSaveError
    :show-inheritance:
 .. autoexception:: fmsave.CorruptSaveError
-   :show-inheritance:
-.. autoexception:: fmsave.SaveTooLargeError
    :show-inheritance:
 .. autoexception:: fmsave.UnsupportedGameError
    :show-inheritance:

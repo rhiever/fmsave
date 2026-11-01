@@ -396,9 +396,7 @@ class Save:
         frames = read_region_frames_bounded(
             index,
             SPAN_REGION,
-            maximum_compressed_bytes=limits.maximum_span_bytes * 9 // 8,
-            maximum_compressed_frame_bytes=limits.maximum_frame_bytes * 9 // 8,
-            maximum_frames=limits.maximum_candidates,
+            maximum_frames=limits.maximum_frames,
             maximum_decompressed_bytes=limits.maximum_span_bytes,
             maximum_frame_output_bytes=limits.maximum_frame_bytes,
         )

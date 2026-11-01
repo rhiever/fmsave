@@ -334,7 +334,7 @@ def test_history_index_candidates_count_against_the_total_cap(tmp_path) -> None:
     index = read_index(
         path, ContainerLimits(total_decompressed_cap=declared_total + 2 * frame_bytes)
     )
-    with pytest.raises(fmsave.SaveTooLargeError, match="limit of .* for a whole save"):
+    with pytest.raises(fmsave.CorruptSaveError, match="limit of .* set for a whole save"):
         history.read_history_index(index, history.find_history_layout(BUILD))
 
 

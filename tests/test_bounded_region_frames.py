@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 import fmsave._container as container
-from fmsave._errors import CorruptSaveError, SaveTooLargeError
+from fmsave._errors import CorruptSaveError
 from tests.fixtures.container import SectionFrame, build_container_fragment, section_body, zstd
 
 
@@ -52,13 +53,29 @@ def test_bounded_region_caps_frame_headers_before_building_unlimited_index(tmp_p
 
 
 def test_bounded_region_limits_decompressor_not_only_its_returned_bytes(tmp_path: Path) -> None:
-    with pytest.raises(SaveTooLargeError, match="limit of 32 bytes"):
+    with pytest.raises(CorruptSaveError, match="limit of 32 bytes set for one part"):
         read(region_index(tmp_path, (bytes(1000),)), maximum_frame_output_bytes=32)
 
 
 def test_bounded_region_tracks_aggregate_output_between_frames(tmp_path: Path) -> None:
-    with pytest.raises(SaveTooLargeError, match="limit of 4 bytes"):
+    with pytest.raises(CorruptSaveError, match="limit of 4 bytes set for one part"):
         read(region_index(tmp_path, (bytes(60), bytes(60))), maximum_decompressed_bytes=64)
+
+
+def test_bounded_region_without_budgets_reads_under_the_container_bounds(
+    tmp_path: Path,
+) -> None:
+    index = region_index(tmp_path, (b"alpha", b"beta"))
+    frames = container.read_region_frames_bounded(index, "unlisted_after_non_pl_hist_ls")
+    assert tuple(frames) == (b"alpha", b"beta")
+
+
+def test_bounded_region_counts_against_the_whole_save_bound(tmp_path: Path) -> None:
+    index = region_index(tmp_path, (bytes(60_000),))
+    declared = container.declared_total(index)
+    index = replace(index, limits=container.ContainerLimits(total_decompressed_cap=declared + 100))
+    with pytest.raises(CorruptSaveError, match="set for a whole save"):
+        tuple(container.read_region_frames_bounded(index, "unlisted_after_non_pl_hist_ls"))
 
 
 def test_bounded_region_rejects_nonpositive_work_budget(tmp_path: Path) -> None:

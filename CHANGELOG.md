@@ -6,7 +6,6 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ### Added
 
-- `SaveTooLargeError`, a `CorruptSaveError` raised when a save passes fmsave's size limits. Its message says the save is probably fine and asks for a report. (#52)
 - Validation reports five more `tactics` counts that show why a team has no tactic rows: `empty_tactic_blocks`, `flagged_tactic_counts`, `missing_tactics`, `unknown_signature_records`, and `signatures_after_routines`. (#31)
 - `fmsave export league-tables` and `injury-types` print a note on standard error when they write no rows. (#31)
 
@@ -17,8 +16,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ### Fixed
 
-- Large-database FM27 saves open: FM27 now uses FM26's size limits instead of 256 MiB and 512 MiB, and one part of a save may now reach 2 GiB instead of 1 GiB, with 4 GiB in all. (#52)
-- The app no longer calls a save damaged when it only passes fmsave's size limits. (#52)
+- Large saves open however big they grow: fmsave no longer caps a save at fixed sizes (FM27 at 256 MiB for one part and 512 MiB in all, FM26 at 1 GiB and 4 GiB). A part past 64 MiB that claims or decompresses to more than 64 times its compressed size, or a save whose parts add up to more than 32 times its file size, raises `CorruptSaveError` before that memory is spent. The message gives the ratio and asks for a report if the game opens the save. (#52)
+- `experimental_span()` reads large FM27 spans: its 128 MiB, 256 MiB, 100,000-fixture and 4,096-rule limits are gone, and its count limits grow with the span. (#52)
+- The app asks for a report when a fresh copy of a save still reads as damaged. (#52)
 - Docs: injury types and league tables can be empty before a season's first matches. (#31)
 
 ## [0.9.0] - 2026-10-30

@@ -166,11 +166,21 @@ def test_invalid_round_kind_does_not_scan_forward_to_another_date() -> None:
         (Fm27SpanLimits(maximum_frame_bytes=64), [bytes(65)]),
         (Fm27SpanLimits(maximum_candidates=1), [core() + core(home=1301, away=1302)]),
         (Fm27SpanLimits(maximum_fixtures=1), [core() + core(home=1301, away=1302)]),
+        (Fm27SpanLimits(maximum_frames=1), [bytes(4), bytes(4)]),
     ],
 )
 def test_span_resources_are_bounded(limits: Fm27SpanLimits, frames: list[bytes]) -> None:
     with pytest.raises(CorruptSaveError):
         read_fm27_span(frames, clock_year=2032, limits=limits)
+
+
+def test_default_span_limits_set_no_byte_ceiling_and_scale_counts_with_the_span() -> None:
+    limits = Fm27SpanLimits()
+    assert limits.maximum_span_bytes is None and limits.maximum_frame_bytes is None
+    # Small spans keep the fixed allowance; large ones allow one count per 64 bytes.
+    assert limits.count_limit(None, 1024) == 100_000
+    assert limits.count_limit(None, 640 * 1024**2) == 10 * 1024**2
+    assert limits.count_limit(7, 640 * 1024**2) == 7
 
 
 def test_memoryview_byte_extent_cannot_bypass_frame_cap() -> None:
