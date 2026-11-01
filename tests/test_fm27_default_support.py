@@ -63,3 +63,4 @@ def test_fm26_keeps_its_existing_larger_decompression_budget(tmp_path: Path) -> 
     with fmsave.open(path) as save:
         assert save.info.game == "FM26"
         assert save._container_index.limits.total_decompressed_cap == 4 * 1024**3
+        assert save._container_index.limits.frame_decompressed_cap == 2 * 1024**3

@@ -116,7 +116,7 @@ unregistered layouts are rejected. Failed checks always stop an FM27 reader, eve
 report lists unsupported readers and marks every FM27 field unconfirmed. Global field-status
 labels describe FM26; they do not certify FM27 meanings.
 
-FM27 uses the same decompression caps as FM26: 1 GiB for one part of a save and 4 GiB in all.
+FM27 uses the same decompression caps as FM26: 2 GiB for one part of a save and 4 GiB in all.
 A save past them raises `SaveTooLargeError`, which says the save is probably sound.
 Finance rows describe historical snapshots, not current-month live totals; stored money is
 not converted to the game's display currency. Match the period and units before comparing.

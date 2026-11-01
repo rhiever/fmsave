@@ -176,13 +176,24 @@ def test_fm27_opens_a_large_database_under_the_fm26_budget(tmp_path: Path) -> No
         save = fmsave.open(path)
     with save:
         assert save.info.game == "FM27"
-        assert save._container_index.limits.frame_decompressed_cap == 1024**3
+        assert save._container_index.limits.frame_decompressed_cap == 2 * 1024**3
         assert save._container_index.limits.total_decompressed_cap == 4 * 1024**3
 
 
+def test_fm27_opens_a_part_past_the_old_one_gib_limit(tmp_path: Path) -> None:
+    path = fm27_fragment_declaring(tmp_path, {"game_db": 1024**3 + 512 * 1024**2})
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        save = fmsave.open(path)
+    with save:
+        assert save.info.game == "FM27"
+
+
 def test_fm27_rejects_an_oversized_part_as_too_large_before_reading_it(tmp_path: Path) -> None:
-    path = fm27_fragment_declaring(tmp_path, {"game_db": 1024**3 + 1})
-    with pytest.raises(fmsave.SaveTooLargeError, match="game_db.dat is larger than fmsave's"):
+    path = fm27_fragment_declaring(tmp_path, {"game_db": 2 * 1024**3 + 1})
+    with pytest.raises(
+        fmsave.SaveTooLargeError,
+        match="game_db.dat is larger than fmsave.s limit of 2 GiB for one part",
+    ):
         fmsave.open(path)
 
 

@@ -45,9 +45,10 @@ SECTION_EXTENSIONS = frozenset({".dat", ".cmt"})
 # injury-type name table, which no section holds.
 MATCH_FILE_EXTENSIONS = frozenset({".apm", ".scm"})
 # The same caps hold for FM26 and FM27. Large-database FM26 careers declare up to about 2.2 GiB
-# in all, with single parts up to just under 1 GiB.
+# in all, with single parts just under 1 GiB, so a part may reach twice that. The caps bound
+# decompressor output, which grows as it is produced; nothing is allocated at the cap's size.
 DEFAULT_TOTAL_DECOMPRESSED_CAP = 4 * 1024**3
-DEFAULT_FRAME_DECOMPRESSED_CAP = 1024**3
+DEFAULT_FRAME_DECOMPRESSED_CAP = 2 * 1024**3
 MAX_TRAILER_COMPRESSED_BYTES = 64 * 1024**2
 MAX_TRAILER_DECOMPRESSED_BYTES = 64 * 1024**2
 MAX_SAVE_NAME_BYTES = 4096

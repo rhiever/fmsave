@@ -16,7 +16,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ### Fixed
 
-- Large-database FM27 saves open: FM27 now uses FM26's size limits, 1 GiB for one part of a save and 4 GiB in all, instead of 256 MiB and 512 MiB. (#52)
+- Large-database FM27 saves open: FM27 now uses FM26's size limits instead of 256 MiB and 512 MiB, and one part of a save may now reach 2 GiB instead of 1 GiB, with 4 GiB in all. (#52)
 - The app no longer calls a save damaged when it only passes fmsave's size limits. (#52)
 - Docs: injury types and league tables can be empty before a season's first matches. (#31)
 
