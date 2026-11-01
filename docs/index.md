@@ -8,8 +8,9 @@ myst:
 
 Read your Football Manager 26 and 27 saves from disk into Python records, DataFrames, CSV, and JSON.
 fmsave is read-only: it never modifies a save, makes no network connections, and does not read
-game memory. FM27 support currently covers build `27.0.0+2486695`; see the
-[coverage guide](guides/trust.md) for supported readers and field status.
+game memory. FM27 support currently covers build `27.0.0+2486695`, and other FM27 builds open
+as unverified builds; see the [coverage guide](guides/trust.md) for supported readers and field
+status.
 
 No Python? [Open fmsave in your browser](https://rhiever.github.io/fmsave/app/) and drop a save on
 the page. You get your squad and every player in the save, with all attributes, CA and PA, this

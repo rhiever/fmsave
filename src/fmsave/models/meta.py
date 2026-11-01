@@ -48,7 +48,8 @@ class SaveInfo:
         build_number: The numeric build.
         known_build: Whether fmsave has a layout registered for every reader for this build.
             It does not mean field meanings are confirmed: FM27 fields stay unconfirmed, and
-            `fmsave info` shows an FM27 build as partial coverage.
+            `fmsave info` shows an FM27 build as partial coverage. It is False for an FM27
+            build that borrows the registered build's layouts.
         db_version: Game database version string stored in the save (unconfirmed).
         game_date: In-game date, falling back to the structured save summary before the first
             Continue when the normal clock is null; None when neither is readable (unconfirmed).

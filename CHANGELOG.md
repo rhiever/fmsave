@@ -13,6 +13,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 ### Changed
 
 - FM27 build 27.0.0+2486695 now reports `known_build` true; its fields stay unconfirmed and `fmsave info` still shows partial coverage. (#31)
+- Unregistered FM27 builds open, borrowing 27.0.0+2486695 layouts where section schemas match. A reader whose section schema differs raises `UnsupportedGameError`, `known_build` stays false, `fmsave info` shows "unverified build", and `UnknownBuildWarning` says so.
 
 ### Fixed
 

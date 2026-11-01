@@ -31,7 +31,10 @@ def fm27_fragment(
     build: str = BUILD,
     info_schema: int = 47,
     game_db: bytes = bytes(64),
+    game_db_schema: int = 4000,
+    summary_schema: int = 31,
     summary_date: bytes = packed_date(190, 2032),
+    extra_sections: tuple[SectionFrame, ...] = (),
 ) -> Path:
     # Independent synthetic metadata: no save bytes, derived identities or real text.
     base = 8 + len(length_prefixed("27.0.0+0"))
@@ -49,8 +52,9 @@ def fm27_fragment(
     return build_container_fragment(
         [
             SectionFrame("game_info", bytes(info)),
-            SectionFrame("save_game_summary", section_body(".dat", 31, summary)),
-            SectionFrame("game_db", section_body(".dat", 4000, game_db)),
+            SectionFrame("save_game_summary", section_body(".dat", summary_schema, summary)),
+            SectionFrame("game_db", section_body(".dat", game_db_schema, game_db)),
+            *extra_sections,
         ]
     ).write(tmp_path / "example.bin")
 
@@ -72,21 +76,160 @@ def test_fm27_exact_experiment_reads_structured_metadata(tmp_path: Path) -> None
     assert BUILD in known_builds()
 
 
-@pytest.mark.parametrize("build,schema", [("27.0.1+3000001", 47), (BUILD, 48), ("0" + BUILD, 47)])
-def test_fm27_unknown_build_or_metadata_schema_fails_closed(
+@pytest.mark.parametrize("build,schema", [("27.0.1+3000001", 48), (BUILD, 48), ("0" + BUILD, 47)])
+def test_fm27_unknown_metadata_schema_or_version_fails_closed(
     tmp_path: Path, build: str, schema: int
 ) -> None:
     with pytest.raises(UnsupportedGameError):
         fmsave.open(fm27_fragment(tmp_path, build=build, info_schema=schema))
 
 
+UNREGISTERED_BUILD = "27.1.0+3000001"
+
+
+def test_an_unregistered_fm27_build_opens_and_reads_a_region_whose_schema_matches(
+    tmp_path: Path,
+) -> None:
+    path = fm27_fragment(tmp_path, build=UNREGISTERED_BUILD, game_db=nation_table_bytes())
+    with pytest.warns(fmsave.UnknownBuildWarning) as record:
+        save = fmsave.open(path)
+    with save:
+        assert save.info.game == "FM27"
+        assert save.info.build == UNREGISTERED_BUILD
+        assert not save.info.known_build
+        assert save.info.game_date == date(2032, 7, 8)
+        rows = save.nations()
+        assert len(rows) == 251
+        assert rows[-1].database_id == 900_250
+    messages = [str(warning.message) for warning in record]
+    # One warning carries both the borrowing notice and the FM27 coverage notice.
+    assert len(messages) == 1
+    assert f"FM27 build {UNREGISTERED_BUILD}, an unverified build" in messages[0]
+    assert f"borrows the {BUILD} layouts for each section whose schema matches" in messages[0]
+    assert "Please report problems at" in messages[0]
+    assert "FM27 fields remain unconfirmed" in messages[0]
+
+
+def test_the_registered_fm27_build_warns_only_about_coverage(tmp_path: Path) -> None:
+    with pytest.warns(fmsave.UnknownBuildWarning) as record:
+        fmsave.open(fm27_fragment(tmp_path)).close()
+    assert [str(warning.message).startswith("FM27 coverage") for warning in record] == [True]
+
+
+def test_an_unregistered_fm27_reader_whose_schema_changed_fails_by_itself(
+    tmp_path: Path,
+) -> None:
+    feeder = SectionFrame("feeder_man", section_body(".dat", 6, bytes(16)))
+    path = fm27_fragment(
+        tmp_path,
+        build=UNREGISTERED_BUILD,
+        game_db=nation_table_bytes(),
+        extra_sections=(feeder,),
+    )
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        save = fmsave.open(path)
+    with save:
+        with pytest.raises(UnsupportedGameError) as error_info:
+            save.affiliates()
+        message = str(error_info.value)
+        assert "'feeder_man'" in message
+        assert UNREGISTERED_BUILD in message
+        assert "schema 6 differs from the schema 5 registered for build" in message
+        assert len(save.nations()) == 251
+        report = fmsave.validate_save(save)
+    statuses = {reader.reader: reader.status for reader in report.readers}
+    assert statuses["nations"] == "ok"
+    assert statuses["affiliates"] != "ok"
+    assert not report.known_build
+
+
+def test_an_unregistered_fm27_game_db_schema_refuses_its_readers_not_the_save(
+    tmp_path: Path,
+) -> None:
+    path = fm27_fragment(
+        tmp_path, build=UNREGISTERED_BUILD, game_db=nation_table_bytes(), game_db_schema=4001
+    )
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        save = fmsave.open(path)
+    with save, pytest.raises(UnsupportedGameError, match="'game_db'.*schema 4001 differs"):
+        save.nations()
+
+
+@pytest.mark.parametrize(
+    "info_schema,summary_schema", [(48, 31), (47, 32)], ids=("game_info", "summary")
+)
+def test_an_unregistered_fm27_build_with_other_metadata_schemas_is_refused(
+    tmp_path: Path, info_schema: int, summary_schema: int
+) -> None:
+    path = fm27_fragment(
+        tmp_path,
+        build=UNREGISTERED_BUILD,
+        info_schema=info_schema,
+        summary_schema=summary_schema,
+    )
+    with pytest.raises(UnsupportedGameError, match="FM27"):
+        fmsave.open(path)
+
+
+def test_an_unregistered_fm27_build_metadata_takes_the_checked_path(tmp_path: Path) -> None:
+    # A clock no structured layout accepts is refused rather than guessed.
+    path = fm27_fragment(tmp_path, build=UNREGISTERED_BUILD, summary_date=packed_date(0, 2032))
+    with pytest.raises(fmsave.ReaderCheckError):
+        fmsave.open(path)
+
+
+@pytest.mark.parametrize("build", ["28.0.0+3000001", "28.1.0+2486695", "99.0.0+1"])
+def test_builds_after_fm27_are_still_refused(tmp_path: Path, build: str) -> None:
+    with pytest.raises(UnsupportedGameError, match="is not supported"):
+        fmsave.open(fm27_fragment(tmp_path, build=build))
+
+
+def test_unknown_fm26_builds_still_read_fm26_layouts_only() -> None:
+    from fmsave._layouts import ClubTableLayout
+    from fmsave._layouts import fm26_26_3_2 as fm26
+    from fmsave._layouts import fm27_27_0_0 as fm27
+
+    match = find_layout(ClubTableLayout, "game_db", 4000, "26.9.0+1234567")
+    assert match.layout is fm26.CLUB_TABLE
+    assert match.layout != fm27.CLUB_TABLE
+    borrowed = find_layout(ClubTableLayout, "game_db", 4000, UNREGISTERED_BUILD)
+    assert borrowed.layout is fm27.CLUB_TABLE
+    assert not borrowed.exact
+
+
+def test_fm27_regions_registered_without_a_schema_are_borrowed() -> None:
+    from fmsave._layouts import FixtureCalendarLayout, InjuryTypeTableLayout
+
+    for layout_type, region in (
+        (FixtureCalendarLayout, "unlisted_after_non_pl_hist_ls"),
+        (InjuryTypeTableLayout, "match_file"),
+    ):
+        registered = find_layout(layout_type, region, None, BUILD)
+        borrowed = find_layout(layout_type, region, None, UNREGISTERED_BUILD)
+        assert borrowed.layout is registered.layout
+        assert registered.exact and not borrowed.exact
+
+
+def test_fm27_info_marks_an_unregistered_build_as_unverified(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["info", str(fm27_fragment(tmp_path, build=UNREGISTERED_BUILD))]) == 0
+    captured = capsys.readouterr()
+    assert f"{UNREGISTERED_BUILD} (unverified build, partial coverage)" in captured.out
+    assert "unverified build" in captured.err
+    assert main(["info", str(fm27_fragment(tmp_path)), "--json"]) == 0
+    assert '"known_build": true' in capsys.readouterr().out
+    assert main(["info", str(fm27_fragment(tmp_path, build=UNREGISTERED_BUILD)), "--json"]) == 0
+    assert '"known_build": false' in capsys.readouterr().out
+
+
 def test_fm27_layouts_never_borrow_across_game_editions() -> None:
-    with pytest.raises(UnsupportedGameError):
-        find_layout(TrainingLayout, "training_man", 33, BUILD)
-    with pytest.raises(UnsupportedGameError):
-        find_layout(GameInfoLayout, "game_info", 46, BUILD)
-    with pytest.raises(UnsupportedGameError):
-        find_layout(GameInfoLayout, "game_info", 47, "27.9.0+1")
+    # FM26 registers training_man 31 and game_info 46; no FM27 build borrows either.
+    for build in (BUILD, "27.9.0+1"):
+        with pytest.raises(UnsupportedGameError):
+            find_layout(TrainingLayout, "training_man", 31, build)
+        with pytest.raises(UnsupportedGameError):
+            find_layout(GameInfoLayout, "game_info", 46, build)
 
 
 def test_fm27_info_cli_default(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

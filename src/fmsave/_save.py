@@ -2764,7 +2764,7 @@ def open_save(
     strict: bool = False,
     competition_names: Mapping[int, str] | str | os.PathLike[str] | None = None,
 ) -> Save:
-    """Open a Football Manager 26 or supported 27 save file for reading.
+    """Open a Football Manager 26 or 27 save file for reading.
 
     Args:
         path: The save file to read.
@@ -2786,7 +2786,9 @@ def open_save(
         FileNotFoundError: The file does not exist.
         NotAFmSaveError: The file is not a Football Manager save.
         CorruptSaveError: The save is damaged or was being written.
-        UnsupportedGameError: The save is from another Football Manager version.
+        UnsupportedGameError: The save is from another Football Manager version, or from an
+            FM27 build with no layouts registered whose save summary or game_info section
+            schema differs from the registered build's.
         ReaderCheckError: The save metadata does not match the expected layout.
         OSError: A competition name CSV cannot be opened or read.
         TypeError: A competition name mapping holds a key that is not an int, or a name that is
@@ -2794,7 +2796,8 @@ def open_save(
         ValueError: A competition name CSV is malformed, or a supplied name is empty.
 
     Warns:
-        UnknownBuildWarning: An FM26 build lacks layout tables, or FM27 coverage is incomplete.
+        UnknownBuildWarning: An FM26 build lacks layout tables, an FM27 build has no layouts
+            registered and borrows them by schema, or FM27 coverage is incomplete.
     """
     # The map is checked before the file is touched, so a mistake in it costs none of the work
     # of opening a save.

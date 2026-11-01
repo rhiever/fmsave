@@ -2653,7 +2653,8 @@ class ValidationReport:
         build: Version and build that last wrote the save.
         known_build: Whether fmsave has a layout registered for every reader for this build.
             It does not mean field meanings are confirmed: FM27 fields stay unconfirmed, and
-            `fmsave info` shows an FM27 build as partial coverage.
+            `fmsave info` shows an FM27 build as partial coverage. It is False for an FM27
+            build that borrows the registered build's layouts.
         section_schemas: Schema number of every named section.
         readers: Each reader's outcome, in the order they ran.
         field_statuses: Whether each public field's meaning is "verified" or "unconfirmed".

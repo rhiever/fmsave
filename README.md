@@ -12,13 +12,16 @@ season's stats, and CSV downloads. The save is read on your computer and never u
 ## Game coverage
 
 FM27 support covers build `27.0.0+2486695` through the normal API and commands. Other FM27
-builds and unregistered layouts are rejected. Reader coverage is partial: suspensions,
-semantic fixtures, league tables, competition rules, and populated per-match histories are
-not supported. Run `fmsave validate SAVE --json` for reader coverage and checks.
+builds open as unverified builds: fmsave borrows the `27.0.0+2486695` layouts for each section
+whose schema matches, and a reader of a section whose schema differs raises
+`UnsupportedGameError`. Every reader runs on FM27, including fixtures, league tables,
+competition rules, suspensions and per-match histories. Named set-piece routines and nonempty
+training header entries and mentoring groups are not supported, and three season-stat fields
+are not read. Run `fmsave validate SAVE --json` for reader coverage and checks.
 
 FM27 field meanings remain unconfirmed; structural checks do not establish correctness.
-`known_build` is true for this build because every reader has a registered layout, not
-because its fields are confirmed.
+`known_build` is true for `27.0.0+2486695` because every reader has a registered layout, not
+because its fields are confirmed. It is false for other FM27 builds.
 Unknown values stay explicit rather than borrowing FM26 meanings. Finance rows are snapshots,
 not current-month totals, and money is not converted to display currency. See the
 [trust guide](https://rhiever.github.io/fmsave/guides/trust.html) before relying on a value.
