@@ -2525,7 +2525,11 @@ def find_layout[LayoutT: Layout](
     schema is never applied to another build's save.
     """
     layout_build = _layout_build(build)
-    full_builds = known_builds()
+    # Only FM26 builds lend a layout to a save of another build by schema. An FM27 build
+    # lends none, so a schema FM27 alone registers never reaches an FM26 save.
+    full_builds = frozenset(
+        known_build for known_build in known_builds() if not known_build.startswith("27.")
+    )
     candidates = [
         entry
         for entry in registered_layouts()

@@ -17,6 +17,8 @@ semantic fixtures, league tables, competition rules, and populated per-match his
 not supported. Run `fmsave validate SAVE --json` for reader coverage and checks.
 
 FM27 field meanings remain unconfirmed; structural checks do not establish correctness.
+`known_build` is true for this build because every reader has a registered layout, not
+because its fields are confirmed.
 Unknown values stay explicit rather than borrowing FM26 meanings. Finance rows are snapshots,
 not current-month totals, and money is not converted to display currency. See the
 [trust guide](https://rhiever.github.io/fmsave/guides/trust.html) before relying on a value.

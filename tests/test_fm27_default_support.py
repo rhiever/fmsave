@@ -34,6 +34,22 @@ def test_cli_info_calls_the_registered_fm27_build_partial_not_unknown(
     assert "unknown build" not in output
 
 
+def test_the_registered_fm27_build_is_known_and_still_partial_coverage(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A known FM27 build keeps its coverage warning and its partial-coverage label."""
+    with pytest.warns(fmsave.UnknownBuildWarning, match="FM27 coverage"):
+        save = fmsave.open(fm27_fragment(tmp_path))
+    with save:
+        assert save.info.known_build
+    assert main(["info", str(fm27_fragment(tmp_path))]) == 0
+    captured = capsys.readouterr()
+    assert f"{BUILD} (partial coverage)" in captured.out
+    assert "FM27 coverage" in captured.err
+    assert main(["info", str(fm27_fragment(tmp_path)), "--json"]) == 0
+    assert '"known_build": true' in capsys.readouterr().out
+
+
 def test_fm26_keeps_its_existing_larger_decompression_budget(tmp_path: Path) -> None:
     from tests.fixtures.container import build_container_fragment, default_sections, zstd
 

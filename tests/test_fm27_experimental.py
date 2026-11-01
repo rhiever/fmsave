@@ -68,8 +68,8 @@ def test_fm27_exact_experiment_reads_structured_metadata(tmp_path: Path) -> None
         assert save.info.build == BUILD
         assert save.info.game_date == date(2032, 7, 8)
         assert save.info.db_version == "27.0.0+0"
-        assert not save.info.known_build
-    assert BUILD not in known_builds()
+        assert save.info.known_build
+    assert BUILD in known_builds()
 
 
 @pytest.mark.parametrize("build,schema", [("27.0.1+3000001", 47), (BUILD, 48), ("0" + BUILD, 47)])

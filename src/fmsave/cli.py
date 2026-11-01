@@ -390,14 +390,15 @@ def _info_record(save_info: SaveInfo, show_name: bool) -> dict[str, object]:
 
 
 def _build_text(save_info: SaveInfo) -> str:
-    """The build, marked when fmsave lacks a full set of layouts for it.
+    """The build, marked when fmsave lacks a full set of layouts for it or covers it in part.
 
-    Only the registered FM27 build opens at all, so an FM27 save is partly covered, not unknown.
+    Only the registered FM27 build opens at all. Its layouts are registered for every reader,
+    but its fields stay unconfirmed, so an FM27 build is shown as partial coverage.
     """
-    if save_info.known_build:
-        return save_info.build
     if save_info.game == "FM27":
         return f"{save_info.build} (partial coverage)"
+    if save_info.known_build:
+        return save_info.build
     return f"{save_info.build} (unknown build)"
 
 

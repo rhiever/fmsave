@@ -82,8 +82,9 @@ from fmsave._layouts.fm26_26_3_2 import (
 )
 
 BUILD = "27.0.0+2486695"
-# No full reader set or independent UI validation exists for this build.
-KNOWN_BUILDS: tuple[str, ...] = ()
+# Every reader has a layout registered for this build. That says the layouts fit its saves,
+# not that any field's meaning is confirmed: FM27 fields stay unconfirmed.
+KNOWN_BUILDS: tuple[str, ...] = (BUILD,)
 
 GAME_INFO = GameInfoLayout(
     db_version_length_offset=8,

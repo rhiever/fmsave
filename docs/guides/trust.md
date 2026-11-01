@@ -110,8 +110,9 @@ FM27 coverage is partial.
 
 ## FM27 coverage
 
-FM27 build `27.0.0+2486695` opens normally. Other FM27 builds and unregistered layouts are
-rejected. Failed checks always stop an FM27 reader, even with `strict=False`. The validation
+FM27 build `27.0.0+2486695` opens normally and reports `known_build` true: every reader has a
+layout registered for it, which does not confirm any field's meaning. Other FM27 builds and
+unregistered layouts are rejected. Failed checks always stop an FM27 reader, even with `strict=False`. The validation
 report lists unsupported readers and marks every FM27 field unconfirmed. Global field-status
 labels describe FM26; they do not certify FM27 meanings.
 
