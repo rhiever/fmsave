@@ -241,7 +241,7 @@ def decode_game_info_fields(
     db_version, version_end = read_length_prefixed_string(
         game_info, layout.db_version_length_offset, layout.max_db_version_bytes
     )
-    variable_bytes = game_info_filename_bytes(game_info, layout, version_end)
+    variable_bytes = game_info_filename_bytes(game_info, layout, version_end, version, file_name)
     stored_build_numbers = [
         read_u32(game_info, version_end + offset)
         for offset in layout.build_number_offsets_after_db_version
@@ -274,16 +274,33 @@ def decode_game_info_fields(
     )
 
 
-def game_info_filename_bytes(game_info: bytes, layout: GameInfoLayout, version_end: int) -> int:
-    """Walk the bounded filename list before the clock, without interpreting its strings."""
+def game_info_filename_bytes(
+    game_info: bytes,
+    layout: GameInfoLayout,
+    version_end: int,
+    version: GameVersion,
+    file_name: str,
+) -> int:
+    """Walk the bounded filename list before the clock, without interpreting its strings.
+
+    Raises:
+        ReaderCheckError: The list claims more entries than the layout allows. The count is
+            read where the layout puts it, so a count no save stores means the layout differs,
+            not that the save is damaged: it is reported as a mismatch, like a build word that
+            is not where the layout says, and a candidate layout it rules out is skipped the
+            same way.
+        CorruptSaveError: A filename runs past the end of the section or past its bound.
+    """
     count_offset = layout.filename_count_offset_after_db_version
     if count_offset is None:
         return 0
     count_at = version_end + count_offset
     count = read_u32(game_info, count_at)
     if count > layout.max_filenames:
-        raise CorruptSaveError(
-            f"game_info filename list claims {count} entries, more than {layout.max_filenames} allowed"
+        raise ReaderCheckError(
+            f"{file_name}: game_info does not match build {version.build} (its filename list "
+            f"claims {count} entries, more than the {layout.max_filenames} fmsave allows), so "
+            f"the save layout differs from what fmsave expects. Please report it at {ISSUES_URL}"
         )
     strings_start = count_at + LENGTH_PREFIX_BYTES
     cursor = strings_start
@@ -325,7 +342,9 @@ def checked_game_info_candidate(
     _, version_end = read_length_prefixed_string(
         game_info, layout.db_version_length_offset, layout.max_db_version_bytes
     )
-    base = version_end + game_info_filename_bytes(game_info, layout, version_end)
+    base = version_end + game_info_filename_bytes(
+        game_info, layout, version_end, version, file_name
+    )
     clock_at = base + layout.game_date_offset_after_db_version
     clock_is_unset = game_info[clock_at : clock_at + 4] == UNSET_GAME_INFO_CLOCK
     start, end = layout.late_build_number_window_after_db_version

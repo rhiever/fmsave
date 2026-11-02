@@ -324,9 +324,39 @@ def test_a_26_1_0_save_reads_its_clock_four_bytes_earlier(tmp_path: Path) -> Non
 
 def test_a_26_3_2_save_does_not_read_its_clock_at_the_26_1_0_offset(tmp_path: Path) -> None:
     body = game_info_body(game_date_offset=168, late_build_number_offset=195)
-    # The older clock overlaps the current build's filename count, so this is malformed.
-    with pytest.raises(CorruptSaveError, match="filename list claims"):
+    # The older clock overlaps the current build's filename count, so the layout does not fit.
+    with pytest.raises(ReaderCheckError, match="filename list claims"):
         read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+
+
+def with_filename_count(body: bytes, count: int, db_version: str = "26.2.0+0") -> bytes:
+    """`body` with the filename count the 26.3.2 layout reads replaced by `count`."""
+    changed = bytearray(body)
+    struct.pack_into("<I", changed, 8 + len(length_prefixed(db_version)) + 165, count)
+    return bytes(changed)
+
+
+@pytest.mark.parametrize("count", [257, 65536, 0xFFFFFFFF])
+def test_an_implausible_filename_count_reports_a_layout_mismatch_not_damage(
+    tmp_path: Path, count: int
+) -> None:
+    body = with_filename_count(game_info_body(), count)
+    with pytest.raises(ReaderCheckError) as error_info:
+        read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+    message = str(error_info.value)
+    assert message == (
+        f"fragment.bin: game_info does not match build 26.3.2+2329565 (its filename list claims "
+        f"{count} entries, more than the 256 fmsave allows), so the save layout differs from "
+        f"what fmsave expects. Please report it at {ISSUES_URL}"
+    )
+    assert "damaged" not in message
+    assert RETRY_HINT not in message
+
+
+def test_the_largest_filename_count_allowed_still_reads(tmp_path: Path) -> None:
+    body = game_info_body(filenames=("example.dat",) * 256)
+    save_info = read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+    assert save_info.game_date == date(2031, 3, 1)
 
 
 def test_a_26_1_0_late_build_word_past_its_window_fails_checks(tmp_path: Path) -> None:
@@ -520,13 +550,13 @@ def test_filename_contents_are_not_searched_for_a_clock_or_build(tmp_path: Path)
         )
 
 
-@pytest.mark.parametrize("kind", ["count", "length", "truncated", "encoding"])
+# An implausible count is a layout mismatch rather than damage; see
+# test_an_implausible_filename_count_reports_a_layout_mismatch_not_damage.
+@pytest.mark.parametrize("kind", ["length", "truncated", "encoding"])
 def test_malformed_filename_list_is_rejected(tmp_path: Path, kind: str) -> None:
     body = bytearray(game_info_body(filenames=("Example.exe",)))
     count_at = 12 + len("26.2.0+0") + 165
-    if kind == "count":
-        struct.pack_into("<I", body, count_at, 0xFFFFFFFF)
-    elif kind == "length":
+    if kind == "length":
         struct.pack_into("<I", body, count_at + 4, 0xFFFFFFFF)
     elif kind == "truncated":
         del body[count_at + 9 :]

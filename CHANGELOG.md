@@ -11,8 +11,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 ### Fixed
 
 - `tactics()` reads tactic records stored under a signature fmsave does not list when some of their setting units store a value other than the usual one in the byte between their two bit fields. That byte is counted in validation rather than shipped, and every other check on these records still applies. Records under a listed signature are read as before. (#31)
+- A save whose `game_info` filename list claims more entries than fmsave allows now raises `ReaderCheckError` saying the save layout differs from what fmsave expects and asking for a report, instead of `CorruptSaveError` saying the file is damaged and to wait or copy it. Such a count comes from a layout fmsave does not know, not from a damaged file. The command line exits with status 3 for it rather than 1. (#56)
 
-Thanks to @OdumWorld for help testing. Refs #31.
+Thanks to @mameabdou24 for the report and @OdumWorld for help testing. Refs #31, #56.
 
 ## [0.9.2] - 2026-11-01
 
