@@ -16,6 +16,8 @@ from fmsave.readers.tactics import (
 )
 from tests.fixtures.tactics import selection_part_bytes, set_piece_area_bytes, tactics_man_body
 
+# The layout FM27 was first registered with, which read neither tactic records nor routine names.
+# It keeps both gates, so the probes below show that a gated layout still fails closed.
 LAYOUT = replace(
     FM26_TACTICS,
     selection_end_marker=b"\x44\x00",
@@ -188,11 +190,15 @@ def fm27_record(name: str, *, preset: bool = False) -> bytes:
     return bytes(record)
 
 
-def fm27_section(records: tuple[bytes, ...], after_blocks: bytes = b"") -> bytes:
+def fm27_section(
+    records: tuple[bytes, ...],
+    after_blocks: bytes = b"",
+    routine_area: bytes = set_piece_area_bytes((None,) * 20),
+) -> bytes:
     block = selection(TEAMS[0], tactic_count=len(records), tactics_value=0)
     return tactics_man_body(
         selector=9901,
-        blocks=(block + b"".join(records) + set_piece_area_bytes((None,) * 20),),
+        blocks=(block + b"".join(records) + routine_area,),
         after_blocks=after_blocks,
     )
 
@@ -251,3 +257,106 @@ def test_fm27_slot_block_in_the_fm26_shape_ends_the_slot_walk() -> None:
 
     (tactic,) = rows[0].tactics
     assert not tactic.walk_complete
+
+
+# Default slots 0, 4 and 8 and user slots 3, 6, 15 and 19 are named, one name in a second
+# alphabet; the extra name is a second routine in the last counted group.
+FM27_ROUTINE_NAMES: tuple[str | None, ...] = tuple(
+    {
+        0: "Example Near Post",
+        3: "Example Short Corner",
+        4: "Example Long Throw",
+        6: "Example Back Post",
+        8: "Exemple équipe",
+        15: "Example Free Kick",
+        19: "Example Wall Pass",
+        20: "Example Late Run",
+    }.get(slot)
+    for slot in range(21)
+)
+# User routines store other tail flags than default ones do; each of the three values appears.
+FM27_ROUTINE_FLAGS = tuple(slot % 3 for slot in range(21))
+
+
+def test_fm27_named_default_and_user_routines_decode_in_stored_order() -> None:
+    area = set_piece_area_bytes(FM27_ROUTINE_NAMES, FM27_ROUTINE_FLAGS)
+    rows, counts = walk_tactic_blocks(
+        fm27_section((fm27_record(FM27_FIRST_TACTIC),), routine_area=area),
+        TEAMS[:1],
+        FM27_LAYOUT,
+        "fictional.bin",
+    )
+
+    assert rows[0].routine_names == FM27_ROUTINE_NAMES
+    assert [tactic.name for tactic in rows[0].tactics] == [FM27_FIRST_TACTIC]
+    assert counts.routine_blocks_complete == 1
+    assert counts.tactic_blocks_count_matching == 1
+
+
+def test_fm27_named_routines_read_as_the_fm26_layout_reads_the_same_area() -> None:
+    area = set_piece_area_bytes(FM27_ROUTINE_NAMES, FM27_ROUTINE_FLAGS)
+    fm27_rows, fm27_counts = walk_tactic_blocks(
+        fm27_section((), routine_area=area), TEAMS[:1], FM27_LAYOUT, "fictional.bin"
+    )
+    fm26_body = tactics_man_body(
+        selector=9901,
+        blocks=(selection(TEAMS[0], tactics_value=0, marker=b"\x42\x00") + area,),
+        after_blocks=b"",
+    )
+    fm26_rows, fm26_counts = walk_tactic_blocks(fm26_body, TEAMS[:1], FM26_TACTICS, "fictional.bin")
+
+    assert fm27_rows[0].routine_names == fm26_rows[0].routine_names == FM27_ROUTINE_NAMES
+    assert fm27_counts.routine_blocks_complete == fm26_counts.routine_blocks_complete == 1
+
+
+@pytest.mark.parametrize(
+    "bad_name",
+    (
+        pytest.param(b"Example\xff", id="not-utf8"),
+        pytest.param(b"Example\x01", id="control-character"),
+    ),
+)
+def test_fm27_named_routine_that_does_not_decode_never_completes_the_walk(
+    bad_name: bytes,
+) -> None:
+    area = set_piece_area_bytes(FM27_ROUTINE_NAMES)
+    good_name = b"Example Short Corner"
+    damaged = area.replace(
+        struct.pack("<I", len(good_name)) + good_name,
+        struct.pack("<I", len(bad_name)) + bad_name,
+        1,
+    )
+    assert damaged != area
+
+    rows, counts = walk_tactic_blocks(
+        fm27_section((), routine_area=damaged), TEAMS[:1], FM27_LAYOUT, "fictional.bin"
+    )
+
+    assert len(rows) == 1
+    assert counts.routine_blocks_complete == 0
+
+
+def test_fm27_routine_name_longer_than_the_layout_allows_never_completes_the_walk() -> None:
+    names = list(FM27_ROUTINE_NAMES)
+    highest = FM27_LAYOUT.routine_name_length_range[1]
+    names[3] = "x" * (highest + 1)
+    rows, counts = walk_tactic_blocks(
+        fm27_section((), routine_area=set_piece_area_bytes(names)),
+        TEAMS[:1],
+        FM27_LAYOUT,
+        "fictional.bin",
+    )
+
+    assert len(rows) == 1
+    assert counts.routine_blocks_complete == 0
+
+
+@pytest.mark.parametrize("missing", (1, 12, 40))
+def test_fm27_truncated_named_routine_never_passes_complete_walk(missing: int) -> None:
+    area = set_piece_area_bytes(FM27_ROUTINE_NAMES)
+    rows, counts = walk_tactic_blocks(
+        fm27_section((), routine_area=area[:-missing]), TEAMS[:1], FM27_LAYOUT, "fictional.bin"
+    )
+
+    assert len(rows) == 1
+    assert counts.routine_blocks_complete == 0

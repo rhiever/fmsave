@@ -5797,7 +5797,7 @@
           256,
         ),
         'name_zero_bytes': 12,
-        'named_routines_supported': False,
+        'named_routines_supported': True,
         'no_tactics_value': 4294967295,
         'order_list_count': 8,
         'order_marker': b'\x08',

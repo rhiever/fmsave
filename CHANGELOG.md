@@ -9,6 +9,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 ### Added
 
 - Validation reports more `tactics` counts about tactic records stored under a signature fmsave does not list: `unlisted_record_units`, the setting units in the records read, and `unexpected_unit_separators`, those whose separator byte is not the usual value. Those units are also counted by value as `unit_separator_<value>`, by slot block as `unit_separator_block<block>`, and by place in the block as `unit_separator_unit<unit>`, each appearing only when nonzero. (#31)
+- `tactics()`, `set_pieces()` and `selections()` read FM27 saves whose set-piece routines have names, such as a career carried over from FM26, instead of raising `UnsupportedGameError`. The names come back in `SetPieceRoutine.name` as on FM26, and every routine group must still be read whole for the `set_pieces` checks to pass. Saves with only unnamed routines read as before. (#56)
 
 ### Fixed
 
@@ -18,7 +19,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - `training()` and `mentoring()` on FM27 read saves whose training section holds per-person header entries or mentoring groups, such as a career carried over from FM26, instead of raising `UnsupportedGameError`. fmsave read an FM27 team block's mentoring group count four bytes too late and its groups in the FM26 shape. A block whose groups are followed by bytes that are not zero still raises `UnsupportedGameError`. Saves with no header entries and no groups read as before. (#56)
 - `staff()` and `staff_lists()` on FM27 count a staff code list stored as all zeros as one that is not set, rather than as codes outside the observed set, so `staff_codes_in_set` no longer fails on a save holding many of them. A list mixing zeros with other codes still counts against the check, and FM26 is unchanged. (#56)
 
-Thanks to @mameabdou24 for the report and @OdumWorld for help testing. Refs #31, #56.
+Thanks to @mameabdou24 for the report, @sebheusig for researching the FM27 game_info layout, and @OdumWorld for help testing. Refs #31, #56.
 
 ## [0.9.2] - 2026-11-01
 
