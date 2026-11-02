@@ -823,8 +823,9 @@ class TacticStats:
 
     `empty_tactic_blocks`, `flagged_tactic_counts`, `missing_tactics`,
     `unknown_signature_records`, `signatures_after_routines`,
-    `unknown_signature_records_read` and `unknown_signature_bytes` are the walk's diagnostic
-    counts, described on `TacticWalkCounts`; no check judges them.
+    `unknown_signature_records_read`, `unknown_signature_bytes`, `unlisted_record_units` and
+    `unit_separators` are the walk's diagnostic counts, described on `TacticWalkCounts`; no
+    check judges them.
 
     `routine_blocks` counts the blocks whose routines were searched for,
     `routine_blocks_complete` those whose default runs and counted user groups
@@ -859,6 +860,8 @@ class TacticStats:
     signatures_after_routines: int = 0
     unknown_signature_records_read: int = 0
     unknown_signature_bytes: tuple[tuple[int, int, int], ...] = ()
+    unlisted_record_units: int = 0
+    unit_separators: tuple[tuple[int, int, int, int], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

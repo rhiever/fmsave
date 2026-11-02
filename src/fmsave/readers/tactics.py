@@ -10,7 +10,8 @@ the walk: the bytes after a record's last slot block are not decoded at all, so 
 slot walk breaks costs its own slots and nothing else, and the count in front of the records
 says how many to look for. A block whose listed signatures fall short of that count is retried
 once with unlisted signature variants read as records too, and the retry is kept only when it
-reads exactly the claimed records, each one whole. A routine is found by its terminator and
+reads exactly the claimed records, each one whole. On the unlisted records alone a setting
+unit's separator byte may hold any value; it is counted, not shipped. A routine is found by its terminator and
 decoded **backwards**, by length: its name is never matched against text, because an empty
 slot stores a name of length zero and one save's style code happens to be the terminator's
 own last four bytes.
@@ -65,6 +66,11 @@ class RawTactic:
     holds the slots decoded before it stopped. `oop_index_permutation` says whether the
     out-of-possession index bytes of the slots read are a permutation of 0 to one less than
     the number of slots a record holds.
+
+    `unit_separators` holds (slot block, unit, stored value) for each setting unit whose
+    separator byte is not the layout's, which only a walk told to accept any separator reads.
+    Slot blocks count from 0 in stored order, so block 2n is slot n's in-possession block and
+    2n + 1 its out-of-possession one; units count from 0 within their block.
     """
 
     name: str
@@ -75,6 +81,7 @@ class RawTactic:
     slots: tuple[TacticSlot, ...]
     walk_complete: bool
     oop_index_permutation: bool
+    unit_separators: tuple[tuple[int, int, int], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +133,11 @@ class TacticWalkCounts:
     `missing_tactics`. `unknown_signature_bytes` holds (position, stored value, count) for each
     byte where an unlisted signature differs from its nearest listed one, positions counted from
     0 at the signature's start, over every place `unknown_signature_records` counts.
+
+    `unlisted_record_units` counts the setting units of those unlisted-signature records, and
+    `unit_separators` holds (slot block, unit, stored value, count) for each of their units
+    whose separator byte is not the layout's, numbered as `RawTactic.unit_separators` numbers
+    them.
     """
 
     club_team_count: int
@@ -144,6 +156,8 @@ class TacticWalkCounts:
     signatures_after_routines: int = 0
     unknown_signature_records_read: int = 0
     unknown_signature_bytes: tuple[tuple[int, int, int], ...] = ()
+    unlisted_record_units: int = 0
+    unit_separators: tuple[tuple[int, int, int, int], ...] = ()
 
 
 def find_tactics_layout(schema: int | None, build: str) -> TacticsLayout:
@@ -433,7 +447,11 @@ def _mask_positions(mask: int, layout: TacticsLayout) -> tuple[CodedValue[Tactic
 
 @dataclass(frozen=True, slots=True)
 class _SlotBlock:
-    """One of the 22 slot blocks of a tactic record."""
+    """One of the 22 slot blocks of a tactic record.
+
+    `unit_separators` holds (unit, stored value) for each unit whose separator byte is not the
+    layout's, which only a walk told to accept any separator reads.
+    """
 
     mask: int
     setting_count: int
@@ -442,16 +460,27 @@ class _SlotBlock:
     trail_bits: int
     position_index: int | None
     end: int
+    unit_separators: tuple[tuple[int, int], ...] = ()
 
 
 def _read_slot_block(
-    section: bytes, cursor: int, record_end: int, layout: TacticsLayout, *, with_index_byte: bool
+    section: bytes,
+    cursor: int,
+    record_end: int,
+    layout: TacticsLayout,
+    *,
+    with_index_byte: bool,
+    any_separator: bool = False,
 ) -> _SlotBlock | None:
     """One slot block, or None when the bytes at `cursor` are not one.
 
     `record_end` is where this record's own bytes stop, which is the next signature in the team
     block or the block's own end: a block that would reach past it is not this record's, so the
     walk stops instead of decoding the next record's bytes as this one's slots.
+
+    `any_separator` lets a setting unit store any value in its separator byte, which records
+    under some unlisted signatures do; each such unit is kept in `unit_separators`. Every other
+    byte is checked as on a strict walk.
 
     A slot block that does not decode is not an error: it ends the record's walk, which is
     counted, and the record after it starts at the next signature either way.
@@ -478,14 +507,17 @@ def _read_slot_block(
     role_bits = int.from_bytes(section[cursor : cursor + layout.role_bits_bytes], "little")
     cursor += layout.role_bits_bytes
     settings: list[TacticSettingUnit] = []
-    for _ in range(setting_count):
+    unit_separators: list[tuple[int, int]] = []
+    separator_at = len(layout.unit_lead) + _UINT8.size + layout.unit_first_field_bytes
+    for unit_number in range(setting_count):
         unit = section[cursor : cursor + layout.unit_bytes]
         if unit[: len(layout.unit_lead)] != layout.unit_lead:
             return None
-        if unit[len(layout.unit_lead) + _UINT8.size + layout.unit_first_field_bytes] != (
-            layout.unit_separator
-        ):
-            return None
+        separator = unit[separator_at]
+        if separator != layout.unit_separator:
+            if not any_separator:
+                return None
+            unit_separators.append((unit_number, separator))
         settings.append(decode_setting_unit(unit, layout))
         cursor += layout.unit_bytes
     trail_bits = int.from_bytes(section[cursor : cursor + layout.trail_bytes], "little")
@@ -495,7 +527,14 @@ def _read_slot_block(
         position_index = section[cursor]
         cursor += _UINT8.size
     return _SlotBlock(
-        mask, setting_count, tuple(settings), role_bits, trail_bits, position_index, cursor
+        mask,
+        setting_count,
+        tuple(settings),
+        role_bits,
+        trail_bits,
+        position_index,
+        cursor,
+        tuple(unit_separators),
     )
 
 
@@ -525,13 +564,20 @@ def _slot_from_pair(
 
 
 def _read_tactic_record(
-    section: bytes, signature_at: int, record_end: int, layout: TacticsLayout, file_name: str
+    section: bytes,
+    signature_at: int,
+    record_end: int,
+    layout: TacticsLayout,
+    file_name: str,
+    *,
+    any_separator: bool = False,
 ) -> RawTactic:
     """One stored tactic record, walked as far as its slot blocks allow.
 
     `record_end` is where the record's own bytes stop: the next signature inside the team
     block, or the block's end when it is the last record. Nothing here reads past it, so a
     record whose walk breaks cannot take its slots from the record that follows it.
+    `any_separator` is passed to every slot block, as `_read_slot_block` describes.
 
     Raises:
         ReaderCheckError: The record's name or style label does not decode, or its fixed part
@@ -555,18 +601,33 @@ def _read_tactic_record(
     cursor += layout.style_code_bytes
     slots: list[TacticSlot] = []
     index_bytes: list[int] = []
+    unit_separators: list[tuple[int, int, int]] = []
     walk_complete = True
     for number in range(layout.slot_count):
-        in_possession = _read_slot_block(section, cursor, record_end, layout, with_index_byte=False)
+        in_possession = _read_slot_block(
+            section,
+            cursor,
+            record_end,
+            layout,
+            with_index_byte=False,
+            any_separator=any_separator,
+        )
         if in_possession is None:
             walk_complete = False
             break
         out_of_possession = _read_slot_block(
-            section, in_possession.end, record_end, layout, with_index_byte=True
+            section,
+            in_possession.end,
+            record_end,
+            layout,
+            with_index_byte=True,
+            any_separator=any_separator,
         )
         if out_of_possession is None:
             walk_complete = False
             break
+        for slot_block, block in enumerate((in_possession, out_of_possession), 2 * number):
+            unit_separators.extend((slot_block, *found) for found in block.unit_separators)
         slots.append(_slot_from_pair(number, in_possession, out_of_possession, layout))
         if out_of_possession.position_index is not None:
             index_bytes.append(out_of_possession.position_index)
@@ -580,6 +641,7 @@ def _read_tactic_record(
         tuple(slots),
         walk_complete,
         sorted(index_bytes) == list(range(layout.slot_count)),
+        tuple(unit_separators),
     )
 
 
@@ -810,21 +872,46 @@ def _strict_records(
     return tactics, presets
 
 
+@dataclass(frozen=True, slots=True)
+class _LenientRead:
+    """What a kept lenient retry read: its records and what it counts about them.
+
+    `presets` and `unlisted` count the records under the preset signature and under unlisted
+    ones. `unlisted_units` counts the setting units of the unlisted ones, and
+    `unit_separators` holds every (slot block, unit, stored value) their walks reported.
+    """
+
+    records: list[RawTactic]
+    presets: int
+    unlisted: int
+    unlisted_units: int
+    unit_separators: tuple[tuple[int, int, int], ...]
+
+
+def _setting_units(record: RawTactic) -> int:
+    return sum(
+        slot.in_possession_setting_count + slot.out_of_possession_setting_count
+        for slot in record.slots
+    )
+
+
 def _lenient_records(
     section: bytes,
     selection: _SelectionPart,
     records_end: int,
     layout: TacticsLayout,
     file_name: str,
-) -> tuple[list[RawTactic], int, int] | None:
+) -> _LenientRead | None:
     """A block's records with unlisted signature variants read as records too, or None.
 
     This runs only on a block whose listed signatures fall short of its count and whose
     routine area walked completely, which bounds the records area. Every place in that area
     that opens with the signatures' shared lead and holds a whole signature is a candidate
-    record start, listed or not, and each record is bounded by the next candidate. The result
-    is (records, preset-signature records, unlisted-signature records), and it is kept only when
-    every one of these holds:
+    record start, listed or not, and each record is bounded by the next candidate. A record
+    under a listed signature is walked exactly as the strict walk walks it. One under an
+    unlisted signature is walked the same way except that its setting units may store any
+    value in their separator byte, as some variants do; each such unit is reported. The result
+    is kept only when every one of these holds:
 
     - the first candidate sits where the selection part ends, so nothing is skipped;
     - there are exactly as many candidates as the block's count claims, so no candidate is
@@ -837,7 +924,13 @@ def _lenient_records(
     record's last slot block it cuts that record's walk short; after it, in the bytes no walk
     decodes, it adds a candidate the count has no room for unless a real record went
     unfound, and it must then decode as a whole record of its own. Each of these returns None,
-    and the block keeps its strict result.
+    and the block keeps its strict result. A coincidental candidate almost always reads as an
+    unlisted signature, so the separator byte is relaxed on exactly the candidates this
+    argument is about, and it rests on what still binds: a cut-short record still cannot fit
+    its last block inside its shortened bounds, and a stray record still needs a name and a
+    style label that decode, then 22 slot blocks each with its tag, its constant and a unit
+    count in range, each ending exactly where the next block's tag begins, every unit with its
+    three lead bytes, and index bytes that form a permutation.
     """
     lead = layout.user_signature[:_SIGNATURE_LEAD_BYTES]
     width = len(layout.user_signature)
@@ -855,16 +948,26 @@ def _lenient_records(
     if not unknown:
         return None
     tactics: list[RawTactic] = []
-    for start, end in zip(candidates, [*candidates[1:], records_end], strict=True):
+    unlisted_units = 0
+    unit_separators: list[tuple[int, int, int]] = []
+    for start, end, signature in zip(
+        candidates, [*candidates[1:], records_end], signatures, strict=True
+    ):
+        unlisted = signature not in known
         try:
-            record = _read_tactic_record(section, start, end, layout, file_name)
+            record = _read_tactic_record(
+                section, start, end, layout, file_name, any_separator=unlisted
+            )
         except ReaderCheckError:
             return None
         if not record.walk_complete or not record.oop_index_permutation:
             return None
+        if unlisted:
+            unlisted_units += _setting_units(record)
+            unit_separators.extend(record.unit_separators)
         tactics.append(record)
     presets = signatures.count(layout.preset_signature)
-    return tactics, presets, unknown
+    return _LenientRead(tactics, presets, unknown, unlisted_units, tuple(unit_separators))
 
 
 def walk_tactic_blocks(
@@ -903,6 +1006,8 @@ def walk_tactic_blocks(
     unknown_signature_records = 0
     unknown_signature_records_read = 0
     unknown_signature_bytes: dict[tuple[int, int], int] = {}
+    unlisted_record_units = 0
+    unit_separators: dict[tuple[int, int, int], int] = {}
     signatures_after_routines = 0
     for team_id, block_start in ordered_starts:
         # A block ends where the next stored block begins, whichever team that block is for:
@@ -916,8 +1021,11 @@ def walk_tactic_blocks(
         if len(tactics) < selection.tactic_count and routines_complete:
             lenient = _lenient_records(section, selection, records_end, layout, file_name)
             if lenient is not None:
-                tactics, block_presets, block_unknown_read = lenient
-                unknown_signature_records_read += block_unknown_read
+                tactics, block_presets = lenient.records, lenient.presets
+                unknown_signature_records_read += lenient.unlisted
+                unlisted_record_units += lenient.unlisted_units
+                for found in lenient.unit_separators:
+                    unit_separators[found] = unit_separators.get(found, 0) + 1
         records_found = len(tactics)
         preset_tactics += block_presets
         if selection.tactic_count:
@@ -979,6 +1087,8 @@ def walk_tactic_blocks(
             (position, value, count)
             for (position, value), count in sorted(unknown_signature_bytes.items())
         ),
+        unlisted_record_units,
+        tuple((*found, count) for found, count in sorted(unit_separators.items())),
     )
     return tuple(blocks), counts
 
@@ -1092,6 +1202,8 @@ def build_tactic_tables(
         signatures_after_routines=counts.signatures_after_routines,
         unknown_signature_records_read=counts.unknown_signature_records_read,
         unknown_signature_bytes=counts.unknown_signature_bytes,
+        unlisted_record_units=counts.unlisted_record_units,
+        unit_separators=counts.unit_separators,
         slot_walks_complete=slot_walks_complete,
         oop_index_permutations=index_permutations,
         routine_blocks=len(blocks),

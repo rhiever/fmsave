@@ -28,7 +28,8 @@ from __future__ import annotations
 import os.path
 import platform
 import warnings
-from collections.abc import Generator, Mapping, Sequence
+from collections import Counter
+from collections.abc import Generator, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from statistics import median_low
@@ -2363,6 +2364,12 @@ def check_tactics(stats: TacticStats, bounds: GateBounds, game_db_bytes: int) ->
     `unknown_signature_byte<position>_<value>` count, with the value in two hex digits, appears
     for each byte where an unlisted signature differs from its nearest listed one, so a report
     says which variant a save stores without holding anything from the save but format bytes.
+
+    `unlisted_record_units` counts the setting units of the unlisted-signature records read,
+    and `unexpected_unit_separators` those of them whose separator byte is not the usual one.
+    Those units are also counted by the value they store, as `unit_separator_<value>` with the
+    value in two hex digits, by slot block, as `unit_separator_block<block>`, and by their
+    place in that block, as `unit_separator_unit<unit>`, each appearing only when nonzero.
     """
     return ReaderCheck(
         TACTICS_READER,
@@ -2388,9 +2395,32 @@ def check_tactics(stats: TacticStats, bounds: GateBounds, game_db_bytes: int) ->
                     f"unknown_signature_byte{position}_{value:02x}": count
                     for position, value, count in stats.unknown_signature_bytes
                 },
+                "unlisted_record_units": stats.unlisted_record_units,
+                "unexpected_unit_separators": sum(
+                    count for *_found, count in stats.unit_separators
+                ),
+                **_unit_separator_counts(stats.unit_separators),
             }
         ),
     )
+
+
+def _unit_separator_counts(
+    unit_separators: Iterable[tuple[int, int, int, int]],
+) -> dict[str, int]:
+    """The `unit_separator_*` counts `check_tactics` reports, by value, block and unit."""
+    by_value: Counter[int] = Counter()
+    by_block: Counter[int] = Counter()
+    by_unit: Counter[int] = Counter()
+    for slot_block, unit, value, count in unit_separators:
+        by_value[value] += count
+        by_block[slot_block] += count
+        by_unit[unit] += count
+    return {
+        **{f"unit_separator_{value:02x}": by_value[value] for value in sorted(by_value)},
+        **{f"unit_separator_block{block:02d}": by_block[block] for block in sorted(by_block)},
+        **{f"unit_separator_unit{unit:02d}": by_unit[unit] for unit in sorted(by_unit)},
+    }
 
 
 def check_set_pieces(stats: TacticStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:

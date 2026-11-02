@@ -4,6 +4,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Added
+
+- Validation reports more `tactics` counts about tactic records stored under a signature fmsave does not list: `unlisted_record_units`, the setting units in the records read, and `unexpected_unit_separators`, those whose separator byte is not the usual value. Those units are also counted by value as `unit_separator_<value>`, by slot block as `unit_separator_block<block>`, and by place in the block as `unit_separator_unit<unit>`, each appearing only when nonzero. (#31)
+
+### Fixed
+
+- `tactics()` reads tactic records stored under a signature fmsave does not list when some of their setting units store a value other than the usual one in the byte between their two bit fields. That byte is counted in validation rather than shipped, and every other check on these records still applies. Records under a listed signature are read as before. (#31)
+
+Thanks to @OdumWorld for help testing. Refs #31.
+
 ## [0.9.2] - 2026-11-01
 
 ### Added

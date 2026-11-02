@@ -82,7 +82,9 @@ class TacticSettingUnit:
 
     A slot holds between none and about twenty of these, and they are what the player
     instructions of that position most likely are, but the save stores no name for either
-    field, so both ship as the numbers they are. Every field is unconfirmed.
+    field, so both ship as the numbers they are. Every field is unconfirmed. The byte between
+    the two fields is the same on every unit of the signatures fmsave lists and is not shipped;
+    on a record stored under another signature it can differ, and validation counts those units.
 
     Attributes:
         head_byte: The byte after the unit's lead bytes, which is 0 on most units and 2 or 10
