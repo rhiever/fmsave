@@ -16,6 +16,7 @@ from fmsave._checks import (
     SET_PIECES_READER,
     TACTICS_READER,
     GateResult,
+    check_tactics,
     evaluate_set_pieces,
     evaluate_tactics,
 )
@@ -34,6 +35,8 @@ from fmsave.models.tactics import (
 )
 from fmsave.readers._common import GAME_DB_SECTION, TACTICS_SECTION
 from fmsave.readers.tactics import (
+    RawTacticBlock,
+    TacticWalkCounts,
     _routine_tail_pattern,  # pyright: ignore[reportPrivateUsage]
     build_tactic_tables,
     find_tactics_layout,
@@ -61,6 +64,7 @@ from tests.fixtures.tactics import (
     NO_SELECTOR,
     NO_TACTICS_VALUE,
     ROUTINE_COUNT,
+    USER_SIGNATURE,
     selection_part_bytes,
     set_piece_area_bytes,
     setting_unit_bytes,
@@ -1143,6 +1147,8 @@ def test_a_healthy_walk_reports_only_its_empty_blocks(career_path: Path) -> None
     assert stats.empty_tactic_blocks == 1
     assert stats.flagged_tactic_counts == stats.missing_tactics == 0
     assert stats.unknown_signature_records == stats.signatures_after_routines == 0
+    assert stats.unknown_signature_records_read == 0
+    assert stats.unknown_signature_bytes == ()
 
 
 def test_a_no_tactics_value_over_a_nonzero_count_is_counted() -> None:
@@ -1163,22 +1169,187 @@ def test_a_no_tactics_value_over_a_nonzero_count_is_counted() -> None:
     assert counts.flagged_tactic_counts == 1
 
 
-def test_a_record_with_an_unlisted_signature_variant_is_counted_as_missing() -> None:
-    body = tactics_man_body(
-        selector=MANAGER_SELECTOR,
-        blocks=(
-            _diagnostic_block(NORTHBRIDGE_TEAM_A, tactics_value=HAS_TACTICS_VALUE, tactic_count=1)
-            + _example_record(record_variant=7)
-            + set_piece_area_bytes(career_routine_names()),
+def _with_signature_byte(record: bytes, position: int, value: int) -> bytes:
+    """`record` with one byte of its signature replaced, as an unlisted variant would store."""
+    changed = bytearray(record)
+    changed[position] = value
+    return bytes(changed)
+
+
+def _records_block(records: Sequence[bytes], *, tactic_count: int | None = None) -> bytes:
+    """One first-team block claiming `tactic_count` records, default all of them, then routines."""
+    return (
+        _diagnostic_block(
+            NORTHBRIDGE_TEAM_A,
+            tactics_value=HAS_TACTICS_VALUE,
+            tactic_count=len(records) if tactic_count is None else tactic_count,
+        )
+        + b"".join(records)
+        + set_piece_area_bytes(career_routine_names())
+    )
+
+
+def _walk_one_block(block: bytes) -> tuple[RawTacticBlock, TacticWalkCounts]:
+    body = tactics_man_body(selector=MANAGER_SELECTOR, blocks=(block,))
+    blocks, counts = walk_tactic_blocks(body, CAREER_TEAM_IDS[:1], LAYOUT, FILE_NAME)
+    return blocks[0], counts
+
+
+@pytest.mark.parametrize(
+    ("position", "value"), ((7, 0x07), (4, 0x04), (5, 0x01), (6, 0x09)), ids=str
+)
+def test_a_record_with_an_unlisted_signature_variant_is_read_and_its_byte_reported(
+    position: int, value: int
+) -> None:
+    variant = _with_signature_byte(_example_record(name="Example Variant"), position, value)
+    block, counts = _walk_one_block(
+        _records_block((_example_record(name="Example Listed"), variant))
+    )
+
+    assert [tactic.name for tactic in block.tactics] == ["Example Listed", "Example Variant"]
+    assert all(tactic.walk_complete and tactic.oop_index_permutation for tactic in block.tactics)
+    assert counts.tactic_blocks == counts.tactic_blocks_count_matching == 1
+    assert counts.missing_tactics == counts.preset_tactics == 0
+    assert counts.unknown_signature_records == counts.unknown_signature_records_read == 1
+    assert counts.unknown_signature_bytes == ((position, value, 1),)
+
+
+def test_records_the_lenient_walk_reads_match_the_strict_read_of_listed_ones() -> None:
+    listed = _example_record(name="Example Variant")
+    strict_block, _strict_counts = _walk_one_block(_records_block((listed,)))
+    lenient_block, counts = _walk_one_block(
+        _records_block((_example_record(preset=True), _with_signature_byte(listed, 4, 0x04)))
+    )
+
+    assert lenient_block.tactics[1] == strict_block.tactics[0]
+    assert counts.preset_tactics == counts.unknown_signature_records_read == 1
+
+
+def test_every_unlisted_signature_is_reported_and_keyed_by_its_nearest_listed_one() -> None:
+    records = (
+        _with_signature_byte(_example_record(preset=True), 4, 0x04),
+        _with_signature_byte(_example_record(), 4, 0x04),
+        _example_record(record_variant=0x07),
+    )
+    block, counts = _walk_one_block(_records_block(records))
+
+    assert len(block.tactics) == 3
+    assert counts.unknown_signature_records == counts.unknown_signature_records_read == 3
+    assert counts.unknown_signature_bytes == ((4, 0x04, 2), (7, 0x07, 1))
+    stats = healthy_stats(unknown_signature_bytes=counts.unknown_signature_bytes)
+    anomalies = check_tactics(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES).anomalies
+    assert anomalies["unknown_signature_byte4_04"] == 2
+    assert anomalies["unknown_signature_byte7_07"] == 1
+    assert anomalies["unknown_signature_records_read"] == 0
+
+
+def _broken_variant() -> bytes:
+    """An unlisted-variant record whose fifth slot claims one setting unit more than it holds."""
+    slots = list(career_tactic_slots())
+    slots[4] = (
+        slot_block_bytes(
+            mask=1,
+            units=(setting_unit_bytes(head_byte=0, first_bits=1, second_bits=1),),
+            role_bits=1,
+            stored_unit_count=2,
+        ),
+        slots[4][1],
+    )
+    return _example_record(slots=slots, record_variant=0x07)
+
+
+def _repeated_index_variant() -> bytes:
+    """An unlisted-variant record whose index bytes repeat one slot number."""
+    slots = list(career_tactic_slots())
+    slots[7] = (
+        slots[7][0],
+        slot_block_bytes(
+            mask=1 << 7,
+            units=(setting_unit_bytes(head_byte=0, first_bits=1, second_bits=1),),
+            role_bits=8,
+            position_index=6,
         ),
     )
-    blocks, counts = walk_tactic_blocks(body, CAREER_TEAM_IDS[:1], LAYOUT, FILE_NAME)
+    return _example_record(slots=slots, record_variant=0x07)
 
-    assert not blocks[0].tactics
-    assert counts.tactic_blocks == counts.missing_tactics == 1
-    assert counts.tactic_blocks_count_matching == 0
-    assert counts.unknown_signature_records == 1
-    assert counts.signatures_after_routines == 0
+
+# A tail holding the signatures' shared lead, as a stored value could by coincidence.
+_LEAD_IN_TAIL = b"\xee" * 4 + USER_SIGNATURE[:4] + b"\xee" * 8
+
+
+@pytest.mark.parametrize(
+    ("records", "tactic_count"),
+    (
+        pytest.param((_example_record(), _broken_variant()), None, id="slot walk breaks"),
+        pytest.param((_example_record(), _repeated_index_variant()), None, id="index repeats"),
+        pytest.param(
+            (_example_record(), _example_record(record_variant=0x07)), 3, id="count claims more"
+        ),
+        pytest.param(
+            (_example_record(tail=_LEAD_IN_TAIL),), 2, id="lead in a tail is not a record"
+        ),
+        pytest.param(
+            (_example_record(tail=_LEAD_IN_TAIL), _example_record(record_variant=0x07)),
+            2,
+            id="lead in a tail is one candidate too many",
+        ),
+        pytest.param((_example_record(record_variant=0x07)[:-200],), None, id="record cut short"),
+    ),
+)
+def test_unlisted_variants_that_do_not_form_whole_records_leave_the_strict_result(
+    records: tuple[bytes, ...], tactic_count: int | None
+) -> None:
+    block, counts = _walk_one_block(_records_block(records, tactic_count=tactic_count))
+    claimed = len(records) if tactic_count is None else tactic_count
+    listed = sum(record.startswith(USER_SIGNATURE) for record in records)
+
+    assert len(block.tactics) == listed
+    assert counts.tactic_blocks_count_matching == counts.unknown_signature_records_read == 0
+    assert counts.missing_tactics == claimed - len(block.tactics)
+    assert counts.unknown_signature_records >= 1
+
+
+def test_a_lead_match_inside_a_listed_record_cuts_it_short_and_keeps_the_strict_result() -> None:
+    slots = list(career_tactic_slots())
+    lead_bits = int.from_bytes(USER_SIGNATURE[:4], "little")
+    slots[2] = (
+        slot_block_bytes(
+            mask=1 << 2,
+            units=(setting_unit_bytes(head_byte=0, first_bits=lead_bits, second_bits=1),),
+            role_bits=1,
+        ),
+        slots[2][1],
+    )
+    holding_lead = _example_record(name="Example Lead Bits", slots=slots)
+    block, counts = _walk_one_block(
+        _records_block((holding_lead, _example_record(record_variant=0x07)))
+    )
+
+    assert [tactic.name for tactic in block.tactics] == ["Example Lead Bits"]
+    assert block.tactics[0].walk_complete
+    assert counts.missing_tactics == 1
+    assert counts.unknown_signature_records_read == 0
+
+
+def test_records_after_a_gap_or_with_an_incomplete_routine_area_are_not_retried() -> None:
+    variant = _example_record(record_variant=0x07)
+    gap_block = (
+        _diagnostic_block(NORTHBRIDGE_TEAM_A, tactics_value=HAS_TACTICS_VALUE, tactic_count=1)
+        + b"\x00"
+        + variant
+        + set_piece_area_bytes(career_routine_names())
+    )
+    truncated_routines = (
+        _diagnostic_block(NORTHBRIDGE_TEAM_A, tactics_value=HAS_TACTICS_VALUE, tactic_count=1)
+        + variant
+        + set_piece_area_bytes(career_routine_names()[:-1])
+    )
+    for block_bytes in (gap_block, truncated_routines):
+        block, counts = _walk_one_block(block_bytes)
+
+        assert not block.tactics
+        assert counts.missing_tactics == counts.unknown_signature_records == 1
+        assert counts.unknown_signature_records_read == 0
 
 
 def test_a_record_behind_the_routine_area_is_counted_but_not_read() -> None:

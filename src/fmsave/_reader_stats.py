@@ -822,7 +822,8 @@ class TacticStats:
     out-of-possession index bytes are a permutation of the slot numbers.
 
     `empty_tactic_blocks`, `flagged_tactic_counts`, `missing_tactics`,
-    `unknown_signature_records` and `signatures_after_routines` are the walk's diagnostic
+    `unknown_signature_records`, `signatures_after_routines`,
+    `unknown_signature_records_read` and `unknown_signature_bytes` are the walk's diagnostic
     counts, described on `TacticWalkCounts`; no check judges them.
 
     `routine_blocks` counts the blocks whose routines were searched for,
@@ -856,6 +857,8 @@ class TacticStats:
     missing_tactics: int = 0
     unknown_signature_records: int = 0
     signatures_after_routines: int = 0
+    unknown_signature_records_read: int = 0
+    unknown_signature_bytes: tuple[tuple[int, int, int], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

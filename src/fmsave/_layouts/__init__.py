@@ -1713,14 +1713,17 @@ class TacticsLayout:
     **Tactic records** are bounded by the next signature, never by the walk: the bytes after a
     record's last slot block are not decoded, so the record after it starts at the next
     `user_signature`, `alternate_signature` or `preset_signature` hit, and the count says how
-    many to read. A record is its signature, a length-prefixed name within `name_length_range`, `name_zero_bytes`
-    zero bytes, `team_instruction_bytes` instruction bytes of which `mentality_index` is the
-    mentality code, a length-prefixed style label, `style_code_bytes` of style code, and then
-    `slot_count` **pairs** of slot blocks: the in-possession block and then the
-    out-of-possession block, which is the one carrying the extra per-position index byte. The
-    22 blocks of a record are pairs and not two runs of eleven: walked as two runs the walk
-    stops at the third block on every record of every save measured, and walked as pairs it
-    completes on all of them with the index bytes a permutation of 0 to `slot_count` less one.
+    many to read. When those signatures fall short of the count, the block is retried with
+    every place in front of its routine area that opens with the signatures' first four bytes
+    as a record start, kept only when exactly the claimed records start there, the first where
+    the selection part ends, and every one walks whole. A record is its signature, a
+    length-prefixed name within `name_length_range`, `name_zero_bytes` zero bytes,
+    `team_instruction_bytes` instruction bytes of which `mentality_index` is the mentality code,
+    a length-prefixed style label, `style_code_bytes` of style code, and then `slot_count`
+    **pairs** of slot blocks: the in-possession block and then the out-of-possession block,
+    which is the one carrying the extra per-position index byte. The 22 blocks of a record are
+    pairs and not two runs of eleven: walked as two runs the walk stops at the third block on
+    every record of every save measured, and walked as pairs it completes on all of them with the index bytes a permutation of 0 to `slot_count` less one.
 
     **A slot block** is `slot_tag`, a u32 position mask whose bits 0 to `position_bit_count`
     less one are positions and whose higher bits are column flags, `slot_constant`, a u32

@@ -4,9 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-11-01
+
 ### Added
 
 - Validation reports two `clubs` counts: `clubs_without_main_nation`, the clubs read with no league nation, and `teamless_rows_without_main_nation`, the club-table rows with no league nation and no team list, which stay left out. (#53)
+- Validation reports two more kinds of `tactics` counts: `unknown_signature_records_read`, and an `unknown_signature_byte<position>_<value>` count for each byte where a tactic record's signature differs from the ones fmsave lists. (#31)
 
 ### Changed
 
@@ -15,8 +18,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 ### Fixed
 
 - `clubs()` now reads clubs the game stores with no league nation when they have a team list, such as school and university teams. Players home grown at those clubs get their `home_grown_club_uids` and `home_grown_club_names` instead of None. Rows with no league nation and no team list are still left out. (#53)
+- `tactics()` reads tactic records stored under a signature variant fmsave does not list, so `tactic_records_count_matching` no longer fails because of one. A team's records are read this way only when every record its count claims is found whole; otherwise the check still fails as before. (#31)
 
-Thanks to @guyluzon64 for the report. Refs #53.
+Thanks to @guyluzon64 for the report and @OdumWorld for help testing. Refs #31, #53.
 
 ## [0.9.1] - 2026-11-01
 

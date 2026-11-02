@@ -2359,6 +2359,10 @@ def check_tactics(stats: TacticStats, bounds: GateBounds, game_db_bytes: int) ->
     `tactic_blocks_count_mismatched` counts the blocks that claim more tactic records than the
     walk found signatures for, and `unresolved_selectors` the selectors no player record names.
     The other counts tell apart why a team shows no tactics, as `TacticWalkCounts` describes.
+    `unknown_signature_records_read` counts the unlisted-signature records read anyway. An
+    `unknown_signature_byte<position>_<value>` count, with the value in two hex digits, appears
+    for each byte where an unlisted signature differs from its nearest listed one, so a report
+    says which variant a save stores without holding anything from the save but format bytes.
     """
     return ReaderCheck(
         TACTICS_READER,
@@ -2379,6 +2383,11 @@ def check_tactics(stats: TacticStats, bounds: GateBounds, game_db_bytes: int) ->
                 "missing_tactics": stats.missing_tactics,
                 "unknown_signature_records": stats.unknown_signature_records,
                 "signatures_after_routines": stats.signatures_after_routines,
+                "unknown_signature_records_read": stats.unknown_signature_records_read,
+                **{
+                    f"unknown_signature_byte{position}_{value:02x}": count
+                    for position, value, count in stats.unknown_signature_bytes
+                },
             }
         ),
     )
