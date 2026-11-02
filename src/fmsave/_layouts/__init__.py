@@ -1605,7 +1605,8 @@ class StaffLayout:
     and every offset below counts from there: the current ability, the potential ability, the
     role-like byte at `r4_offset`, `code_count` bytes from `codes_offset`, the sentinel byte,
     `preference_count` preference slots from `preferences_offset`, and `block_40_count` further
-    bytes from `block_40_offset`.
+    bytes from `block_40_offset`. The codes count as in `code_set` when every one is in it, or,
+    where `unset_code_list_allowed` is set, when every one is zero.
 
     An object carries a readable **ability signature** when both abilities lie inside
     `ability_range` and the sentinel byte equals `sentinel_value`. Without one, nothing read
@@ -1685,6 +1686,7 @@ class StaffLayout:
     offer_marker_offset: int | None = None
     no_contract_selector_offset: int | None = None
     no_contract_lead: bytes = b""
+    unset_code_list_allowed: bool = False
 
 
 @dataclass(frozen=True, slots=True)

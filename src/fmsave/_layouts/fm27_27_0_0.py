@@ -165,6 +165,9 @@ SEASON_STATS = replace(
     require_unique_keys=True,
 )
 
+# Some staff objects store a code list that is all zeros, which no FM26 save holds. Zeros never
+# appear among other codes: a new career holds 62 such lists among 14,961 staff objects, and a
+# career carried over from FM26 holds 792 among 22,892, enough to sink the code share otherwise.
 STAFF = replace(
     FM26_STAFF,
     list_count_bytes=2,
@@ -173,6 +176,7 @@ STAFF = replace(
     offer_marker_offset=19,
     no_contract_selector_offset=16,
     no_contract_lead=b"\x05\x05",
+    unset_code_list_allowed=True,
 )
 
 TRAINING = replace(

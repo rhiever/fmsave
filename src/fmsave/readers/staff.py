@@ -803,7 +803,9 @@ def _read_ability_block(
     )
     codes_at = ability_at + layout.codes_offset
     codes = game_db[codes_at : codes_at + layout.code_count]
-    codes_in_set = all(code in layout.code_set for code in codes)
+    codes_in_set = all(code in layout.code_set for code in codes) or (
+        layout.unset_code_list_allowed and not any(codes)
+    )
     further_at = ability_at + layout.block_40_offset
     lowest_further, highest_further = layout.block_40_range
     further_in_range = all(
