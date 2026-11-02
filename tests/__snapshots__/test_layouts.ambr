@@ -2931,7 +2931,7 @@
           38,
         ),
         'db_version_length_offset': 8,
-        'filename_count_offset_after_db_version': 165,
+        'filename_count_offset_after_db_version': 167,
         'game_date_offset_after_db_version': 174,
         'late_build_number_window_after_db_version': tuple(
           382,

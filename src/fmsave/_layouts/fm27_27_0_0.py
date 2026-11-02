@@ -86,13 +86,18 @@ BUILD = "27.0.0+2486695"
 # not that any field's meaning is confirmed: FM27 fields stay unconfirmed.
 KNOWN_BUILDS: tuple[str, ...] = (BUILD,)
 
+# Schema 47's run of one-byte flags from +120 holds two flags more than schema 46's, and every
+# byte after the run sits two places later, so the filename count is at +167, seven bytes before
+# the clock as on FM26. Most saves store an empty list with zeros around it, which reads the same
+# at +165; a save whose list holds names fits only at +167, with its clock and late build word
+# then where this layout expects them.
 GAME_INFO = GameInfoLayout(
     db_version_length_offset=8,
     max_db_version_bytes=64,
     build_number_offsets_after_db_version=(38,),
     game_date_offset_after_db_version=174,
     late_build_number_window_after_db_version=(382, 446),
-    filename_count_offset_after_db_version=165,
+    filename_count_offset_after_db_version=167,
 )
 SAVE_SUMMARY = SaveSummaryLayout(
     version_pattern=r"([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,4})\+([0-9]{1,10})",
