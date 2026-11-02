@@ -42,7 +42,7 @@ def fm27_fragment(
     info.extend(bytes(base + 390 - len(info)))
     number = int(build.split("+")[1])
     struct.pack_into("<I", info, base + 38, number)
-    struct.pack_into("<I", info, base + 165, 0)
+    struct.pack_into("<I", info, base + 167, 0)
     info[base + 174 : base + 178] = packed_date(1, 1900)
     struct.pack_into("<II", info, base + 382, number, 0)
     summary = length_prefixed("EXAMPLE,SETUP") + length_prefixed(build)

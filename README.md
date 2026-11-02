@@ -15,9 +15,8 @@ FM27 support covers build `27.0.0+2486695` through the normal API and commands. 
 builds open as unverified builds: fmsave borrows the `27.0.0+2486695` layouts for each section
 whose schema matches, and a reader of a section whose schema differs raises
 `UnsupportedGameError`. Every reader runs on FM27, including fixtures, league tables,
-competition rules, suspensions and per-match histories. Named set-piece routines and nonempty
-training header entries and mentoring groups are not supported, and three season-stat fields
-are not read. Run `fmsave validate SAVE --json` for reader coverage and checks.
+competition rules, suspensions, per-match histories, training calendars and mentoring groups.
+Three season-stat fields are not read. Run `fmsave validate SAVE --json` for reader coverage and checks.
 
 FM27 field meanings remain unconfirmed; structural checks do not establish correctness.
 `known_build` is true for `27.0.0+2486695` because every reader has a registered layout, not
@@ -161,10 +160,12 @@ game stores its data:
 - [@johnmmcparland](https://github.com/johnmmcparland)
 - [@jtstothard](https://github.com/jtstothard)
 - [@kdr6989](https://github.com/kdr6989)
+- [@mameabdou24](https://github.com/mameabdou24)
 - [@matthiasvetter1104](https://github.com/matthiasvetter1104)
 - [@Namhahaha1110](https://github.com/Namhahaha1110)
 - [@OdumWorld](https://github.com/OdumWorld)
 - [@rui7avares-create](https://github.com/rui7avares-create)
+- [@sebheusig](https://github.com/sebheusig)
 - [@thaffy](https://github.com/thaffy)
 
 ## Support

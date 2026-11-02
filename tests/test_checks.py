@@ -1400,6 +1400,8 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "unknown_signature_records": 0,
             "signatures_after_routines": 0,
             "unknown_signature_records_read": 0,
+            "unlisted_record_units": 0,
+            "unexpected_unit_separators": 0,
         },
         "set_pieces": {"named_routines": 2},
         "selections": {"unresolved_picks": 2},

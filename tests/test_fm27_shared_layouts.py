@@ -74,7 +74,7 @@ def test_fm27_affiliate_groups_walk_every_count_and_reject_trailing_data() -> No
         walk_affiliate_groups(data + b"\x00", layout, "example.bin")
 
 
-def test_fm27_training_whitelist_does_not_guess_unobserved_substructures() -> None:
+def test_fm27_training_layout_pins_its_measured_shape() -> None:
     from fmsave._layouts import TrainingLayout
 
     layout = find_layout(TrainingLayout, "training_man", 32, BUILD).layout
@@ -83,8 +83,11 @@ def test_fm27_training_whitelist_does_not_guess_unobserved_substructures() -> No
     assert layout.day_block_lead_byte == 4
     assert layout.week_name_offset == 62
     assert layout.week_record_fixed_bytes == 80
-    assert not layout.header_entries_supported
-    assert not layout.mentoring_groups_supported
+    assert layout.header_entry_bytes == 13
+    assert (layout.block_tail_bytes, layout.block_trailer_bytes) == (32, 4)
+    assert (layout.group_lead_byte, layout.group_label_marker) == (2, None)
+    assert layout.header_entries_supported
+    assert layout.mentoring_groups_supported
 
 
 def test_fm27_injury_layouts_are_the_observed_fm26_layouts_registered_exactly() -> None:
@@ -111,7 +114,7 @@ def test_fm27_injury_checks_apply_to_early_season_sections_not_fragments() -> No
     assert observed.GATE_BOUNDS.injury_log_recent_team_matches == (0.90, None)
 
 
-def test_fm27_tactics_reads_records_but_still_rejects_named_routines() -> None:
+def test_fm27_tactics_reads_records_and_named_routines() -> None:
     from fmsave._layouts import TacticsLayout
 
     layout = find_layout(TacticsLayout, "tactics_man", 26, BUILD).layout
@@ -119,7 +122,7 @@ def test_fm27_tactics_reads_records_but_still_rejects_named_routines() -> None:
     assert layout.tactic_records_supported
     assert layout.user_signature == layout.alternate_signature
     assert layout.preset_signature != layout.user_signature
-    assert not layout.named_routines_supported
+    assert layout.named_routines_supported
 
 
 def test_fm27_match_whitelist_reads_rows_only_behind_declared_histories() -> None:

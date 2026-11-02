@@ -1605,7 +1605,8 @@ class StaffLayout:
     and every offset below counts from there: the current ability, the potential ability, the
     role-like byte at `r4_offset`, `code_count` bytes from `codes_offset`, the sentinel byte,
     `preference_count` preference slots from `preferences_offset`, and `block_40_count` further
-    bytes from `block_40_offset`.
+    bytes from `block_40_offset`. The codes count as in `code_set` when every one is in it, or,
+    where `unset_code_list_allowed` is set, when every one is zero.
 
     An object carries a readable **ability signature** when both abilities lie inside
     `ability_range` and the sentinel byte equals `sentinel_value`. Without one, nothing read
@@ -1685,6 +1686,7 @@ class StaffLayout:
     offer_marker_offset: int | None = None
     no_contract_selector_offset: int | None = None
     no_contract_lead: bytes = b""
+    unset_code_list_allowed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1806,9 +1808,12 @@ class TrainingLayout:
     `block_entry_bytes` entries, each of which the walk requires to start with
     `block_entry_lead_byte` although nothing else in it is decoded, a u32 count of weekly
     records, those records, `block_tail_bytes` of tail (not decoded), a u32 count of mentoring
-    groups, those groups, and the byte `block_terminator` -- except after the last block, which
-    is followed by unrelated data. The walk reads a block only while the stored team id is a
-    team of the managed club it has not already read, which is what ends it on the last block.
+    groups, those groups, `block_trailer_bytes` that must all be zero, and the byte
+    `block_terminator` -- except after the last block, which is followed by unrelated data.
+    The trailer is not decoded and is zero on every block measured; bytes there that are not
+    zero are a shape the layout does not know, and the walk refuses them rather than skip them.
+    The walk reads a block only while the stored team id is a team of the managed club it has
+    not already read, which is what ends it on the last block.
 
     **A weekly record** is the byte `week_lead_byte`, a 4-byte date at `week_date_offset`
     carrying time-of-day bits, the byte `week_marker_value` at `week_marker_offset`,
@@ -1823,9 +1828,9 @@ class TrainingLayout:
     written before it rather than with the following record's.
 
     **A mentoring group** is the byte `group_lead_byte`, a u32 group number, the byte
-    `group_label_marker`, a u32 length and that many label bytes, then a u32 member count of at
-    most `most_members_per_group` and that many u32 selectors, each a player's record index plus
-    one. `most_members_per_group`, `longest_name_bytes` and `most_library_entries` are
+    `group_label_marker` (absent where it is None), a u32 length and that many label bytes, then
+    a u32 member count of at most `most_members_per_group` and that many u32 selectors, each a
+    player's record index plus one. `most_members_per_group`, `longest_name_bytes` and `most_library_entries` are
     corruption caps and nothing more: each is far wider than anything a save measured holds (3
     members, 18 name bytes, 4 entries a group), and their one job is to stop a count read from
     the wrong bytes claiming megabytes. Tightening one to what a save holds today would be an
@@ -1870,7 +1875,7 @@ class TrainingLayout:
     week_name_offset: int
     week_record_fixed_bytes: int
     group_lead_byte: int
-    group_label_marker: int
+    group_label_marker: int | None
     longest_name_bytes: int
     most_members_per_group: int
     seven_day_step: int
@@ -1885,6 +1890,7 @@ class TrainingLayout:
     library_folder_offset: int
     day_sessions_offset: int
     sessions_per_day: int
+    block_trailer_bytes: int = 0
     header_entries_supported: bool = True
     mentoring_groups_supported: bool = True
     session_labels_supported: bool = False

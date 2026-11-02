@@ -18,7 +18,9 @@ from fmsave._errors import (
     UnknownBuildWarning,
     UnsupportedGameError,
 )
+from fmsave._layouts import fm27_27_0_0 as fm27
 from fmsave._version import read_save_info
+from fmsave.models.meta import SaveInfo
 from tests.fixtures.container import (
     SectionFrame,
     build_container_fragment,
@@ -118,14 +120,16 @@ def structured_summary_body(
     divisions: tuple[str, ...] = ("Example Division",),
     club_name: str = "",
     summary_date: bytes = packed_date(188, 2025),
+    version: str = "26.3.2+2329565",
+    schema: int = 29,
 ) -> bytes:
-    """Invented schema-29 fields, with variable strings before its structured clock."""
-    payload = length_prefixed("EXAMPLE,SETUP") + length_prefixed("26.3.2+2329565")
+    """Invented fields, with variable strings before its structured clock."""
+    payload = length_prefixed("EXAMPLE,SETUP") + length_prefixed(version)
     payload += struct.pack("<I", len(divisions))
     payload += b"".join(length_prefixed(division) for division in divisions)
     payload += bytes(8) + length_prefixed("Alex Example") + length_prefixed(club_name)
     payload += struct.pack("<I", 5001 if club_name else 0xFFFFFFFF) + summary_date
-    return section_body(".dat", 29, payload)
+    return section_body(".dat", schema, payload)
 
 
 @pytest.mark.parametrize("divisions", [(), ("Example Division", "Liga Fictícia")])
@@ -324,9 +328,39 @@ def test_a_26_1_0_save_reads_its_clock_four_bytes_earlier(tmp_path: Path) -> Non
 
 def test_a_26_3_2_save_does_not_read_its_clock_at_the_26_1_0_offset(tmp_path: Path) -> None:
     body = game_info_body(game_date_offset=168, late_build_number_offset=195)
-    # The older clock overlaps the current build's filename count, so this is malformed.
-    with pytest.raises(CorruptSaveError, match="filename list claims"):
+    # The older clock overlaps the current build's filename count, so the layout does not fit.
+    with pytest.raises(ReaderCheckError, match="filename list claims"):
         read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+
+
+def with_filename_count(body: bytes, count: int, db_version: str = "26.2.0+0") -> bytes:
+    """`body` with the filename count the 26.3.2 layout reads replaced by `count`."""
+    changed = bytearray(body)
+    struct.pack_into("<I", changed, 8 + len(length_prefixed(db_version)) + 165, count)
+    return bytes(changed)
+
+
+@pytest.mark.parametrize("count", [257, 65536, 0xFFFFFFFF])
+def test_an_implausible_filename_count_reports_a_layout_mismatch_not_damage(
+    tmp_path: Path, count: int
+) -> None:
+    body = with_filename_count(game_info_body(), count)
+    with pytest.raises(ReaderCheckError) as error_info:
+        read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+    message = str(error_info.value)
+    assert message == (
+        f"fragment.bin: game_info does not match build 26.3.2+2329565 (its filename list claims "
+        f"{count} entries, more than the 256 fmsave allows), so the save layout differs from "
+        f"what fmsave expects. Please report it at {ISSUES_URL}"
+    )
+    assert "damaged" not in message
+    assert RETRY_HINT not in message
+
+
+def test_the_largest_filename_count_allowed_still_reads(tmp_path: Path) -> None:
+    body = game_info_body(filenames=("example.dat",) * 256)
+    save_info = read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+    assert save_info.game_date == date(2031, 3, 1)
 
 
 def test_a_26_1_0_late_build_word_past_its_window_fails_checks(tmp_path: Path) -> None:
@@ -520,13 +554,13 @@ def test_filename_contents_are_not_searched_for_a_clock_or_build(tmp_path: Path)
         )
 
 
-@pytest.mark.parametrize("kind", ["count", "length", "truncated", "encoding"])
+# An implausible count is a layout mismatch rather than damage; see
+# test_an_implausible_filename_count_reports_a_layout_mismatch_not_damage.
+@pytest.mark.parametrize("kind", ["length", "truncated", "encoding"])
 def test_malformed_filename_list_is_rejected(tmp_path: Path, kind: str) -> None:
     body = bytearray(game_info_body(filenames=("Example.exe",)))
     count_at = 12 + len("26.2.0+0") + 165
-    if kind == "count":
-        struct.pack_into("<I", body, count_at, 0xFFFFFFFF)
-    elif kind == "length":
+    if kind == "length":
         struct.pack_into("<I", body, count_at + 4, 0xFFFFFFFF)
     elif kind == "truncated":
         del body[count_at + 9 :]
@@ -534,6 +568,65 @@ def test_malformed_filename_list_is_rejected(tmp_path: Path, kind: str) -> None:
         body[count_at + 8] = 0xFF
     with pytest.raises(CorruptSaveError, match="game_info is damaged"):
         read_save_info(build_index(tmp_path, sections_with(game_info=bytes(body))))
+
+
+FM27_BUILD = "27.0.0+2486695"
+UNREGISTERED_FM27_BUILD = "27.1.0+3000001"
+
+
+def fm27_game_info_body(
+    build: str, filenames: tuple[str, ...], *, list_after_db_version: int = 167
+) -> bytes:
+    """Invented schema-47 fields; the filename count sits seven bytes before the clock."""
+    number = int(build.split("+")[1])
+    return game_info_body(
+        db_version="26.2.0+0",
+        build_numbers=(2329565, number, number),
+        schema=47,
+        game_date_offset=list_after_db_version + 7,
+        late_build_number_offset=list_after_db_version + 215,
+        migration_names=("EXAMPLE_PATCH_fm27",),
+        filenames=filenames,
+    )
+
+
+def read_fm27_info(tmp_path: Path, build: str, game_info: bytes) -> SaveInfo:
+    summary = structured_summary_body(
+        club_name="Northbridge FC", summary_date=packed_date(61, 2031), version=build, schema=31
+    )
+    sections = sections_with(game_info=game_info, save_game_summary=summary)
+    with pytest.warns(UnknownBuildWarning, match="FM27 coverage"):
+        return read_save_info(build_index(tmp_path, sections))
+
+
+@pytest.mark.parametrize("build", [FM27_BUILD, UNREGISTERED_FM27_BUILD])
+@pytest.mark.parametrize(
+    "filenames", [(), ("Example Tool.dll",), ("Example Tool.exe", "Пример.tmp")]
+)
+def test_an_fm27_filename_list_sits_two_bytes_later_than_on_fm26(
+    tmp_path: Path, build: str, filenames: tuple[str, ...]
+) -> None:
+    # Two more one-byte flags come before the list than on FM26; the database version is FM26's.
+    body = fm27_game_info_body(build, filenames)
+    info = read_fm27_info(tmp_path, build, body)
+    assert info.known_build == (build == FM27_BUILD)
+    assert info.db_version == "26.2.0+0"
+    assert info.game_date == date(2031, 3, 2)
+    layout = fm27.GAME_INFO
+    version = version_module.GameVersion(27, build, int(build.split("+")[1]))
+    facts = version_module.checked_game_info_candidate(body, layout, version, "fragment.bin")
+    assert (facts.game_date, facts.time_slot) == (date(2031, 3, 1), 66)
+
+
+@pytest.mark.parametrize("build", [FM27_BUILD, UNREGISTERED_FM27_BUILD])
+def test_an_fm27_filename_list_at_the_fm26_offset_does_not_fit(tmp_path: Path, build: str) -> None:
+    body = fm27_game_info_body(build, ("Example Tool.dll",), list_after_db_version=165)
+    sections = sections_with(
+        game_info=body,
+        save_game_summary=structured_summary_body(version=build, schema=31),
+    )
+    with pytest.raises(ReaderCheckError, match="game_info"):
+        read_save_info(build_index(tmp_path, sections))
 
 
 def test_game_info_decode_failure_on_unknown_build_fails_checks(tmp_path: Path) -> None:

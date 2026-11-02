@@ -23,6 +23,7 @@ from fmsave._checks import (
 )
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import GateBounds, PlayerRecordLayout, find_layout
+from fmsave._layouts import fm27_27_0_0 as fm27
 from fmsave._reader_stats import StaffStats
 from fmsave._save import STAFF_LISTS_TABLE_CACHE_KEY, STAFF_TABLE_CACHE_KEY
 from fmsave.readers._common import GAME_DB_SECTION
@@ -481,6 +482,26 @@ def test_staff_preference_sentinel_keeps_allocated_headers_readable() -> None:
     assert block is not None and slots_ok and codes_ok and further_ok
     assert block.unknown["preference_slot_2"] == 100
     assert locate_listed_header(person, 30, empty_player_records(), STAFF_LAYOUT) == 0
+
+
+@pytest.mark.parametrize(
+    ("codes", "fm26_in_set", "fm27_in_set"),
+    [
+        ((0,) * 8, False, True),
+        ((0, *CAREER_STAFF_CODES[1:]), False, False),
+        (tuple(CAREER_STAFF_CODES), True, True),
+    ],
+    ids=["all-zero", "one-zero", "observed"],
+)
+def test_only_an_fm27_code_list_of_zeros_counts_as_in_the_code_set(
+    codes: tuple[int, ...], fm26_in_set: bool, fm27_in_set: bool
+) -> None:
+    person = staff_object_bytes(person_id=30, uid=2_000_000_123, codes=codes)
+    for layout, expected in ((STAFF_LAYOUT, fm26_in_set), (fm27.STAFF, fm27_in_set)):
+        block, slots_ok, codes_ok, further_ok = _read_ability_block(person, 0, layout)
+        assert block is not None and slots_ok and further_ok
+        assert codes_ok == expected
+        assert [block.unknown[f"r{number}"] for number in range(5, 13)] == list(codes)
 
 
 def test_high_person_selector_contract_is_discovered(tmp_path: Path) -> None:

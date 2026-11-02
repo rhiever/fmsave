@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import pickle
 import struct
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import pytest
@@ -1147,8 +1148,8 @@ def test_a_healthy_walk_reports_only_its_empty_blocks(career_path: Path) -> None
     assert stats.empty_tactic_blocks == 1
     assert stats.flagged_tactic_counts == stats.missing_tactics == 0
     assert stats.unknown_signature_records == stats.signatures_after_routines == 0
-    assert stats.unknown_signature_records_read == 0
-    assert stats.unknown_signature_bytes == ()
+    assert stats.unknown_signature_records_read == stats.unlisted_record_units == 0
+    assert stats.unknown_signature_bytes == stats.unit_separators == ()
 
 
 def test_a_no_tactics_value_over_a_nonzero_count_is_counted() -> None:
@@ -1243,6 +1244,115 @@ def test_every_unlisted_signature_is_reported_and_keyed_by_its_nearest_listed_on
     assert anomalies["unknown_signature_records_read"] == 0
 
 
+# Where a setting unit's separator byte sits in a slot block, counting the block's own bytes.
+_UNITS_AT = len(LAYOUT.slot_tag) + 4 + len(LAYOUT.slot_constant) + 4 + LAYOUT.role_bits_bytes
+_SEPARATOR_AT = len(LAYOUT.unit_lead) + 1 + LAYOUT.unit_first_field_bytes
+
+
+def _separator_slots(separators: Mapping[tuple[int, int], int]) -> list[tuple[bytes, bytes]]:
+    """The career slots with the separator of each (slot block, unit) given set to its value.
+
+    Slot blocks count from 0 in stored order, in-possession block first.
+    """
+    slots: list[tuple[bytes, bytes]] = []
+    for number, pair in enumerate(career_tactic_slots()):
+        changed = [bytearray(pair[0]), bytearray(pair[1])]
+        for (slot_block, unit), value in separators.items():
+            if slot_block // 2 == number:
+                changed[slot_block % 2][_UNITS_AT + unit * LAYOUT.unit_bytes + _SEPARATOR_AT] = (
+                    value
+                )
+        slots.append((bytes(changed[0]), bytes(changed[1])))
+    return slots
+
+
+# Three units, one of them in an out-of-possession block, two of them storing the same value.
+_ODD_SEPARATORS = {(0, 1): 0x02, (3, 0): 0x02, (20, 0): 0x00}
+
+
+def test_an_unlisted_record_reads_whatever_its_unit_separators_store_and_counts_them() -> None:
+    variant = _example_record(
+        name="Example Variant", slots=_separator_slots(_ODD_SEPARATORS), record_variant=0x03
+    )
+    block, counts = _walk_one_block(
+        _records_block((_example_record(name="Example Listed"), variant))
+    )
+    strict_block, _strict_counts = _walk_one_block(
+        _records_block((_example_record(name="Example Variant"),))
+    )
+
+    assert [tactic.name for tactic in block.tactics] == ["Example Listed", "Example Variant"]
+    assert all(tactic.walk_complete and tactic.oop_index_permutation for tactic in block.tactics)
+    assert dataclasses.replace(block.tactics[1], unit_separators=()) == strict_block.tactics[0]
+    assert block.tactics[1].unit_separators == ((0, 1, 0x02), (3, 0, 0x02), (20, 0, 0x00))
+    assert block.tactics[0].unit_separators == ()
+    assert counts.tactic_blocks == counts.tactic_blocks_count_matching == 1
+    assert counts.missing_tactics == 0
+    assert counts.unknown_signature_records == counts.unknown_signature_records_read == 1
+    assert counts.unknown_signature_bytes == ((7, 0x03, 1),)
+    # Each career slot holds two in-possession units and one out-of-possession unit.
+    assert counts.unlisted_record_units == 3 * LAYOUT.slot_count
+    assert counts.unit_separators == ((0, 1, 0x02, 1), (3, 0, 0x02, 1), (20, 0, 0x00, 1))
+
+
+def test_unit_separator_counts_are_reported_by_value_block_and_unit() -> None:
+    stats = healthy_stats(
+        unknown_signature_records_read=2,
+        unlisted_record_units=40,
+        unit_separators=((0, 1, 0x02, 2), (3, 0, 0x02, 1), (20, 0, 0x00, 1)),
+    )
+    anomalies = check_tactics(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES).anomalies
+    separator_keys = {key: value for key, value in anomalies.items() if "separator" in key}
+
+    assert anomalies["unlisted_record_units"] == 40
+    assert separator_keys == {
+        "unexpected_unit_separators": 4,
+        "unit_separator_00": 1,
+        "unit_separator_02": 3,
+        "unit_separator_block00": 2,
+        "unit_separator_block03": 1,
+        "unit_separator_block20": 1,
+        "unit_separator_unit00": 2,
+        "unit_separator_unit01": 2,
+    }
+    assert all(type(value) is int for value in anomalies.values())
+
+
+def test_no_unit_separator_key_is_reported_by_value_when_none_is_unusual() -> None:
+    anomalies = check_tactics(healthy_stats(), BOUNDS, FULL_SIZE_GAME_DB_BYTES).anomalies
+
+    assert anomalies["unlisted_record_units"] == anomalies["unexpected_unit_separators"] == 0
+    assert not [key for key in anomalies if key.startswith("unit_separator_")]
+
+
+@pytest.mark.parametrize(
+    "records",
+    (
+        pytest.param(
+            (_example_record(slots=_separator_slots(_ODD_SEPARATORS)),), id="listed alone"
+        ),
+        pytest.param(
+            (
+                _example_record(slots=_separator_slots(_ODD_SEPARATORS)),
+                _example_record(record_variant=0x03),
+            ),
+            id="listed beside an unlisted record",
+        ),
+    ),
+)
+def test_a_listed_record_with_an_unusual_unit_separator_still_stops_its_walk(
+    records: tuple[bytes, ...],
+) -> None:
+    block, counts = _walk_one_block(_records_block(records))
+
+    assert len(block.tactics) == 1
+    assert not block.tactics[0].walk_complete
+    assert block.tactics[0].unit_separators == ()
+    assert counts.missing_tactics == len(records) - 1
+    assert counts.unknown_signature_records_read == counts.unlisted_record_units == 0
+    assert counts.unit_separators == ()
+
+
 def _broken_variant() -> bytes:
     """An unlisted-variant record whose fifth slot claims one setting unit more than it holds."""
     slots = list(career_tactic_slots())
@@ -1256,6 +1366,30 @@ def _broken_variant() -> bytes:
         slots[4][1],
     )
     return _example_record(slots=slots, record_variant=0x07)
+
+
+def _wrong_lead_variant() -> bytes:
+    """An unlisted-variant record with unusual separators and one unit led by other bytes."""
+    slots = _separator_slots(_ODD_SEPARATORS)
+    in_possession = bytearray(slots[5][0])
+    in_possession[_UNITS_AT] ^= 0xFF
+    slots[5] = (bytes(in_possession), slots[5][1])
+    return _example_record(slots=slots, record_variant=0x03)
+
+
+def _lead_in_units_variant() -> bytes:
+    """An unlisted-variant record with unusual separators whose third slot holds the lead."""
+    slots = _separator_slots(_ODD_SEPARATORS)
+    lead_bits = int.from_bytes(USER_SIGNATURE[:4], "little")
+    slots[2] = (
+        slot_block_bytes(
+            mask=1 << 2,
+            units=(setting_unit_bytes(head_byte=0, first_bits=lead_bits, second_bits=1),),
+            role_bits=1,
+        ),
+        slots[2][1],
+    )
+    return _example_record(slots=slots, record_variant=0x03)
 
 
 def _repeated_index_variant() -> bytes:
@@ -1294,6 +1428,22 @@ _LEAD_IN_TAIL = b"\xee" * 4 + USER_SIGNATURE[:4] + b"\xee" * 8
             id="lead in a tail is one candidate too many",
         ),
         pytest.param((_example_record(record_variant=0x07)[:-200],), None, id="record cut short"),
+        pytest.param(
+            (_example_record(slots=_separator_slots(_ODD_SEPARATORS), record_variant=0x03)[:-200],),
+            None,
+            id="record with unusual separators cut short",
+        ),
+        pytest.param((_example_record(), _wrong_lead_variant()), None, id="unit lead differs"),
+        pytest.param(
+            (_example_record(), _lead_in_units_variant()),
+            None,
+            id="lead in units is one candidate too many",
+        ),
+        pytest.param(
+            (_example_record(), _lead_in_units_variant()),
+            3,
+            id="lead in units cuts a record with unusual separators short",
+        ),
     ),
 )
 def test_unlisted_variants_that_do_not_form_whole_records_leave_the_strict_result(
@@ -1307,6 +1457,8 @@ def test_unlisted_variants_that_do_not_form_whole_records_leave_the_strict_resul
     assert counts.tactic_blocks_count_matching == counts.unknown_signature_records_read == 0
     assert counts.missing_tactics == claimed - len(block.tactics)
     assert counts.unknown_signature_records >= 1
+    assert counts.unlisted_record_units == 0
+    assert counts.unit_separators == ()
 
 
 def test_a_lead_match_inside_a_listed_record_cuts_it_short_and_keeps_the_strict_result() -> None:

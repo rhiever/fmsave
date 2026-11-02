@@ -86,13 +86,18 @@ BUILD = "27.0.0+2486695"
 # not that any field's meaning is confirmed: FM27 fields stay unconfirmed.
 KNOWN_BUILDS: tuple[str, ...] = (BUILD,)
 
+# Schema 47's run of one-byte flags from +120 holds two flags more than schema 46's, and every
+# byte after the run sits two places later, so the filename count is at +167, seven bytes before
+# the clock as on FM26. Most saves store an empty list with zeros around it, which reads the same
+# at +165; a save whose list holds names fits only at +167, with its clock and late build word
+# then where this layout expects them.
 GAME_INFO = GameInfoLayout(
     db_version_length_offset=8,
     max_db_version_bytes=64,
     build_number_offsets_after_db_version=(38,),
     game_date_offset_after_db_version=174,
     late_build_number_window_after_db_version=(382, 446),
-    filename_count_offset_after_db_version=165,
+    filename_count_offset_after_db_version=167,
 )
 SAVE_SUMMARY = SaveSummaryLayout(
     version_pattern=r"([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,4})\+([0-9]{1,10})",
@@ -160,6 +165,9 @@ SEASON_STATS = replace(
     require_unique_keys=True,
 )
 
+# Some staff objects store a code list that is all zeros, which no FM26 save holds. Zeros never
+# appear among other codes: a new career holds 62 such lists among 14,961 staff objects, and a
+# career carried over from FM26 holds 792 among 22,892, enough to sink the code share otherwise.
 STAFF = replace(
     FM26_STAFF,
     list_count_bytes=2,
@@ -168,17 +176,25 @@ STAFF = replace(
     offer_marker_offset=19,
     no_contract_selector_offset=16,
     no_contract_lead=b"\x05\x05",
+    unset_code_list_allowed=True,
 )
 
+# The header list keeps the FM26 entry size. A block's tail is four bytes shorter than on FM26
+# and the four bytes come back after its mentoring groups, as a trailer that is zero on every
+# block measured; with no groups the two placements read alike. A group leads with 2 and stores
+# no marker before its label. Measured on a career carried over from FM26, whose header list,
+# groups and members match the FM26 copy of the same career.
 TRAINING = replace(
     FM26_TRAINING,
     block_lead_byte=2,
+    block_tail_bytes=32,
+    block_trailer_bytes=4,
     day_block_bytes=8,
     day_block_lead_byte=4,
     week_name_offset=62,
     week_record_fixed_bytes=80,
-    header_entries_supported=False,
-    mentoring_groups_supported=False,
+    group_lead_byte=2,
+    group_label_marker=None,
     session_labels_supported=True,
 )
 
@@ -189,7 +205,9 @@ INJURY_TYPE_TABLE = FM26_INJURY_TYPE_TABLE
 
 # A team's own tactic record and the game's preset library differ in the last signature byte.
 # No second user variant is observed, so the alternate signature repeats the user signature
-# and adds no search. Named routines are still unobserved and stay rejected.
+# and adds no search. Named routines use the FM26 record shape: a career carried over from FM26
+# stores its set-piece area byte for byte as the FM26 copy does, names, tail flags and codes
+# included, and every default run and counted group walks completely.
 _FM27_USER_TACTIC_SIGNATURE = bytes.fromhex("2244001b00000000")
 TACTICS = replace(
     FM26_TACTICS,
@@ -200,7 +218,6 @@ TACTICS = replace(
     slot_tag=bytes.fromhex("440002"),
     slot_constant=bytes.fromhex("000101"),
     unit_lead=bytes.fromhex("020202"),
-    named_routines_supported=False,
 )
 
 _FM26_MATCH_CACHE = FM26_MATCH_RECORDS.cache_layout
