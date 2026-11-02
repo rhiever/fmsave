@@ -79,7 +79,8 @@ Supply exactly 1 scope supported by the table:
   one club is an error that lists the matches, so you can pick the uid.
 - `--competition VALUE`: one competition by id, or by name once `--competition-names` supplies
   one.
-- `--nation VALUE`: one nation, by nation id.
+- `--nation VALUE`: one nation, by nation id. Club rows follow the club's league nation, so a
+  club with no league nation (an empty `nation_id`) is in no nation's scope.
 - `--all`: every row.
 
 The rest:

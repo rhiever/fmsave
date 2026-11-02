@@ -275,6 +275,8 @@ def test_table_rows_that_give_no_club_are_counted_by_reason() -> None:
         "extended_table_rows": 1,
         "unanchored_table_rows": 1,
         "rejected_table_rows": 1,
+        "clubs_without_main_nation": 0,
+        "teamless_rows_without_main_nation": 0,
     }
 
 
@@ -289,7 +291,7 @@ def test_omitted_table_rows_are_kept_by_kind_and_place_unresolved_references() -
     unanchored = bytearray(club_body("Example Unanchored", "Unanchored", (71003,)))
     struct.pack_into("<I", unanchored, anchor_at, 7)
     rejected = bytearray(club_body("Example Rejected", "Rejected", (71004,)))
-    struct.pack_into("<I", rejected, nation_at, 0xFFFFFFFF)
+    struct.pack_into("<I", rejected, nation_at, 1000)
     following = club_body("Example Following", "Following", (71005,))
     bodies = (initial, extended, bytes(unanchored), bytes(rejected), following)
     data = struct.pack("<IB", len(bodies), 0)
@@ -318,3 +320,101 @@ def test_omitted_table_rows_are_kept_by_kind_and_place_unresolved_references() -
     unbound = replace(index, omitted_table_rows={}, table_row_count=None)
     assert unbound.unresolved_reference(5) == "other"
     assert unbound.unresolved_reference(0xFFFFFFFF) == "empty"
+
+
+def _table_with_missing_nation_row(
+    teams: tuple[int, ...], *, copy_word: int | None = None, nation: int = 0xFFFFFFFF
+) -> bytes:
+    """Four clubs whose third stores `nation`, by default no main nation, as its main nation.
+
+    `copy_word` replaces the third club's stored uid copy.
+    """
+    from tests.fixtures.club_tables import club_body
+
+    nation_at = 1
+    without_nation = bytearray(club_body("Example School", "School", teams))
+    struct.pack_into("<I", without_nation, nation_at, nation)
+    bodies = (
+        club_body("Example Initial", "Initial", (71001,)),
+        club_body("Example Before", "Before", (71002,)),
+        bytes(without_nation),
+        club_body("Example After", "After", (71004,)),
+    )
+    data = struct.pack("<IB", len(bodies), 0)
+    for ordinal, body in enumerate(bodies):
+        # The footer closing a row holds the next row's stored club index, uid and uid copy.
+        copy = copy_word if copy_word is not None and ordinal == 1 else 6100 + ordinal
+        data += body + struct.pack("<III", ordinal, 6100 + ordinal, copy)
+    return data
+
+
+def test_table_row_with_no_main_nation_and_a_team_list_is_a_club_without_nation() -> None:
+    from fmsave._checks import check_clubs
+    from fmsave._layouts import GateBounds, find_layout
+    from fmsave.readers.clubs import _scan_club_records
+
+    data = _table_with_missing_nation_row((71003, 71013))
+
+    index = read_club_index(data, LAYOUTS, "example.fm")
+
+    school = index.club_by_uid[6102]
+    assert (school.name, school.short_name) == ("Example School", "School")
+    assert school.nation_id is None
+    assert school.fa_nation_id == 3
+    assert [team.team_id for team in school.teams] == [71003, 71013]
+    assert index.team_to_club[71013] == (6102, 1)
+    assert dict(index.uid_by_club_index) == {0: 0, 1: 6101, 2: 6102, 3: 6103}
+    assert dict(index.omitted_table_rows) == {}
+    assert all(club.nation_id == 3 for club in index.clubs if club.uid != 6102)
+    stats = index.stats
+    assert (stats.clubs_without_main_nation, stats.table_rows_rejected) == (1, 0)
+    bounds = find_layout(GateBounds, "game_db", 4000, "").layout
+    anomalies = check_clubs(stats, bounds, len(data)).anomalies
+    assert (
+        anomalies["clubs_without_main_nation"],
+        anomalies["teamless_rows_without_main_nation"],
+    ) == (
+        1,
+        0,
+    )
+    # The anchor scan alone never accepts a record with no main nation.
+    scanned, _ = _scan_club_records(data, LAYOUTS.records)
+    assert "Example School" not in [record.name for record in scanned]
+
+
+def test_table_row_with_no_main_nation_and_no_team_list_stays_rejected() -> None:
+    index = read_club_index(_table_with_missing_nation_row(()), LAYOUTS, "example.fm")
+
+    assert [club.uid for club in index.clubs] == [0, 6101, 6103]
+    assert dict(index.omitted_table_rows) == {2: "rejected"}
+    assert index.unresolved_reference(2) == "rejected_row"
+    stats = index.stats
+    assert (
+        stats.table_rows_rejected,
+        stats.clubs_without_main_nation,
+        stats.table_rows_teamless_without_main_nation,
+    ) == (1, 0, 1)
+
+
+def test_table_row_with_no_main_nation_needs_its_uid_copy_to_match() -> None:
+    data = _table_with_missing_nation_row((71003,), copy_word=9100)
+
+    index = read_club_index(data, LAYOUTS, "example.fm")
+
+    assert [club.uid for club in index.clubs] == [0, 6101, 6103]
+    assert dict(index.omitted_table_rows) == {2: "rejected"}
+    assert 71003 not in index.team_to_club
+    stats = index.stats
+    assert (stats.clubs_without_main_nation, stats.table_rows_teamless_without_main_nation) == (
+        0,
+        0,
+    )
+
+
+def test_a_mismatched_uid_copy_does_not_reject_a_row_with_a_main_nation() -> None:
+    data = _table_with_missing_nation_row((71003,), copy_word=9100, nation=3)
+
+    index = read_club_index(data, LAYOUTS, "example.fm")
+
+    assert index.club_by_uid[6102].nation_id == 3
+    assert index.stats.clubs_without_main_nation == 0

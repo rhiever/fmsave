@@ -313,7 +313,8 @@ class Player:
             None for a free agent or an unresolved team (unconfirmed).
         club_name: Denormalised full name of club_uid (unconfirmed).
         club_short_name: Denormalised short name of club_uid (unconfirmed).
-        club_nation_id: Denormalised save-local league nation id of club_uid (unconfirmed).
+        club_nation_id: Denormalised save-local league nation id of club_uid; None also when
+            that club stores no league nation (unconfirmed).
         club_fa_nation_id: Denormalised save-local FA nation id of club_uid (unconfirmed).
         club_reputation: Denormalised reputation of club_uid.
         club_last_league_position: Denormalised last completed season league position of

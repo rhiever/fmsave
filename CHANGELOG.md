@@ -4,6 +4,20 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Added
+
+- Validation reports two `clubs` counts: `clubs_without_main_nation`, the clubs read with no league nation, and `teamless_rows_without_main_nation`, the club-table rows with no league nation and no team list, which stay left out. (#53)
+
+### Changed
+
+- Compatibility: `Club.nation_id` is now `int | None`. It is None for clubs the game stores with no league nation, such as some school and university teams; `fa_nation_id` is still set for them. Code that assumes an int, such as sorting or indexing by it, needs to handle None. In exports the column is empty for these clubs, and they fall in no `--nation` scope. (#53)
+
+### Fixed
+
+- `clubs()` now reads clubs the game stores with no league nation when they have a team list, such as school and university teams. Players home grown at those clubs get their `home_grown_club_uids` and `home_grown_club_names` instead of None. Rows with no league nation and no team list are still left out. (#53)
+
+Thanks to @guyluzon64 for the report. Refs #53.
+
 ## [0.9.1] - 2026-11-01
 
 ### Added

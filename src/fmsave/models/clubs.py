@@ -51,10 +51,12 @@ class Club:
             unique_id to match clubs across careers (unconfirmed).
         name: Full club name (unconfirmed).
         short_name: Short club name (unconfirmed).
-        nation_id: Save-local id of the nation whose league the club plays in (unconfirmed).
-        fa_nation_id: Save-local id of the nation whose football association the club belongs to. It
-            differs from nation_id for a club that plays in another nation's league
+        nation_id: Save-local id of the nation whose league the club plays in, or None when the
+            game stores no such nation, as for some school, university and amateur clubs
             (unconfirmed).
+        fa_nation_id: Save-local id of the nation whose football association the club belongs to. It
+            differs from nation_id for a club that plays in another nation's league, and is
+            stored even where nation_id is None (unconfirmed).
         city_id: Id of the club's city, or None when the save stores the missing-id marker
             instead (unconfirmed).
         teams: The club's own teams in stored order, including slots no player is registered
@@ -76,7 +78,7 @@ class Club:
     uid: int
     name: str
     short_name: str
-    nation_id: int
+    nation_id: int | None
     fa_nation_id: int
     city_id: int | None
     teams: tuple[Team, ...]

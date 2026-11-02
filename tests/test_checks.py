@@ -1219,6 +1219,8 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "extended_table_rows": 0,
             "unanchored_table_rows": 0,
             "rejected_table_rows": 0,
+            "clubs_without_main_nation": 0,
+            "teamless_rows_without_main_nation": 0,
         },
         "players": {
             "markerless_players": 1,
