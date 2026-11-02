@@ -49,6 +49,10 @@ game database id for looking up a nation in an external list. Join a nation fiel
 `Nation.nation_id`, then use `Nation.database_id` as the key in your own nation-name map.
 Nation names are not stored in the save.
 
+`Club.nation_id` is the nation whose league a club plays in. It is None for clubs the game
+stores with no league nation, such as some school and university teams. Their
+`Club.fa_nation_id` still names their football association's nation.
+
 ## Competitions
 
 `stages()`, `competitions()`, `fixtures()`, `league_tables()`, `competition_rules()`,

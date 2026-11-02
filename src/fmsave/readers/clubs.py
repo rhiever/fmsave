@@ -171,7 +171,7 @@ class _ClubRecord:
     record_start: int
     club_index: int
     uid: int
-    nation_id: int
+    nation_id: int | None
     fa_nation_id: int
     city_id: int | None
     name: str
@@ -228,7 +228,7 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
             records; or a team id is listed twice (by one club or by two).
     """
     records, scan_end = _scan_club_records(game_db, layouts.records)
-    records, omitted_table_rows, table_row_count = _bind_club_table(
+    records, omitted_table_rows, table_row_count, teamless_without_main_nation = _bind_club_table(
         game_db, records, layouts, file_name
     )
     omitted_kinds = list(omitted_table_rows.values())
@@ -308,6 +308,8 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         table_rows_extended=omitted_kinds.count("extended"),
         table_rows_unanchored=omitted_kinds.count("unanchored"),
         table_rows_rejected=omitted_kinds.count("rejected"),
+        clubs_without_main_nation=sum(1 for record in records if record.nation_id is None),
+        table_rows_teamless_without_main_nation=teamless_without_main_nation,
     )
     record_spans = tuple(
         ClubRecordSpan(
@@ -385,12 +387,16 @@ def _footer_unique_ids(
 
 def _bind_club_table(
     game_db: bytes, records: list[_ClubRecord], layouts: ClubLayouts, file_name: str
-) -> tuple[list[_ClubRecord], dict[int, OmittedRowKind], int | None]:
+) -> tuple[list[_ClubRecord], dict[int, OmittedRowKind], int | None, int]:
     """Authenticate a counted table before admitting its initial club and footer bounds.
 
     Also returns why each row after the first that gives no club was omitted (extended variant,
-    no record anchor, or fields rejected), keyed by club index, and the table's row count,
-    which is None when no table is bound.
+    no record anchor, or fields rejected), keyed by club index, the table's row count, which
+    is None when no table is bound, and how many rejected rows store no main nation and hold
+    no team list.
+
+    Only here, where the table frames the row, can a club with no main nation be admitted
+    (see `_accepted_record`); it must also hold a team list. The record scan never admits one.
     """
     record_layout, table_layout = layouts.records, layouts.table
     prefix_end = (
@@ -425,7 +431,7 @@ def _bind_club_table(
     if not headers:
         if len(game_db) >= FULL_SAVE_MINIMUM_GAME_DB_BYTES:
             raise layout_mismatch(file_name, "no complete club table was found")
-        return records, {}, None
+        return records, {}, None, 0
     tables: list[tuple[ClubTableRecord, ...]] = []
     for head in sorted(headers):
         rows = walk_club_table(game_db, head, table_layout)
@@ -442,6 +448,7 @@ def _bind_club_table(
     rows = tables[0]
     bounded: list[_ClubRecord] = []
     omitted: dict[int, OmittedRowKind] = {}
+    teamless_without_main_nation = 0
     for ordinal, row in enumerate(rows):
         extra = (
             table_layout.extended_prefix_bytes
@@ -459,8 +466,26 @@ def _bind_club_table(
             continue
         uid = 0 if ordinal == 0 else rows[ordinal - 1].unique_id + 1
         record = _accepted_record(
-            game_db, start, record_layout, row.footer_start, identity=(ordinal, uid)
+            game_db,
+            start,
+            record_layout,
+            row.footer_start,
+            identity=(ordinal, uid),
+            allow_missing_main_nation=ordinal != 0,
         )
+        if (
+            record is not None
+            and record.nation_id is None
+            and not _read_team_list(
+                game_db,
+                start,
+                row.footer_start,
+                layouts.team_lists,
+                counts_start=row.team_counts_start,
+            ).team_ids
+        ):
+            teamless_without_main_nation += 1
+            record = None
         if record is None:
             if ordinal == 0:
                 raise layout_mismatch(file_name, "the initial club has invalid fields")
@@ -474,7 +499,7 @@ def _bind_club_table(
                 team_counts_start=row.team_counts_start,
             )
         )
-    return bounded, omitted, len(rows)
+    return bounded, omitted, len(rows), teamless_without_main_nation
 
 
 def _reject_repeated_club_keys(records: Sequence[_ClubRecord], file_name: str) -> None:
@@ -557,12 +582,20 @@ def _accepted_record(
     buffer_length: int,
     *,
     identity: tuple[int, int] | None = None,
+    allow_missing_main_nation: bool = False,
 ) -> _ClubRecord | None:
-    """Check one candidate whose fixed header lies inside the buffer; None when it fails."""
+    """Check one candidate whose fixed header lies inside the buffer; None when it fails.
+
+    With `allow_missing_main_nation`, a record whose main nation is the missing-reference value
+    is accepted with `nation_id` None, as the game stores some school, university and amateur
+    clubs. Its other two nation references must still be in range and, even when `identity`
+    is given, its stored uid must equal its copy. The caller checks its team list.
+    """
     read_uint32 = _UINT32.unpack_from
     lowest_nation_id, highest_nation_id = layout.nation_id_range
-    nation_id: int = read_uint32(game_db, record_start + layout.nation_offset)[0]
-    if not lowest_nation_id <= nation_id <= highest_nation_id:
+    stored_nation_id: int = read_uint32(game_db, record_start + layout.nation_offset)[0]
+    main_nation_missing = allow_missing_main_nation and stored_nation_id == MISSING_REFERENCE
+    if not main_nation_missing and not lowest_nation_id <= stored_nation_id <= highest_nation_id:
         return None
     additional_nation_id: int = read_uint32(game_db, record_start + layout.nation_copy_offset)[0]
     if not lowest_nation_id <= additional_nation_id <= highest_nation_id:
@@ -570,12 +603,13 @@ def _accepted_record(
     fa_nation_id: int = read_uint32(game_db, record_start + layout.fa_nation_offset)[0]
     if not lowest_nation_id <= fa_nation_id <= highest_nation_id:
         return None
-    if identity is None:
+    if identity is None or main_nation_missing:
         stored_uid: int = read_uint32(game_db, record_start + layout.uid_offset)[0]
         if read_uint32(game_db, record_start + layout.uid_copy_offset)[0] != stored_uid:
             return None
-        stored_club_index = read_uint32(game_db, record_start + layout.club_index_offset)[0]
-        identity = (stored_club_index + 1, stored_uid + 1)
+        if identity is None:
+            stored_club_index = read_uint32(game_db, record_start + layout.club_index_offset)[0]
+            identity = (stored_club_index + 1, stored_uid + 1)
     names = _record_names(game_db, record_start, layout, buffer_length)
     if names is None:
         return None
@@ -585,7 +619,7 @@ def _accepted_record(
         record_start=record_start,
         club_index=identity[0],
         uid=identity[1],
-        nation_id=nation_id,
+        nation_id=None if main_nation_missing else stored_nation_id,
         fa_nation_id=fa_nation_id,
         city_id=None if stored_city_id == MISSING_REFERENCE else stored_city_id,
         name=name,

@@ -306,7 +306,9 @@ def evaluate_players(
     framed club records the reader gives no club: their references are in range, and on the
     saves measured nearly all of them name a club of a nation the player is home grown in, so
     they are reported as anomalies rather than failing the decode. References to an extended
-    row, past the table's end, empty or unplaced still count as unresolved.
+    row, past the table's end, empty or unplaced still count as unresolved. A row that stores
+    no main nation but holds a team list gives a club (see `check_clubs`), so references to it
+    resolve.
     """
     applied = _applies(bounds, game_db_bytes)
     records = stats.records
@@ -984,6 +986,11 @@ def check_clubs(stats: ClubStats, bounds: GateBounds, game_db_bytes: int) -> Rea
     The three table-row counts are rows of the counted club table that give no club, which
     every full save carries thousands of. A player whose team only such a row lists keeps its
     team id and has no club, and the player reader counts it in `unresolved_teams`.
+
+    `clubs_without_main_nation` counts the clubs read from table rows that store no main
+    nation, such as school and university teams; their `nation_id` is None.
+    `teamless_rows_without_main_nation` counts the rejected rows that store no main nation and
+    hold no team list, which stay omitted.
     """
     return ReaderCheck(
         CLUBS_READER,
@@ -995,6 +1002,10 @@ def check_clubs(stats: ClubStats, bounds: GateBounds, game_db_bytes: int) -> Rea
                 "extended_table_rows": stats.table_rows_extended,
                 "unanchored_table_rows": stats.table_rows_unanchored,
                 "rejected_table_rows": stats.table_rows_rejected,
+                "clubs_without_main_nation": stats.clubs_without_main_nation,
+                "teamless_rows_without_main_nation": (
+                    stats.table_rows_teamless_without_main_nation
+                ),
             }
         ),
     )
@@ -2348,6 +2359,10 @@ def check_tactics(stats: TacticStats, bounds: GateBounds, game_db_bytes: int) ->
     `tactic_blocks_count_mismatched` counts the blocks that claim more tactic records than the
     walk found signatures for, and `unresolved_selectors` the selectors no player record names.
     The other counts tell apart why a team shows no tactics, as `TacticWalkCounts` describes.
+    `unknown_signature_records_read` counts the unlisted-signature records read anyway. An
+    `unknown_signature_byte<position>_<value>` count, with the value in two hex digits, appears
+    for each byte where an unlisted signature differs from its nearest listed one, so a report
+    says which variant a save stores without holding anything from the save but format bytes.
     """
     return ReaderCheck(
         TACTICS_READER,
@@ -2368,6 +2383,11 @@ def check_tactics(stats: TacticStats, bounds: GateBounds, game_db_bytes: int) ->
                 "missing_tactics": stats.missing_tactics,
                 "unknown_signature_records": stats.unknown_signature_records,
                 "signatures_after_routines": stats.signatures_after_routines,
+                "unknown_signature_records_read": stats.unknown_signature_records_read,
+                **{
+                    f"unknown_signature_byte{position}_{value:02x}": count
+                    for position, value, count in stats.unknown_signature_bytes
+                },
             }
         ),
     )

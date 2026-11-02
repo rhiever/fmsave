@@ -8,9 +8,12 @@ tactic the manager has, and its set-piece routine groups, which become three tab
 Two rules keep the walk honest. A tactic record is bounded by the **next signature**, never by
 the walk: the bytes after a record's last slot block are not decoded at all, so a record whose
 slot walk breaks costs its own slots and nothing else, and the count in front of the records
-says how many to look for. A routine is found by its terminator and decoded **backwards**, by
-length: its name is never matched against text, because an empty slot stores a name of length
-zero and one save's style code happens to be the terminator's own last four bytes.
+says how many to look for. A block whose listed signatures fall short of that count is retried
+once with unlisted signature variants read as records too, and the retry is kept only when it
+reads exactly the claimed records, each one whole. A routine is found by its terminator and
+decoded **backwards**, by length: its name is never matched against text, because an empty
+slot stores a name of length zero and one save's style code happens to be the terminator's
+own last four bytes.
 """
 
 from __future__ import annotations
@@ -47,7 +50,7 @@ _UINT32 = struct.Struct("<I")
 _UNIT_WORD_BITS = 32
 _UNIT_WORD_MASK = (1 << _UNIT_WORD_BITS) - 1
 # How many leading bytes the tactic signatures share before the bytes that tell their
-# variants apart, used only to count records whose variant is not one the layout lists.
+# variants apart, used to find, count and retry records whose variant the layout does not list.
 _SIGNATURE_LEAD_BYTES = 4
 
 
@@ -117,6 +120,12 @@ class TacticWalkCounts:
     and `signatures_after_routines` the user or alternate signatures stored behind a block's
     routine area and before the next block, which the walk never reads as that block's
     records. The last block is left out of it: other records follow its routines.
+
+    `unknown_signature_records_read` counts the unlisted-signature records the lenient retry
+    read into a block's list; they count toward neither `preset_tactics` nor
+    `missing_tactics`. `unknown_signature_bytes` holds (position, stored value, count) for each
+    byte where an unlisted signature differs from its nearest listed one, positions counted from
+    0 at the signature's start, over every place `unknown_signature_records` counts.
     """
 
     club_team_count: int
@@ -133,6 +142,8 @@ class TacticWalkCounts:
     missing_tactics: int = 0
     unknown_signature_records: int = 0
     signatures_after_routines: int = 0
+    unknown_signature_records_read: int = 0
+    unknown_signature_bytes: tuple[tuple[int, int, int], ...] = ()
 
 
 def find_tactics_layout(schema: int | None, build: str) -> TacticsLayout:
@@ -713,26 +724,147 @@ def _next_signature(
     return min((hit for hit in found if hit[0] >= 0), default=(None, False))
 
 
-def _unknown_signature_count(
+def _known_signatures(layout: TacticsLayout) -> tuple[bytes, ...]:
+    """The signatures the layout lists, user first, in the order a tie between them goes."""
+    return layout.user_signature, layout.alternate_signature, layout.preset_signature
+
+
+def _unknown_signatures(
     section: bytes, search_from: int, records_end: int, layout: TacticsLayout
-) -> int:
-    """Places before `records_end` that open like a tactic signature but match no listed one."""
+) -> list[bytes]:
+    """Places before `records_end` that open like a tactic signature but match no listed one.
+
+    Each is returned as the signature-wide bytes stored there, cut short only by the end of
+    the section.
+    """
     lead = layout.user_signature[:_SIGNATURE_LEAD_BYTES]
-    known = {layout.user_signature, layout.alternate_signature, layout.preset_signature}
+    known = set(_known_signatures(layout))
     width = len(layout.user_signature)
-    unknown = 0
+    unknown: list[bytes] = []
     at = section.find(lead, search_from, records_end)
     while at >= 0:
-        if section[at : at + width] not in known:
-            unknown += 1
+        stored = section[at : at + width]
+        if stored not in known:
+            unknown.append(stored)
         at = section.find(lead, at + 1, records_end)
     return unknown
+
+
+def _differing_bytes(stored: bytes, layout: TacticsLayout) -> tuple[tuple[int, int], ...]:
+    """(position, stored value) of each byte where `stored` differs from the nearest signature.
+
+    The nearest is the listed signature it differs from in the fewest bytes, user first on a
+    tie. Positions count from 0 at the start of the signature; the shared lead never differs.
+    """
+
+    def differences(signature: bytes) -> tuple[tuple[int, int], ...]:
+        return tuple(
+            (position, stored[position])
+            for position in range(_SIGNATURE_LEAD_BYTES, min(len(stored), len(signature)))
+            if stored[position] != signature[position]
+        )
+
+    return min((differences(signature) for signature in _known_signatures(layout)), key=len)
 
 
 def _user_signature_count(section: bytes, start: int, end: int, layout: TacticsLayout) -> int:
     """User and alternate signatures between `start` and `end`, each counted once."""
     signatures = {layout.user_signature, layout.alternate_signature}
     return sum(section.count(signature, start, end) for signature in signatures)
+
+
+def _strict_records(
+    section: bytes,
+    selection: _SelectionPart,
+    records_end: int,
+    layout: TacticsLayout,
+    file_name: str,
+) -> tuple[list[RawTactic], int]:
+    """A block's records found by the listed signatures, and how many carry the preset one.
+
+    The walk takes the first `tactic_count` listed signatures in front of `records_end` and
+    bounds each record by the next listed signature.
+    """
+    tactics: list[RawTactic] = []
+    presets = 0
+    search_from = selection.end
+    for _ in range(selection.tactic_count):
+        signature_at, is_user_record = _next_signature(section, search_from, records_end, layout)
+        if signature_at is None:
+            break
+        search_from = signature_at + len(layout.user_signature)
+        if not is_user_record:
+            presets += 1
+        next_signature_at, _next_is_user = _next_signature(
+            section, search_from, records_end, layout
+        )
+        tactics.append(
+            _read_tactic_record(
+                section,
+                signature_at,
+                records_end if next_signature_at is None else next_signature_at,
+                layout,
+                file_name,
+            )
+        )
+    return tactics, presets
+
+
+def _lenient_records(
+    section: bytes,
+    selection: _SelectionPart,
+    records_end: int,
+    layout: TacticsLayout,
+    file_name: str,
+) -> tuple[list[RawTactic], int, int] | None:
+    """A block's records with unlisted signature variants read as records too, or None.
+
+    This runs only on a block whose listed signatures fall short of its count and whose
+    routine area walked completely, which bounds the records area. Every place in that area
+    that opens with the signatures' shared lead and holds a whole signature is a candidate
+    record start, listed or not, and each record is bounded by the next candidate. The result
+    is (records, preset-signature records, unlisted-signature records), and it is kept only when
+    every one of these holds:
+
+    - the first candidate sits where the selection part ends, so nothing is skipped;
+    - there are exactly as many candidates as the block's count claims, so no candidate is
+      left over and no record is missing;
+    - at least one candidate carries an unlisted signature, or there is nothing to retry;
+    - every record decodes, its 22 slot blocks walk completely inside its own bounds, and its
+      out-of-possession index bytes are a permutation of the slot numbers.
+
+    A coincidental lead match inside a record's bytes is itself a candidate. In front of the
+    record's last slot block it cuts that record's walk short; after it, in the bytes no walk
+    decodes, it adds a candidate the count has no room for unless a real record went
+    unfound, and it must then decode as a whole record of its own. Each of these returns None,
+    and the block keeps its strict result.
+    """
+    lead = layout.user_signature[:_SIGNATURE_LEAD_BYTES]
+    width = len(layout.user_signature)
+    known = set(_known_signatures(layout))
+    candidates: list[int] = []
+    at = section.find(lead, selection.end, records_end)
+    while at >= 0:
+        if at + width <= records_end:
+            candidates.append(at)
+        at = section.find(lead, at + 1, records_end)
+    if len(candidates) != selection.tactic_count or candidates[:1] != [selection.end]:
+        return None
+    signatures = [section[start : start + width] for start in candidates]
+    unknown = sum(signature not in known for signature in signatures)
+    if not unknown:
+        return None
+    tactics: list[RawTactic] = []
+    for start, end in zip(candidates, [*candidates[1:], records_end], strict=True):
+        try:
+            record = _read_tactic_record(section, start, end, layout, file_name)
+        except ReaderCheckError:
+            return None
+        if not record.walk_complete or not record.oop_index_permutation:
+            return None
+        tactics.append(record)
+    presets = signatures.count(layout.preset_signature)
+    return tactics, presets, unknown
 
 
 def walk_tactic_blocks(
@@ -746,7 +878,8 @@ def walk_tactic_blocks(
     Each block is read as far as the structures this reader ships: its selectors, the tactic
     records its own count claims, and its set-piece routine slots. Records are located by
     signature and bounded by the next signature, so a record whose slot walk breaks does not
-    move the next one.
+    move the next one. A block whose listed signatures fall short of its count gets one lenient
+    retry, which `_lenient_records` describes; a block they already satisfy is never retried.
 
     Raises:
         ReaderCheckError: The section is too short to hold its header, a constant a block is
@@ -768,6 +901,8 @@ def walk_tactic_blocks(
     flagged_tactic_counts = 0
     missing_tactics = 0
     unknown_signature_records = 0
+    unknown_signature_records_read = 0
+    unknown_signature_bytes: dict[tuple[int, int], int] = {}
     signatures_after_routines = 0
     for team_id, block_start in ordered_starts:
         # A block ends where the next stored block begins, whichever team that block is for:
@@ -777,31 +912,14 @@ def walk_tactic_blocks(
         routine_names, routines_complete, records_end = _read_routines(
             section, selection.end, block_end, layout
         )
-        tactics: list[RawTactic] = []
-        records_found = 0
-        search_from = selection.end
-        for _ in range(selection.tactic_count):
-            signature_at, is_user_record = _next_signature(
-                section, search_from, records_end, layout
-            )
-            if signature_at is None:
-                break
-            records_found += 1
-            search_from = signature_at + len(layout.user_signature)
-            if not is_user_record:
-                preset_tactics += 1
-            next_signature_at, _next_is_user = _next_signature(
-                section, search_from, records_end, layout
-            )
-            tactics.append(
-                _read_tactic_record(
-                    section,
-                    signature_at,
-                    records_end if next_signature_at is None else next_signature_at,
-                    layout,
-                    file_name,
-                )
-            )
+        tactics, block_presets = _strict_records(section, selection, records_end, layout, file_name)
+        if len(tactics) < selection.tactic_count and routines_complete:
+            lenient = _lenient_records(section, selection, records_end, layout, file_name)
+            if lenient is not None:
+                tactics, block_presets, block_unknown_read = lenient
+                unknown_signature_records_read += block_unknown_read
+        records_found = len(tactics)
+        preset_tactics += block_presets
         if selection.tactic_count:
             tactic_blocks += 1
             if records_found == selection.tactic_count:
@@ -810,9 +928,12 @@ def walk_tactic_blocks(
             empty_tactic_blocks += 1
             flagged_tactic_counts += selection.count_flagged
         missing_tactics += selection.tactic_count - records_found
-        unknown_signature_records += _unknown_signature_count(
-            section, selection.end, records_end, layout
-        )
+        for unknown_signature in _unknown_signatures(section, selection.end, records_end, layout):
+            unknown_signature_records += 1
+            for position_and_value in _differing_bytes(unknown_signature, layout):
+                unknown_signature_bytes[position_and_value] = (
+                    unknown_signature_bytes.get(position_and_value, 0) + 1
+                )
         # The last block has no next block to end it, and other records follow its routines.
         if block_end < len(section):
             signatures_after_routines += _user_signature_count(
@@ -853,6 +974,11 @@ def walk_tactic_blocks(
         missing_tactics,
         unknown_signature_records,
         signatures_after_routines,
+        unknown_signature_records_read,
+        tuple(
+            (position, value, count)
+            for (position, value), count in sorted(unknown_signature_bytes.items())
+        ),
     )
     return tuple(blocks), counts
 
@@ -964,6 +1090,8 @@ def build_tactic_tables(
         missing_tactics=counts.missing_tactics,
         unknown_signature_records=counts.unknown_signature_records,
         signatures_after_routines=counts.signatures_after_routines,
+        unknown_signature_records_read=counts.unknown_signature_records_read,
+        unknown_signature_bytes=counts.unknown_signature_bytes,
         slot_walks_complete=slot_walks_complete,
         oop_index_permutations=index_permutations,
         routine_blocks=len(blocks),

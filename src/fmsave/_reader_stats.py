@@ -102,9 +102,12 @@ class ClubStats:
     controlling club, which needs an id to name a team of another club that no other club has
     already claimed. `reputation_found` counts the clubs whose status record held a
     reputation inside the layout's range, and `reputations_median` is the low median of those
-    reputations. The last three count the counted-table rows after the first that give no
-    club: rows in the extended variant, rows without the record anchor, and anchored rows
-    whose fields are rejected.
+    reputations. The `table_rows_*` counts are the counted-table rows after the first that
+    give no club: rows in the extended variant, rows without the record anchor, and anchored
+    rows whose fields are rejected. `clubs_without_main_nation` counts the clubs read from
+    rows that store no main nation, whose `nation_id` is None, and
+    `table_rows_teamless_without_main_nation` the rejected rows that store no main nation and
+    hold no team list.
     """
 
     records: int
@@ -119,6 +122,8 @@ class ClubStats:
     table_rows_extended: int = 0
     table_rows_unanchored: int = 0
     table_rows_rejected: int = 0
+    clubs_without_main_nation: int = 0
+    table_rows_teamless_without_main_nation: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -817,7 +822,8 @@ class TacticStats:
     out-of-possession index bytes are a permutation of the slot numbers.
 
     `empty_tactic_blocks`, `flagged_tactic_counts`, `missing_tactics`,
-    `unknown_signature_records` and `signatures_after_routines` are the walk's diagnostic
+    `unknown_signature_records`, `signatures_after_routines`,
+    `unknown_signature_records_read` and `unknown_signature_bytes` are the walk's diagnostic
     counts, described on `TacticWalkCounts`; no check judges them.
 
     `routine_blocks` counts the blocks whose routines were searched for,
@@ -851,6 +857,8 @@ class TacticStats:
     missing_tactics: int = 0
     unknown_signature_records: int = 0
     signatures_after_routines: int = 0
+    unknown_signature_records_read: int = 0
+    unknown_signature_bytes: tuple[tuple[int, int, int], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

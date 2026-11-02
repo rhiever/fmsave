@@ -9,7 +9,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, cast
 
 import pytest
 
@@ -1631,3 +1631,46 @@ def test_nations_export_all_and_save_local_scope(
     )
     assert exit_code == cli.EXIT_OK, error_text
     assert csv_records(output_text) == [records[0]]
+
+
+class _SaveWithClubs:
+    """Just the `clubs()` a nation scope reads, for clubs the fixture fragment cannot hold."""
+
+    def __init__(self, clubs: tuple[Club, ...]) -> None:
+        self._clubs = Table(clubs, Club)
+
+    def clubs(self) -> Table[Club]:
+        return self._clubs
+
+
+def test_a_club_without_a_league_nation_is_in_no_nation_scope() -> None:
+    with_nation = Club(5201, "Example Rovers", "Rovers", 3, 3, None, (), None, None, None, None)
+    without_nation = Club(
+        5202, "Example School", "School", None, 3, None, (), None, None, None, None
+    )
+    career_save = cast(fmsave.Save, _SaveWithClubs((with_nation, without_nation)))
+    scope = cli._ExportScope(nation_id=3)
+
+    kept_club_uid = cli._club_uid_filter(career_save, scope)
+    clubs = cast("list[Club]", list(cli._club_rows(career_save, scope)))
+
+    assert [club.uid for club in clubs] == [5201]
+    assert [kept_club_uid(uid) for uid in (5201, 5202, None)] == [True, False, False]
+    other = Club(5203, "Example School", "School", 4, 4, None, (), None, None, None, None)
+    with pytest.raises(AmbiguousNameError) as error_info:
+        cli._resolve_club(Table((without_nation, other), Club), "Example School")
+    assert str(error_info.value).splitlines()[1:3] == [
+        "  uid 5202  Example School (School), no nation id",
+        "  uid 5203  Example School (School), nation id 4",
+    ]
+
+
+def test_a_club_without_a_league_nation_exports_an_empty_nation() -> None:
+    without_nation = Club(
+        5202, "Example School", "School", None, 3, None, (), None, None, None, None
+    )
+    stream = io.StringIO()
+    export.write_csv(
+        export.flat_rows((without_nation,), Club), ("uid", "nation_id", "fa_nation_id"), stream
+    )
+    assert stream.getvalue().splitlines() == ["uid,nation_id,fa_nation_id", "5202,,3"]

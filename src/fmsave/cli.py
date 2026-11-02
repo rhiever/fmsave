@@ -445,7 +445,8 @@ def _normalized_name(text: str) -> str:
 
 def _ambiguous_club_message(club_value: str, candidates: Iterable[Club]) -> str:
     candidate_lines = [
-        f"  uid {club.uid}  {club.name} ({club.short_name}), nation id {club.nation_id}"
+        f"  uid {club.uid}  {club.name} ({club.short_name}), "
+        + ("no nation id" if club.nation_id is None else f"nation id {club.nation_id}")
         for club in candidates
     ]
     return "\n".join(
@@ -631,7 +632,8 @@ def _club_uid_filter(career_save: fmsave.Save, scope: _ExportScope) -> Callable[
 
     A club's nation comes from the club table, read through the reader that enforces the club
     checks, so no nation reaches a row from an index whose checks have not run. A row naming no
-    club is in no club's scope.
+    club is in no club's scope, and a club with no league nation (`Club.nation_id` None) is in
+    no nation's scope.
     """
     club_uids = scope.club_uids
     if club_uids is not None:
