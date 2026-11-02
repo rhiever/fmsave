@@ -179,15 +179,22 @@ STAFF = replace(
     unset_code_list_allowed=True,
 )
 
+# The header list keeps the FM26 entry size. A block's tail is four bytes shorter than on FM26
+# and the four bytes come back after its mentoring groups, as a trailer that is zero on every
+# block measured; with no groups the two placements read alike. A group leads with 2 and stores
+# no marker before its label. Measured on a career carried over from FM26, whose header list,
+# groups and members match the FM26 copy of the same career.
 TRAINING = replace(
     FM26_TRAINING,
     block_lead_byte=2,
+    block_tail_bytes=32,
+    block_trailer_bytes=4,
     day_block_bytes=8,
     day_block_lead_byte=4,
     week_name_offset=62,
     week_record_fixed_bytes=80,
-    header_entries_supported=False,
-    mentoring_groups_supported=False,
+    group_lead_byte=2,
+    group_label_marker=None,
     session_labels_supported=True,
 )
 

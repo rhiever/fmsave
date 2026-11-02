@@ -208,16 +208,18 @@ def _read_group(
             section_name=TRAINING_SECTION,
         )
     group_number = _read_word(section, cursor + 1, "a mentoring group's number", file_name)
-    label_marker_offset = cursor + 1 + _UINT32.size
-    if section[label_marker_offset] != layout.group_label_marker:
-        raise layout_mismatch(
-            file_name,
-            "a mentoring group does not carry its label marker",
-            section_name=TRAINING_SECTION,
-        )
+    label_offset = cursor + 1 + _UINT32.size
+    if layout.group_label_marker is not None:
+        if section[label_offset] != layout.group_label_marker:
+            raise layout_mismatch(
+                file_name,
+                "a mentoring group does not carry its label marker",
+                section_name=TRAINING_SECTION,
+            )
+        label_offset += 1
     label, after_label = _read_text(
         section,
-        label_marker_offset + 1,
+        label_offset,
         layout.longest_name_bytes,
         "a mentoring group's label",
         file_name,
@@ -240,6 +242,23 @@ def _read_group(
         )
     members = struct.unpack_from(f"<{member_count}I", section, members_offset)
     return (group_number, label, members), members_offset + members_bytes
+
+
+def _skip_block_trailer(section: bytes, cursor: int, layout: TrainingLayout, file_name: str) -> int:
+    """The offset past a block's trailer after its mentoring groups, which must be all zero."""
+    trailer_end = cursor + layout.block_trailer_bytes
+    if trailer_end > len(section):
+        raise layout_mismatch(
+            file_name,
+            "a block's trailer runs past the end of the section",
+            section_name=TRAINING_SECTION,
+        )
+    if any(section[cursor:trailer_end]):
+        raise UnsupportedGameError(
+            f"{file_name}: training blocks whose trailer is not all zero are not supported by "
+            "this layout"
+        )
+    return trailer_end
 
 
 def _block_starts_here(
@@ -269,7 +288,8 @@ def walk_training_blocks(
             accepted holds a weekly record or a mentoring group it cannot read: a lead byte, a
             marker, a name, a count outside its cap, or a part running past the end.
         UnsupportedGameError: A nonempty header list or mentoring group uses a shape the
-            layout explicitly does not support. Empty counts remain readable.
+            layout explicitly does not support, or a block's trailer after its mentoring groups
+            is not all zero. Empty counts remain readable.
     """
     header_entries = _read_word(
         section, layout.header_count_offset, "its header entry count", file_name
@@ -338,6 +358,7 @@ def walk_training_blocks(
         for _group_index in range(stored_group_count):
             group, position = _read_group(section, position, layout, file_name)
             groups.append(group)
+        position = _skip_block_trailer(section, position, layout, file_name)
         seen_team_ids.add(team_id)
         blocks.append(RawTrainingBlock(team_id, tuple(weeks), tuple(groups)))
         blocks_end = position

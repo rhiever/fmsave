@@ -15,7 +15,11 @@ from fmsave._errors import ReaderCheckError, UnsupportedGameError
 from fmsave._layouts.fm26_26_3_2 import TRAINING as FM26_TRAINING
 from fmsave.models.common import CodedValue
 from fmsave.models.training import TeamTraining, TrainingSession
-from fmsave.readers.training import build_training_tables, walk_training_blocks
+from fmsave.readers.training import (
+    build_training_tables,
+    find_training_layout,
+    walk_training_blocks,
+)
 from fmsave.table import Table
 from tests.fixtures.career import (
     NORTHBRIDGE_TEAM_A,
@@ -28,12 +32,14 @@ from tests.fixtures.container import length_prefixed, packed_date, section_body
 LAYOUT = replace(
     FM26_TRAINING,
     block_lead_byte=2,
+    block_tail_bytes=32,
+    block_trailer_bytes=4,
     day_block_bytes=8,
     day_block_lead_byte=4,
     week_name_offset=62,
     week_record_fixed_bytes=80,
-    header_entries_supported=False,
-    mentoring_groups_supported=False,
+    group_lead_byte=2,
+    group_label_marker=None,
     session_labels_supported=True,
 )
 TEAMS = frozenset({NORTHBRIDGE_TEAM_A})
@@ -52,23 +58,39 @@ def fm27_week(
     return b"\x0b" + packed_date(day, 2031) + b"\x01" + days + length_prefixed(name) + bytes(14)
 
 
+def fm27_header_entry(person: int) -> bytes:
+    """One thirteen-byte header entry: a lead byte, a fictional id and two words."""
+    return b"\x01" + struct.pack("<III", person, 11, 22)
+
+
+def fm27_group(number: int, label: str, selectors: tuple[int, ...]) -> bytes:
+    """One mentoring group: lead byte 2, its number, its label with no marker, its members."""
+    members = struct.pack(f"<I{len(selectors)}I", len(selectors), *selectors)
+    return b"\x02" + struct.pack("<I", number) + length_prefixed(label) + members
+
+
 def fm27_section(
     *,
     days: tuple[int, ...] = (48, 55),
     names: tuple[str, ...] = ("Example Light", "Example Balanced"),
     header_count: int = 0,
-    group_count: int = 0,
+    header_entries: tuple[bytes, ...] = (),
+    group_count: int | None = None,
+    groups: tuple[bytes, ...] = (),
+    trailer: bytes = bytes(4),
     entry_count: int = 1,
     claimed_weeks: int | None = None,
     team_id: int = NORTHBRIDGE_TEAM_A,
 ) -> bytes:
-    payload = struct.pack("<II", 581, 1) + bytes(10) + struct.pack("<I", header_count)
-    payload += bytes((1, 0, 0))
+    stored_header_count = header_count or len(header_entries)
+    payload = struct.pack("<II", 581, 1) + bytes(10) + struct.pack("<I", stored_header_count)
+    payload += b"".join(header_entries) + bytes((1, 0, 0))
     payload += struct.pack("<IBI", team_id, 2, entry_count)
     payload += (b"\x05" + bytes(13)) * entry_count
     payload += struct.pack("<I", len(days) if claimed_weeks is None else claimed_weeks)
     payload += b"".join(fm27_week(day, name) for day, name in zip(days, names, strict=True))
-    payload += bytes(36) + struct.pack("<I", group_count)
+    stored_group_count = len(groups) if group_count is None else group_count
+    payload += bytes(32) + struct.pack("<I", stored_group_count) + b"".join(groups) + trailer
     return section_body(".dat", 32, payload)
 
 
@@ -121,18 +143,102 @@ def test_fm27_nonseven_day_step_is_not_counted_as_verified() -> None:
     assert counts.seven_day_steps == 0
 
 
+def test_the_registered_layout_is_the_one_these_fragments_are_built_for() -> None:
+    assert find_training_layout(32, "27.0.0+2486695") == LAYOUT
+
+
+def test_fm27_header_entries_are_stepped_over_to_the_first_block() -> None:
+    entries = tuple(fm27_header_entry(person) for person in (101, 102, 103))
+    blocks, counts = walk_training_blocks(
+        fm27_section(header_entries=entries), TEAMS, LAYOUT, "fictional.bin"
+    )
+    plain_blocks, _counts = walk_training_blocks(fm27_section(), TEAMS, LAYOUT, "fictional.bin")
+    assert counts.header_entries == 3
+    assert blocks == plain_blocks
+
+
+@pytest.mark.parametrize("missing_bytes", (1, 4))
+def test_fm27_header_list_one_entry_short_parses_no_block(missing_bytes: int) -> None:
+    entries = (fm27_header_entry(101), fm27_header_entry(102)[:-missing_bytes])
+    blocks, _counts = walk_training_blocks(
+        fm27_section(header_count=2, header_entries=entries), TEAMS, LAYOUT, "fictional.bin"
+    )
+    assert blocks == ()
+
+
 @pytest.mark.parametrize("header_count", (1, 2**32 - 1))
-def test_unobserved_nonempty_header_is_rejected_before_its_shape(header_count: int) -> None:
+def test_a_layout_without_header_support_rejects_it_before_its_shape(header_count: int) -> None:
+    layout = replace(LAYOUT, header_entries_supported=False)
     with pytest.raises(UnsupportedGameError, match="header"):
         walk_training_blocks(
-            fm27_section(header_count=header_count), TEAMS, LAYOUT, "fictional.bin"
+            fm27_section(header_count=header_count), TEAMS, layout, "fictional.bin"
         )
 
 
 @pytest.mark.parametrize("group_count", (1, 2**32 - 1))
-def test_unobserved_nonempty_mentoring_is_rejected_before_its_shape(group_count: int) -> None:
+def test_a_layout_without_mentoring_support_rejects_it_before_its_shape(group_count: int) -> None:
+    layout = replace(LAYOUT, mentoring_groups_supported=False)
     with pytest.raises(UnsupportedGameError, match="mentoring"):
-        walk_training_blocks(fm27_section(group_count=group_count), TEAMS, LAYOUT, "fictional.bin")
+        walk_training_blocks(fm27_section(group_count=group_count), TEAMS, layout, "fictional.bin")
+
+
+def test_fm27_mentoring_groups_read_with_labels_and_members_before_the_trailer() -> None:
+    groups = (fm27_group(1, "Example Group 1", (7, 3, 12)), fm27_group(2, "Example Group 2", (5,)))
+    body = fm27_section(groups=groups)
+    blocks, counts = walk_training_blocks(body, TEAMS, LAYOUT, "fictional.bin")
+
+    assert blocks[0].groups == ((1, "Example Group 1", (7, 3, 12)), (2, "Example Group 2", (5,)))
+    assert [week.schedule_name for week in blocks[0].weeks] == [
+        "Example Light",
+        "Example Balanced",
+    ]
+    assert counts.blocks_end == len(body)
+
+
+def test_fm27_blocks_after_one_with_groups_are_still_walked() -> None:
+    first = fm27_section(days=(48,), names=("Example Light",), groups=(fm27_group(1, "G", (4,)),))
+    second = fm27_section(days=(55,), names=("Example Balanced",), team_id=NORTHBRIDGE_TEAM_B)
+    body = first + b"\x00" + second[33:]
+    blocks, counts = walk_training_blocks(
+        body, frozenset({NORTHBRIDGE_TEAM_A, NORTHBRIDGE_TEAM_B}), LAYOUT, "fictional.bin"
+    )
+    assert [block.team_id for block in blocks] == [NORTHBRIDGE_TEAM_A, NORTHBRIDGE_TEAM_B]
+    assert [block.groups for block in blocks] == [((1, "G", (4,)),), ()]
+    assert counts.blocks_end == len(body)
+
+
+@pytest.mark.parametrize("trailer", (b"\x01\x00\x00\x00", b"\x00\x00\x00\x80"))
+def test_fm27_block_trailer_that_is_not_zero_is_rejected(trailer: bytes) -> None:
+    body = fm27_section(groups=(fm27_group(1, "Example Group 1", (7,)),), trailer=trailer)
+    with pytest.raises(UnsupportedGameError, match="trailer"):
+        walk_training_blocks(body, TEAMS, LAYOUT, "fictional.bin")
+
+
+@pytest.mark.parametrize("trailer_bytes", (0, 3))
+def test_fm27_block_trailer_cut_short_is_rejected(trailer_bytes: int) -> None:
+    body = fm27_section(trailer=bytes(trailer_bytes))
+    with pytest.raises(ReaderCheckError, match="trailer"):
+        walk_training_blocks(body, TEAMS, LAYOUT, "fictional.bin")
+
+
+def test_fm27_group_with_the_fm26_lead_byte_is_rejected() -> None:
+    group = b"\x01" + fm27_group(1, "Example Group 1", (7,))[1:]
+    with pytest.raises(ReaderCheckError, match="mentoring group starts"):
+        walk_training_blocks(fm27_section(groups=(group,)), TEAMS, LAYOUT, "fictional.bin")
+
+
+def test_fm27_group_with_an_fm26_label_marker_is_rejected() -> None:
+    group = fm27_group(1, "Example Group 1", (7,))
+    marked = group[:5] + b"\x04" + group[5:]
+    with pytest.raises(ReaderCheckError, match="label"):
+        walk_training_blocks(fm27_section(groups=(marked,)), TEAMS, LAYOUT, "fictional.bin")
+
+
+def test_fm27_group_claiming_more_members_than_the_cap_is_rejected() -> None:
+    group = bytearray(fm27_group(1, "Example Group 1", (7,)))
+    struct.pack_into("<I", group, 5 + 4 + len("Example Group 1"), LAYOUT.most_members_per_group + 1)
+    with pytest.raises(ReaderCheckError, match="members"):
+        walk_training_blocks(fm27_section(groups=(bytes(group),)), TEAMS, LAYOUT, "fictional.bin")
 
 
 @pytest.mark.parametrize("offset", (42, 60, 65, 66))
@@ -215,7 +321,7 @@ def test_fm27_sessions_carry_their_names_and_unnamed_codes_keep_their_raw_number
     week = fm27_week(48, "Example Light", FICTIONAL_FM27_WEEK)
     payload = struct.pack("<II", 581, 1) + bytes(10) + struct.pack("<I", 0) + bytes((1, 0, 0))
     payload += struct.pack("<IBI", NORTHBRIDGE_TEAM_A, 2, 0) + struct.pack("<I", 1) + week
-    payload += bytes(36) + struct.pack("<I", 0)
+    payload += bytes(32) + struct.pack("<I", 0) + bytes(4)
     blocks, _counts = walk_training_blocks(
         section_body(".dat", 32, payload), TEAMS, LAYOUT, "fictional.bin"
     )
