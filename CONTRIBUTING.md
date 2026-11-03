@@ -10,7 +10,7 @@ or findings fed a shipped change:
 
 - as a co-author on the commit that ships it,
 - in that release's changelog entry,
-- in the Contributors list in the [README](README.md#contributors).
+- in the Contributors section of the [README](README.md#contributors).
 
 I mention you on the pull request that ships it, so you'll get a notification. A pull request you
 open anyway is read as a detailed issue and credited the same way. If you'd rather not be credited,

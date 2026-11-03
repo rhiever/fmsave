@@ -150,23 +150,25 @@ shared online career may break platform or community rules.
 Thanks to everyone who has reported bugs, suggested features, helped test or worked out how the
 game stores its data:
 
-- [@1e16miin](https://github.com/1e16miin)
-- [@Buglerru](https://github.com/Buglerru)
-- [@BWH95](https://github.com/BWH95)
-- [@GetChatGPTToDoIt](https://github.com/GetChatGPTToDoIt)
-- [@guyluzon64](https://github.com/guyluzon64)
-- [@hostlund](https://github.com/hostlund)
-- [@jeohist](https://github.com/jeohist)
-- [@johnmmcparland](https://github.com/johnmmcparland)
-- [@jtstothard](https://github.com/jtstothard)
-- [@kdr6989](https://github.com/kdr6989)
-- [@mameabdou24](https://github.com/mameabdou24)
-- [@matthiasvetter1104](https://github.com/matthiasvetter1104)
-- [@Namhahaha1110](https://github.com/Namhahaha1110)
-- [@OdumWorld](https://github.com/OdumWorld)
-- [@rui7avares-create](https://github.com/rui7avares-create)
-- [@sebheusig](https://github.com/sebheusig)
-- [@thaffy](https://github.com/thaffy)
+<p>
+<a href="https://github.com/1e16miin" title="@1e16miin"><img src="https://github.com/1e16miin.png?size=80" width="40" height="40" alt="@1e16miin"></a>
+<a href="https://github.com/Buglerru" title="@Buglerru"><img src="https://github.com/Buglerru.png?size=80" width="40" height="40" alt="@Buglerru"></a>
+<a href="https://github.com/BWH95" title="@BWH95"><img src="https://github.com/BWH95.png?size=80" width="40" height="40" alt="@BWH95"></a>
+<a href="https://github.com/GetChatGPTToDoIt" title="@GetChatGPTToDoIt"><img src="https://github.com/GetChatGPTToDoIt.png?size=80" width="40" height="40" alt="@GetChatGPTToDoIt"></a>
+<a href="https://github.com/guyluzon64" title="@guyluzon64"><img src="https://github.com/guyluzon64.png?size=80" width="40" height="40" alt="@guyluzon64"></a>
+<a href="https://github.com/hostlund" title="@hostlund"><img src="https://github.com/hostlund.png?size=80" width="40" height="40" alt="@hostlund"></a>
+<a href="https://github.com/jeohist" title="@jeohist"><img src="https://github.com/jeohist.png?size=80" width="40" height="40" alt="@jeohist"></a>
+<a href="https://github.com/johnmmcparland" title="@johnmmcparland"><img src="https://github.com/johnmmcparland.png?size=80" width="40" height="40" alt="@johnmmcparland"></a>
+<a href="https://github.com/jtstothard" title="@jtstothard"><img src="https://github.com/jtstothard.png?size=80" width="40" height="40" alt="@jtstothard"></a>
+<a href="https://github.com/kdr6989" title="@kdr6989"><img src="https://github.com/kdr6989.png?size=80" width="40" height="40" alt="@kdr6989"></a>
+<a href="https://github.com/mameabdou24" title="@mameabdou24"><img src="https://github.com/mameabdou24.png?size=80" width="40" height="40" alt="@mameabdou24"></a>
+<a href="https://github.com/matthiasvetter1104" title="@matthiasvetter1104"><img src="https://github.com/matthiasvetter1104.png?size=80" width="40" height="40" alt="@matthiasvetter1104"></a>
+<a href="https://github.com/Namhahaha1110" title="@Namhahaha1110"><img src="https://github.com/Namhahaha1110.png?size=80" width="40" height="40" alt="@Namhahaha1110"></a>
+<a href="https://github.com/OdumWorld" title="@OdumWorld"><img src="https://github.com/OdumWorld.png?size=80" width="40" height="40" alt="@OdumWorld"></a>
+<a href="https://github.com/rui7avares-create" title="@rui7avares-create"><img src="https://github.com/rui7avares-create.png?size=80" width="40" height="40" alt="@rui7avares-create"></a>
+<a href="https://github.com/sebheusig" title="@sebheusig"><img src="https://github.com/sebheusig.png?size=80" width="40" height="40" alt="@sebheusig"></a>
+<a href="https://github.com/thaffy" title="@thaffy"><img src="https://github.com/thaffy.png?size=80" width="40" height="40" alt="@thaffy"></a>
+</p>
 
 ## Support
 

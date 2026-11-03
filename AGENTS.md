@@ -29,8 +29,9 @@ else:
    Never say someone shared or emailed a save, and never include save data or format details. Stick to
    these phrasings, since the commit guard rejects internal planning words. If a login itself trips
    the guard, stop and ask the maintainer.
-4. Add each new handle to the Contributors list in [README.md](README.md#contributors), keeping it
-   alphabetical, ignoring case.
+4. Add each new person to the Contributors avatar wall in [README.md](README.md#contributors), keeping it
+   alphabetical by login, ignoring case. Each entry is one line:
+   `<a href="https://github.com/LOGIN" title="@LOGIN"><img src="https://github.com/LOGIN.png?size=80" width="40" height="40" alt="@LOGIN"></a>`.
 5. @mention each credited person in the pull request description.
 6. Merge with co-author trailers, squash only:
    - Write the squash message to a file. Its last paragraph holds the trailers, one per person, as
