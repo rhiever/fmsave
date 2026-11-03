@@ -246,5 +246,5 @@ def test_whole_save_analysis_keeps_the_explicit_gate_and_online_warning() -> Non
 
 def test_support_keeps_saves_out_of_issues_and_offers_email() -> None:
     support_text = " ".join(readme_section("## Support").split())
-    assert "Do not attach or link a save file in an issue" in support_text
+    assert "Never post a save file or a link to one in an issue" in support_text
     assert "email a link" in support_text

@@ -155,7 +155,7 @@ def test_player_detail_holds_the_record_and_its_stats(opened: dict[str, Any]) ->
     assert detail["player"]["uid"] == PLAYER_A_UID
     assert len(detail["stats"]) == 3
     missing = reader.call("player_detail", 1)
-    assert missing == {"error": "That player is not in this save."}
+    assert missing == {"error": "That player is not in this save.", "kind": "AppError"}
 
 
 @pytest.mark.parametrize("name", ["players", "squad", "season-stats"])
@@ -227,15 +227,18 @@ def test_defusing_rewrites_only_the_cells_that_would_run(tmp_path: Path) -> None
 def test_an_unknown_request_is_refused_with_a_safe_message(opened: dict[str, Any]) -> None:
     del opened
     reader.read_stats()
-    assert reader.call("stats_columns", "friendlies") == {"error": "Unknown competition."}
-    assert reader.call("write_csv", "everything", "/tmp/x.csv") == {"error": "Unknown download."}
+    unknown_competition = {"error": "Unknown competition.", "kind": "AppError"}
+    unknown_download = {"error": "Unknown download.", "kind": "AppError"}
+    assert reader.call("stats_columns", "friendlies") == unknown_competition
+    assert reader.call("write_csv", "everything", "/tmp/x.csv") == unknown_download
 
 
 def test_a_file_that_is_not_a_save_gives_a_message_without_its_content(tmp_path: Path) -> None:
     path = tmp_path / "Alex Example notes.fm"
     path.write_bytes(b"Northbridge FC secret plans " * 100)
     result = reader.call("open_save", str(path))
-    assert set(result) == {"error"}
+    assert set(result) == {"error", "kind"}
+    assert result["kind"] == "NotAFmSaveError"
     assert "not a Football Manager save" in result["error"]
     assert "Northbridge" not in result["error"] and "Alex" not in result["error"]
 
@@ -298,7 +301,7 @@ def test_a_file_that_fails_to_open_keeps_the_last_save(
     reader.read_stats()
     not_a_save = tmp_path / "notes.fm"
     not_a_save.write_bytes(b"not a save " * 100)
-    assert set(reader.call("open_save", str(not_a_save))) == {"error"}
+    assert set(reader.call("open_save", str(not_a_save))) == {"error", "kind"}
     assert set(reader.call("player_detail", PLAYER_A_UID)) == {"ok"}
     assert set(reader.call("stats_columns", "league")) == {"ok"}
     assert set(reader.call("write_csv", "squad", str(tmp_path / "squad.csv"))) == {"ok"}
@@ -310,7 +313,7 @@ def test_a_save_without_a_managed_club_has_no_squad_download(
     del opened
     reader._state["club_uid"] = None
     result = reader.call("write_csv", "squad", str(tmp_path / "squad.csv"))
-    assert result == {"error": "This save has no managed club, so there is no squad to download."}
+    assert result["error"] == "This save has no managed club, so there is no squad to download."
     assert not (tmp_path / "squad.csv").exists()
 
 
@@ -363,6 +366,7 @@ def test_fm27_reader_opens_normally_and_reports_coverage(tmp_path: Path) -> None
         meta = reader.open_save(str(fm27_fragment(tmp_path)))
     try:
         assert meta["game"] == "FM27"
+        assert meta["build"].startswith("27.")
         assert "unconfirmed" in meta["coverage_note"]
     finally:
         reader.close_save()

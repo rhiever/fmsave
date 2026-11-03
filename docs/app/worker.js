@@ -52,7 +52,7 @@ function call(name, ...args) {
   const proxy = reader.call(name, ...args);
   try {
     const result = proxy.toJs({ dict_converter: Object.fromEntries });
-    if (result.error) throw Object.assign(new Error(result.error), { safe: true });
+    if (result.error) throw Object.assign(new Error(result.error), { safe: true, kind: result.kind });
     return result.ok;
   } finally {
     proxy.destroy();
@@ -104,7 +104,7 @@ onmessage = async ({ data }) => {
   try {
     if (data.type === "boot") {
       ready = boot(data);
-      postMessage({ type: "ready", fmsave: await ready });
+      postMessage({ type: "ready", fmsave: await ready, pyodide: pyodide.version });
       return;
     }
     await ready;
@@ -124,6 +124,7 @@ onmessage = async ({ data }) => {
         ? "The reader could not load. Check your connection and reload the page."
         : "Something went wrong in the reader. Reload the page and try again.";
     const request = data.type === "boot" ? "boot" : !reader ? "boot" : data.type;
-    postMessage({ type: "error", request, name: data.name, uid: data.uid, text, generation: data.type === "boot" ? undefined : data.generation });
+    const kind = error.safe ? error.kind : error.name;
+    postMessage({ type: "error", request, name: data.name, uid: data.uid, text, kind, generation: data.type === "boot" ? undefined : data.generation });
   }
 };

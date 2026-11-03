@@ -748,6 +748,7 @@ let worker = null;
 let booting = null;
 let readerReady = false;
 let pendingMeta = null;
+let versions = {};
 async function startWorker() {
   readerReady = false;
   const source = await (await fetch(asset("worker.js"))).text();
@@ -767,6 +768,7 @@ function onWorkerMessage({ data: msg }) {
   switch (msg.type) {
     case "ready":
       readerReady = true;
+      versions = { fmsave: msg.fmsave, pyodide: msg.pyodide };
       setStatus("ok", `Reader ready, fmsave ${msg.fmsave}`);
       const [major, minor, patch] = msg.fmsave.split(".").map(Number);
       const opensOtherFm27Builds = major > 0 || minor > 9 || (minor === 9 && patch >= 1);
@@ -810,9 +812,9 @@ function onWorkerMessage({ data: msg }) {
 function onWorkerError(msg) {
   if (msg.request === "boot") {
     setStatus("bad", msg.text);
-    if (state.loading) loadFailed(msg.text);
+    if (state.loading) loadFailed(msg.text, msg.kind);
   } else if (msg.request === "open") {
-    loadFailed(msg.text);
+    loadFailed(msg.text, msg.kind);
   } else if (msg.request === "stats" && data && !data.stats) {
     data.statsFailed = true;
     for (const id of ["stat-kind", "stat-kind-bar"]) $(id).disabled = true;
@@ -844,20 +846,36 @@ function setStage(stage) {
   clearInterval(tick);
   tick = setInterval(() => { items[at].querySelector("time").textContent = Math.round((performance.now() - started) / 1000) + " s"; }, 500);
 }
-function loadFailed(text) {
+// A report safe to paste in a public issue: versions, game, error class and message, never the
+// file name or anything read from the save.
+let report = "";
+function loadFailed(text, kind) {
   state.loading = false;
   clearInterval(tick);
   if (data) { showApp({ keep: true }); toast(text, 6000); return; }
   showStart();
+  const game = pendingMeta && [pendingMeta.game, pendingMeta.build].filter(Boolean).join(" ");
+  report = [
+    "fmsave web app report",
+    `fmsave: ${versions.fmsave || "not loaded"}`,
+    versions.pyodide && `Pyodide: ${versions.pyodide}`,
+    `Game: ${game || "unknown"}`,
+    kind && `Error: ${kind}`,
+    `Message: ${fileName ? text.split(fileName).join("career.fm") : text}`,
+  ].filter(Boolean).join("\n");
   $("error").textContent = text;
   $("error").hidden = false;
+  $("report").hidden = false;
   $("stages").hidden = true;
   $("drop-actions").hidden = false;
   $("drop-title").textContent = "Drop your .fm save here";
 }
 
+let fileName = "";
 async function begin(file) {
   if (!file) return;
+  fileName = file.name;
+  pendingMeta = null;
   if (!/\.fm$/i.test(file.name)) {
     const text = "That is not a .fm file. Football Manager saves end in .fm.";
     if (data && !$("app").hidden) return toast(text, 5000);
@@ -869,6 +887,7 @@ async function begin(file) {
   state.generation++;
   showStart();
   $("error").hidden = true;
+  $("report").hidden = true;
   $("drop-actions").hidden = true;
   $("drop-title").textContent = "Reading " + file.name;
   setStage(readerReady ? "open" : "boot");
@@ -968,6 +987,10 @@ function wireStart() {
   for (const type of ["dragleave", "drop"]) document.addEventListener(type, (e) => { e.preventDefault(); if (type === "drop" || !e.relatedTarget) drop.classList.remove("over"); });
   document.addEventListener("drop", (e) => begin(e.dataTransfer?.files?.[0]));
   $("demo").addEventListener("click", startDemo);
+  $("copy-report").addEventListener("click", () => navigator.clipboard.writeText(report).then(
+    () => toast("Report copied. It holds no file name or save data."),
+    () => toast("The report could not be copied."),
+  ));
   window.addEventListener("hashchange", () => { if (location.hash === "#demo" && !state.demo) startDemo(); });
 }
 
