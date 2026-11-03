@@ -4,6 +4,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Changed
+
+- The web app's error screen has a Copy report button. It copies the fmsave and Pyodide versions, the game and build when known, and the error, without the file name or anything from the save.
+- The README, CONTRIBUTING.md and issue forms say what helps most in a report: a save sent privately, then your own format findings, then `fmsave validate` output and cropped screenshots. Posting a save, or a link to one, stays off limits.
+
 ## [0.9.3] - 2026-11-02
 
 ### Added

@@ -38,30 +38,40 @@ uv run pyright
 
 - **No real data in the repository.** Never commit real saves, save fragments, hex dumps,
   save-derived datasets or outputs, or real names, uids or values. This covers code, tests,
-  fixtures, snapshots, docs, examples, notebook outputs, messages, issues and pull requests. Keep
-  them under `.local/`, which Git ignores.
+  fixtures, snapshots, docs, examples, notebook outputs, commit messages and the changes in pull
+  requests. Keep them under `.local/`, which Git ignores. Issues and pull request discussion follow
+  [Reporting a wrong value](#reporting-a-wrong-value).
 - **Fictional examples only.** Use made-up names such as "Northbridge FC", "Alex Example" and "Example League".
 - **Tests build their own inputs.** Tests create small in-memory fragments. They never build or ship a complete save.
 - **Read-only.** fmsave never writes saves, reads game memory, connects to the network or decrypts anything. Changes that add any of these will not be accepted.
 - **Local single-player analysis is supported.** Code and output-empty notebooks may read every row
   from your own save. Command-line exports keep the explicit `--all` gate. Do not use hidden data in
   a shared online career unless its rules and participants allow it.
-- **No format write-ups.** Do not add prose descriptions of the save file format to the repository, issues or pull requests. Code and docstrings are enough.
+- **No format write-ups.** Do not add prose descriptions of the save file format to the repository. Code and docstrings are enough.
 
 The commit hooks check staged files and commit messages. Never skip them.
 
 ## Provenance
 
-Knowledge of the save format may come only from observing your own saves and the in-game UI. Do not use decompilation, leaked material, material under a non-disclosure agreement, or code from unlicensed parsers. This applies to anything you share in an issue too.
+Knowledge of the save format may come only from observing your own saves and the in-game UI. Do not use decompilation, leaked material, material under a non-disclosure agreement, or code from unlicensed parsers. This applies to anything you share in an issue or by email too. Never share decompiled or disassembled game code, or executable bytes, anywhere.
 
 ## Reporting a wrong value
 
-You can report a wrong value without sharing any real data:
+Use the bug report form, and name the field, such as `Player.contract.end` or the `contract_end`
+column. `fmsave.field_status(fmsave.Player, "contract.end")` tells you whether its meaning is
+verified or unconfirmed. What helps most, in order:
 
-1. Run `fmsave validate SAVE --json` and paste the output. It holds only versions, counts, check results and coverage, with no names, uids or text from the save.
-2. Name the field, such as `Player.contract.end` or the `contract_end` column. `fmsave.field_status(fmsave.Player, "contract.end")` tells you whether its meaning is verified or unconfirmed.
-3. Describe what the game shows in general terms. For example: "for a few players at my club, the game shows a contract end date one year later than fmsave". Leave out names, uids and exact values.
+1. **A save sent privately**, the fastest route to a fix. Email a link to the address on
+   [the maintainer's GitHub profile](https://github.com/rhiever), or a link shared only with him,
+   and say in the issue that you sent one. Send only your own career, or one whose owner agreed.
+   Saves are kept privately as regression tests to stop future breakage, never committed, published
+   or shared, and deleted on request. Never post a save, or a link to one, publicly.
+2. **Your own format findings**, posted in the issue: offsets, record layouts, counts and small hex
+   snippets of about 256 bytes or less.
+3. **`fmsave validate SAVE --json` output and screenshots.** The validate output holds only
+   versions, counts, check results and coverage, with no names, uids or text from the save. Crop
+   screenshots to the bug. A few example values or names to show the bug are fine.
 
-Use the bug report form for this. Do not attach or link a save file or screenshot in the issue.
-Sharing a save is optional but speeds up fixes: email a link to the address on
-[the maintainer's GitHub profile](https://github.com/rhiever) and say in the issue that you sent one.
+Keep bulk decoded player data, such as squads, tables and CSVs, to a private email. Before posting,
+remove personal details: your manager name if it is your real name, your OS username and file
+paths, mod or DLL names, and platform IDs.

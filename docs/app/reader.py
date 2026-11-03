@@ -296,6 +296,7 @@ def open_save(path: str) -> dict[str, object]:
     _state["club_uid"] = None if club is None else club.club_uid
     return {
         "game": info.game,
+        "build": info.build,
         "coverage_note": (
             "FM27 field meanings remain unconfirmed. Money is in stored units; wages are weekly. Unsupported values stay blank."
             if info.game == "FM27"
@@ -419,9 +420,12 @@ ENTRY_POINTS: dict[str, Callable[..., object]] = {
 
 
 def call(name: str, *args: object) -> dict[str, object]:
-    """Run one entry point for the worker; an error comes back as a message safe to show."""
+    """Run one entry point for the worker; an error comes back as a message safe to show.
+
+    The error's class name comes back too, for the report the page lets someone copy.
+    """
     try:
         return {"ok": ENTRY_POINTS[name](*args)}
     except Exception as error:  # noqa: BLE001 - every error reaches the page as a message
         close_save()
-        return {"error": friendly_error(error)}
+        return {"error": friendly_error(error), "kind": type(error).__name__}

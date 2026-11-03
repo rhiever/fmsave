@@ -94,9 +94,9 @@ game FM26, build 26.1.0+1234567
 ```
 
 The report contains checks, counts and rates, without names, uids or text from your save. Paste it
-into a [GitHub issue](https://github.com/rhiever/fmsave/issues) when a reader misbehaves. Do not
-attach or link the save itself. To share it, email a link to the address on
-[the maintainer's GitHub profile](https://github.com/rhiever).
+into a [GitHub issue](https://github.com/rhiever/fmsave/issues) when a reader misbehaves. Never
+post the save itself or a link to one. To share it privately, which is the fastest route to a fix,
+email a link to the address on [the maintainer's GitHub profile](https://github.com/rhiever).
 
 ## Money and game builds
 

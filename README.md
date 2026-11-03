@@ -173,10 +173,11 @@ game stores its data:
 ## Support
 
 fmsave is a hobby project, maintained on a best-effort basis. Report problems through
-[GitHub issues](https://github.com/rhiever/fmsave/issues). Do not attach or link a save file in an
-issue. To share a save, email a link to the address on [my GitHub profile](https://github.com/rhiever).
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to report a wrong value without sharing real data. To
-request removal of any content, open an issue with the rights request form.
+[GitHub issues](https://github.com/rhiever/fmsave/issues). Never post a save file or a link to one
+in an issue. A save sent privately is the fastest route to a fix: email a link to the address on
+[my GitHub profile](https://github.com/rhiever). See [CONTRIBUTING.md](CONTRIBUTING.md#reporting-a-wrong-value)
+for what helps most in a report. To request removal of any content, open an issue with the rights
+request form.
 
 fmsave does not merge pull requests from other people. Open an issue instead, and you'll be
 credited when the change ships. See [CONTRIBUTING.md](CONTRIBUTING.md#how-contributions-work).

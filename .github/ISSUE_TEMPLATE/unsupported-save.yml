@@ -1,23 +1,23 @@
 name: Unsupported save
-description: Report a save that fmsave refuses to open or cannot read, without attaching it.
+description: Report a save that fmsave refuses to open or cannot read, without posting it.
 labels: ["unsupported-save"]
 body:
   - type: markdown
     attributes:
       value: |
-        Do not attach save files or screenshots, and do not paste real player, staff, club, or competition names, uids, or values. Error messages name the save file, so replace its name with `career.fm` before pasting. To share a save, email a link to the address on [the maintainer's GitHub profile](https://github.com/rhiever).
+        Never post a save file or a link to one here. A save sent privately is the fastest route to a fix: email a link to the address on [the maintainer's GitHub profile](https://github.com/rhiever). Format findings, `fmsave validate SAVE --json` output, a few example values and screenshots cropped to the bug are welcome. Keep bulk player data such as squads or CSVs private. Error messages name the save file, so replace its name with `career.fm` before pasting, and remove personal details: your manager name if it is your real name, your OS username and file paths, mod or DLL names, and platform IDs. [CONTRIBUTING.md](https://github.com/rhiever/fmsave/blob/main/CONTRIBUTING.md#reporting-a-wrong-value) says what helps most.
   - type: checkboxes
     id: no-real-data
     attributes:
-      label: No save files or real data
+      label: No save files or personal details
       options:
-        - label: I have not attached or linked a save file, screenshot, or any real player data
+        - label: I have not posted a save file or a link to one, and removed personal details
           required: true
   - type: textarea
     id: problem
     attributes:
       label: What happened
-      description: The command you ran and the error or warning fmsave printed.
+      description: The command you ran and the error or warning fmsave printed. From the web app, paste the text its Copy report button copies.
     validations:
       required: true
   - type: input
@@ -44,7 +44,7 @@ body:
   - type: input
     id: game-build
     attributes:
-      label: FM26 build
+      label: Game build (FM26 or FM27)
       description: The Build line from `fmsave info SAVE`. If `info` fails, give the build shown in the game.
     validations:
       required: true
