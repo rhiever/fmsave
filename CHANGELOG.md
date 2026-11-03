@@ -8,6 +8,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 - The web app's error screen has a Copy report button. It copies the fmsave and Pyodide versions, the game and build when known, and the error, without the file name or anything from the save.
 - The README, CONTRIBUTING.md and issue forms say what helps most in a report: a save sent privately, then your own format findings, then `fmsave validate` output and cropped screenshots. Posting a save, or a link to one, stays off limits.
+- Compatibility: `Stadium.all_seater_capacity` is renamed `total_capacity`, since it holds the ground's total capacity, seated and standing together, not the seated figure. The export column is renamed the same way. Code or spreadsheets that use the old name need updating. (#38)
+- Docs: `Stadium.capacity` is the capacity used in normal matches, and a zero `seated_capacity` means the game shows a single figure with no seated part. Both are from one FM27 ground each and stay unconfirmed. (#38)
+
+Thanks to @jeohist for help testing. Refs #38.
 
 ## [0.9.3] - 2026-11-02
 

@@ -109,7 +109,7 @@ CUP_TIE = 4
 EXPECTED_STADIUM_COLUMNS = (
     "uid",
     "name",
-    "all_seater_capacity",
+    "total_capacity",
     "seated_capacity",
     "expansion_capacity",
     "capacity",
@@ -224,7 +224,7 @@ def test_every_field_of_one_fully_filled_ground(career_path: Path) -> None:
     with fmsave.open(career_path) as save:
         ground = save.stadiums()[FIRST_OWNED_GROUND]
 
-    assert ground.all_seater_capacity == 5_010
+    assert ground.total_capacity == 5_010
     assert ground.seated_capacity == CAREER_STADIUM_U17
     assert ground.expansion_capacity == 6_010
     assert ground.capacity == 5_010
@@ -254,8 +254,7 @@ def test_the_seated_figure_keeps_its_old_unknown_key(career_path: Path) -> None:
 
     assert all(ground.unknown["u17"] == ground.seated_capacity for ground in stadiums)
     assert (
-        stadiums[FIRST_OWNED_GROUND].seated_capacity
-        < stadiums[FIRST_OWNED_GROUND].all_seater_capacity
+        stadiums[FIRST_OWNED_GROUND].seated_capacity < stadiums[FIRST_OWNED_GROUND].total_capacity
     )
     assert stadiums[UNOWNED_GROUND].seated_capacity == 0
 
@@ -815,7 +814,7 @@ def test_the_table_is_read_once_and_raises_after_the_save_is_closed(career_path:
 
 def test_the_field_statuses_follow_the_stadium_coverage() -> None:
     for verified_field in (
-        "all_seater_capacity",
+        "total_capacity",
         "expansion_capacity",
         "pitch_length_dm",
         "pitch_width_dm",

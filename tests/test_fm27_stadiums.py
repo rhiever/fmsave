@@ -52,7 +52,7 @@ def test_unavailable_calendar_preserves_intrinsic_fields_and_owner_join(tmp_path
     assert len(rows) == 13
     ground = rows[-1]
     assert ground.name == "Example Park"
-    assert ground.all_seater_capacity == 10_013
+    assert ground.total_capacity == 10_013
     assert ground.expansion_capacity == 12_013
     assert ground.capacity == 8_000
     assert ground.pitch_length_dm == 1050 and ground.pitch_width_dm == 680
@@ -81,7 +81,7 @@ def test_empty_available_calendar_is_present_empty_not_unknown(tmp_path: Path) -
     assert Table(unknown, Stadium).coverage["home_club_names"] == 0.0
     assert Table(empty, Stadium).coverage["home_club_uids"] == 1.0
     assert Table(empty, Stadium).coverage["home_club_names"] == 1.0
-    assert Table(unknown, Stadium).coverage["all_seater_capacity"] == 1.0
+    assert Table(unknown, Stadium).coverage["total_capacity"] == 1.0
 
 
 def test_unknown_calendar_exports_json_null_not_empty_lists(tmp_path: Path) -> None:

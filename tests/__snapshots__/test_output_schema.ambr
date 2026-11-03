@@ -737,7 +737,7 @@
       'Stadium': list([
         'uid',
         'name',
-        'all_seater_capacity',
+        'total_capacity',
         'seated_capacity',
         'expansion_capacity',
         'capacity',
