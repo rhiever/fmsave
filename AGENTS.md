@@ -10,6 +10,9 @@ Follow [CONTRIBUTING.md](CONTRIBUTING.md) for setup, guardrails and checks.
   `git pull --ff-only origin main`.
 - If that checkout is off `main`, has uncommitted changes, or cannot fast-forward, stop and report.
   Never reset, stash or force it.
+- Once a branch's work is on `main`, remove its worktree (`git worktree remove`) and delete the
+  branch locally and on origin. Squash merges need `git branch -D`. Never remove a worktree with
+  uncommitted changes or a branch holding work not on `main`; stop and report instead.
 
 ## Crediting contributors
 
