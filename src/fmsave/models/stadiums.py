@@ -41,21 +41,20 @@ class Stadium:
         name: The ground's name as the save stores it inline, or None when the save stores
             none, which is the case for nearly every ground: the game takes the name from its
             installed database instead (unconfirmed).
-        all_seater_capacity: The ground's total capacity, seated and standing together: the
-            first figure the game's facilities screen shows. Despite the name it is not the
-            seated figure, which is `seated_capacity`; the two are equal on a ground the
-            screen calls all-seater.
+        total_capacity: The ground's total capacity, seated and standing together: the
+            first figure the game's facilities screen shows. The seated part is
+            `seated_capacity`; the two are equal on a ground the screen calls all-seater.
         seated_capacity: How many of the total are seats: the figure the facilities screen
             shows in brackets as seated, and the same as the total on an all-seater ground.
             It is at or below the total on all but one ground across the saves measured, and
-            it is zero on roughly two grounds in five, where what the game shows has not been
-            compared (unconfirmed).
+            it is zero on roughly two grounds in five; on the one FM27 ground compared, the
+            screen then shows a single plain figure with no seated part (unconfirmed).
         expansion_capacity: The capacity the ground would hold expanded, which is at or above
             the total capacity on all but a handful of grounds.
-        capacity: A further capacity the save stores, empty where the save stores zero, which
-            is about four grounds in five. It is at or below the total on all but a handful of
-            grounds and equals it on most that store one; which figure the game uses it for has
-            not been compared with a screen (unconfirmed).
+        capacity: The capacity used in normal matches, the lower figure the FM27 facilities
+            screen shows after the total on the one all-seater ground compared. It is empty
+            where the save stores zero, which is about four grounds in five, and at or below
+            the total on all but a handful of grounds (unconfirmed).
         owner_club_uid: Uid of the club that owns the ground, or None when the save names no
             owner or names a club it does not list. A ground with no stored owner is the
             council's: the game's own facilities screen shows one such ground as owned by the
@@ -95,7 +94,7 @@ class Stadium:
 
     uid: int
     name: str | None
-    all_seater_capacity: int
+    total_capacity: int
     seated_capacity: int
     expansion_capacity: int
     capacity: int | None
@@ -127,7 +126,7 @@ class Stadium:
 register_field_statuses(
     Stadium,
     verified=(
-        "all_seater_capacity",
+        "total_capacity",
         "expansion_capacity",
         "pitch_length_dm",
         "pitch_width_dm",
