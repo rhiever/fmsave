@@ -1215,6 +1215,38 @@ def test_a_record_with_an_unlisted_signature_variant_is_read_and_its_byte_report
     assert counts.unknown_signature_bytes == ((position, value, 1),)
 
 
+def _with_in_possession_gap(record: bytes, gap_bytes: int) -> bytes:
+    """`record` with zero bytes between its first in-possession and out-of-possession blocks."""
+    first_block = record.index(LAYOUT.slot_tag)
+    second_block = record.index(LAYOUT.slot_tag, first_block + 1)
+    return record[:second_block] + bytes(gap_bytes) + record[second_block:]
+
+
+def _walk_with_gap_layout(record: bytes, gap_bytes: int) -> RawTacticBlock:
+    layout = dataclasses.replace(LAYOUT, in_possession_gap_bytes=gap_bytes)
+    body = tactics_man_body(selector=MANAGER_SELECTOR, blocks=(_records_block((record,)),))
+    blocks, _counts = walk_tactic_blocks(body, CAREER_TEAM_IDS[:1], layout, FILE_NAME)
+    return blocks[0]
+
+
+def test_a_gap_the_layout_allows_after_an_in_possession_block_is_skipped() -> None:
+    plain = _walk_with_gap_layout(_example_record(), 12).tactics[0]
+    gapped = _walk_with_gap_layout(_with_in_possession_gap(_example_record(), 12), 12).tactics[0]
+
+    assert gapped.walk_complete
+    assert gapped.oop_index_permutation
+    assert gapped == plain
+
+
+@pytest.mark.parametrize(("stored", "allowed"), ((12, 0), (11, 12), (13, 12)), ids=str)
+def test_a_gap_the_layout_does_not_allow_ends_the_walk(stored: int, allowed: int) -> None:
+    record = _with_in_possession_gap(_example_record(), stored)
+    tactic = _walk_with_gap_layout(record, allowed).tactics[0]
+
+    assert not tactic.walk_complete
+    assert len(tactic.slots) == 0
+
+
 def test_records_the_lenient_walk_reads_match_the_strict_read_of_listed_ones() -> None:
     listed = _example_record(name="Example Variant")
     strict_block, _strict_counts = _walk_one_block(_records_block((listed,)))

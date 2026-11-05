@@ -4,6 +4,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Fixed
+
+- `tactics()`, `set_pieces()` and `selections()` read FM27 tactic records whose signature ends in 02, and records with extra bytes after an in-possession slot block. Those bytes are skipped undecoded, and every other check on these records still applies.
+
 ### Changed
 
 - The web app's error screen has a Copy report button. It copies the fmsave and Pyodide versions, the game and build when known, and the error, without the file name or anything from the save.

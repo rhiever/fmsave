@@ -1723,7 +1723,9 @@ class TacticsLayout:
     `team_instruction_bytes` instruction bytes of which `mentality_index` is the mentality code,
     a length-prefixed style label, `style_code_bytes` of style code, and then `slot_count`
     **pairs** of slot blocks: the in-possession block and then the out-of-possession block,
-    which is the one carrying the extra per-position index byte. The 22 blocks of a record are
+    which is the one carrying the extra per-position index byte. When the slot tag is not where
+    an in-possession block ends but sits `in_possession_gap_bytes` further on, those bytes are
+    skipped undecoded; 0 means no gap is allowed. The 22 blocks of a record are
     pairs and not two runs of eleven: walked as two runs the walk stops at the third block on
     every record of every save measured, and walked as pairs it completes on all of them with the index bytes a permutation of 0 to `slot_count` less one.
 
@@ -1792,6 +1794,7 @@ class TacticsLayout:
     name_length_range: tuple[int, int]
     tactic_records_supported: bool = True
     named_routines_supported: bool = True
+    in_possession_gap_bytes: int = 0
 
 
 @dataclass(frozen=True, slots=True)

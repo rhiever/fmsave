@@ -120,8 +120,9 @@ def test_fm27_tactics_reads_records_and_named_routines() -> None:
     layout = find_layout(TacticsLayout, "tactics_man", 26, BUILD).layout
     assert layout.selection_end_marker == b"\x44\x00"
     assert layout.tactic_records_supported
-    assert layout.user_signature == layout.alternate_signature
+    assert layout.alternate_signature == layout.user_signature[:-1] + b"\x02"
     assert layout.preset_signature != layout.user_signature
+    assert layout.in_possession_gap_bytes == 12
     assert layout.named_routines_supported
 
 

@@ -563,6 +563,19 @@ def _slot_from_pair(
     )
 
 
+def _after_in_possession_gap(section: bytes, cursor: int, layout: TacticsLayout) -> int:
+    """Where the out-of-possession block starts, after any gap the layout allows."""
+    tag = layout.slot_tag
+    gap_end = cursor + layout.in_possession_gap_bytes
+    if (
+        layout.in_possession_gap_bytes
+        and section[cursor : cursor + len(tag)] != tag
+        and section[gap_end : gap_end + len(tag)] == tag
+    ):
+        return gap_end
+    return cursor
+
+
 def _read_tactic_record(
     section: bytes,
     signature_at: int,
@@ -617,7 +630,7 @@ def _read_tactic_record(
             break
         out_of_possession = _read_slot_block(
             section,
-            in_possession.end,
+            _after_in_possession_gap(section, in_possession.end, layout),
             record_end,
             layout,
             with_index_byte=True,
