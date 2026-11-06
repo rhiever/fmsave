@@ -75,6 +75,10 @@ if TYPE_CHECKING:
     from fmsave._save import Save
 
 
+# FM27 meanings checked against game screens. The global registry describes FM26.
+_FM27_VERIFIED_FIELDS = frozenset({"Staff.age", "Staff.birth_date", "Staff.contract_end"})
+
+
 # Internal switch: when False, failed checks are still evaluated and reported, but neither
 # raised nor warned about.
 _gates_enabled = True
@@ -2727,9 +2731,8 @@ class ValidationReport:
         game: Game edition, for example "FM26".
         build: Version and build that last wrote the save.
         known_build: Whether fmsave has a layout registered for every reader for this build.
-            It does not mean field meanings are confirmed: FM27 fields stay unconfirmed, and
-            `fmsave info` shows an FM27 build as partial coverage. It is False for an FM27
-            build that borrows the registered build's layouts.
+            It describes layout coverage. See `field_statuses` for field verification.
+            It is False for an FM27 build that borrows another build's layouts.
         section_schemas: Schema number of every named section.
         readers: Each reader's outcome, in the order they ran.
         field_statuses: Whether each public field's meaning is "verified" or "unconfirmed".
@@ -2954,7 +2957,10 @@ def validate_save(career_save: Save) -> ValidationReport:
         section_schemas=FrozenMapping(save_info.section_schemas),
         readers=tuple(validations),
         field_statuses=FrozenMapping(
-            dict.fromkeys(registered_statuses(), "unconfirmed")
+            {
+                name: "verified" if name in _FM27_VERIFIED_FIELDS else "unconfirmed"
+                for name in registered_statuses()
+            }
             if save_info.game == "FM27"
             else registered_statuses()
         ),

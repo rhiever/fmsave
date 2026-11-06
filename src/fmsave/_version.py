@@ -473,7 +473,7 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
             UnknownBuildWarning(
                 f"{unverified}FM27 coverage: only registered layouts are enabled; "
                 "unsupported readers fail closed. Structural checks are not semantic or "
-                "in-game verification; global field-status labels describe FM26; FM27 fields remain unconfirmed."
+                "in-game verification. Run fmsave validate SAVE --json for FM27 field statuses."
             ),
             skip_file_prefixes=(str(Path(fmsave.__file__).parent) + os.sep,),
         )

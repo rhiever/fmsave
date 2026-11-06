@@ -18,7 +18,7 @@ whose schema matches, and a reader of a section whose schema differs raises
 competition rules, suspensions, per-match histories, training calendars and mentoring groups.
 Three season-stat fields are not read. Run `fmsave validate SAVE --json` for reader coverage and checks.
 
-FM27 field meanings remain unconfirmed; structural checks do not establish correctness.
+The validation report shows which FM27 fields have been checked against the game.
 `known_build` is true for `27.0.0+2486695` because every reader has a registered layout, not
 because its fields are confirmed. It is false for other FM27 builds.
 Unknown values stay explicit rather than borrowing FM26 meanings. Finance rows are snapshots,
@@ -166,6 +166,7 @@ game stores its data:
 <a href="https://github.com/menidi" title="@menidi"><img src="https://github.com/menidi.png?size=80" width="40" height="40" alt="@menidi"></a>
 <a href="https://github.com/Namhahaha1110" title="@Namhahaha1110"><img src="https://github.com/Namhahaha1110.png?size=80" width="40" height="40" alt="@Namhahaha1110"></a>
 <a href="https://github.com/OdumWorld" title="@OdumWorld"><img src="https://github.com/OdumWorld.png?size=80" width="40" height="40" alt="@OdumWorld"></a>
+<a href="https://github.com/paul-anthony-oneill" title="@paul-anthony-oneill"><img src="https://github.com/paul-anthony-oneill.png?size=80" width="40" height="40" alt="@paul-anthony-oneill"></a>
 <a href="https://github.com/rui7avares-create" title="@rui7avares-create"><img src="https://github.com/rui7avares-create.png?size=80" width="40" height="40" alt="@rui7avares-create"></a>
 <a href="https://github.com/sebheusig" title="@sebheusig"><img src="https://github.com/sebheusig.png?size=80" width="40" height="40" alt="@sebheusig"></a>
 <a href="https://github.com/thaffy" title="@thaffy"><img src="https://github.com/thaffy.png?size=80" width="40" height="40" alt="@thaffy"></a>

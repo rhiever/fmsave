@@ -83,7 +83,7 @@ from fmsave._layouts.fm26_26_3_2 import (
 
 BUILD = "27.0.0+2486695"
 # Every reader has a layout registered for this build. That says the layouts fit its saves,
-# not that any field's meaning is confirmed: FM27 fields stay unconfirmed.
+# not that every field's meaning is confirmed.
 KNOWN_BUILDS: tuple[str, ...] = (BUILD,)
 
 # Schema 47's run of one-byte flags from +120 holds two flags more than schema 46's, and every

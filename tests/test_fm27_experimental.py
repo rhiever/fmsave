@@ -107,7 +107,7 @@ def test_an_unregistered_fm27_build_opens_and_reads_a_region_whose_schema_matche
     assert f"FM27 build {UNREGISTERED_BUILD}, an unverified build" in messages[0]
     assert f"borrows the {BUILD} layouts for each section whose schema matches" in messages[0]
     assert "Please report problems at" in messages[0]
-    assert "FM27 fields remain unconfirmed" in messages[0]
+    assert "FM27 field statuses" in messages[0]
 
 
 def test_the_registered_fm27_build_warns_only_about_coverage(tmp_path: Path) -> None:
@@ -277,12 +277,21 @@ def test_fm27_unrecognized_summary_clock_is_not_silently_accepted(tmp_path: Path
         fmsave.open(fm27_fragment(tmp_path, summary_date=packed_date(0, 2032)))
 
 
-def test_fm27_validation_does_not_claim_fm26_semantic_verification(tmp_path: Path) -> None:
+@pytest.mark.parametrize("build", [BUILD, UNREGISTERED_BUILD])
+def test_fm27_validation_reports_only_fm27_field_verification(tmp_path: Path, build: str) -> None:
     with pytest.warns(UserWarning, match="FM27"):
-        save = fmsave.open(fm27_fragment(tmp_path, game_db=nation_table_bytes()))
+        save = fmsave.open(fm27_fragment(tmp_path, build=build, game_db=nation_table_bytes()))
     with save:
         report = fmsave.validate_save(save)
-    assert set(report.field_statuses.values()) == {"unconfirmed"}
+    field_statuses = report.to_json_dict()["field_statuses"]
+    assert isinstance(field_statuses, dict)
+    assert {name for name, status in field_statuses.items() if status == "verified"} == {
+        "Staff.age",
+        "Staff.birth_date",
+        "Staff.contract_end",
+    }
+    assert set(field_statuses.values()) == {"verified", "unconfirmed"}
+    assert fmsave.field_status(fmsave.Staff, "age") == "unconfirmed"
     statuses = {reader.reader: reader.status for reader in report.readers}
     assert statuses["nations"] == "ok"
     assert statuses["players"] != "ok"
