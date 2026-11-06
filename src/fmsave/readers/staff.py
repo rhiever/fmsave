@@ -764,6 +764,7 @@ class _AbilityBlock:
     ability: Ability
     preferences: StaffPreferences
     unknown: Mapping[str, int]
+    ratings: Mapping[str, int | None]
 
 
 def _read_ability_block(
@@ -825,12 +826,20 @@ def _read_ability_block(
         unknown[f"r{code_number}"] = code
     for slot in layout.unnamed_preference_slots:
         unknown[f"preference_slot_{slot}"] = preferences[slot]
+    ratings: dict[str, int | None] = {}
+    for name, slot in layout.rated_block_slots:
+        value = game_db[further_at + slot]
+        ratings[name] = value if lowest_further <= value <= highest_further else None
+    for name, slot, maximum in layout.rated_preference_slots:
+        value = preferences[slot]
+        ratings[name] = value if 1 <= value <= maximum else None
     block = _AbilityBlock(
         ability=Ability(current=current, potential=potential, potential_range_code=None),
         preferences=StaffPreferences(
             *(preferences[slot] for _name, slot in layout.named_preference_slots)
         ),
         unknown=unknown,
+        ratings=ratings,
     )
     return block, slots_in_range, codes_in_set, further_in_range
 
@@ -1352,7 +1361,11 @@ def _build_rows(
                 ability=None if block is None else block.ability,
                 personality=personality,
                 attributes=(
-                    None if personality is None else StaffAttributes(personality.adaptability)
+                    None
+                    if personality is None
+                    else StaffAttributes(
+                        personality.adaptability, **({} if block is None else block.ratings)
+                    )
                 ),
                 preferences=None if block is None else block.preferences,
                 unknown=_staff_unknown(None if block is None else block.unknown, record),

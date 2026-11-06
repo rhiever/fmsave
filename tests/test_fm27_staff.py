@@ -202,6 +202,7 @@ def unique_staff_read(
 ):
     from datetime import date
 
+    from fmsave._layouts.fm27_27_0_0 import STAFF as FM27_STAFF_LAYOUT
     from fmsave.readers.clubs import read_club_index
     from fmsave.readers.names import locate_name_pools
     from fmsave.readers.player_scan import locate_player_records
@@ -220,6 +221,8 @@ def unique_staff_read(
         staff=replace(
             STAFF_LAYOUTS.staff,
             human_personality_floor=human_personality_floor,
+            rated_block_slots=FM27_STAFF_LAYOUT.rated_block_slots if fm27_jobs else (),
+            rated_preference_slots=FM27_STAFF_LAYOUT.rated_preference_slots if fm27_jobs else (),
             **(FM27_JOB_VALUES if fm27_jobs else {}),  # pyright: ignore[reportArgumentType]
         ),
         person_blocks=replace(
@@ -329,13 +332,18 @@ def manager_and_neighbor(*, kind: int = 9, personality: tuple[int, ...] = ZERO_S
 
 
 def test_human_manager_with_a_zero_personality_byte_is_named_under_the_floor() -> None:
-    rows = unique_staff_rows(manager_and_neighbor(), human_selector=19, human_personality_floor=0)
+    from fmsave import StaffAttributes
+
+    rows = unique_staff_rows(
+        manager_and_neighbor(), human_selector=19, human_personality_floor=0, fm27_jobs=True
+    )
     manager = next(row for row in rows if row.is_human_manager)
 
     assert manager.uid == 810_018
     assert manager.legal_name == "Manager Example"
     assert manager.personality is not None
     assert astuple(manager.personality) == ZERO_SLOT_PERSONALITY
+    assert manager.attributes == StaffAttributes(manager.personality.adaptability)
     assert manager.unique_id == 810_019
 
 
@@ -685,3 +693,80 @@ def test_the_human_managers_job_comes_from_his_own_contract() -> None:
 
     assert manager.job is not None
     assert manager.job.label is StaffJob.MANAGER
+
+
+@pytest.mark.parametrize("fm27", [False, True])
+def test_staff_ratings_keep_their_stored_scale_and_unconfirmed_status(fm27: bool) -> None:
+    from dataclasses import asdict
+
+    from fmsave import Staff, field_status
+    from fmsave.export import flat_rows
+    from tests.fixtures.staff import CAREER_STAFF_PREFERENCES, staff_object_bytes
+
+    preferences = list(CAREER_STAFF_PREFERENCES)
+    preferences[4], preferences[12], preferences[13] = 7, 19, 82
+    staff = staff_object_bytes(
+        person_id=18,
+        uid=810_018,
+        contract=job_contract(job=12),
+        person_block=person_block("Example Physio"),
+        block_40=tuple(range(51, 77)),
+        preferences=preferences,
+    )
+    row = next(row for row in unique_staff_rows(staff, fm27_jobs=fm27) if row.uid == 810_018)
+    assert row.attributes is not None
+    expected = {
+        "goalkeeping": 52,
+        "judging_player_ability": 53,
+        "judging_player_potential": 54,
+        "people_management": 55,
+        "motivating": 56,
+        "physiotherapy": 57,
+        "tactical_knowledge": 58,
+        "attacking": 59,
+        "defending": 60,
+        "fitness": 61,
+        "possession": 62,
+        "technical": 63,
+        "tactical": 64,
+        "analysing_data": 69,
+        "sports_science": 72,
+        "negotiating": 74,
+        "judging_staff_ability": 75,
+        "set_pieces": 76,
+        "authority": 7,
+        "working_with_youngsters": 19,
+        "determination": 82,
+    }
+    values = {field: value if fm27 else None for field, value in expected.items()}
+    assert asdict(row.attributes) == {"adaptability": 10, **values}
+    exported = next(flat_rows([row], Staff))
+    for field, value in values.items():
+        assert field_status(Staff, f"attributes.{field}") == "unconfirmed"
+        assert exported[f"attributes_{field}"] == value
+    assert row.unknown["preference_slot_13"] == 82
+
+
+def test_out_of_range_ratings_are_absent_without_losing_other_fields() -> None:
+    from tests.fixtures.staff import CAREER_STAFF_PREFERENCES, staff_object_bytes
+
+    preferences = list(CAREER_STAFF_PREFERENCES)
+    preferences[4], preferences[12], preferences[13] = 0, 21, 101
+    block = [53] * 26
+    block[1], block[25] = 0, 255
+    staff = staff_object_bytes(
+        person_id=18,
+        uid=810_018,
+        contract=job_contract(job=12),
+        person_block=person_block("Example Physio"),
+        block_40=block,
+        preferences=preferences,
+    )
+    row = next(row for row in unique_staff_rows(staff, fm27_jobs=True) if row.uid == 810_018)
+    assert row.attributes is not None
+    assert row.attributes.physiotherapy == 53
+    assert row.attributes.goalkeeping is None
+    assert row.attributes.set_pieces is None
+    assert row.attributes.authority is None
+    assert row.attributes.working_with_youngsters is None
+    assert row.attributes.determination is None

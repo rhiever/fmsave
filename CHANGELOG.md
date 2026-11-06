@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-05
+
+### Added
+
+- Read 21 additional FM27 staff ratings at their stored scales. Each rating is unconfirmed. (#68)
+
 ### Fixed
 
 - Read additional FM27 tactics that previously caused `tactics()`, `set_pieces()`, and `selections()` to fail validation. (#67)
@@ -13,10 +19,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 - The web app's error screen has a Copy report button. It copies the fmsave and Pyodide versions, the game and build when known, and the error, without the file name or anything from the save.
 - The README, CONTRIBUTING.md and issue forms say what helps most in a report: a save sent privately, then your own format findings, then `fmsave validate` output and cropped screenshots. Posting a save, or a link to one, stays off limits.
-- Compatibility: `Stadium.all_seater_capacity` is renamed `total_capacity`, since it holds the ground's total capacity, seated and standing together, not the seated figure. The export column is renamed the same way. Code or spreadsheets that use the old name need updating. (#38)
+- Compatibility: `Stadium.all_seater_capacity` is renamed `total_capacity`, since it holds the ground's total capacity, seated and standing together, not the seated figure. The export column is renamed the same way. The output schema version is now 3. (#38)
 - Docs: `Stadium.capacity` is the capacity used in normal matches, and a zero `seated_capacity` means the game shows a single figure with no seated part. Both are from one FM27 ground each and stay unconfirmed. (#38)
 
-Thanks to @jeohist for help testing and @menidi for the report. Refs #38, #67.
+Thanks to @jeohist for help testing and @menidi for the report and for researching staff ratings. Refs #38, #67, #68.
 
 ## [0.9.3] - 2026-11-02
 

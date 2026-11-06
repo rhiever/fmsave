@@ -177,6 +177,31 @@ STAFF = replace(
     no_contract_selector_offset=16,
     no_contract_lead=b"\x05\x05",
     unset_code_list_allowed=True,
+    rated_block_slots=(
+        ("goalkeeping", 1),
+        ("judging_player_ability", 2),
+        ("judging_player_potential", 3),
+        ("people_management", 4),
+        ("motivating", 5),
+        ("physiotherapy", 6),
+        ("tactical_knowledge", 7),
+        ("attacking", 8),
+        ("defending", 9),
+        ("fitness", 10),
+        ("possession", 11),
+        ("technical", 12),
+        ("tactical", 13),
+        ("analysing_data", 18),
+        ("sports_science", 21),
+        ("negotiating", 23),
+        ("judging_staff_ability", 24),
+        ("set_pieces", 25),
+    ),
+    rated_preference_slots=(
+        ("authority", 4, 20),
+        ("working_with_youngsters", 12, 20),
+        ("determination", 13, 100),
+    ),
 )
 
 # The header list keeps the FM26 entry size. A block's tail is four bytes shorter than on FM26

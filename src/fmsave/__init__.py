@@ -107,7 +107,7 @@ from fmsave.models.training import (
 from fmsave.name_maps import read_competition_names
 from fmsave.table import Table
 
-OUTPUT_SCHEMA_VERSION = 2
+OUTPUT_SCHEMA_VERSION = 3
 
 __all__ = [
     "OUTPUT_SCHEMA_VERSION",
