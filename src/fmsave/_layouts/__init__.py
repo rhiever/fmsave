@@ -1687,6 +1687,8 @@ class StaffLayout:
     no_contract_selector_offset: int | None = None
     no_contract_lead: bytes = b""
     unset_code_list_allowed: bool = False
+    rated_block_slots: tuple[tuple[str, int], ...] = ()
+    rated_preference_slots: tuple[tuple[str, int, int], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

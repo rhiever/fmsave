@@ -98,16 +98,60 @@ class StaffPreferences:
 
 @dataclass(frozen=True, slots=True)
 class StaffAttributes:
-    """The one rated staff attribute located in the save.
+    """Ratings stored for a staff member.
 
-    A staff profile rates about twenty attributes; only this one has been found, and it is the
-    same byte as `Staff.personality.adaptability`, so the two always agree.
+    Adaptability uses the same 1 to 20 scale as `Staff.personality.adaptability`.
+    The other ratings are unconfirmed and currently read only for FM27 non-human staff.
+    Authority and working with youngsters use a 1 to 20 scale. The rest use a 1 to 100
+    scale. Missing or out-of-range ratings are None.
 
     Attributes:
-        adaptability: Adaptability, on the same 1 to 20 scale a player's is.
+        adaptability: Adaptability.
+        goalkeeping: Goalkeeping (unconfirmed).
+        judging_player_ability: Judging player ability (unconfirmed).
+        judging_player_potential: Judging player potential (unconfirmed).
+        people_management: People management (unconfirmed).
+        motivating: Motivating (unconfirmed).
+        physiotherapy: Physiotherapy (unconfirmed).
+        tactical_knowledge: Tactical knowledge (unconfirmed).
+        attacking: Attacking (unconfirmed).
+        defending: Defending (unconfirmed).
+        fitness: Fitness (unconfirmed).
+        possession: Possession (unconfirmed).
+        technical: Technical (unconfirmed).
+        tactical: Tactical (unconfirmed).
+        analysing_data: Analysing data (unconfirmed).
+        sports_science: Sports science (unconfirmed).
+        negotiating: Negotiating (unconfirmed).
+        judging_staff_ability: Judging staff ability (unconfirmed).
+        set_pieces: Set pieces (unconfirmed).
+        authority: Authority (unconfirmed).
+        working_with_youngsters: Working with youngsters (unconfirmed).
+        determination: Determination (unconfirmed).
     """
 
     adaptability: int
+    goalkeeping: int | None = None
+    judging_player_ability: int | None = None
+    judging_player_potential: int | None = None
+    people_management: int | None = None
+    motivating: int | None = None
+    physiotherapy: int | None = None
+    tactical_knowledge: int | None = None
+    attacking: int | None = None
+    defending: int | None = None
+    fitness: int | None = None
+    possession: int | None = None
+    technical: int | None = None
+    tactical: int | None = None
+    analysing_data: int | None = None
+    sports_science: int | None = None
+    negotiating: int | None = None
+    judging_staff_ability: int | None = None
+    set_pieces: int | None = None
+    authority: int | None = None
+    working_with_youngsters: int | None = None
+    determination: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,7 +222,7 @@ class Staff:
         ability: Current and potential ability, None when the object carries no readable
             ability block, as the human manager's does not.
         personality: The eight personality values, None without a name block.
-        attributes: The one rated attribute located, None without a name block.
+        attributes: Adaptability and any readable staff ratings, None without a name block.
         preferences: The named preferences, None when the object carries no readable ability
             block.
         unknown: Numeric fields with no known meaning (unconfirmed). The ability-block keys
@@ -302,7 +346,33 @@ register_field_statuses(
         "width",
     ),
 )
-register_field_statuses(StaffAttributes, verified=("adaptability",))
+register_field_statuses(
+    StaffAttributes,
+    verified=("adaptability",),
+    unconfirmed=(
+        "goalkeeping",
+        "judging_player_ability",
+        "judging_player_potential",
+        "people_management",
+        "motivating",
+        "physiotherapy",
+        "tactical_knowledge",
+        "attacking",
+        "defending",
+        "fitness",
+        "possession",
+        "technical",
+        "tactical",
+        "analysing_data",
+        "sports_science",
+        "negotiating",
+        "judging_staff_ability",
+        "set_pieces",
+        "authority",
+        "working_with_youngsters",
+        "determination",
+    ),
+)
 register_field_statuses(
     Staff,
     verified=("club_uid", "club_name", "team_id", "wage", "contract_start"),

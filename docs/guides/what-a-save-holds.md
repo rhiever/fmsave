@@ -21,8 +21,8 @@ the 8 personality attributes, current and potential ability, reputation, transfe
 condition, traits, contract and any unserved ban. `contracts()` is the same contract record as a
 table of its own, which is what you want when you are looking across every deal in the save
 rather than at one club's players. Staff carry their people data, ability, personality and how
-they prefer a side to be run. Of the attributes a staff profile rates, fmsave currently reads
-only adaptability.
+they prefer a side to be run. FM27 exposes 21 additional, unconfirmed ratings in
+`Staff.attributes` at their stored scales.
 
 ## Clubs
 
@@ -115,7 +115,7 @@ or could not be joined unambiguously. Injury history also has limits. Neither re
 complete career coverage.
 
 **Unsupported fields.** fmsave does not expose today's availability, a full matchday lineup
-(`selections()` holds the stored picks), most staff attributes, club debt or asking prices.
+(`selections()` holds the stored picks), most FM26 staff ratings, club debt or asking prices.
 That does not establish whether the save stores them. Season statistics do include yellow and
 red cards; check each field's status before using it.
 

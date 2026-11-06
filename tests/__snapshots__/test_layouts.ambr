@@ -1594,6 +1594,10 @@
           24,
           25,
         ),
+        'rated_block_slots': tuple(
+        ),
+        'rated_preference_slots': tuple(
+        ),
         'sentinel_offset': 13,
         'sentinel_value': 12,
         'staff_kind': 1,
@@ -4248,6 +4252,97 @@
           23,
           24,
           25,
+        ),
+        'rated_block_slots': tuple(
+          tuple(
+            'goalkeeping',
+            1,
+          ),
+          tuple(
+            'judging_player_ability',
+            2,
+          ),
+          tuple(
+            'judging_player_potential',
+            3,
+          ),
+          tuple(
+            'people_management',
+            4,
+          ),
+          tuple(
+            'motivating',
+            5,
+          ),
+          tuple(
+            'physiotherapy',
+            6,
+          ),
+          tuple(
+            'tactical_knowledge',
+            7,
+          ),
+          tuple(
+            'attacking',
+            8,
+          ),
+          tuple(
+            'defending',
+            9,
+          ),
+          tuple(
+            'fitness',
+            10,
+          ),
+          tuple(
+            'possession',
+            11,
+          ),
+          tuple(
+            'technical',
+            12,
+          ),
+          tuple(
+            'tactical',
+            13,
+          ),
+          tuple(
+            'analysing_data',
+            18,
+          ),
+          tuple(
+            'sports_science',
+            21,
+          ),
+          tuple(
+            'negotiating',
+            23,
+          ),
+          tuple(
+            'judging_staff_ability',
+            24,
+          ),
+          tuple(
+            'set_pieces',
+            25,
+          ),
+        ),
+        'rated_preference_slots': tuple(
+          tuple(
+            'authority',
+            4,
+            20,
+          ),
+          tuple(
+            'working_with_youngsters',
+            12,
+            20,
+          ),
+          tuple(
+            'determination',
+            13,
+            100,
+          ),
         ),
         'sentinel_offset': 13,
         'sentinel_value': 12,

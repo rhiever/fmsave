@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: test_the_output_schema_matches_its_recorded_columns
   dict({
-    'output_schema_version': 2,
+    'output_schema_version': 3,
     'tables': dict({
       'AffiliateGroup': list([
         'group_index',
@@ -798,6 +798,27 @@
         'personality_temperament',
         'personality_controversy',
         'attributes_adaptability',
+        'attributes_goalkeeping',
+        'attributes_judging_player_ability',
+        'attributes_judging_player_potential',
+        'attributes_people_management',
+        'attributes_motivating',
+        'attributes_physiotherapy',
+        'attributes_tactical_knowledge',
+        'attributes_attacking',
+        'attributes_defending',
+        'attributes_fitness',
+        'attributes_possession',
+        'attributes_technical',
+        'attributes_tactical',
+        'attributes_analysing_data',
+        'attributes_sports_science',
+        'attributes_negotiating',
+        'attributes_judging_staff_ability',
+        'attributes_set_pieces',
+        'attributes_authority',
+        'attributes_working_with_youngsters',
+        'attributes_determination',
         'preferences_attacking',
         'preferences_business',
         'preferences_directness',
