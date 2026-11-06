@@ -360,3 +360,111 @@ def test_fm27_truncated_named_routine_never_passes_complete_walk(missing: int) -
 
     assert len(rows) == 1
     assert counts.routine_blocks_complete == 0
+
+
+def with_slot_gap(record: bytes, block: int, gap: bytes) -> bytes:
+    """Insert fictional bytes before one slot block without changing any setting unit."""
+    cursor = -1
+    for _ in range(block + 1):
+        cursor = record.index(bytes.fromhex("440002"), cursor + 1)
+    return record[:cursor] + gap + record[cursor:]
+
+
+@pytest.mark.parametrize("slot", (0, 5, 10))
+@pytest.mark.parametrize("signature_byte", (0, 2))
+def test_fm27_gap_before_out_of_possession_preserves_decoded_slots(
+    slot: int, signature_byte: int
+) -> None:
+    record = fm27_record(FM27_FIRST_TACTIC)
+    record = record[:7] + bytes((signature_byte,)) + record[8:]
+    plain, _ = walk_tactic_blocks(fm27_section((record,)), TEAMS[:1], FM27_LAYOUT, "fictional.bin")
+    gapped = with_slot_gap(record, 2 * slot + 1, bytes(range(12)))
+    rows, counts = walk_tactic_blocks(
+        fm27_section((gapped,)), TEAMS[:1], FM27_LAYOUT, "fictional.bin"
+    )
+    assert len(rows[0].tactics) == 1
+    assert rows[0].tactics[0].walk_complete
+    assert rows[0].tactics == plain[0].tactics
+    assert counts.tactic_blocks_count_matching == 1
+    assert counts.routine_blocks_complete == 1
+
+
+def test_fm27_gap_preserves_unlisted_signature_separator_support() -> None:
+    record = fm27_record(FM27_FIRST_TACTIC)
+    record = record[:7] + b"\x02" + record[8:]
+    unit = bytes.fromhex("020202") + bytes(8) + b"\xff"
+    record = record.replace(unit, unit[:-1] + b"\x37", 1)
+    record = with_slot_gap(record, 11, bytes(range(12)))
+    rows, counts = walk_tactic_blocks(
+        fm27_section((record,)), TEAMS[:1], FM27_LAYOUT, "fictional.bin"
+    )
+    assert len(rows[0].tactics) == 1
+    assert rows[0].tactics[0].walk_complete
+    assert rows[0].tactics[0].unit_separators == ((0, 0, 55),)
+    assert counts.unknown_signature_records_read == 1
+
+
+@pytest.mark.parametrize("width", (1, 11, 13, 24))
+def test_fm27_does_not_search_arbitrary_gaps(width: int) -> None:
+    record = with_slot_gap(fm27_record(FM27_FIRST_TACTIC), 1, bytes(width))
+    rows, _ = walk_tactic_blocks(fm27_section((record,)), TEAMS[:1], FM27_LAYOUT, "fictional.bin")
+    assert not rows[0].tactics[0].walk_complete
+    assert rows[0].tactics[0].slots == ()
+
+
+def test_fm27_does_not_skip_a_gap_before_an_in_possession_block() -> None:
+    record = with_slot_gap(fm27_record(FM27_FIRST_TACTIC), 2, bytes(12))
+    rows, _ = walk_tactic_blocks(fm27_section((record,)), TEAMS[:1], FM27_LAYOUT, "fictional.bin")
+    assert not rows[0].tactics[0].walk_complete
+    assert len(rows[0].tactics[0].slots) == 1
+
+
+def test_fm27_does_not_skip_a_malformed_block_starting_with_the_slot_tag() -> None:
+    gap = bytes.fromhex("440002") + bytes(9)
+    record = with_slot_gap(fm27_record(FM27_FIRST_TACTIC), 1, gap)
+    rows, _ = walk_tactic_blocks(fm27_section((record,)), TEAMS[:1], FM27_LAYOUT, "fictional.bin")
+    assert not rows[0].tactics[0].walk_complete
+
+
+def test_fm27_gap_cannot_borrow_slots_from_the_next_record() -> None:
+    record = fm27_record(FM27_FIRST_TACTIC)
+    first = record.index(bytes.fromhex("440002"))
+    second = record.index(bytes.fromhex("440002"), first + 1)
+    truncated = record[:second] + bytes(12)
+    following = fm27_record("Example Following")
+    rows, _ = walk_tactic_blocks(
+        fm27_section((truncated, following)), TEAMS[:1], FM27_LAYOUT, "fictional.bin"
+    )
+    assert len(rows[0].tactics) == 2
+    assert not rows[0].tactics[0].walk_complete
+    assert rows[0].tactics[0].slots == ()
+    assert rows[0].tactics[1].walk_complete
+
+
+def test_a_layout_without_gap_support_keeps_rejecting_extra_bytes() -> None:
+    record = with_slot_gap(fm27_record(FM27_FIRST_TACTIC), 1, bytes(12))
+    rows, _ = walk_tactic_blocks(
+        fm27_section((record,)),
+        TEAMS[:1],
+        replace(FM27_LAYOUT, in_possession_gap_bytes=0),
+        "fictional.bin",
+    )
+    assert not rows[0].tactics[0].walk_complete
+
+
+@pytest.mark.parametrize("damage", ("constant", "index"))
+def test_fm27_gapped_unlisted_record_still_requires_valid_blocks_and_indexes(
+    damage: str,
+) -> None:
+    record = fm27_record(FM27_FIRST_TACTIC)
+    record = record[:7] + b"\x02" + record[8:]
+    record = with_slot_gap(record, 11, bytes(12))
+    if damage == "constant":
+        record = record.replace(bytes.fromhex("000101"), bytes(3), 1)
+    else:
+        record = record[:-1] + b"\x00"
+    rows, counts = walk_tactic_blocks(
+        fm27_section((record,)), TEAMS[:1], FM27_LAYOUT, "fictional.bin"
+    )
+    assert rows[0].tactics == ()
+    assert counts.unknown_signature_records_read == 0

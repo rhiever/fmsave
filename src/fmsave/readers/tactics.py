@@ -615,9 +615,19 @@ def _read_tactic_record(
         if in_possession is None:
             walk_complete = False
             break
+        out_start = in_possession.end
+        gap_end = out_start + layout.in_possession_gap_bytes
+        tag = layout.slot_tag
+        if (
+            layout.in_possession_gap_bytes > 0
+            and gap_end + len(tag) <= record_end
+            and section[out_start : out_start + len(tag)] != tag
+            and section[gap_end : gap_end + len(tag)] == tag
+        ):
+            out_start = gap_end
         out_of_possession = _read_slot_block(
             section,
-            in_possession.end,
+            out_start,
             record_end,
             layout,
             with_index_byte=True,
@@ -929,7 +939,8 @@ def _lenient_records(
     argument is about, and it rests on what still binds: a cut-short record still cannot fit
     its last block inside its shortened bounds, and a stray record still needs a name and a
     style label that decode, then 22 slot blocks each with its tag, its constant and a unit
-    count in range, each ending exactly where the next block's tag begins, every unit with its
+    count in range, each ending at the next block's tag (or at the start of the layout's
+    fixed in-possession gap), every unit with its
     three lead bytes, and index bytes that form a permutation.
     """
     lead = layout.user_signature[:_SIGNATURE_LEAD_BYTES]

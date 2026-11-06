@@ -4,6 +4,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Fixed
+
+- Read additional FM27 tactics that previously caused `tactics()`, `set_pieces()`, and `selections()` to fail validation. (#67)
+- Windows development checks: the POSIX resource-limit test now has a platform guard that the type checker understands, and the staged-file guard test no longer requires filesystem symlink support. (#67)
+
 ### Changed
 
 - The web app's error screen has a Copy report button. It copies the fmsave and Pyodide versions, the game and build when known, and the error, without the file name or anything from the save.
@@ -11,7 +16,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - Compatibility: `Stadium.all_seater_capacity` is renamed `total_capacity`, since it holds the ground's total capacity, seated and standing together, not the seated figure. The export column is renamed the same way. Code or spreadsheets that use the old name need updating. (#38)
 - Docs: `Stadium.capacity` is the capacity used in normal matches, and a zero `seated_capacity` means the game shows a single figure with no seated part. Both are from one FM27 ground each and stay unconfirmed. (#38)
 
-Thanks to @jeohist for help testing. Refs #38.
+Thanks to @jeohist for help testing and @menidi for the report. Refs #38, #67.
 
 ## [0.9.3] - 2026-11-02
 

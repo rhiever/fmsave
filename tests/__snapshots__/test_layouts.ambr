@@ -1627,6 +1627,7 @@
         'first_block_offset': 19,
         'header_marker': 13,
         'header_marker_offset': 10,
+        'in_possession_gap_bytes': 0,
         'list_item_lead_byte': 2,
         'mentality_index': 2,
         'name_length_range': tuple(
@@ -5790,6 +5791,7 @@
         'first_block_offset': 19,
         'header_marker': 13,
         'header_marker_offset': 10,
+        'in_possession_gap_bytes': 12,
         'list_item_lead_byte': 2,
         'mentality_index': 2,
         'name_length_range': tuple(

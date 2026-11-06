@@ -895,11 +895,8 @@ def test_staged_rename_is_checked(repository: Path) -> None:
 
 
 def test_staged_typechange_from_symlink_is_checked(repository: Path) -> None:
-    link_path = repository / "notes.txt"
-    link_path.symlink_to("missing-target.txt")
-    run_git(repository, "add", "notes.txt")
+    stage_symbolic_link_entry(repository, "notes.txt", "missing-target.txt")
     run_git(repository, "commit", "-q", "-m", "add link")
-    link_path.unlink()
     stage(repository, "notes.txt", bytes.fromhex("0201666d662e"))
     assert run_guard(repository, "--staged") == 1
 
