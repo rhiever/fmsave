@@ -76,7 +76,34 @@ if TYPE_CHECKING:
 
 
 # FM27 meanings checked against game screens. The global registry describes FM26.
-_FM27_VERIFIED_FIELDS = frozenset({"Staff.age", "Staff.birth_date", "Staff.contract_end"})
+_FM27_VERIFIED_FIELDS = frozenset(
+    {
+        "Staff.age",
+        "Staff.birth_date",
+        "Staff.contract_end",
+        "StaffAttributes.analysing_data",
+        "StaffAttributes.attacking",
+        "StaffAttributes.authority",
+        "StaffAttributes.defending",
+        "StaffAttributes.determination",
+        "StaffAttributes.fitness",
+        "StaffAttributes.goalkeeping",
+        "StaffAttributes.judging_player_ability",
+        "StaffAttributes.judging_player_potential",
+        "StaffAttributes.judging_staff_ability",
+        "StaffAttributes.motivating",
+        "StaffAttributes.negotiating",
+        "StaffAttributes.people_management",
+        "StaffAttributes.physiotherapy",
+        "StaffAttributes.possession",
+        "StaffAttributes.set_pieces",
+        "StaffAttributes.sports_science",
+        "StaffAttributes.tactical",
+        "StaffAttributes.tactical_knowledge",
+        "StaffAttributes.technical",
+        "StaffAttributes.working_with_youngsters",
+    }
+)
 
 
 # Internal switch: when False, failed checks are still evaluated and reported, but neither
