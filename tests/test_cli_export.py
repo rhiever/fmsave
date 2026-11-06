@@ -869,6 +869,8 @@ def test_a_closed_pipe_exits_quietly_from_a_real_process(save_path: Path) -> Non
 def test_a_standard_output_file_that_cannot_grow_gives_one_write_message(
     save_path: Path, tmp_path: Path, command_tokens: list[str]
 ) -> None:
+    if sys.platform == "win32":
+        pytest.skip("file size limits need POSIX resource limits")
     import resource
 
     # The child may create files of zero bytes only, so its writes to the file fail with EFBIG.

@@ -163,6 +163,7 @@ game stores its data:
 <a href="https://github.com/kdr6989" title="@kdr6989"><img src="https://github.com/kdr6989.png?size=80" width="40" height="40" alt="@kdr6989"></a>
 <a href="https://github.com/mameabdou24" title="@mameabdou24"><img src="https://github.com/mameabdou24.png?size=80" width="40" height="40" alt="@mameabdou24"></a>
 <a href="https://github.com/matthiasvetter1104" title="@matthiasvetter1104"><img src="https://github.com/matthiasvetter1104.png?size=80" width="40" height="40" alt="@matthiasvetter1104"></a>
+<a href="https://github.com/menidi" title="@menidi"><img src="https://github.com/menidi.png?size=80" width="40" height="40" alt="@menidi"></a>
 <a href="https://github.com/Namhahaha1110" title="@Namhahaha1110"><img src="https://github.com/Namhahaha1110.png?size=80" width="40" height="40" alt="@Namhahaha1110"></a>
 <a href="https://github.com/OdumWorld" title="@OdumWorld"><img src="https://github.com/OdumWorld.png?size=80" width="40" height="40" alt="@OdumWorld"></a>
 <a href="https://github.com/rui7avares-create" title="@rui7avares-create"><img src="https://github.com/rui7avares-create.png?size=80" width="40" height="40" alt="@rui7avares-create"></a>

@@ -1792,6 +1792,9 @@ class TacticsLayout:
     name_length_range: tuple[int, int]
     tactic_records_supported: bool = True
     named_routines_supported: bool = True
+    # Optional undecoded bytes between an in-possession block and its paired block.
+    # Only an exact skip to a slot tag inside the same record is allowed; 0 disables it.
+    in_possession_gap_bytes: int = 0
 
 
 @dataclass(frozen=True, slots=True)

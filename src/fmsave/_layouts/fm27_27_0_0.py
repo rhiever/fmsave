@@ -204,8 +204,8 @@ INJURY_MANAGER = FM26_INJURY_MANAGER
 INJURY_TYPE_TABLE = FM26_INJURY_TYPE_TABLE
 
 # A team's own tactic record and the game's preset library differ in the last signature byte.
-# No second user variant is observed, so the alternate signature repeats the user signature
-# and adds no search. Named routines use the FM26 record shape: a career carried over from FM26
+# Unlisted user variants stay on the bounded retry path, which also checks and reports
+# their setting-unit separators. Named routines use the FM26 record shape: a career carried over from FM26
 # stores its set-piece area byte for byte as the FM26 copy does, names, tail flags and codes
 # included, and every default run and counted group walks completely.
 _FM27_USER_TACTIC_SIGNATURE = bytes.fromhex("2244001b00000000")
@@ -218,6 +218,7 @@ TACTICS = replace(
     slot_tag=bytes.fromhex("440002"),
     slot_constant=bytes.fromhex("000101"),
     unit_lead=bytes.fromhex("020202"),
+    in_possession_gap_bytes=12,
 )
 
 _FM26_MATCH_CACHE = FM26_MATCH_RECORDS.cache_layout
