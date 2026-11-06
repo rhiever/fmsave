@@ -125,8 +125,8 @@ check what they read. FM26 layouts are never used for FM27 saves, and FM28 or la
 refused. Please report any problem with an unverified build.
 
 Failed checks always stop an FM27 reader, even with `strict=False`. The validation
-report lists unsupported readers and marks every FM27 field unconfirmed. Global field-status
-labels describe FM26; they do not certify FM27 meanings.
+report lists unsupported readers and shows FM27 field statuses. Staff age, birth date,
+and contract end date are verified. Global field-status labels describe FM26.
 
 fmsave sets no fixed size limit on a save, for FM26 or FM27, so a large database opens however
 big it grows. To refuse a damaged or crafted file before memory is spent, a part of a save
