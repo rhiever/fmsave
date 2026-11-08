@@ -6,13 +6,13 @@
 <meta name="color-scheme" content="light dark">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://pypi.org https://files.pythonhosted.org; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>fmsave: scout every player in your Football Manager save</title>
-<meta name="description" content="Drop a supported Football Manager save and get every player in it, with all attributes, CA and PA, this season's stats, and CSV downloads. Your save never leaves your computer.">
+<meta name="description" content="Open a supported Football Manager save to see every player's attributes, CA and PA, and this season's stats. Download the data as CSV. Your save never leaves your computer.">
 <link rel="canonical" href="https://rhiever.github.io/fmsave/app/">
 <meta name="theme-color" content="#121619">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="fmsave">
 <meta property="og:title" content="fmsave: scout every player in your Football Manager save">
-<meta property="og:description" content="Drop a supported Football Manager save and see every player with all attributes, CA and PA, and this season's stats, ranked against players in the same position. Free, and your save never leaves your computer.">
+<meta property="og:description" content="Open a supported Football Manager save to see every player's attributes, CA and PA, and this season's stats. Numbers are ranked against players in the same position. It's free. Your save never leaves your computer.">
 <meta property="og:url" content="https://rhiever.github.io/fmsave/app/">
 <meta property="og:image" content="https://rhiever.github.io/fmsave/app/og.png">
 <meta property="og:image:width" content="1200">
@@ -20,7 +20,7 @@
 <meta property="og:image:alt" content="The fmsave web app: a percentile wheel of 52 attributes beside the words Scout every player in your Football Manager save.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="fmsave: scout every player in your Football Manager save">
-<meta name="twitter:description" content="Drop a supported Football Manager save and see every player with all attributes, CA and PA, and this season's stats. Your save never leaves your computer.">
+<meta name="twitter:description" content="Open a supported Football Manager save to see every player's attributes, CA and PA, and this season's stats. Your save never leaves your computer.">
 <meta name="twitter:image" content="https://rhiever.github.io/fmsave/app/og.png">
 <script type="application/ld+json">
 {
@@ -28,7 +28,7 @@
   "@type": "WebApplication",
   "name": "fmsave web app",
   "url": "https://rhiever.github.io/fmsave/app/",
-  "description": "Reads a supported Football Manager save in the browser and shows every player in it, with all attributes, current and potential ability, positions, personality, contracts, and this season's stats, ranked against players in the same position. It exports CSV files. The save is read on the user's computer and never uploaded.",
+  "description": "Reads a supported Football Manager save in the browser and shows every player in it. It shows all attributes, current and potential ability, positions, personality, contracts, and this season's stats. Numbers are ranked against players in the same position. It exports CSV files. The save is read on the user's computer and never uploaded.",
   "applicationCategory": "UtilitiesApplication",
   "operatingSystem": "Any, in a current web browser",
   "isAccessibleForFree": true,
@@ -59,7 +59,7 @@
 </svg>
 
 <header class="bar">
-  <a class="brand" href="./" aria-label="fmsave, start again"><span class="mark" aria-hidden="true"></span><span class="brand-word">fmsave</span></a>
+  <a class="brand" href="./" aria-label="Start again with fmsave"><span class="mark" aria-hidden="true"></span><span class="brand-word">fmsave</span></a>
   <nav class="tabs" id="tabs" role="tablist" aria-label="Player lists" hidden>
     <button role="tab" data-list="squad" aria-selected="false">Squad <span class="count" data-count="squad"></span></button>
     <button role="tab" data-list="all" aria-selected="true"><span class="long">All players</span><span class="short">All</span> <span class="count" data-count="all"></span></button>
@@ -85,7 +85,7 @@
 <main class="start" id="start">
   <section>
     <h1>Scout every player in your Football Manager save</h1>
-    <p class="lede">Drop a supported Football Manager save here. You get your squad and every player in the game world, with all attributes, CA and PA, positions, personality, contracts, this season's stats, and CSV downloads. Every number is ranked against players in the same position.</p>
+    <p class="lede">Drop a supported Football Manager save here to see your squad and every player in the game world. Browse their attributes, CA and PA, positions, personality, contracts, and this season's stats. Numbers are ranked against players in the same position. Download the data as CSV.</p>
     <p id="game-support">FM26 and supported FM27 builds. FM27 requires reader 0.8.0 or later.</p>
     <div class="drop" id="drop">
       <strong id="drop-title">Drop your .fm save here</strong>
@@ -99,12 +99,12 @@
         <p role="listitem" data-stage="players">Reading every player<time></time></p>
       </div>
       <p class="error" id="error" role="alert" hidden></p>
-      <p id="report" hidden><button class="link" id="copy-report">Copy report</button> for a <a href="https://github.com/rhiever/fmsave/issues">GitHub issue</a>. It holds versions and the error, never your save or its name. To share the save itself privately, email a link to the address on <a href="https://github.com/rhiever">the maintainer's GitHub profile</a>.</p>
+      <p id="report" hidden><button class="link" id="copy-report">Copy report</button> for a <a href="https://github.com/rhiever/fmsave/issues">GitHub issue</a>. The report includes versions and the error. It excludes your save and file name. To share the save privately, email a link to the address on <a href="https://github.com/rhiever">the maintainer's GitHub profile</a>.</p>
       <p class="status wait" id="reader-status"><span class="dot"></span><span>Getting the reader ready</span></p>
     </div>
     <div class="notes">
       <p><b>Your save never leaves this computer.</b> This page reads it inside your browser with <a href="../">fmsave</a>, an open source Python reader. Nothing is uploaded and nothing is stored on a server. The page downloads only the reader and its fonts (from Google Fonts).</p>
-      <p><b>Where saves live.</b> On a Mac, <code>~/Library/Application Support/Sports Interactive/Football Manager 26/games/</code>.<br>On Windows, usually <code>Documents\Sports Interactive\Football Manager 26\games\</code>. These are FM26 examples; use the game's Save As dialog to locate other saves. Large saves can take longer to read. If the game is running, copy the save and drop the copy in instead.</p>
+      <p><b>Where saves live.</b> On a Mac: <code>~/Library/Application Support/Sports Interactive/Football Manager 26/games/</code>.<br>On Windows: usually <code>Documents\Sports Interactive\Football Manager 26\games\</code>. These are FM26 examples; use the game's Save As dialog to locate other saves. Large saves can take longer to read. If the game is running, copy the save and drop the copy in instead.</p>
       <p><b>Play fair.</b> CA, PA, and hidden attributes are shown. That is fine in your own single-player career. Using them in a shared online career may break its rules.</p>
     </div>
   </section>
@@ -118,7 +118,7 @@
       <span><i style="background:rgb(var(--hid))"></i>Hidden</span>
     </div>
     <div class="tip" id="specimen-tip" hidden></div>
-    <figcaption><b id="specimen-name">A made-up player.</b> Each of the 52 wedges is an attribute, and its length is the player's rank among <span id="specimen-group">players in the same position</span> in the league. Long wedges are where a player beats their peers.</figcaption>
+    <figcaption><b id="specimen-name">A made-up player.</b> Each of the 52 wedges represents an attribute. Its length shows the player's rank among <span id="specimen-group">players in the same position</span> in the league. Longer wedges mean higher ranks.</figcaption>
   </figure>
 </main>
 
@@ -169,7 +169,7 @@
       <p class="hint" id="rule-hint"></p>
       <h2 class="h4">Stats from</h2>
       <select id="stat-kind"></select>
-      <p class="hint" id="floor-hint">Stat ranks count only players with at least 450 minutes in that competition, and so do rules on per-90 and percentage stats.</p>
+      <p class="hint" id="floor-hint">Stat ranks include only players with at least 450 minutes in that competition. The same minimum applies to rules on per-90 and percentage stats.</p>
       <h2 class="h4">Clear</h2>
       <button class="link" id="clear">Clear all filters</button>
     </aside>

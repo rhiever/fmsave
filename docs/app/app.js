@@ -285,7 +285,7 @@ function drawRows() {
   rows.style.height = order.length * row + "px";
   if (!order.length) {
     const empty = state.list === "shortlist" && !shortlist.size;
-    rows.innerHTML = `<div class="empty"><b>${empty ? "Your shortlist is empty" : "No players match"}</b>${empty ? "Star a player, or press S on a selected player, to add them here." : "Loosen a filter or rule to see more players."}</div>`;
+    rows.innerHTML = `<div class="empty"><b>${empty ? "Your shortlist is empty" : "No players match"}</b>${empty ? "Add a player here by clicking their star or selecting them and pressing S." : "Loosen a filter or rule to see more players."}</div>`;
     return;
   }
   const first = Math.max(0, Math.floor((grid.scrollTop - $("thead").offsetHeight) / row) - 6);
@@ -307,7 +307,7 @@ function refresh({ head = true, keepScroll = false } = {}) {
   drawRows();
   const total = { squad: squadSize(), shortlist: shortlist.size, all: data.n }[state.list];
   const statsNote = data.stats ? "" : data.statsFailed ? ". Season stats could not be read" : ". Season stats are still loading";
-  $("list-count").textContent = `${number(order.length)} of ${number(total)}, sorted by ${COLUMNS.get(state.sort.key).label.toLowerCase()}${statsNote}`;
+  $("list-count").textContent = `${number(order.length)} of ${number(total)} players. Sorted by ${COLUMNS.get(state.sort.key).label.toLowerCase()}${statsNote}`;
   $("list-title").textContent = { squad: data.meta.club || "Squad", all: "All players", shortlist: "Shortlist" }[state.list];
   for (const b of $("tabs").querySelectorAll("button")) b.setAttribute("aria-selected", b.dataset.list === state.list);
   updateCounts();
@@ -388,7 +388,7 @@ function statTable(i) {
     return `<tr><td>${esc(COLUMNS.get(k).label)}</td><td>${shown(k, i) || "-"}</td><td>${Number.isNaN(rate) ? "" : rate.toFixed(2)}</td><td class="r">${p === null ? "" : `<span class="rank"><i style="width:${p}%"></i></span>${p}`}</td></tr>`;
   }).join("")).join("");
   return `<table class="stat-table"><thead><tr><th></th><th>Total</th><th>Per 90</th><th>Rank</th></tr></thead><tbody>${body}</tbody></table>` +
-    note(`Ranks are percentiles among ${groupLabel(i)} with at least ${minuteFloor()} minutes in this competition. A player with 2 or more teams in a competition, such as a reserve side, shows the combined total.`);
+    note(`Ranks are percentiles among ${groupLabel(i)} with at least ${minuteFloor()} minutes in this competition. Stats are combined for players who appear for 2 or more teams in a competition. This includes reserve sides.`);
 }
 
 function panelBody(i) {
@@ -502,7 +502,7 @@ function buildControls() {
     groups.get(g).push(c);
   }
   $("rule-column").innerHTML = [...groups].map(([g, cols]) => `<optgroup label="${g}">${cols.map((c) => `<option value="${c.key}"${c.key === "ability_potential" ? " selected" : ""}>${esc(c.label)}</option>`).join("")}</optgroup>`).join("");
-  $("rule-hint").textContent = `Rules work on any of ${$("rule-column").options.length} columns: attributes, positions, personality, contract, and season stats. "Top %" uses the same ranks as the colours.`;
+  $("rule-hint").textContent = `Filter by any of ${$("rule-column").options.length} columns covering attributes, positions, personality, contracts, and season stats. "Top %" uses the same ranks as the colours.`;
   ruleHint();
   drawColumnsMenu();
   syncControls();
@@ -548,7 +548,7 @@ function syncControls() {
   pressed("stat-mode", "data-mode", state.statMode);
   for (const id of ["stat-kind", "stat-kind-bar"]) $(id).value = state.wantedKind;
   $("statbar").hidden = state.view !== "stats";
-  $("floor-hint").textContent = `Stat ranks count only players with at least ${minuteFloor()} minutes in that competition, and so do rules on per-90 and percentage stats. The minimum is lower early in a season.`;
+  $("floor-hint").textContent = `Stat ranks include only players with at least ${minuteFloor()} minutes in that competition. The same minimum applies to rules on per-90 and percentage stats. This minimum is lower early in a season.`;
 }
 
 // Only the competition asked for last is shown, whatever order the answers arrive in.
@@ -661,9 +661,9 @@ function wire() {
     const op = $("rule-op").value;
     const col = COLUMNS.get(key);
     const v = parseValue(col, $("rule-value").value || $("rule-value").placeholder);
-    if (Number.isNaN(v)) return toast("Type a number for the rule, such as 14, 0.35, or 5M.");
+    if (Number.isNaN(v)) return toast("Enter a number such as 14, 0.35, or 5M.");
     if (op === "top" && !col.rank) return toast(`${col.label} has no ranks. Use "at least" or "at most".`);
-    if (op === "top" && !(v >= 1 && v <= 100)) return toast("Top % takes a number from 1 to 100.");
+    if (op === "top" && !(v >= 1 && v <= 100)) return toast("Enter a number from 1 to 100 for Top %.");
     state.rules.push({ key, op, value: v });
     $("rule-value").value = "";
     drawRules();
@@ -769,7 +769,7 @@ function onWorkerMessage({ data: msg }) {
     case "ready":
       readerReady = true;
       versions = { fmsave: msg.fmsave, pyodide: msg.pyodide };
-      setStatus("ok", `Reader ready, fmsave ${msg.fmsave}`);
+      setStatus("ok", `Reader ready (fmsave ${msg.fmsave})`);
       const [major, minor, patch] = msg.fmsave.split(".").map(Number);
       const opensOtherFm27Builds = major > 0 || minor > 9 || (minor === 9 && patch >= 1);
       $("game-support").textContent = opensOtherFm27Builds
@@ -954,7 +954,7 @@ async function drawSpecimen() {
   $("specimen").insertAdjacentHTML("beforeend", wheel(460, (key) => specimen.ranks[key] ?? null, [ordinal(mean), "vs " + group[0]], { hover: true }));
   hoverSpecimen(specimen, group[1]);
   $("specimen-title").textContent = `Attribute ranks for ${specimen.name}`;
-  $("specimen-name").textContent = `${specimen.name}, ${specimen.age}, ${positions(specimen.positions)} at ${specimen.club}.`;
+  $("specimen-name").textContent = `${specimen.name} is ${specimen.age} and plays ${positions(specimen.positions)} at ${specimen.club}.`;
   $("specimen-group").textContent = group[1];
 }
 
@@ -988,7 +988,7 @@ function wireStart() {
   document.addEventListener("drop", (e) => begin(e.dataTransfer?.files?.[0]));
   $("demo").addEventListener("click", startDemo);
   $("copy-report").addEventListener("click", () => navigator.clipboard.writeText(report).then(
-    () => toast("Report copied. It holds no file name or save data."),
+    () => toast("Report copied. It contains no file name or save data."),
     () => toast("The report could not be copied."),
   ));
   window.addEventListener("hashchange", () => { if (location.hash === "#demo" && !state.demo) startDemo(); });
