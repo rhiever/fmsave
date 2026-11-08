@@ -163,9 +163,15 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24.22.2"
-      - run: npm install --global --ignore-scripts --no-audit --no-fund npm@11.21.2
       - name: Install the Pyodide the page pins
-        run: npm ci --ignore-scripts --prefix scripts/app-smoke
+        env:
+          NPM_SHA512: "ec73c0a64f807e53146af4ac78bd4f9ba0a762a3081e4e77c7e2a6ba1aa64c3a8f9233cc8312294cf713aac13dd4428dc3880504957d7e75e249d1a6d435eaf4"
+        run: |
+          npm_dir="$(mktemp -d "$RUNNER_TEMP/npm.XXXXXXXX")"
+          curl -fsSL -o "$npm_dir/npm.tgz" https://registry.npmjs.org/npm/-/npm-11.21.2.tgz
+          printf '%s  %s\n' "$NPM_SHA512" "$npm_dir/npm.tgz" | sha512sum --check -
+          tar -xzf "$npm_dir/npm.tgz" -C "$npm_dir"
+          node "$npm_dir/package/bin/npm-cli.js" ci --ignore-scripts --prefix scripts/app-smoke
       - name: Read the example career in Pyodide with this branch's fmsave
         run: node scripts/app-smoke/smoke.mjs dist/*.whl example-career.fm
       # The live page runs main's reader.py with the newest fmsave on PyPI, so the reader must
