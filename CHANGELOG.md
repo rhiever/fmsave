@@ -4,6 +4,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-08
+
 ### Changed
 
 - FM27 validation marks staff age, birth date, and contract end date verified. (#66)
