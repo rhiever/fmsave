@@ -7,6 +7,7 @@ import struct
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -21,7 +22,7 @@ from fmsave._checks import (
 )
 from fmsave._layouts import FULL_SAVE_MINIMUM_GAME_DB_BYTES, GateBounds, find_layout
 from fmsave._reader_stats import FinanceStats
-from fmsave._save import FINANCES_TABLE_CACHE_KEY, SPONSORSHIPS_TABLE_CACHE_KEY
+from fmsave._save import FINANCE_TABLES_CACHE_KEY, SPONSORSHIPS_TABLE_CACHE_KEY
 from fmsave.readers._common import GAME_DB_SECTION
 from fmsave.readers.clubs import (
     ClubIndex,
@@ -766,24 +767,21 @@ def test_no_finance_gate_applies_to_a_fragment() -> None:
     assert BOUNDS.minimum_applies_from_bytes == FULL_SAVE_MINIMUM_GAME_DB_BYTES
 
 
+def failing_evaluate_finances(*_args: object) -> tuple[fmsave.GateResult, ...]:
+    return (fmsave.GateResult("finance_net_identity", 0.0, 0.99, None, False, True),)
+
+
 def test_a_failed_finance_check_stops_both_tables(
     career_save_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from fmsave import _checks
-
-    def failing_evaluate_finances(
-        stats: FinanceStats, bounds: GateBounds, game_db_bytes: int
-    ) -> tuple[fmsave.GateResult, ...]:
-        return (
-            fmsave.GateResult("finance_net_identity", 0.0, 0.99, None, passed=False, applied=True),
-        )
 
     monkeypatch.setattr(_checks, "evaluate_finances", failing_evaluate_finances)
     with fmsave.open(career_save_path, strict=True) as career_save:
         for read_table in (career_save.finances, career_save.sponsorships):
             with pytest.raises(fmsave.ReaderCheckError, match="^finances failed checks: "):
                 read_table()
-            for cache_key in (FINANCES_TABLE_CACHE_KEY, SPONSORSHIPS_TABLE_CACHE_KEY):
+            for cache_key in (FINANCE_TABLES_CACHE_KEY, SPONSORSHIPS_TABLE_CACHE_KEY):
                 # Remembered as failed, and so never handed out as a table.
                 assert career_save._context.cached_value(cache_key) is None
 
@@ -1067,29 +1065,68 @@ def test_one_rejected_owned_sponsor_list_fails_even_when_coverage_passes(
     assert [g.name for g in gates if g.applied and not g.passed] == ["sponsor_lists_rejected"]
 
 
-def test_rejected_owned_sponsors_stop_both_strict_tables(tmp_path: Path) -> None:
-    from tests.test_fm27_experimental import fm27_fragment
+@pytest.fixture
+def fm27_rejected_sponsors_path(tmp_path: Path) -> Path:
+    from tests.fixtures.container import SectionFrame, section_body
+    from tests.test_fm27_experimental import UNREGISTERED_BUILD, fm27_fragment
 
     bad = sponsor_row_bytes(**{**SPONSOR_A, "annual": 4_000_000})  # pyright: ignore[reportArgumentType]
     data = one_club_game_db(club_finance_bytes(rows=career_finance_rows(), sponsors=(bad,)))
-    from fmsave._container import read_index, read_section
-    from tests.fixtures.container import SectionFrame, build_container_fragment, section_body
+    return fm27_fragment(
+        tmp_path,
+        build=UNREGISTERED_BUILD,
+        game_db=data,
+        extra_sections=(SectionFrame("humans", section_body(".dat", 24, bytes(40))),),
+    )
 
-    index = read_index(fm27_fragment(tmp_path, game_db=data))
-    sections = [
-        SectionFrame(name, read_section(index, name), entry.extension)
-        for name, entry in index.sections.items()
-    ]
-    sections.append(SectionFrame("humans", section_body(".dat", 24, bytes(40))))
-    path = build_container_fragment(sections).write(tmp_path / "fictional.fm")
+
+@pytest.mark.parametrize("first_reader", ("finances", "sponsorships"))
+def test_rejected_owned_sponsors_do_not_stop_fm27_finances(
+    fm27_rejected_sponsors_path: Path, first_reader: str
+) -> None:
     with pytest.warns(fmsave.UnknownBuildWarning):
-        save = fmsave.open(path)
-    with save:
-        for table in (save.sponsorships, save.finances):
+        save = fmsave.open(fm27_rejected_sponsors_path)
+    with (
+        save,
+        patch.object(
+            save_module, "read_club_finances", wraps=save_module.read_club_finances
+        ) as decode,
+    ):
+        if first_reader == "sponsorships":
             with pytest.raises(fmsave.ReaderCheckError, match="sponsor_lists_rejected"):
-                table()
-            assert save._context.cached_value(FINANCES_TABLE_CACHE_KEY) is None
-            assert save._context.cached_value(SPONSORSHIPS_TABLE_CACHE_KEY) is None
+                save.sponsorships()
+
+        months = save.finances()
+        assert [month.balance for month in months] == [
+            values["balance"] for values in FINANCE_MONTH_VALUES
+        ]
+        with pytest.raises(fmsave.ReaderCheckError, match="sponsor_lists_rejected"):
+            save.sponsorships()
+        assert save.finances() is months
+
+        reports = {reader.reader: reader for reader in fmsave.validate_save(save).readers}
+        assert reports["finances"].status == "ok"
+        assert reports["finances"].record_count == 3
+        assert reports["sponsorships"].status == "failed"
+        assert reports["sponsorships"].anomalies["sponsor_lists_rejected"] == 1
+
+        decode.assert_called_once()
+
+
+def test_fm27_finance_failure_preserves_sponsorship_diagnostics(
+    fm27_rejected_sponsors_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fmsave import _checks
+
+    monkeypatch.setattr(_checks, "evaluate_finances", failing_evaluate_finances)
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        save = fmsave.open(fm27_rejected_sponsors_path)
+    with save:
+        reports = {reader.reader: reader for reader in fmsave.validate_save(save).readers}
+        assert reports["finances"].status == "failed"
+        assert reports["sponsorships"].status == "failed"
+        assert reports["sponsorships"].record_count == 0
+        assert reports["sponsorships"].anomalies["sponsor_lists_rejected"] == 1
 
 
 FM27_BUILD = "27.0.0+2486695"

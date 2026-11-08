@@ -9,7 +9,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - FM27 validation marks staff age, birth date, and contract end date verified. (#66)
 - FM27 validation marks the 21 staff ratings added in 0.10.0 verified. (#68)
 
-Thanks to @paul-anthony-oneill and @menidi for help testing. Refs #66 and #68.
+### Fixed
+
+- FM27 `finances()` returns validated monthly rows when only the sponsorship checks fail. `sponsorships()` still raises. (#75)
+
+Thanks to @ironkay-beep for the report and @paul-anthony-oneill and @menidi for help testing. Refs #66, #68, and #75.
 
 ## [0.10.0] - 2026-11-05
 

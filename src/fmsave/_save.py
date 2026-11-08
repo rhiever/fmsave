@@ -181,7 +181,7 @@ HISTORY_SELECTORS_CACHE_KEY = "player_history_selectors"
 PLAYER_SEASON_STATS_TABLE_CACHE_KEY = "table:player_season_stats"
 INJURY_TYPES_TABLE_CACHE_KEY = "table:injury_types"
 INJURIES_TABLE_CACHE_KEY = "table:injuries"
-FINANCES_TABLE_CACHE_KEY = "table:finances"
+FINANCE_TABLES_CACHE_KEY = "finance_tables"
 SPONSORSHIPS_TABLE_CACHE_KEY = "table:sponsorships"
 FACILITIES_TABLE_CACHE_KEY = "table:facilities"
 AFFILIATES_TABLE_CACHE_KEY = "table:affiliates"
@@ -200,7 +200,7 @@ MENTORING_TABLE_CACHE_KEY = "table:mentoring"
 _SHARED_PASS_CACHE_KEYS: Mapping[str, str] = {
     _checks.PLAYER_PASS: PLAYERS_TABLE_CACHE_KEY,
     _checks.SPAN_PASS: SPAN_RECORDS_CACHE_KEY,
-    _checks.FINANCE_PASS: FINANCES_TABLE_CACHE_KEY,
+    _checks.FINANCE_PASS: FINANCE_TABLES_CACHE_KEY,
     _checks.STAFF_PASS: STAFF_TABLE_CACHE_KEY,
     _checks.TACTICS_PASS: TACTICS_TABLE_CACHE_KEY,
     _checks.TRAINING_PASS: TRAINING_TABLE_CACHE_KEY,
@@ -208,11 +208,11 @@ _SHARED_PASS_CACHE_KEYS: Mapping[str, str] = {
 
 
 class _FinanceTables(NamedTuple):
-    """The two tables one decode pass over the club records builds, and their _checks."""
+    """The two tables built in one pass over the club records."""
 
     finances: Table[FinanceMonth]
     sponsorships: Table[Sponsorship]
-    reader_checks: tuple[ReaderCheck, ...]
+    sponsorship_check: ReaderCheck
 
 
 # What a save with no managed club counts: a manager between jobs has no team block at all, so
@@ -1646,9 +1646,8 @@ class Save:
         `wage_payroll_weekly`, a yearly figure is a weekly one times 52, a club's latest month
         is its last row, and a club summary is its rows grouped by `club_uid`.
 
-        The table is read on the first call to `finances()` or `sponsorships()`, from one decode
-        pass; later calls to either return the same tables. When a check of that pass fails,
-        neither table is kept, so both raise.
+        Both readers share one decode and cache their results. On FM27, a failed sponsorship
+        check stops only `sponsorships()`. On FM26, the checks are judged together.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -1659,12 +1658,11 @@ class Save:
                 unreadable, so no month can be dated.
 
         Warns:
-            ReaderCheckWarning: On a full-size save, the months and sponsors decoded fall
-                outside the checks' bounds, or the club table falls outside its own. A save
-                opened with strict=True raises ReaderCheckError instead.
+            ReaderCheckWarning: On a full-size FM26 save, the months, sponsors, or clubs fall
+                outside their checks' bounds. A save opened with strict=True raises
+                ReaderCheckError instead.
         """
-        context = self._context
-        return context.cached(FINANCES_TABLE_CACHE_KEY, self._finances_table_entry_point)
+        return self._finance_tables().finances
 
     def sponsorships(self) -> Table[Sponsorship]:
         """Every sponsorship contract the save lists for a club, in stored order.
@@ -1683,9 +1681,8 @@ class Save:
         `annual_value` over its running rows, except one unexpired kind 6 row it left out.
         Money is a whole number in the save's base currency, as in `finances()`.
 
-        The table is read on the first call to `finances()` or `sponsorships()`, from one decode
-        pass; later calls to either return the same tables. When a check of that pass fails,
-        neither table is kept, so both raise.
+        Both readers share one decode and cache their results. On FM27, a failed sponsorship
+        check stops only `sponsorships()`. On FM26, the checks are judged together.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -1696,23 +1693,22 @@ class Save:
                 unreadable, so no month can be dated.
 
         Warns:
-            ReaderCheckWarning: On a full-size save, the months and sponsors decoded fall
-                outside the checks' bounds, or the club table falls outside its own. A save
-                opened with strict=True raises ReaderCheckError instead.
+            ReaderCheckWarning: On a full-size FM26 save, the months, sponsors, or clubs fall
+                outside their checks' bounds. A save opened with strict=True raises
+                ReaderCheckError instead.
         """
         context = self._context
         return context.cached(SPONSORSHIPS_TABLE_CACHE_KEY, self._sponsorships_table_entry_point)
 
-    def _finances_table_entry_point(self) -> Table[FinanceMonth]:
-        tables = self._decode_finance_tables()
-        self._store_reader_checks(tables.reader_checks)
-        self._context.cached(SPONSORSHIPS_TABLE_CACHE_KEY, lambda: tables.sponsorships)
-        return tables.finances
+    def _finance_tables(self) -> _FinanceTables:
+        return self._context.cached(FINANCE_TABLES_CACHE_KEY, self._decode_finance_tables)
 
     def _sponsorships_table_entry_point(self) -> Table[Sponsorship]:
-        tables = self._decode_finance_tables()
-        self._store_reader_checks(tables.reader_checks)
-        self._context.cached(FINANCES_TABLE_CACHE_KEY, lambda: tables.finances)
+        tables = self._finance_tables()
+        if self._info.game == "FM27":
+            checks = (tables.sponsorship_check,)
+            self._enforce_checks(checks)
+            self._store_reader_checks(checks)
         return tables.sponsorships
 
     def _decode_finance_tables(self) -> _FinanceTables:
@@ -1750,15 +1746,18 @@ class Save:
                 len(managed_clubs) > 0,
             )
             game_db_length = len(game_db)
-        # Both checks run before either table is built: when one fails, nothing is cached and
-        # the next call decodes and checks again.
-        reader_checks = (
-            _checks.check_finances(finance_stats, gate_bounds, game_db_length),
-            _checks.check_sponsorships(finance_stats, gate_bounds, game_db_length),
-        )
+        # Sponsorships depend on locating the finance chains, so a finance failure stops the
+        # shared pass and carries both sets of checks for validation. When finance checks pass
+        # on FM27, only the sponsorship reader enforces its own checks.
+        finance_check = _checks.check_finances(finance_stats, gate_bounds, game_db_length)
+        sponsorship_check = _checks.check_sponsorships(finance_stats, gate_bounds, game_db_length)
+        reader_checks = (finance_check, sponsorship_check)
+        if save_info.game == "FM27" and not _checks_fail((finance_check,)):
+            reader_checks = (finance_check,)
         self._enforce_checks(reader_checks)
+        self._store_reader_checks(reader_checks)
         return _FinanceTables(
-            Table(months, FinanceMonth), Table(sponsorships, Sponsorship), reader_checks
+            Table(months, FinanceMonth), Table(sponsorships, Sponsorship), sponsorship_check
         )
 
     def facilities(self) -> Table[ClubFacilities]:
