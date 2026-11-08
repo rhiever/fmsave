@@ -42,11 +42,15 @@ A missing match score does not mean a 0-0 result.
 
 ## Reader checks
 
-Checks test completeness, joins, and expected ranges. Advisory checks warn and return the
-table. Player age checks, the median player height, the median club reputation, and the share
-of players whose handling exceeds finishing are advisory. These values can vary between careers.
+Checks test completeness, joins, and expected ranges. Population sizes, typical ranges, parser
+coverage, and comparisons between historical and current career state are advisory. They warn
+and return the table even in strict mode. This includes age and height distributions, suspension
+rates, missing optional data, and match-minute expectations.
 
-Blocking checks warn by default in FM26 and FM27. They raise when you opt into strict mode.
+Strict mode enforces checks backed by record integrity, such as conflicting identities,
+incomplete declared lists, and inconsistent finance arithmetic. These checks warn by default
+in FM26 and FM27 and raise when you opt into strict mode. Passing them does not prove that
+every decoded value is correct.
 
 ```python
 with fmsave.open("career.fm", strict=True) as career_save:
@@ -56,6 +60,10 @@ with fmsave.open("career.fm", strict=True) as career_save:
 A structural failure that prevents a table from being decoded raises `ReaderCheckError` in either
 mode. Empty output can be valid: `player_match_stats()` accepts it when every player explicitly
 has no stored history. Missing or incomplete histories still fail checks.
+
+An empty optional population has no records to compare. Its integrity checks are marked
+unapplied; population warnings remain visible. Job vacancies can be read without a save clock.
+They warn that clock validation is unavailable and still check the dates within each record.
 
 ## Validation reports
 

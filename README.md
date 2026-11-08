@@ -84,7 +84,8 @@ fmsave cannot read is `None` rather than a guess, and money is kept in the unit 
 in, which can differ from the currency it displays.
 
 Reader checks test completeness, joins, and expected ranges. Failed checks warn and return
-decoded tables by default. Use strict mode to stop on failed blocking checks. See
+decoded tables by default. Strict mode stops on failed integrity checks; population and coverage
+checks remain warnings. See
 [Trusting a number](https://rhiever.github.io/fmsave/guides/trust.html) before relying on a result.
 
 ## What it cannot read

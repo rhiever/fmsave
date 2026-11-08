@@ -60,7 +60,7 @@ def test_fm27_cli_export_respects_strict(
     strict: bool,
 ) -> None:
     def failing_player_checks(*_args: object) -> tuple[fmsave.GateResult, ...]:
-        return (fmsave.GateResult("players_minimum", 1, 5_000, None, False, True),)
+        return (fmsave.GateResult("relation_sentinel", 0.5, 0.999, None, False, True),)
 
     monkeypatch.setattr("fmsave._checks.evaluate_players", failing_player_checks)
     path = fm27_player_path(tmp_path, build=UNREGISTERED_BUILD)
@@ -69,7 +69,7 @@ def test_fm27_cli_export_respects_strict(
         args.append("--strict")
     assert main(args) == (cli.EXIT_UNSUPPORTED if strict else cli.EXIT_OK)
     output = capsys.readouterr()
-    assert "players_minimum" in output.err
+    assert "relation_sentinel" in output.err
     if strict:
         assert output.out == ""
     else:

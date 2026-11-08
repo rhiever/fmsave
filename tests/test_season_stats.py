@@ -374,7 +374,7 @@ def test_each_season_gate_fails_on_its_own(changes: dict[str, int], failing: str
     stats = dataclasses.replace(healthy_season_stats(), **changes)
     results = evaluate_season_stats(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert [result.name for result in results if not result.passed] == [failing]
-    with pytest.raises(fmsave.ReaderCheckError, match=failing):
+    with pytest.warns(fmsave.ReaderCheckWarning, match=failing):
         enforce("player_season_stats", results, strict=True)
 
 

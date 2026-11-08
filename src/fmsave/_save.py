@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from collections.abc import Callable, Mapping, Sequence
 from types import TracebackType
 from typing import NamedTuple, Self, cast
@@ -16,7 +17,7 @@ from fmsave._container import (
     read_section,
 )
 from fmsave._context import SaveContext, closed_save_error
-from fmsave._errors import ReaderCheckError, UnsupportedGameError
+from fmsave._errors import ReaderCheckError, ReaderCheckWarning, UnsupportedGameError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import (
     ContractLayout,
@@ -1211,11 +1212,6 @@ class Save:
         context = self._context
         save_info = context.info
         clock = save_info.game_date
-        if clock is None:
-            raise ReaderCheckError(
-                f"{save_info.file_name}: the save's in-game date is unreadable, so a vacancy's "
-                "advertised date cannot be judged against it"
-            )
         gate_bounds = self._gate_bounds()
         layout = find_job_centre_layout(
             save_info.section_schemas.get(JOB_CENTRE_SECTION), save_info.build
@@ -1242,6 +1238,14 @@ class Save:
                 clock,
                 layout,
                 save_info.file_name,
+            )
+        if clock is None:
+            warnings.warn(
+                f"{save_info.file_name}: the vacancy clock-dependent date check is unavailable; "
+                "the save's in-game date is unreadable",
+                ReaderCheckWarning,
+                stacklevel=2,
+                skip_file_prefixes=(os.path.dirname(__file__),),
             )
         vacancy_check = _checks.check_job_vacancies(vacancy_stats, gate_bounds)
         self._enforce_checks((vacancy_check,))

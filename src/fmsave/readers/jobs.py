@@ -183,7 +183,7 @@ def read_job_vacancies(
     job_centre: bytes,
     club_index: ClubIndex,
     competition_index: CompetitionIndex,
-    clock: date,
+    clock: date | None,
     layout: JobCentreLayout,
     file_name: str,
 ) -> tuple[tuple[JobVacancy, ...], JobVacancyStats]:
@@ -216,6 +216,7 @@ def read_job_vacancies(
     vacancies: list[JobVacancy] = []
     tagged = 0
     dates_ordered = 0
+    relative_dates_ordered = 0
     advertised_steps = 0
     advertised_ascending_steps = 0
     reserved_zero = 0
@@ -239,11 +240,12 @@ def read_job_vacancies(
         second_date = decode_date(job_centre, record_offset + layout.date_12_offset)
         if (
             advertised_date is not None
-            and advertised_date <= clock
             and second_date is not None
             and second_date >= advertised_date
         ):
-            dates_ordered += 1
+            relative_dates_ordered += 1
+            if clock is not None and advertised_date <= clock:
+                dates_ordered += 1
         if advertised_date is not None:
             if previous_advertised is not None:
                 advertised_steps += 1
@@ -309,7 +311,8 @@ def read_job_vacancies(
     stats = JobVacancyStats(
         records=stored_count,
         tagged=tagged,
-        dates_ordered=dates_ordered,
+        dates_ordered=dates_ordered if clock is not None else None,
+        relative_dates_ordered=relative_dates_ordered,
         advertised_steps=advertised_steps,
         advertised_ascending_steps=advertised_ascending_steps,
         reserved_zero=reserved_zero,

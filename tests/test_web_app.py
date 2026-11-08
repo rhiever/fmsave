@@ -311,7 +311,7 @@ def test_reader_check_warnings_reach_the_page_with_decoded_rows(
         players = reader.read_players()
         assert players["count"] == 4
         (notice,) = players["warnings"]
-        assert "players failed checks: players_minimum" in notice
+        assert "players failed checks: advisory: players_minimum" in notice
         stats = reader.read_stats()
         assert stats["kind"] == "overall"
         (notice,) = stats["warnings"]

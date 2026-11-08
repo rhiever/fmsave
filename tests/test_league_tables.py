@@ -901,24 +901,17 @@ def test_league_tables_returns_one_cached_table_and_raises_after_close(tmp_path:
     assert list(tables) == rows_before_close
 
 
-def test_a_failed_calendar_check_stops_the_tables_being_built(
+def test_calendar_population_warning_keeps_league_tables_accessible(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The vote may only run on a calendar whose own checks passed.
-
-    A calendar that had shattered into fragments, or swallowed the template matches no save
-    plays, would otherwise vote a competition onto hundreds of tables and raise nothing.
-    """
     career_path = write_career(tmp_path)
     with_gate_bounds(monkeypatch, UNMEETABLE_FIXTURE_BOUNDS)
-
-    with (
-        fmsave.open(career_path, strict=True) as career_save,
-        pytest.raises(fmsave.ReaderCheckError) as error_info,
-    ):
-        career_save.league_tables()
-
-    assert "fixtures_minimum" in str(error_info.value)
+    with fmsave.open(career_path, strict=True) as career_save:
+        with pytest.warns(fmsave.ReaderCheckWarning) as caught:
+            tables = career_save.league_tables()
+        assert any("fixtures_minimum" in str(warning.message) for warning in caught)
+        assert len(tables) > 0
+        assert career_save.league_tables() is tables
 
 
 @pytest.mark.parametrize(
@@ -1236,9 +1229,14 @@ def test_league_table_gates_fail_one_at_a_time(
     results = evaluate_league_tables(stats, BOUNDS, FULL_SIZE_SPAN_BYTES)
 
     assert failed_gate_names(results) == list(expected_failures)
-    with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("league_tables", results, strict=True)
-    message = str(error_info.value)
+    if "table_venue_calendar_agreement" in expected_failures:
+        with pytest.raises(fmsave.ReaderCheckError) as error_info:
+            enforce("league_tables", results, strict=True)
+        message = str(error_info.value)
+    else:
+        with pytest.warns(fmsave.ReaderCheckWarning) as caught:
+            enforce("league_tables", results, strict=True)
+        message = str(caught[0].message)
     assert expected_failures[0] in message
     for fictional_text in ("Alex", "Northbridge", "Example", FILE_NAME):
         assert fictional_text not in message

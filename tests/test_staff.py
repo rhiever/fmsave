@@ -1020,7 +1020,7 @@ def failing_check(stats: StaffStats, bounds: GateBounds, game_db_bytes: int) -> 
     return ReaderCheck(
         "staff",
         stats.rows,
-        (GateResult("staff_minimum", 0, 1, None, passed=False, applied=True),),
+        (GateResult("staff_ability_signature", 0, 1, None, passed=False, applied=True),),
         FrozenMapping({}),
     )
 

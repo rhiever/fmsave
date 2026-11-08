@@ -80,24 +80,21 @@ def failing_suspension_check(*_args: object) -> ReaderCheck:
 
 
 @pytest.mark.parametrize("first_reader", ["players", "contracts", "suspensions"])
-def test_strict_fm27_failed_suspension_check_stops_only_suspensions(
+def test_strict_fm27_advisory_suspension_check_preserves_all_readers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first_reader: str
 ) -> None:
     monkeypatch.setattr(_checks, "check_suspensions", failing_suspension_check)
-    with fm27_player_save(tmp_path, strict=True) as save:
-        if first_reader == "suspensions":
-            with pytest.raises(fmsave.ReaderCheckError, match="suspension_entries_minimum"):
-                save.suspensions()
-        else:
+    with fm27_player_save(tmp_path, strict=True, with_ban=True) as save:
+        with pytest.warns(fmsave.ReaderCheckWarning, match="suspension_entries_minimum"):
             getattr(save, first_reader)()
         rows = save.players()
         assert len(rows) == 1
-        assert rows[0].suspensions is None
-        assert record_to_dict(rows[0], json_ready=True)["suspensions"] is None
-        assert rows.coverage["suspensions"] == 0.0
+        assert rows[0].suspensions is not None
+        assert len(rows[0].suspensions) == 1
+        assert record_to_dict(rows[0], json_ready=True)["suspensions"] is not None
+        assert rows.coverage["suspensions"] == 1.0
         assert len(save.contracts()) == 0
-        with pytest.raises(fmsave.ReaderCheckError, match="suspension_entries_minimum"):
-            save.suspensions()
+        assert len(save.suspensions()) == 1
 
 
 def test_fm27_suspension_check_that_passes_is_kept_for_validation(tmp_path: Path) -> None:
@@ -111,7 +108,7 @@ def test_fm27_suspension_check_that_passes_is_kept_for_validation(tmp_path: Path
 
 
 def failing_player_check(*_args: object) -> ReaderCheck:
-    gate = GateResult("players_minimum", 0, 1, None, passed=False, applied=True)
+    gate = GateResult("relation_sentinel", 0, 1, None, passed=False, applied=True)
     return ReaderCheck("players", 0, (gate,), FrozenMapping({}))
 
 
@@ -122,7 +119,7 @@ def test_fm27_failed_player_check_stops_all_three_readers(
     monkeypatch.setattr(_checks, "check_players", failing_player_check)
     with (
         fm27_player_save(tmp_path, strict=True) as save,
-        pytest.raises(fmsave.ReaderCheckError, match="players_minimum"),
+        pytest.raises(fmsave.ReaderCheckError, match="relation_sentinel"),
     ):
         getattr(save, reader)()
 
@@ -133,7 +130,7 @@ def test_fm27_default_returns_players_after_a_failed_check(
 ) -> None:
     monkeypatch.setattr(_checks, "check_players", failing_player_check)
     with fm27_player_save(tmp_path, build=build) as save:
-        with pytest.warns(fmsave.ReaderCheckWarning, match="players_minimum"):
+        with pytest.warns(fmsave.ReaderCheckWarning, match="relation_sentinel"):
             players = save.players()
         assert len(players) == 1
         assert save.players() is players

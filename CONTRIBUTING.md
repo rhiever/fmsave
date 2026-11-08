@@ -53,6 +53,19 @@ uv run --locked pyright
 
 The commit hooks check staged files and commit messages. Never skip them.
 
+## Reader validation
+
+Population sizes, typical ranges, parser coverage, and career-state correlations warn in every
+mode. A threshold separating the saves tested from deliberately incorrect reads is useful
+diagnostic evidence, but does not establish a rule for every valid career.
+
+Justify each blocking check with an integrity condition, such as an input-declared count or
+conflicting identities. If a check combines integrity with a population assumption, separate
+them or keep the combined check advisory. An empty optional population has nothing to compare.
+Add regressions for valid unusual or empty inputs and for the malformed input that should
+still fail. Strict mode is opt-in. Default readers return usable decoded data with warnings;
+structural failures still raise when a table cannot be decoded.
+
 ## Provenance
 
 Knowledge of the save format may come only from observing your own saves and the in-game UI. Do not use decompilation, leaked material, material under a non-disclosure agreement, or code from unlicensed parsers. This applies to anything you share in an issue or by email too. Never share decompiled or disassembled game code, or executable bytes, anywhere.

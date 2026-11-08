@@ -289,7 +289,7 @@ def failed_gate_names(results: tuple[GateResult, ...]) -> list[str]:
 def test_gate_switch_is_on_by_default() -> None:
     assert _checks._gates_enabled is True
     shifted_results = evaluate_players(
-        dataclasses.replace(healthy_player_stats(), with_natural_position=17_800),
+        dataclasses.replace(healthy_player_stats(), relation_sentinel_ok=89_000),
         BOUNDS,
         FULL_SIZE_GAME_DB_BYTES,
     )
@@ -338,14 +338,14 @@ def test_player_gates_are_not_applied_to_a_small_section() -> None:
 
 def test_a_strict_failure_names_only_the_blocking_check() -> None:
     shifted_stats = dataclasses.replace(
-        healthy_player_stats(), handling_above_finishing=12_200, with_natural_position=17_800
+        healthy_player_stats(), handling_above_finishing=12_200, relation_sentinel_ok=89_000
     )
     results = evaluate_players(shifted_stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
-    assert failed_gate_names(results) == ["handling_above_finishing", "with_natural_position"]
+    assert failed_gate_names(results) == ["relation_sentinel", "handling_above_finishing"]
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
         enforce("players", results, strict=True)
     assert str(error_info.value) == (
-        "players failed checks: with_natural_position=0.89 (expected 0.97..). "
+        "players failed checks: relation_sentinel=0.89 (expected 0.999..). "
         f"Please report it at {ISSUES_URL} with the output of fmsave validate."
     )
 
@@ -360,8 +360,8 @@ def test_one_record_short_of_the_minimum_fails_only_the_players_minimum_gate() -
     results = evaluate_players(healthy_player_stats(4_999), BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert failed_gate_names(results) == ["players_minimum"]
     assert results[0] == GateResult("players_minimum", 4_999, 5_000, None, False, True)
-    with pytest.raises(
-        fmsave.ReaderCheckError, match=r"players_minimum=4999 \(expected 5000\.\.\)"
+    with pytest.warns(
+        fmsave.ReaderCheckWarning, match=r"players_minimum=4999 \(expected 5000\.\.\)"
     ):
         enforce("players", results, strict=True)
 
@@ -441,13 +441,13 @@ def test_player_medians_are_checked_against_their_bounds() -> None:
     assert {result.name: result.observed for result in old_results}["age_median"] == 31
 
 
-def test_a_rate_with_no_denominator_has_no_observed_value_and_fails_when_applied() -> None:
+def test_a_rate_with_no_denominator_has_no_observed_value_and_is_not_applied() -> None:
     no_relations = dataclasses.replace(
         healthy_player_stats(), relation_entries=0, relation_sentinel_ok=0
     )
     results = evaluate_players(no_relations, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     sentinel_result = results[PLAYER_GATE_NAMES.index("relation_sentinel")]
-    assert sentinel_result == GateResult("relation_sentinel", None, 0.999, None, False, True)
+    assert sentinel_result == GateResult("relation_sentinel", None, 0.999, None, True, False)
     small_results = evaluate_players(no_relations, BOUNDS, SMALL_GAME_DB_BYTES)
     assert small_results[PLAYER_GATE_NAMES.index("relation_sentinel")] == GateResult(
         "relation_sentinel", None, 0.999, None, True, False
@@ -503,9 +503,11 @@ def test_past_dated_tail_ends_are_a_share_of_the_tails_with_an_end() -> None:
     assert results[CONTRACT_GATE_NAMES.index("past_dated_tail_ends")].observed == pytest.approx(
         0.051
     )
-    with pytest.raises(
-        fmsave.ReaderCheckError,
-        match=re.escape("contracts failed checks: past_dated_tail_ends=0.051 (expected ..0.05)."),
+    with pytest.warns(
+        fmsave.ReaderCheckWarning,
+        match=re.escape(
+            "contracts failed checks: advisory: past_dated_tail_ends=0.051 (expected ..0.05)."
+        ),
     ):
         enforce("contracts", results, strict=True)
 
@@ -571,7 +573,7 @@ def test_a_club_status_read_that_loses_the_reputation_fails_both_reputation_gate
     )
     shifted_results = evaluate_clubs(shifted_read, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert failed_gate_names(shifted_results) == ["reputation_found", "reputation_median"]
-    with pytest.raises(fmsave.ReaderCheckError, match=r"reputation_found=0\.14"):
+    with pytest.warns(fmsave.ReaderCheckWarning, match=r"reputation_found=0\.14"):
         enforce("clubs", shifted_results, strict=True)
 
     nothing_read = dataclasses.replace(
@@ -663,7 +665,7 @@ def test_a_suspension_search_that_finds_nothing_fails_the_share_and_the_clock_ch
     assert results[1].observed is None
     assert not results[2].applied
     assert results[3].observed == 0
-    with pytest.raises(fmsave.ReaderCheckError, match=r"suspension_share_of_players=0 "):
+    with pytest.warns(fmsave.ReaderCheckWarning, match=r"suspension_share_of_players=0 "):
         enforce("suspensions", results, strict=True)
     small_results = evaluate_suspensions(nothing_found, BOUNDS, SMALL_GAME_DB_BYTES)
     assert all(not result.applied and result.passed for result in small_results)
@@ -729,30 +731,32 @@ def test_a_failed_check_with_a_likely_cause_names_it() -> None:
     missing_tables = dataclasses.replace(healthy_contract_stats(), tails_without_clause_table=100)
     results = evaluate_contracts(missing_tables, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert failed_gate_names(results) == ["tails_without_clause_table"]
-    with pytest.raises(fmsave.ReaderCheckError) as error_info:
+    with pytest.warns(fmsave.ReaderCheckWarning) as error_info:
         enforce("contracts", results, strict=True)
-    assert "likely an unrecognised bonus list shape in the contract tail" in str(error_info.value)
+    assert "likely an unrecognised bonus list shape in the contract tail" in str(
+        error_info[0].message
+    )
 
     few_chains = dataclasses.replace(healthy_contract_stats(), players_with_chain=1_000)
     other_results = evaluate_contracts(few_chains, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
-    with pytest.raises(fmsave.ReaderCheckError) as other_error_info:
+    with pytest.warns(fmsave.ReaderCheckWarning) as other_error_info:
         enforce("contracts", other_results, strict=True)
-    assert "likely" not in str(other_error_info.value)
+    assert "likely" not in str(other_error_info[0].message)
 
 
 def test_two_failing_readers_of_one_pass_share_one_joined_message() -> None:
-    contract_check = ReaderCheck("contracts", 10, (failing_gate("tails_parsed"),), {})
-    suspension_check = ReaderCheck("suspensions", 3, (failing_gate("issued_after_clock"),), {})
-    passing_check = ReaderCheck("players", 20, (), {})
+    contract_check = ReaderCheck("contracts", 10, (failing_gate("clause_terminator"),), {})
+    player_check = ReaderCheck("players", 3, (failing_gate("relation_sentinel"),), {})
+    passing_check = ReaderCheck("clubs", 20, (), {})
     with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce_checks((passing_check, contract_check, suspension_check), strict=True)
+        enforce_checks((passing_check, contract_check, player_check), strict=True)
     assert str(error_info.value) == (
-        "contracts failed checks: tails_parsed=0.5 (expected 0.9..). "
-        "suspensions failed checks: issued_after_clock=0.5 (expected 0.9..). "
+        "contracts failed checks: clause_terminator=0.5 (expected 0.9..). "
+        "players failed checks: relation_sentinel=0.5 (expected 0.9..). "
         f"Please report it at {ISSUES_URL} with the output of fmsave validate."
     )
     assert isinstance(error_info.value, _checks.GateCheckError)
-    assert error_info.value.checks == (passing_check, contract_check, suspension_check)
+    assert error_info.value.checks == (passing_check, contract_check, player_check)
 
 
 def test_the_enforce_message_holds_no_digits_beyond_rates_and_bounds() -> None:
@@ -1443,13 +1447,7 @@ def test_to_json_dict_holds_exactly_the_allowlisted_keys(counted_fragment_path: 
         assert isinstance(reader_dict, dict)
         assert set(reader_dict) == READER_KEYS
         for gate_dict in reader_dict["gates"]:
-            if gate_dict["name"] in {
-                "age_median",
-                "aged_in_range",
-                "height_median",
-                "handling_above_finishing",
-                "reputation_median",
-            }:
+            if gate_dict["name"] in _checks._ADVISORY_GATES:
                 assert gate_dict["advisory"] is True
                 assert set(gate_dict) == GATE_KEYS | {"advisory"}
             else:
@@ -1531,7 +1529,7 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered
         stats: ContractStats, bounds: GateBounds, game_db_bytes: int
     ) -> tuple[GateResult, ...]:
         evaluations.append(stats.chain_records)
-        return (failing_gate("tails_parsed"),)
+        return (failing_gate("clause_terminator"),)
 
     monkeypatch.setattr(_checks, "evaluate_contracts", failing_evaluate_contracts)
     with fmsave.open(counted_fragment_path, strict=True) as career_save:
@@ -1539,7 +1537,7 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered
             with pytest.raises(fmsave.ReaderCheckError) as error_info:
                 read_table()
             assert str(error_info.value) == (
-                "contracts failed checks: tails_parsed=0.5 (expected 0.9..). "
+                "contracts failed checks: clause_terminator=0.5 (expected 0.9..). "
                 f"Please report it at {ISSUES_URL} with the output of fmsave validate."
             )
             for cache_key in (
@@ -1595,7 +1593,7 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered
         "set_pieces": "failed",
         "selections": "failed",
     }
-    assert readers["contracts"].gates == (failing_gate("tails_parsed"),)
+    assert readers["contracts"].gates == (failing_gate("clause_terminator"),)
     assert tuple(gate.name for gate in readers["players"].gates) == PLAYER_GATE_NAMES
     assert readers["players"].record_count == 2
     assert dict(readers["players"].anomalies) == {
@@ -1648,11 +1646,6 @@ def with_bounds(monkeypatch: pytest.MonkeyPatch, bounds: GateBounds) -> None:
 def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
     counted_fragment_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The fixture gates judge the span, which has a size threshold of its own, so both are
-    # lowered here; otherwise those gates would be the one set this test never applies. The two
-    # stadium floors this fragment's 101-row table cannot reach are relaxed with them: the
-    # calendar reader is enforced on that table before it reaches a gate of its own, and this
-    # test is about each reader's own counts.
     with_bounds(
         monkeypatch,
         dataclasses.replace(
@@ -1665,20 +1658,15 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
     )
     with fmsave.open(counted_fragment_path) as career_save:
         readers = reader_by_name(validate_save(career_save))
-    # Every reader reaches its own gates, whatever another reader's counts did, so this judges
-    # each reader's own counts. The gates standing aside are the shares whose population this
-    # fragment leaves empty: no fixture stores a ground, the calendar shows no division under
-    # way, no table's rows account for a season of the calendar, no rules block has a run of tables after it, no club keeps a finance
-    # series or a sponsor, no vacancy and no staff block was decoded, no list holds an id and
-    # the injury section holds no row. An empty population is a fact about the fragment rather
-    # than a layout that has moved, and a count gate sits beside each of these and fails here.
     assert {
         name: [gate.name for gate in reader.gates if not gate.applied]
         for name, reader in readers.items()
         if any(not gate.applied for gate in reader.gates)
     } == {
         "nations": ["nation_database_id_copies"],
-        "fixtures": ["fixture_stadiums_resolved"],
+        "fixtures": ["fixture_stadiums_resolved", "results_for_unplayed"],
+        "competitions": ["competition_names_within_database_ids"],
+        "transfer_windows": ["transfer_window_dates"],
         "league_tables": ["double_round_robin_divisions", "table_venue_calendar_agreement"],
         "competition_rules": ["rules_linked_blocks_minimum", "rules_link_round_dates"],
         "player_match_stats": ["per_match_minutes_in_range", "per_match_rating_in_range"],
@@ -1694,6 +1682,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
             "job_vacancy_dates_ordered",
             "job_vacancy_advertised_ascending",
             "job_vacancy_reserved_zero",
+            "job_vacancy_relative_dates_ordered",
         ],
         "staff": [
             "staff_ability_signature",
@@ -1715,48 +1704,17 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         ],
         "facilities": ["facility_byte_in_range", "facility_unset_ratings"],
     }
-    # A reader is failed by its own counts alone. The seven reported "ok" are the ones whose every
-    # applied gate this fragment meets, which it could not show while a reader that read another
-    # reader's table was stopped by that reader's counts.
-    assert {name: reader.status for name, reader in readers.items()} == {
-        "clubs": "failed",
-        "players": "failed",
-        "contracts": "failed",
-        "suspensions": "failed",
-        "managed_clubs": "ok",
-        "stages": "failed",
-        "competitions": "failed",
-        "nations": "failed",
-        # This fragment's span holds no fixture record and no table block at all, both of which
-        # have to fail once the gates apply rather than report a career with no matches and no
-        # tables of its own.
-        "fixtures": "failed",
-        "transfer_windows": "failed",
-        "league_tables": "failed",
-        # Its span holds no rules preamble block either, which has to fail once the gates
-        # apply rather than report a career with no competition rules of its own.
-        "competition_rules": "failed",
-        "player_match_stats": "failed",
-        "player_season_stats": "failed",
-        "player_season_history": "ok",
-        "stadiums": "ok",
-        "finances": "failed",
-        # No club record here holds a finance chain, so none was searched for a sponsor run
-        # either: the share stands aside for want of a denominator and the floor is what fails.
-        "sponsorships": "failed",
-        "affiliates": "failed",
-        "job_vacancies": "ok",
-        "staff": "failed",
-        "staff_lists": "failed",
-        "injury_types": "failed",
-        "injuries": "ok",
-        "training": "failed",
-        "mentoring": "ok",
-        "tactics": "failed",
-        "set_pieces": "ok",
-        "selections": "failed",
-        "facilities": "failed",
+    assert set(readers) == set(READER_ORDER)
+    assert {reader.status for reader in readers.values()} <= {"ok", "failed"}
+    assert {name for name, reader in readers.items() if reader.status == "failed"} == {
+        "clubs",
+        "players",
+        "contracts",
+        "nations",
+        "player_match_stats",
+        "staff_lists",
     }
+
     assert {name: failed_gate_names(reader.gates) for name, reader in readers.items()} == {
         "clubs": ["clubs_minimum", "status_confirmation", "reputation_median"],
         "players": [
@@ -1775,8 +1733,6 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
             "team_resolved",
             "home_grown_club_refs_resolved",
         ],
-        # The fragment's parsed tails all have a clause table, no record is marked with a
-        # date, and its one chain has a record in effect, so those three gates still pass.
         "contracts": [
             name
             for name in CONTRACT_GATE_NAMES
@@ -1787,26 +1743,14 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
                 "no_contract_in_effect",
             }
         ],
-        # The fragment's two entries both carry a listed scope code, so the scope check
-        # passes on counts that fail the other two.
         "suspensions": ["suspension_share_of_players"],
         "managed_clubs": [],
-        # The example table is a fraction of a career's, and names three competitions.
         "stages": ["stage_rows_minimum"],
-        # This fragment writes no id-pair records at all, so no competition has a database id,
-        # and with none there is no share of them to name: the last gate fails for want of a
-        # rate rather than because a name went astray.
         "competitions": [
             "competitions_minimum",
             "competition_database_ids_mapped",
-            "competition_names_within_database_ids",
         ],
         "nations": ["nation_tables_found"],
-        # An empty calendar misses the record floor, holds no stray to separate from it, and
-        # leaves all three shares without a denominator, so every fixture gate fails instead
-        # of passing for want of a rate. The result gates go the same way: this fragment holds
-        # no score record either, so the count fails on its floor and both shares fail for
-        # want of a rate rather than passing on an empty join.
         "fixtures": [
             "fixtures_minimum",
             "fixture_cluster_share",
@@ -1815,32 +1759,18 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
             "fixture_club_teams_resolved",
             "result_records_minimum",
             "results_joined",
-            "results_for_unplayed",
         ],
-        # This fragment holds no tagged stream, so no window is decoded and there is no date
-        # share to take either: the count fails on its floor and the share fails for want of a
-        # rate, which is what a transfer-window decode that has moved looks like.
-        "transfer_windows": ["transfer_windows_minimum", "transfer_window_dates"],
-        # An empty span leaves the table decode with no block at all, which fails both counts
-        # and both shares rather than passing for want of a rate.
+        "transfer_windows": ["transfer_windows_minimum"],
         "league_tables": [
             "table_blocks_minimum",
             "table_block_duplicates_minimum",
             "table_block_team_in_range",
             "table_groups_resolved",
         ],
-        # No preamble marker either, so the count fails on its floor and the parsed share for
-        # want of a rate.
         "competition_rules": ["rules_markers_minimum", "rules_fully_parsed"],
-        # An empty per-match search fails its competition check, while statistics checks
-        # stand aside because there are no statistics to judge.
         "player_match_stats": ["per_match_competition_in_stage_space", "per_match_lists_complete"],
-        # Three of the five season records are keyed to pindexes this fragment's players do not
-        # have, far below the share every save measured keeps.
         "player_season_stats": ["season_stats_records_keyed_to_players"],
         "player_season_history": [],
-        # The fragment's 101-row stadium table meets the two floors this test relaxed for it,
-        # and the three shares beside them judge only the rows it does hold.
         "stadiums": [],
         "finances": ["finance_series_minimum"],
         "sponsorships": ["sponsor_clubs_minimum"],
@@ -1848,13 +1778,10 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "job_vacancies": [],
         "staff": ["staff_minimum"],
         "staff_lists": ["staff_lists_fit"],
-        # The type table is read out of a per-match entry, and this fragment's one attachment
-        # is not a per-match file, which leaves the table empty and the floor unmet.
         "injury_types": ["injury_type_entries_minimum"],
         "injuries": [],
         "training": ["training_blocks_match_club_teams"],
         "mentoring": [],
-        # A club team without a stored tactics block does not imply a missed block.
         "tactics": ["tactic_selection_selectors_resolved"],
         "set_pieces": [],
         "selections": ["selection_picks_resolved"],
@@ -1917,23 +1844,23 @@ def test_two_failing_readers_of_the_player_pass_are_named_in_one_error(
     def failing_evaluate_contracts(
         stats: ContractStats, bounds: GateBounds, game_db_bytes: int
     ) -> tuple[GateResult, ...]:
-        return (failing_gate("tails_parsed"),)
+        return (failing_gate("clause_terminator"),)
 
-    def failing_evaluate_suspensions(
-        stats: SuspensionStats, bounds: GateBounds, game_db_bytes: int
+    def failing_evaluate_players(
+        stats: PlayerStats, bounds: GateBounds, game_db_bytes: int
     ) -> tuple[GateResult, ...]:
-        return (failing_gate("issued_after_clock"),)
+        return (failing_gate("relation_sentinel"),)
 
     monkeypatch.setattr(_checks, "evaluate_contracts", failing_evaluate_contracts)
-    monkeypatch.setattr(_checks, "evaluate_suspensions", failing_evaluate_suspensions)
+    monkeypatch.setattr(_checks, "evaluate_players", failing_evaluate_players)
     with (
         fmsave.open(counted_fragment_path, strict=True) as career_save,
         pytest.raises(fmsave.ReaderCheckError) as error_info,
     ):
         career_save.players()
     assert str(error_info.value) == (
-        "contracts failed checks: tails_parsed=0.5 (expected 0.9..). "
-        "suspensions failed checks: issued_after_clock=0.5 (expected 0.9..). "
+        "players failed checks: relation_sentinel=0.5 (expected 0.9..). "
+        "contracts failed checks: clause_terminator=0.5 (expected 0.9..). "
         f"Please report it at {ISSUES_URL} with the output of fmsave validate."
     )
 
