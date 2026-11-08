@@ -71,11 +71,18 @@ jobs:
         run: uv run ruff format --check .
       - name: Type check
         run: uv run pyright
+      - name: Install zizmor
+        env:
+          ZIZMOR_VERSION: "1.32.0"
+          ZIZMOR_SHA256: "bb110cc765eca9cd7efb2e284a956be5974c60027b0970f16397d86208a9957b"
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/zizmor.tar.gz" "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          printf '%s  %s\n' "$ZIZMOR_SHA256" "$RUNNER_TEMP/zizmor.tar.gz" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/zizmor.tar.gz" -C "$RUNNER_TEMP" zizmor
       - name: Workflow audit
-        uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
-        with:
-          advanced-security: false
-          version: "1.32.0"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/zizmor" .'
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
