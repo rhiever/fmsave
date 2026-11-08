@@ -18,20 +18,22 @@ say so in the issue.
 
 ## Setup
 
-fmsave uses [uv](https://docs.astral.sh/uv/) and [prek](https://github.com/j178/prek) for its commit hooks.
+Use [uv](https://docs.astral.sh/uv/) 0.13.7 or newer to install the locked dependencies and run the synthetic tests.
 
 ```console
-uv sync
-prek install
-uv run pytest
+uv sync --locked
+uv run --locked pytest -m "not corpus"
 ```
 
-Before committing, also run:
+For a docs build, use `uv sync --locked --group docs`.
+Before committing, install [prek](https://github.com/j178/prek) and
+[Gitleaks](https://github.com/gitleaks/gitleaks), enable the hooks, and run these checks.
 
 ```console
-uv run ruff check .
-uv run ruff format --check .
-uv run pyright
+prek install
+uv run --locked ruff check .
+uv run --locked ruff format --check .
+uv run --locked pyright
 ```
 
 ## Guardrails
