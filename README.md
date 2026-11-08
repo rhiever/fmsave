@@ -83,8 +83,8 @@ Every field is either verified against the game or unconfirmed; ask with
 fmsave cannot read is `None` rather than a guess, and money is kept in the unit the game stores it
 in, which can differ from the currency it displays.
 
-Reader checks test completeness, joins and expected ranges. A failed check warns and returns the
-table; `strict=True` raises instead. Structural failures raise in either mode. See
+Reader checks test completeness, joins, and expected ranges. Advisory checks warn and return
+the table. Blocking checks raise on FM27 and in strict mode. See
 [Trusting a number](https://rhiever.github.io/fmsave/guides/trust.html) before relying on a result.
 
 ## What it cannot read

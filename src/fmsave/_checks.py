@@ -216,6 +216,13 @@ _LIKELY_CAUSES: FrozenMapping[str, str] = FrozenMapping(
 )
 
 
+# These bounds describe the population in reference careers. Per-record and layout checks
+# are evaluated separately, so an unusual distribution is still readable.
+_ADVISORY_GATES = frozenset(
+    {"age_median", "height_median", "reputation_median", "handling_above_finishing"}
+)
+
+
 @dataclass(frozen=True, slots=True)
 class GateResult:
     """One reader check: an observed count or rate compared with its bounds.
@@ -237,9 +244,14 @@ class GateResult:
     passed: bool
     applied: bool
 
+    @property
+    def advisory(self) -> bool:
+        """Whether a failed check only warns, including in strict mode."""
+        return self.name in _ADVISORY_GATES
+
     def to_json_dict(self) -> dict[str, object]:
         """The check as a JSON-ready dict."""
-        return {
+        record: dict[str, object] = {
             "name": self.name,
             "observed": self.observed,
             "minimum": self.minimum,
@@ -247,6 +259,9 @@ class GateResult:
             "passed": self.passed,
             "applied": self.applied,
         }
+        if self.advisory:
+            record["advisory"] = True
+        return record
 
 
 @dataclass(frozen=True, slots=True)
@@ -2597,14 +2612,16 @@ def _likely_cause(gate_name: str) -> str:
     return "" if cause is None else f"; likely {cause}"
 
 
-def _failure_summary(reader_name: str, results: Sequence[GateResult]) -> str | None:
+def _failure_summary(
+    reader_name: str, results: Sequence[GateResult], *, blocking_only: bool = False
+) -> str | None:
     """ "<reader> failed checks: <gate>=<observed> (expected <min>..<max>); ...", or None."""
     failures = [
-        f"{result.name}={_format_number(result.observed)} "
+        f"{'advisory: ' if result.advisory else ''}{result.name}={_format_number(result.observed)} "
         f"(expected {_format_bound(result.minimum)}..{_format_bound(result.maximum)}"
         f"{_likely_cause(result.name)})"
         for result in results
-        if result.applied and not result.passed
+        if result.applied and not result.passed and (not blocking_only or not result.advisory)
     ]
     if not failures:
         return None
@@ -2625,66 +2642,58 @@ def _warn_failure(message: str) -> None:
     )
 
 
+def _blocks_reader(result: GateResult) -> bool:
+    return result.applied and not result.passed and not result.advisory
+
+
+def checks_fail(reader_checks: Sequence[ReaderCheck]) -> bool:
+    """Whether these checks would stop a strict reader, without emitting warnings."""
+    return _gates_enabled and any(
+        _blocks_reader(gate) for check in reader_checks for gate in check.gates
+    )
+
+
 def enforce(reader_name: str, results: Sequence[GateResult], *, strict: bool) -> bool:
-    """Report a failed applied check. The message holds only rounded rates and bounds.
-
-    On a strict save the failure is raised, and on any other save it is warned about with that
-    same message and the reader hands its table back: a bound measured on a handful of saves
-    is not something to refuse a whole save over.
-
-    Returns:
-        Whether a failure was warned about, which is False on a strict save and whenever
-        every applied check passed.
-
-    Raises:
-        ReaderCheckError: An applied check failed and `strict` is True.
-
-    Warns:
-        ReaderCheckWarning: An applied check failed and `strict` is False.
-    """
-    summary = _failure_summary(reader_name, results)
-    if summary is None or not _gates_enabled:
+    """Raise for blocking failures in strict mode and warn about other failures."""
+    if not _gates_enabled:
         return False
-    message = f"{summary}. {_REPORT_REQUEST}"
     if strict:
-        raise GateCheckError(message)
-    _warn_failure(message)
+        blocking = _failure_summary(reader_name, results, blocking_only=True)
+        if blocking is not None:
+            raise GateCheckError(f"{blocking}. {_REPORT_REQUEST}")
+    summary = _failure_summary(reader_name, results)
+    if summary is None:
+        return False
+    _warn_failure(f"{summary}. {_REPORT_REQUEST}")
     return True
 
 
 def enforce_checks(reader_checks: Sequence[ReaderCheck], *, strict: bool) -> bool:
-    """Report the applied checks of these readers that failed, naming each failed reader.
-
-    On a strict save the failure is raised, carrying every one of the readers' checks so that a
-    report can show them, and on any other save it is warned about with that same message.
-
-    Returns:
-        Whether a failure was warned about, which is False on a strict save and whenever
-        every applied check passed.
-
-    Raises:
-        ReaderCheckError: An applied check failed and `strict` is True.
-
-    Warns:
-        ReaderCheckWarning: An applied check failed and `strict` is False.
-    """
-    summaries = [
-        summary
-        for reader_check in reader_checks
-        if (summary := _failure_summary(reader_check.reader, reader_check.gates)) is not None
-    ]
-    if not summaries or not _gates_enabled:
+    """Judge a shared decode and retain every reader's checks when it raises."""
+    if not _gates_enabled:
         return False
-    message = f"{'. '.join(summaries)}. {_REPORT_REQUEST}"
-    if strict:
-        raise GateCheckError(message, tuple(reader_checks))
-    _warn_failure(message)
+    if strict and checks_fail(reader_checks):
+        blocking = [
+            summary
+            for check in reader_checks
+            if (summary := _failure_summary(check.reader, check.gates, blocking_only=True))
+            is not None
+        ]
+        raise GateCheckError(f"{'. '.join(blocking)}. {_REPORT_REQUEST}", tuple(reader_checks))
+    warnings_to_report = [
+        summary
+        for check in reader_checks
+        if (summary := _failure_summary(check.reader, check.gates)) is not None
+    ]
+    if not warnings_to_report:
+        return False
+    _warn_failure(f"{'. '.join(warnings_to_report)}. {_REPORT_REQUEST}")
     return True
 
 
 # How one reader fared: the type of `ReaderValidation.status`, named so that a caller can
-# declare it. "ok" is a table read with every applied check passed, "failed" a check that did
-# not pass, and "error" another fmsave error raised while reading.
+# declare it. "ok" is a decoded table without a blocking failure, "failed" a blocking
+# failure, and "error" another fmsave error raised while reading.
 type ReaderStatus = Literal["ok", "failed", "error"]
 
 
@@ -2692,13 +2701,11 @@ type ReaderStatus = Literal["ok", "failed", "error"]
 class ReaderValidation:
     """How one reader fared in `validate_save`.
 
-    A reader is "failed" when a check of its own did not pass, and it is the only one reported
-    so: the readers that join through it read the table it returned and are judged on their own
-    checks.
+    When a reader returns a table, only a failed blocking check marks it "failed". Readers
+    that join through the table are judged on their own checks.
 
-    A save opened with `strict=True` is reported differently, because a failed check stops the
-    reader there and everything downstream of it with it. Players, contracts and suspensions
-    are decoded in one pass, so when a check of any of the three fails, all three are reported
+    In strict mode and on FM27, failed blocking checks can stop downstream readers. Players,
+    contracts, and suspensions are decoded in one pass. If that pass fails, all three are reported
     "failed" and none of their tables is read, and each of them still lists its own gates: a
     reader can be "failed" while every one of its own gates passed. Fixtures, league tables,
     competition rules and stadiums share the one streamed pass over the span the same way, and
@@ -2716,9 +2723,8 @@ class ReaderValidation:
             "finances", "sponsorships", "affiliates", "job_vacancies", "staff", "staff_lists",
             "injury_types", "injuries", "training", "mentoring", "tactics", "set_pieces",
             "selections" or "facilities".
-        status: "ok" when the reader returned its table and every applied check of its own
-            passed, "failed" when a check did not, and "error" when it raised another fmsave
-            error.
+        status: "ok" when the reader returned its table without failing a blocking check,
+            "failed" for a blocking failure, and "error" when it raised another fmsave error.
         record_count: How many records the reader decoded, or None when it did not get far
             enough to count them.
         gates: The reader's checks, in a fixed order; empty when the reader has no checks of
@@ -2802,15 +2808,9 @@ def _completed_validation(
     coverage: Mapping[str, float],
     reader_check: ReaderCheck | None,
 ) -> ReaderValidation:
-    """A reader that returned its table: "failed" when a check of its own did not pass.
-
-    On a save opened without `strict=True` a failed check no longer stops the reader, so this
-    is where most "failed" rows come from. The check has already been evaluated and kept beside
-    the table, so the report reads the result off it rather than making a reader raise to find
-    out. Coverage is left out of a failed row, as it is of one that raised.
-    """
+    """Report checks beside a decoded table. Advisory failures keep its coverage visible."""
     gates = () if reader_check is None else reader_check.gates
-    failed = any(gate.applied and not gate.passed for gate in gates)
+    failed = any(_blocks_reader(gate) for gate in gates)
     return ReaderValidation(
         reader_name,
         "failed" if failed else "ok",
@@ -2848,18 +2848,16 @@ def validate_save(career_save: Save) -> ValidationReport:
     club facilities. The order puts each reader after the ones whose work it reuses, so a shared
     decode that fails is reported where it failed: stadiums follow the fixtures whose calendar
     they read, injury types precede the injury history that names its types, and the two
-    readers of each shared pass sit side by side. A reader whose checks fail is reported
-    "failed" with its checks, and one that raises another fmsave error is reported "error"
+    readers of each shared pass sit side by side. A reader with a failed blocking check is
+    reported "failed" with its checks. A reader that raises another fmsave error is reported "error"
     without the error's text; the remaining readers still run. The report holds only structural
     facts, counts and rates, never names, uids or other values from the save.
 
     Readers run here exactly as they would for any other caller, with their warnings suppressed
     for the length of the run: this report lists every check each reader ran, so a warning
     beside it would only repeat what it already says. Running them leaves the save no different
-    from how a caller who read those tables himself would leave it. On a save opened the
-    default way nothing raises for a failed check, so every table this decodes is kept: the
-    reader calls a caller makes afterwards are free of charge, and say nothing further about a
-    check this report has already reported.
+    from how a caller who read those tables would leave it. Tables returned by a reader stay
+    cached for later calls.
 
     Some readers share one decode: the players, contracts and suspensions of the player pass,
     the fixtures, league tables, competition rules and stadiums that all need the one streamed
@@ -2909,11 +2907,7 @@ def validate_save(career_save: Save) -> ValidationReport:
     )
     validations: list[ReaderValidation] = []
     failed_passes: dict[str, FmsaveError] = {}
-    # A failed check warns rather than raising on a save opened the default way, and this
-    # report lists every check each reader ran: a warning beside it would only repeat what the
-    # report already says, and would make `fmsave validate` noisiest on exactly the saves it
-    # exists to diagnose. The readers run as they would for any other caller, so a run leaves
-    # nothing behind that changes how the save reads afterwards.
+    # Validation already reports the checks, so suppress their warnings during the run.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", ReaderCheckWarning)
         for reader_name, read_table in reader_tables:

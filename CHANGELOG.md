@@ -12,6 +12,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 ### Fixed
 
 - FM27 `finances()` returns validated monthly rows when only the sponsorship checks fail. `sponsorships()` still raises. (#75)
+- Player age and height medians, club reputation medians, and the share of players whose handling exceeds finishing now warn and return the table, including in strict mode. (#75)
 
 Thanks to @ironkay-beep for the report and @paul-anthony-oneill and @menidi for help testing. Refs #66, #68, and #75.
 

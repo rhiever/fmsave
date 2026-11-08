@@ -90,7 +90,7 @@ The rest:
 - `-o PATH`: a file instead of standard output.
 - `--competition-names PATH`: a UTF-8 CSV of `database_id,name`. See
   [What a save holds](what-a-save-holds.md).
-- `--strict`: stop rather than write when a reader's checks fail. See
+- `--strict`: stop if a reader fails a blocking check. See
   [Trusting a number](trust.md).
 
 Table names on the command line use `-` where the Python method uses `_`:

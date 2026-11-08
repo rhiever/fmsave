@@ -42,15 +42,15 @@ A missing match score does not mean a 0-0 result.
 
 ## Reader checks
 
-Checks test completeness, joins and expected ranges. A failed check produces a
-`ReaderCheckWarning` and returns the table. Some range checks may fail on a valid save unlike the
-reference careers; investigate the failed check before using its output.
+Checks test completeness, joins, and expected ranges. Advisory checks warn and return the
+table. The median player age, median player height, median club reputation, and share of
+players whose handling exceeds finishing are advisory. These values can vary between careers.
 
-Use strict mode when your pipeline should stop on a failed check:
+Blocking checks warn by default in FM26. They raise on FM27 and in strict mode.
 
 ```python
 with fmsave.open("career.fm", strict=True) as career_save:
-    squad = career_save.players()  # raises ReaderCheckError on a failed check
+    squad = career_save.players()  # raises ReaderCheckError on a failed blocking check
 ```
 
 A structural failure that prevents a table from being decoded raises `ReaderCheckError` in either
@@ -74,10 +74,10 @@ for reader in report.readers:
 Club uid 0 is valid. A club reference is missing when it is `None`, so use `is not None`
 to keep valid references in filters.
 
-A reader's status is `ok`, `failed` (a check did not pass) or `error` (it raised).
-Each `ReaderValidation` also carries `gates`, `coverage` and `anomalies`.
-Passing checks is useful evidence, but does not confirm every field's meaning or guarantee full
-historical coverage.
+A reader's status is `ok` when it returns a table without blocking failures, `failed` when a
+blocking check fails, or `error` when another reader error occurs. Advisory failures appear
+as warnings in text reports and carry `"advisory": true` in JSON. They leave coverage visible.
+Each `ReaderValidation` also carries `gates`, `coverage`, and `anomalies`.
 
 The same report is available from the command line:
 
@@ -124,7 +124,7 @@ statistics come from, are borrowed too; their readers locate their data by store
 check what they read. FM26 layouts are never used for FM27 saves, and FM28 or later saves are
 refused. Please report any problem with an unverified build.
 
-Failed checks always stop an FM27 reader, even with `strict=False`. The validation
+Failed blocking checks stop an FM27 reader even with `strict=False`. The validation
 report lists unsupported readers and shows FM27 field statuses. Staff age, birth date,
 and contract end date are verified. The 21 staff ratings added in 0.10.0 are also
 verified against the in-game rating labels. Global field-status labels describe FM26.

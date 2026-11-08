@@ -193,6 +193,19 @@ def test_validate_text_lists_each_reader_and_the_build(
         assert private_text not in output_text
 
 
+def test_validate_text_reports_an_advisory_without_failing(
+    save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def unusual_age(*_args: object) -> tuple[GateResult, ...]:
+        return (GateResult("age_median", 17, 20, 30, False, True),)
+
+    monkeypatch.setattr("fmsave._checks.evaluate_players", unusual_age)
+    assert cli.main(["validate", str(save_path)]) == cli.EXIT_OK
+    output = capsys.readouterr()
+    assert "players: ok (4 records)\n  warning: age_median = 17 expected 20..30" in output.out
+    assert output.err == ""
+
+
 def test_a_failed_contract_check_exits_3_and_names_the_gate(
     save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

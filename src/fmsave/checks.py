@@ -1,12 +1,10 @@
 """The reader checks a save reports, and the validation report built from them.
 
-While a reader decodes, it counts what it sees and compares those counts with the loose bounds
-registered for the save's layout. A check that misses its bounds raises `GateCheckError` on a
-save opened with `strict=True`, and otherwise warns `ReaderCheckWarning` with the same message
-and lets the reader hand its table back: a bound is a measurement of the saves it was drawn
-from and no more, so a save unlike those is not a save fmsave should refuse to read. A failure
-carries its `ReaderCheck` records, so a caller reads the gate names, the observed values and
-the bounds from fields rather than out of the message text.
+Readers compare what they decode against bounds registered for the save's layout. Advisory
+checks warn and return the table. Blocking checks raise `GateCheckError` on FM27 and in strict
+mode. FM26 warns by default. A `GateCheckError` carries the reader checks so callers can
+inspect gate names, observed values, and bounds.
+
 
 `validate_save` runs every reader and returns a `ValidationReport`, which holds only structural
 facts, counts and rates: never names, uids or other values from the save.

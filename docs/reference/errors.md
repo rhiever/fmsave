@@ -8,7 +8,7 @@ myst:
 
 Every error fmsave raises on purpose is a `FmsaveError`; every warning it issues on purpose is a
 `FmsaveWarning`. `GateCheckError` is the one exception that is also more specific than its base:
-it is the `ReaderCheckError` a save opened with `strict=True` raises for a failed check.
+it is the `ReaderCheckError` raised for a failed blocking check on FM27 or in strict mode.
 
 fmsave sets no fixed size limit on a save. A part that claims or decompresses to far more than
 its compressed bytes could plausibly hold raises `CorruptSaveError` before that memory is spent;
