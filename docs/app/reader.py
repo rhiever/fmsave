@@ -79,8 +79,8 @@ def friendly_error(error: BaseException) -> str:
         return f"fmsave could not read this save ({type(error).__name__})."
     if isinstance(error, OSError):
         return (
-            "The save could not be read from disk, perhaps because the game saved over it. "
-            "Open it again, or copy the save and open the copy."
+            "The save could not be read from disk. The game may have saved over it. "
+            "Open it again or copy the save and open the copy."
         )
     if isinstance(error, MemoryError):
         return "The browser ran out of memory reading this save. Close other tabs and try again."
