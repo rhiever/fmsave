@@ -1071,7 +1071,24 @@ def fm27_rejected_sponsors_path(tmp_path: Path) -> Path:
     from tests.test_fm27_experimental import UNREGISTERED_BUILD, fm27_fragment
 
     bad = sponsor_row_bytes(**{**SPONSOR_A, "annual": 4_000_000})  # pyright: ignore[reportArgumentType]
-    data = one_club_game_db(club_finance_bytes(rows=career_finance_rows(), sponsors=(bad,)))
+    good = sponsor_row_bytes(**SPONSOR_A)  # pyright: ignore[reportArgumentType]
+    clubs = [
+        club_record_bytes(
+            club_index=club_index,
+            uid=EXAMPLE_CLUB_UID + club_index,
+            nation_id=3,
+            fa_nation_id=3,
+            city_id=77,
+            name=name,
+            short_name=name,
+            team_ids=(70000 + club_index,),
+            trailing_bytes=club_finance_bytes(rows=career_finance_rows(), sponsors=(row,)),
+        )
+        for club_index, (name, row) in enumerate(
+            (("Northbridge FC", bad), ("Southport FC", good)), start=1
+        )
+    ]
+    data = game_db_body(clubs, [], gap_bytes=256)
     return fm27_fragment(
         tmp_path,
         build=UNREGISTERED_BUILD,
@@ -1085,7 +1102,7 @@ def test_rejected_owned_sponsors_do_not_stop_fm27_finances(
     fm27_rejected_sponsors_path: Path, first_reader: str
 ) -> None:
     with pytest.warns(fmsave.UnknownBuildWarning):
-        save = fmsave.open(fm27_rejected_sponsors_path)
+        save = fmsave.open(fm27_rejected_sponsors_path, strict=True)
     with (
         save,
         patch.object(
@@ -1099,18 +1116,35 @@ def test_rejected_owned_sponsors_do_not_stop_fm27_finances(
         months = save.finances()
         assert [month.balance for month in months] == [
             values["balance"] for values in FINANCE_MONTH_VALUES
-        ]
+        ] * 2
         with pytest.raises(fmsave.ReaderCheckError, match="sponsor_lists_rejected"):
             save.sponsorships()
         assert save.finances() is months
 
         reports = {reader.reader: reader for reader in fmsave.validate_save(save).readers}
         assert reports["finances"].status == "ok"
-        assert reports["finances"].record_count == 3
+        assert reports["finances"].record_count == 6
         assert reports["sponsorships"].status == "failed"
         assert reports["sponsorships"].anomalies["sponsor_lists_rejected"] == 1
 
         decode.assert_called_once()
+
+
+def test_fm27_default_returns_available_sponsorships_with_a_warning(
+    fm27_rejected_sponsors_path: Path,
+) -> None:
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        save = fmsave.open(fm27_rejected_sponsors_path)
+    with save:
+        with pytest.warns(fmsave.ReaderCheckWarning, match="sponsor_lists_rejected"):
+            sponsors = save.sponsorships()
+        assert len(sponsors) == 1
+        assert sponsors[0].club_name == "Southport FC"
+        assert len(save.finances()) == 6
+        reports = {reader.reader: reader for reader in fmsave.validate_save(save).readers}
+        assert reports["finances"].status == "ok"
+        assert reports["sponsorships"].status == "failed"
+        assert reports["sponsorships"].anomalies["sponsor_lists_rejected"] == 1
 
 
 def test_fm27_finance_failure_preserves_sponsorship_diagnostics(
@@ -1120,12 +1154,12 @@ def test_fm27_finance_failure_preserves_sponsorship_diagnostics(
 
     monkeypatch.setattr(_checks, "evaluate_finances", failing_evaluate_finances)
     with pytest.warns(fmsave.UnknownBuildWarning):
-        save = fmsave.open(fm27_rejected_sponsors_path)
+        save = fmsave.open(fm27_rejected_sponsors_path, strict=True)
     with save:
         reports = {reader.reader: reader for reader in fmsave.validate_save(save).readers}
         assert reports["finances"].status == "failed"
         assert reports["sponsorships"].status == "failed"
-        assert reports["sponsorships"].record_count == 0
+        assert reports["sponsorships"].record_count == 1
         assert reports["sponsorships"].anomalies["sponsor_lists_rejected"] == 1
 
 

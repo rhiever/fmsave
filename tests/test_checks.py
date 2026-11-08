@@ -1445,6 +1445,7 @@ def test_to_json_dict_holds_exactly_the_allowlisted_keys(counted_fragment_path: 
         for gate_dict in reader_dict["gates"]:
             if gate_dict["name"] in {
                 "age_median",
+                "aged_in_range",
                 "height_median",
                 "handling_above_finishing",
                 "reputation_median",

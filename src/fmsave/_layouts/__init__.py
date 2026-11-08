@@ -2598,7 +2598,7 @@ def _find_fm27_layout[LayoutT: Layout](
 
     A shared schema number is not evidence of cross-edition compatibility, so FM26 layouts are
     never candidates. A region registered with no schema carries none to compare and is
-    borrowed; its readers locate their data by in-band markers and run checks that fail closed.
+    borrowed. Its readers locate data by in-band markers and check what they decode.
     """
     from fmsave._errors import ISSUES_URL, UnsupportedGameError
 

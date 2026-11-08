@@ -48,6 +48,6 @@ class UnknownBuildWarning(FmsaveWarning):
 class ReaderCheckWarning(FmsaveWarning):
     """A reader's measured checks failed and it handed its table back anyway.
 
-    Advisory checks warn in either game. Failed blocking checks warn on FM26 when the
-    save is opened without `strict=True`. Structural failures raise `ReaderCheckError`.
+    Advisory checks warn in either mode. Failed blocking checks warn when the save is opened
+    without `strict=True`. Structural failures raise `ReaderCheckError`.
     """

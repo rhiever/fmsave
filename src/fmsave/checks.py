@@ -1,8 +1,8 @@
 """The reader checks a save reports, and the validation report built from them.
 
 Readers compare what they decode against bounds registered for the save's layout. Advisory
-checks warn and return the table. Blocking checks raise `GateCheckError` on FM27 and in strict
-mode. FM26 warns by default. A `GateCheckError` carries the reader checks so callers can
+checks warn and return the table. Blocking checks also warn by default. In strict mode they
+raise `GateCheckError`. The error carries the reader checks so callers can
 inspect gate names, observed values, and bounds.
 
 

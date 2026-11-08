@@ -9,15 +9,11 @@ While a reader decodes, it counts what it sees into a stats record from `fmsave.
 `MatchStats`, `StadiumStats`, `FinanceStats`, `FacilityStats`, `AffiliateStats`,
 `JobVacancyStats`, `StaffStats`, `InjuryTypeStats`, `InjuryStats`, `TrainingStats` or
 `TacticStats`).
-The `evaluate_*` functions compare those counts with the loose `GateBounds` registered for the
-save's layout and return one `GateResult` per check, and `enforce` reports an applied check
-that failed, before the reader caches its table: it raises `GateCheckError` on a save opened
-with `strict=True`, and otherwise warns `ReaderCheckWarning` with the same message and lets the
-reader hand its table back. A bound is a measurement of the saves it was drawn from and no
-more, so a save unlike those is not a save fmsave should refuse to read. What still raises is a
-structural failure, which readers raise for themselves: a decode with no table to hand back.
-The checks apply only to a `game_db` of at least `GateBounds.minimum_applies_from_bytes`, since
-smaller sections come from fragments that cannot meet full-save counts.
+The `evaluate_*` functions compare the counts with the `GateBounds` registered for the
+layout and return a `GateResult` per check. Failed checks warn before the reader caches its
+table. In strict mode, failed blocking checks raise `GateCheckError`. Structural failures
+raise when a reader cannot establish a table. Most checks only apply to full-size sections
+because synthetic fragments cannot meet full-save counts.
 
 `validate_save` runs every reader and returns a `ValidationReport`, which holds only structural
 facts, counts and rates: never names, uids or other values from the save.
@@ -219,7 +215,13 @@ _LIKELY_CAUSES: FrozenMapping[str, str] = FrozenMapping(
 # These bounds describe the population in reference careers. Per-record and layout checks
 # are evaluated separately, so an unusual distribution is still readable.
 _ADVISORY_GATES = frozenset(
-    {"age_median", "height_median", "reputation_median", "handling_above_finishing"}
+    {
+        "age_median",
+        "aged_in_range",
+        "height_median",
+        "reputation_median",
+        "handling_above_finishing",
+    }
 )
 
 
@@ -2704,7 +2706,7 @@ class ReaderValidation:
     When a reader returns a table, only a failed blocking check marks it "failed". Readers
     that join through the table are judged on their own checks.
 
-    In strict mode and on FM27, failed blocking checks can stop downstream readers. Players,
+    In strict mode, failed blocking checks can stop downstream readers. Players,
     contracts, and suspensions are decoded in one pass. If that pass fails, all three are reported
     "failed" and none of their tables is read, and each of them still lists its own gates: a
     reader can be "failed" while every one of its own gates passed. Fixtures, league tables,

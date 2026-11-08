@@ -43,10 +43,10 @@ A missing match score does not mean a 0-0 result.
 ## Reader checks
 
 Checks test completeness, joins, and expected ranges. Advisory checks warn and return the
-table. The median player age, median player height, median club reputation, and share of
-players whose handling exceeds finishing are advisory. These values can vary between careers.
+table. Player age checks, the median player height, the median club reputation, and the share
+of players whose handling exceeds finishing are advisory. These values can vary between careers.
 
-Blocking checks warn by default in FM26. They raise on FM27 and in strict mode.
+Blocking checks warn by default in FM26 and FM27. They raise when you opt into strict mode.
 
 ```python
 with fmsave.open("career.fm", strict=True) as career_save:
@@ -124,8 +124,9 @@ statistics come from, are borrowed too; their readers locate their data by store
 check what they read. FM26 layouts are never used for FM27 saves, and FM28 or later saves are
 refused. Please report any problem with an unverified build.
 
-Failed blocking checks stop an FM27 reader even with `strict=False`. The validation
-report lists unsupported readers and shows FM27 field statuses. Staff age, birth date,
+FM27 returns decoded rows with warnings by default. Invalid sponsorship lists are skipped and
+the warning explains the gap in coverage. The validation report lists unsupported readers and
+shows FM27 field statuses. Staff age, birth date,
 and contract end date are verified. The 21 staff ratings added in 0.10.0 are also
 verified against the in-game rating labels. Global field-status labels describe FM26.
 

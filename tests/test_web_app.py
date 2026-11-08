@@ -293,6 +293,34 @@ def test_opening_a_save_drops_what_the_last_one_left(career_save_path: Path) -> 
     reader._state.clear()
 
 
+def test_reader_check_warnings_reach_the_page_with_decoded_rows(
+    career_save_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fmsave import GateResult
+
+    def failing_player_checks(*_args: object) -> tuple[GateResult, ...]:
+        return (GateResult("players_minimum", 4, 5_000, None, False, True),)
+
+    def failing_stats_checks(*_args: object) -> tuple[GateResult, ...]:
+        return (GateResult("season_stats_minutes_in_range", 0.5, 1, None, False, True),)
+
+    monkeypatch.setattr("fmsave._checks.evaluate_players", failing_player_checks)
+    monkeypatch.setattr("fmsave._checks.evaluate_season_stats", failing_stats_checks)
+    reader.open_save(str(career_save_path))
+    try:
+        players = reader.read_players()
+        assert players["count"] == 4
+        (notice,) = players["warnings"]
+        assert "players failed checks: players_minimum" in notice
+        stats = reader.read_stats()
+        assert stats["kind"] == "overall"
+        (notice,) = stats["warnings"]
+        assert "season_stats_minutes_in_range" in notice
+    finally:
+        reader.close_save()
+        reader._state.clear()
+
+
 def test_a_file_that_fails_to_open_keeps_the_last_save(
     opened: dict[str, Any], tmp_path: Path
 ) -> None:

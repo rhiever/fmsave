@@ -1,4 +1,4 @@
-"""FM27 players keep suspensions unknown when the suspension check fails, never empty."""
+"""FM27 player, contract, and suspension reads with and without strict validation."""
 
 from __future__ import annotations
 
@@ -16,15 +16,23 @@ from fmsave._layouts import GateBounds
 from fmsave._reader_stats import PlayerStats
 from fmsave.export import record_to_dict
 from tests.fixtures.career import player_bytes
-from tests.fixtures.game_db import name_pools_bytes
+from tests.fixtures.container import packed_date
+from tests.fixtures.game_db import name_pools_bytes, suspension_entry_bytes
 from tests.test_fm27_club_table import club_body
 from tests.test_fm27_experimental import BUILD, UNREGISTERED_BUILD, fm27_fragment
 from tests.test_fm27_persons import shifted_block
 
 
-def fm27_player_save(tmp_path: Path, *, birth_year: int = 2004, build: str = BUILD) -> fmsave.Save:
+def fm27_player_path(
+    tmp_path: Path, *, birth_year: int = 2004, build: str = BUILD, with_ban: bool = False
+) -> Path:
     clubs = struct.pack("<IB", 1, 0) + club_body(finance=0) + struct.pack("<III", 0, 6100, 6100)
     person = shifted_block(relations=False, birth_year=birth_year)
+    ban = (
+        suspension_entry_bytes(scope_id=222, issued=packed_date(182, 2032), e7=3, scope_code=1)
+        if with_ban
+        else b""
+    )
     player = player_bytes(
         pindex=100,
         uid=8000,
@@ -33,11 +41,23 @@ def fm27_player_save(tmp_path: Path, *, birth_year: int = 2004, build: str = BUI
         potential_ability=150,
         transfer_value_raw=500_000,
         height_cm=180,
-        trailing=person,
+        trailing=person + ban,
     )
     data = name_pools_bytes(("Alex",), ("Example",), ()) + clubs + bytes(256) + player
-    with pytest.warns(UserWarning, match="FM27"):
-        return fmsave.open(fm27_fragment(tmp_path, game_db=data, build=build))
+    return fm27_fragment(tmp_path, game_db=data, build=build)
+
+
+def fm27_player_save(
+    tmp_path: Path,
+    *,
+    birth_year: int = 2004,
+    build: str = BUILD,
+    strict: bool = False,
+    with_ban: bool = False,
+) -> fmsave.Save:
+    path = fm27_player_path(tmp_path, birth_year=birth_year, build=build, with_ban=with_ban)
+    with pytest.warns(fmsave.UnknownBuildWarning, match="FM27"):
+        return fmsave.open(path, strict=strict)
 
 
 def test_fm27_players_carry_the_suspensions_the_search_found(tmp_path: Path) -> None:
@@ -60,11 +80,11 @@ def failing_suspension_check(*_args: object) -> ReaderCheck:
 
 
 @pytest.mark.parametrize("first_reader", ["players", "contracts", "suspensions"])
-def test_fm27_failed_suspension_check_stops_only_suspensions(
+def test_strict_fm27_failed_suspension_check_stops_only_suspensions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first_reader: str
 ) -> None:
     monkeypatch.setattr(_checks, "check_suspensions", failing_suspension_check)
-    with fm27_player_save(tmp_path) as save:
+    with fm27_player_save(tmp_path, strict=True) as save:
         if first_reader == "suspensions":
             with pytest.raises(fmsave.ReaderCheckError, match="suspension_entries_minimum"):
                 save.suspensions()
@@ -101,10 +121,36 @@ def test_fm27_failed_player_check_stops_all_three_readers(
 ) -> None:
     monkeypatch.setattr(_checks, "check_players", failing_player_check)
     with (
-        fm27_player_save(tmp_path) as save,
+        fm27_player_save(tmp_path, strict=True) as save,
         pytest.raises(fmsave.ReaderCheckError, match="players_minimum"),
     ):
         getattr(save, reader)()
+
+
+@pytest.mark.parametrize("build", [BUILD, UNREGISTERED_BUILD])
+def test_fm27_default_returns_players_after_a_failed_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, build: str
+) -> None:
+    monkeypatch.setattr(_checks, "check_players", failing_player_check)
+    with fm27_player_save(tmp_path, build=build) as save:
+        with pytest.warns(fmsave.ReaderCheckWarning, match="players_minimum"):
+            players = save.players()
+        assert len(players) == 1
+        assert save.players() is players
+
+
+def test_fm27_default_returns_decoded_suspensions_after_a_failed_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(_checks, "check_suspensions", failing_suspension_check)
+    with fm27_player_save(tmp_path, with_ban=True) as save:
+        with pytest.warns(fmsave.ReaderCheckWarning, match="suspension_entries_minimum"):
+            suspensions = save.suspensions()
+        assert len(suspensions) == 1
+        player = save.players()[0]
+        assert player.suspensions is not None
+        assert len(player.suspensions) == 1
+        assert suspensions[0].player_uid == player.uid
 
 
 @pytest.fixture
@@ -146,9 +192,10 @@ def test_fm27_young_players_remain_readable(tmp_path: Path, apply_age_checks: No
         assert median.to_json_dict()["advisory"] is True
 
 
-def test_fm27_implausible_player_ages_still_fail(tmp_path: Path, apply_age_checks: None) -> None:
-    with (
-        fm27_player_save(tmp_path, birth_year=2025) as save,
-        pytest.raises(fmsave.ReaderCheckError, match="aged_in_range"),
-    ):
-        save.players()
+def test_fm27_age_range_is_advisory_even_in_strict_mode(
+    tmp_path: Path, apply_age_checks: None
+) -> None:
+    with fm27_player_save(tmp_path, birth_year=1986, strict=True) as save:
+        with pytest.warns(fmsave.ReaderCheckWarning, match="aged_in_range"):
+            players = save.players()
+        assert players[0].age == 46
