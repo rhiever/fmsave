@@ -271,23 +271,31 @@ def locate_listed_header(
     return located
 
 
-def locate_human_header(game_db: bytes, selector: int, layout: StaffLayout) -> int | None:
+def locate_human_header(
+    game_db: bytes, selector: int, layout: StaffLayout, *, require_unique: bool = False
+) -> int | None:
     """The human manager's own header, or None when the section holds no such object.
 
     His object carries its own kind byte and is megabytes long, so it is found by his id rather
-    than by any window: the first sound header of that kind carrying it is his.
+    than by any window: the first sound header of that kind carrying it is his. When require_unique is
+    set, more than one such header gives None.
     """
     reader = _header_reader(layout)
     human_kind = layout.human_kind
     needle = _UINT32.pack(selector - _ID_OFFSET)
     find = game_db.find
     hit = find(needle)
+    found: int | None = None
     while hit >= 0:
         values = _header_values(game_db, hit, reader)
         if values is not None and values[1] == human_kind:
-            return hit
+            if not require_unique:
+                return hit
+            if found is not None:
+                return None
+            found = hit
         hit = find(needle, hit + 1)
-    return None
+    return found
 
 
 @dataclass(frozen=True, slots=True)

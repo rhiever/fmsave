@@ -94,6 +94,18 @@ class HumansLayout:
     scouting_budget_maximum: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class SquadPlannerLayout:
+    """The registered lead, set headers, and footer of the human squad planner."""
+
+    lead_marker: bytes
+    lead_date_marker: bytes
+    lead_tail: bytes
+    group_marker: bytes
+    set_marker: bytes
+    footer_marker: bytes
+
+
 # Count checks (such as the name pool minimum) apply only to a decompressed `game_db` at
 # least this large; smaller sections come from fragments that cannot meet full-save counts.
 FULL_SAVE_MINIMUM_GAME_DB_BYTES = 16 * 1024 * 1024
@@ -750,12 +762,13 @@ class MatchSummaryLayout:
     """Complete counted match summaries inside a distinct person-object kind.
 
     Header offsets start at the object's index word. Row offsets start at its lead byte.
-    The object kind and the remaining header fields' meanings are unconfirmed. Two counted
-    word arrays and a null or valid packed date close the summary collection. Goal sanity
+    Two counted word arrays and a null or valid packed date close the summary collection.
+    Goal sanity
     never determines its framing; invalid scores block enrichment of their fixture key.
     """
 
     header_bytes: int
+    official_index_offset: int
     uid_offset: int
     uid_copy_offset: int
     kind_offset: int
@@ -781,6 +794,7 @@ class MatchSummaryLayout:
     goals_maximum: int
     trailing_array_count: int
     null_date_bytes: bytes
+    person_block_offset_from_end: int
 
 
 # Count and distribution checks on the unnamed span apply only to a span at least this
@@ -835,7 +849,7 @@ class FixtureCalendarLayout:
     kick_off_date_offset: int
     date2_offset: int
     season_start_year_offset: int
-    match_record_id_offset: int
+    referee_id_offset: int
     phase_offset: int
     leg_offset: int
     round_index_offset: int
@@ -2463,6 +2477,7 @@ type Layout = (
     | CompetitionIdPairLayout
     | NationTableLayout
     | HumansLayout
+    | SquadPlannerLayout
     | InjuryTypeTableLayout
     | InjuryManagerLayout
     | AffiliateGroupLayout

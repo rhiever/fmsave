@@ -72,6 +72,9 @@ fmsave export career.fm fixtures --managed-club --format jsonl -o fixtures.jsonl
 fmsave export career.fm player-season-stats --managed-club -o season.csv
 ```
 
+Export the officials lookup with `fmsave export career.fm officials --all`. Join the officials and fixture
+exports on `referee_id` within the same save.
+
 Supply exactly 1 scope supported by the table:
 
 - `--managed-club`: the club you run.
@@ -120,6 +123,9 @@ count does not apply or the denominator is zero.
 `training`, `mentoring`, `tactics`, `set-pieces` and `selections` return data for the club
 you manage.
 Selecting another club returns no rows.
+
+Use `fmsave export career.fm squad-planner --all --format json` to keep each numbered
+slot's player UIDs in depth order, including `null` for unresolved references.
 
 Archived player statistics are available through `player_season_history()` and the
 `player-season-history` CLI table:

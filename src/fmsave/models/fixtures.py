@@ -97,8 +97,8 @@ class Fixture:
         stadium_name: Denormalised name of stadium_uid. Only a couple of hundred grounds
             store a name, so this is None on nearly every match even where stadium_uid is
             filled in; `Stadium.name` says why (unconfirmed).
-        match_record_id: Id of the match record the save keeps for a played match, or None
-            when the match is unplayed (unconfirmed).
+        referee_id: Save-local ID of the referee for a played match, or None when
+            unavailable. Join to `Official.referee_id` from `Save.officials()`.
         match_rules_template: The three bytes naming the shared match-rules template this
             match uses. It is a template many competitions share and is **never** a
             competition id (unconfirmed).
@@ -131,7 +131,7 @@ class Fixture:
     is_neutral_venue: bool | None
     stadium_uid: int | None
     stadium_name: str | None
-    match_record_id: int | None
+    referee_id: int | None
     match_rules_template: tuple[int, ...]
     unknown: Mapping[str, int]
 
@@ -169,6 +169,7 @@ register_field_statuses(
         "away_goals",
         "played",
         "is_neutral_venue",
+        "referee_id",
     ),
     # `stadium_uid` is a derived field and takes the weaker of its inputs: the ordinal it joins
     # on resolves exactly, but `Stadium.uid` is unconfirmed, so this cannot be verified.
@@ -176,7 +177,6 @@ register_field_statuses(
         "competition_name",
         "stadium_uid",
         "stadium_name",
-        "match_record_id",
         "match_rules_template",
         "unknown",
     ),

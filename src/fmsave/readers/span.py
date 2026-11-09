@@ -105,7 +105,7 @@ class RawFixture:
     packed_kick_off: int
     kick_off_year: int
     season_start_year: int | None
-    match_record_id: int | None
+    referee_id: int | None
     round_index: int
     played: bool
     date2: int
@@ -314,7 +314,7 @@ class _FixtureSearch:
     kick_off_year_index: int
     date2_index: int
     season_start_year_index: int
-    match_record_id_index: int
+    referee_id_index: int
     phase_index: int
     leg_index: int
     round_index_index: int
@@ -432,7 +432,7 @@ def _fixture_search(layout: FixtureCalendarLayout, clock_year: int) -> _FixtureS
         (year_low_offset, "H", "kick_off_year"),
         (layout.date2_offset, "I", "date2"),
         (layout.season_start_year_offset, "H", "season_start_year"),
-        (layout.match_record_id_offset, "I", "match_record_id"),
+        (layout.referee_id_offset, "I", "referee_id"),
         (layout.phase_offset, "B", "phase"),
         (layout.leg_offset, "B", "leg"),
         (layout.round_index_offset, "B", "round_index"),
@@ -475,7 +475,7 @@ def _fixture_search(layout: FixtureCalendarLayout, clock_year: int) -> _FixtureS
         kick_off_year_index=index_by_name["kick_off_year"],
         date2_index=index_by_name["date2"],
         season_start_year_index=index_by_name["season_start_year"],
-        match_record_id_index=index_by_name["match_record_id"],
+        referee_id_index=index_by_name["referee_id"],
         phase_index=index_by_name["phase"],
         leg_index=index_by_name["leg"],
         round_index_index=index_by_name["round_index"],
@@ -628,7 +628,7 @@ def _raw_fixture(values: tuple[Any, ...], absolute: int, search: _FixtureSearch)
         packed_kick_off=values[search.packed_kick_off_index],
         kick_off_year=values[search.kick_off_year_index],
         season_start_year=season_start_year or None,
-        match_record_id=_optional_id(values[search.match_record_id_index]),
+        referee_id=_optional_id(values[search.referee_id_index]),
         round_index=values[search.round_index_index],
         played=values[search.played_index] != 0,
         date2=values[search.date2_index],

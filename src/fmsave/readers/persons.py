@@ -327,6 +327,24 @@ class PersonBlockDecoder:
                 return person
         return None
 
+    def decode_at_start(self, game_db: bytes, start: int) -> PersonTuple | None:
+        """Decode a person block owned by a caller that has already framed its start."""
+        length_at = start + self.legal_name_offset_from_block_start - _UINT32_STRUCT.size
+        if length_at + _UINT32_STRUCT.size > len(game_db):
+            return None
+        length = _UINT32_STRUCT.unpack_from(game_db, length_at)[0]
+        if length and not self.legal_name_length_min <= length <= self.legal_name_length_max:
+            return None
+        birth = length_at + _UINT32_STRUCT.size + length
+        marker = birth + self.zero_offset_from_birth
+        end = marker + len(self.marker_needle)
+        if end > len(game_db) or (
+            game_db[marker:end].translate(self.marker_table) != self.marker_needle
+        ):
+            return None
+        person = self._try_candidate(game_db, birth, len(game_db))
+        return person if person is not None and self.last_block_start == start else None
+
     def _decode_unique(
         self, game_db: bytes, zero_positions: Iterator[int], window_end: int
     ) -> PersonTuple | None:

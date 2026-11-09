@@ -65,18 +65,18 @@ Each reader returns a `Table`: `where(...)`, `filter(...)`, `sorted_by(...)`, `f
 
 ## What else it reads
 
-30 readers in all, each returning a `Table` of records:
-
 - **People**: `players()`, `contracts()`, `suspensions()`, `staff()`, `staff_lists()`
 - **Clubs**: `clubs()`, `managed_clubs()`, `finances()`, `sponsorships()`, `facilities()`,
   `stadiums()`, `affiliates()`, `job_vacancies()`
-- **Competitions**: `stages()`, `competitions()`, `fixtures()`, `league_tables()`,
+- **Competitions**: `stages()`, `competitions()`, `fixtures()`, `officials()`, `league_tables()`,
   `competition_rules()`, `transfer_windows()`, `player_match_stats()`, `player_season_stats()`,
   `player_season_history()`
 - **Nations**: `nations()` pairs save-local nation ids with game database ids.
 - **Injuries**: `injury_types()`, `injuries()`
 - **Your own club's work**, which only the club you manage stores: `training()`, `mentoring()`,
   `tactics()`, `set_pieces()`, `selections()`
+- **Squad planner**: `squad_planner()` reads numbered slots for a single human manager on FM27
+  build `27.0.0+2486695`.
 
 Every field is either verified against the game or unconfirmed; ask with
 `fmsave.field_status(fmsave.Player, "contract.wage")`. Values come from the save as stored, a value
@@ -125,7 +125,7 @@ fmsave export career.fm players --nation 7 --columns name,age,club_name,contract
 fmsave validate career.fm --json
 ```
 
-`export` writes any of the 30 tables as CSV, JSON, or JSON Lines, and needs a scope:
+`export` writes any of the 31 tables as CSV, JSON, or JSON Lines, and needs a scope:
 `--club`, `--managed-club`, `--competition`, `--nation` or `--all`. Nested groups flatten to
 `contract_wage`-style columns and a coded value gives a label column plus a `_code` column, so JSON
 is the lossless format. `--all` is explicit and is for local analysis of your own single-player
@@ -156,9 +156,11 @@ game stores its data:
 <a href="https://github.com/Buglerru" title="@Buglerru"><img src="https://github.com/Buglerru.png?size=80" width="40" height="40" alt="@Buglerru"></a>
 <a href="https://github.com/BWH95" title="@BWH95"><img src="https://github.com/BWH95.png?size=80" width="40" height="40" alt="@BWH95"></a>
 <a href="https://github.com/GetChatGPTToDoIt" title="@GetChatGPTToDoIt"><img src="https://github.com/GetChatGPTToDoIt.png?size=80" width="40" height="40" alt="@GetChatGPTToDoIt"></a>
+<a href="https://github.com/GiorgioGandolfi88" title="@GiorgioGandolfi88"><img src="https://github.com/GiorgioGandolfi88.png?size=80" width="40" height="40" alt="@GiorgioGandolfi88"></a>
 <a href="https://github.com/guyluzon64" title="@guyluzon64"><img src="https://github.com/guyluzon64.png?size=80" width="40" height="40" alt="@guyluzon64"></a>
 <a href="https://github.com/hostlund" title="@hostlund"><img src="https://github.com/hostlund.png?size=80" width="40" height="40" alt="@hostlund"></a>
 <a href="https://github.com/ironkay-beep" title="@ironkay-beep"><img src="https://github.com/ironkay-beep.png?size=80" width="40" height="40" alt="@ironkay-beep"></a>
+<a href="https://github.com/javiercostoya" title="@javiercostoya"><img src="https://github.com/javiercostoya.png?size=80" width="40" height="40" alt="@javiercostoya"></a>
 <a href="https://github.com/jeohist" title="@jeohist"><img src="https://github.com/jeohist.png?size=80" width="40" height="40" alt="@jeohist"></a>
 <a href="https://github.com/johnmmcparland" title="@johnmmcparland"><img src="https://github.com/johnmmcparland.png?size=80" width="40" height="40" alt="@johnmmcparland"></a>
 <a href="https://github.com/jtstothard" title="@jtstothard"><img src="https://github.com/jtstothard.png?size=80" width="40" height="40" alt="@jtstothard"></a>

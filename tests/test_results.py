@@ -900,9 +900,7 @@ def test_owned_fixture_status_controls_scores_and_match_id_without_mutating_anch
         rows = tuple(save.fixtures())
         target = rows[FIRST_LEAGUE_MATCH]
         assert target.played is expected
-        assert target.match_record_id == (
-            originals[0].fixtures[0].match_record_id if expected else None
-        )
+        assert target.referee_id == (originals[0].fixtures[0].referee_id if expected else None)
         assert (target.home_goals, target.away_goals) == ((2, 1) if expected else (None, None))
         assert target.unknown.get("result_r22") == (RESULT_R22 if expected else None)
         assert originals[0].fixtures[0].played is legacy

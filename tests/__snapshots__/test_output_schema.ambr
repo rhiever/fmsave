@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: test_the_output_schema_matches_its_recorded_columns
   dict({
-    'output_schema_version': 3,
+    'output_schema_version': 4,
     'tables': dict({
       'AffiliateGroup': list([
         'group_index',
@@ -146,7 +146,7 @@
         'is_neutral_venue',
         'stadium_uid',
         'stadium_name',
-        'match_record_id',
+        'referee_id',
         'match_rules_template',
         'unknown_date2',
         'unknown_phase',
@@ -225,6 +225,11 @@
       'Nation': list([
         'nation_id',
         'database_id',
+      ]),
+      'Official': list([
+        'referee_id',
+        'person_uid',
+        'name',
       ]),
       'Player': list([
         'uid',
@@ -733,6 +738,11 @@
         'unknown_b17',
         'unknown_enum18',
         'unknown_b19',
+      ]),
+      'SquadPlannerSlot': list([
+        'season_offset',
+        'slot',
+        'player_uids',
       ]),
       'Stadium': list([
         'uid',

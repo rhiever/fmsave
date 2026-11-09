@@ -91,7 +91,7 @@ def test_fm27_calendar_fields_come_from_their_own_offsets() -> None:
     assert (first.home_team_id, first.away_team_id) == (70001, 70002)
     assert (first.stage_id, first.stadium_ordinal) == (4101, 11)
     assert (first.kick_off_year, first.season_start_year) == (YEAR, 2032)
-    assert first.match_record_id == 880_001
+    assert first.referee_id == 880_001
     assert (first.phase, first.leg, first.round_index) == (1, 2, 3)
     assert first.match_rules_template == (7, 8, 9)
     assert (second.round_index, third.round_index) == (4, 5)

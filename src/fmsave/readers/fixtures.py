@@ -244,6 +244,8 @@ def build_fixtures_with_offsets(
     club_index: ClubIndex,
     stadium_index: StadiumIndex,
     layout: FixtureCalendarLayout,
+    *,
+    include_referee_ids: bool = True,
 ) -> tuple[tuple[Fixture, ...], FixtureStats, tuple[int, ...]]:
     """Decode, join and sort the calendar, and count what the fixture checks judge.
 
@@ -421,7 +423,7 @@ def build_fixtures_with_offsets(
                 stadium_name=(
                     None if stadium_ordinal is None else name_by_ordinal.get(stadium_ordinal)
                 ),
-                match_record_id=raw_fixture.match_record_id if played else None,
+                referee_id=raw_fixture.referee_id if played and include_referee_ids else None,
                 match_rules_template=raw_fixture.match_rules_template,
                 unknown=FrozenMapping(
                     {

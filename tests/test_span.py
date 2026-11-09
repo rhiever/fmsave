@@ -87,7 +87,7 @@ def example_fixture_blob(
         year=year,
         time_slot=KICK_OFF_SLOT,
         season_start_year=SEASON_START_YEAR,
-        match_record_id=880000 + position,
+        referee_id=880000 + position,
         round_index=ROUND_INDEXES[position],
         played=PLAYED_FLAGS[position],
     )
@@ -216,7 +216,7 @@ def test_one_frame_of_three_fixture_records_decodes_in_region_order() -> None:
     assert first_fixture.kick_off_year == KICK_OFF_YEAR
     assert first_fixture.packed_kick_off == KICK_OFF_DAY | KICK_OFF_SLOT << 9
     assert first_fixture.season_start_year == SEASON_START_YEAR
-    assert first_fixture.match_record_id == 880000
+    assert first_fixture.referee_id == 880000
     assert first_fixture.round_index == 0
     assert first_fixture.played is True
     assert first_fixture.phase == 2

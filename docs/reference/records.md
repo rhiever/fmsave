@@ -59,13 +59,14 @@ tables' nation fields to `nation_id`, then use `database_id` with an external na
 
 ## Competitions
 
-`stages()`, `competitions()`, `fixtures()`, `league_tables()`, `transfer_windows()`,
+`stages()`, `competitions()`, `fixtures()`, `officials()`, `league_tables()`, `transfer_windows()`,
 `competition_rules()` and `player_match_stats()`.
 
 ```{eval-rst}
 .. autoclass:: fmsave.Stage
 .. autoclass:: fmsave.Competition
 .. autoclass:: fmsave.Fixture
+.. autoclass:: fmsave.Official
 .. autoclass:: fmsave.LeagueTable
 .. autoclass:: fmsave.LeagueTableSplit
 .. autoclass:: fmsave.LeagueTableMatch
@@ -122,4 +123,16 @@ only for the club the save's human manager runs.
 .. autoclass:: fmsave.TrainingWeek
 .. autoclass:: fmsave.TrainingDay
 .. autoclass:: fmsave.MentoringGroup
+```
+
+
+## Squad planner
+
+`squad_planner()` reads 27 numbered slots per season for the current season and the
+next 2 seasons. It supports FM27 build `27.0.0+2486695` with a single human manager.
+An empty slot has no player UIDs. Unresolved references keep their place as `None`.
+The field meanings are unconfirmed.
+
+```{eval-rst}
+.. autoclass:: fmsave.SquadPlannerSlot
 ```

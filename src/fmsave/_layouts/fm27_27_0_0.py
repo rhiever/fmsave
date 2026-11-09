@@ -8,7 +8,13 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from fmsave._layouts import GameInfoLayout, LayoutEntry, SaveSummaryLayout, SummaryStringsLayout
+from fmsave._layouts import (
+    GameInfoLayout,
+    LayoutEntry,
+    SaveSummaryLayout,
+    SquadPlannerLayout,
+    SummaryStringsLayout,
+)
 from fmsave._layouts.fm26_26_3_2 import (
     AFFILIATE_GROUPS,
     CLUB_RECORDS,
@@ -291,7 +297,7 @@ FIXTURE_CALENDAR = replace(
     record_bytes=66,
     marker_byte_value=0x1F,
     season_start_year_offset=22,
-    match_record_id_offset=28,
+    referee_id_offset=28,
     phase_offset=32,
     leg_offset=33,
     round_index_offset=34,
@@ -329,6 +335,15 @@ HUMANS = replace(
     scouting_budget_offset=16,
     scouting_remaining_offset=20,
     scouting_budget_maximum=100_000_000,
+)
+
+SQUAD_PLANNER = SquadPlannerLayout(
+    lead_marker=bytes.fromhex("40000002 0f2d0764"),
+    lead_date_marker=b"\x07\x1e",
+    lead_tail=b"\x01\x02\x00\x04",
+    group_marker=b"\x03\x1b",
+    set_marker=b"\x1b",
+    footer_marker=b"\x33\x00\x01",
 )
 
 LAYOUTS = (
@@ -369,6 +384,7 @@ LAYOUTS = (
         )
     ),
     LayoutEntry("humans", 24, BUILD, HUMANS),
+    LayoutEntry("humans", 24, BUILD, SQUAD_PLANNER),
     LayoutEntry("feeder_man", 5, BUILD, AFFILIATE_GROUPS),
     LayoutEntry("job_centre", 1, BUILD, JOB_CENTRE),
     LayoutEntry("training_man", 32, BUILD, TRAINING),

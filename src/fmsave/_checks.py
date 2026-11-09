@@ -100,6 +100,8 @@ _FM27_VERIFIED_FIELDS = frozenset(
         "StaffAttributes.working_with_youngsters",
     }
 )
+# The fixture and lookup use the same reference on the registered FM27 calendar.
+_FM27_REFEREE_VERIFIED_FIELDS = frozenset({"Fixture.referee_id", "Official.referee_id"})
 
 
 # Internal switch: when False, failed checks are still evaluated and reported, but neither
@@ -128,6 +130,7 @@ STAGES_READER = "stages"
 NATIONS_READER = "nations"
 COMPETITIONS_READER = "competitions"
 FIXTURES_READER = "fixtures"
+OFFICIALS_READER = "officials"
 TRANSFER_WINDOWS_READER = "transfer_windows"
 LEAGUE_TABLES_READER = "league_tables"
 COMPETITION_RULES_READER = "competition_rules"
@@ -147,6 +150,7 @@ STAFF_LISTS_READER = "staff_lists"
 TACTICS_READER = "tactics"
 SET_PIECES_READER = "set_pieces"
 SELECTIONS_READER = "selections"
+SQUAD_PLANNER_READER = "squad_planner"
 TRAINING_READER = "training"
 MENTORING_READER = "mentoring"
 
@@ -2948,10 +2952,10 @@ def validate_save(career_save: Save) -> ValidationReport:
     """Run every reader on a save and report how each fared.
 
     Readers run in the order clubs, players, contracts, suspensions, managed clubs, stages,
-    competitions, fixtures, league tables, transfer windows, competition rules, per-match
+    competitions, fixtures, officials, league tables, transfer windows, competition rules, per-match
     player stats, stadiums, finances, sponsorships, affiliates, job vacancies, staff, staff
     lists, injury types, injury history, training, mentoring, tactics, set pieces, selections,
-    club facilities. The order puts each reader after the ones whose work it reuses, so a shared
+    club facilities, and on FM27, the squad planner. The order puts each reader after the ones whose work it reuses, so a shared
     decode that fails is reported where it failed: stadiums follow the fixtures whose calendar
     they read, injury types precede the injury history that names its types, and the two
     readers of each shared pass sit side by side. A reader with a failed blocking check is
@@ -2989,6 +2993,7 @@ def validate_save(career_save: Save) -> ValidationReport:
         (COMPETITIONS_READER, career_save.competitions),
         (NATIONS_READER, career_save.nations),
         (FIXTURES_READER, career_save.fixtures),
+        (OFFICIALS_READER, career_save.officials),
         (LEAGUE_TABLES_READER, career_save.league_tables),
         (TRANSFER_WINDOWS_READER, career_save.transfer_windows),
         (COMPETITION_RULES_READER, career_save.competition_rules),
@@ -3011,6 +3016,8 @@ def validate_save(career_save: Save) -> ValidationReport:
         (SELECTIONS_READER, career_save.selections),
         (FACILITIES_READER, career_save.facilities),
     )
+    if save_info.game == "FM27":
+        reader_tables += ((SQUAD_PLANNER_READER, career_save.squad_planner),)
     validations: list[ReaderValidation] = []
     failed_passes: dict[str, FmsaveError] = {}
     # Validation already reports the checks, so suppress their warnings during the run.
@@ -3074,6 +3081,9 @@ def validate_save(career_save: Save) -> ValidationReport:
                 ),
                 "rejected_rule_candidates": raw_span.rejected_rule_candidates,
             }
+    fm27_verified = _FM27_VERIFIED_FIELDS
+    if save_info.known_build:
+        fm27_verified |= _FM27_REFEREE_VERIFIED_FIELDS
     return ValidationReport(
         fmsave_version=__version__,
         python_version=platform.python_version(),
@@ -3085,7 +3095,7 @@ def validate_save(career_save: Save) -> ValidationReport:
         readers=tuple(validations),
         field_statuses=FrozenMapping(
             {
-                name: "verified" if name in _FM27_VERIFIED_FIELDS else "unconfirmed"
+                name: "verified" if name in fm27_verified else "unconfirmed"
                 for name in registered_statuses()
             }
             if save_info.game == "FM27"

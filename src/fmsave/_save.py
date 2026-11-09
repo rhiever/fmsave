@@ -23,9 +23,11 @@ from fmsave._layouts import (
     ContractLayout,
     FixtureCalendarLayout,
     GateBounds,
+    HumansLayout,
     LeagueTableLayout,
     PersonBlockLayout,
     StadiumTableLayout,
+    StaffLayout,
     StageResultLayout,
     SuspensionLayout,
     find_layout,
@@ -46,10 +48,12 @@ from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import PlayerMatchStats
 from fmsave.models.meta import SaveInfo
 from fmsave.models.nations import Nation
+from fmsave.models.officials import Official
 from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
 from fmsave.models.season_history import PlayerSeasonHistory
 from fmsave.models.season_stats import PlayerSeasonStats
+from fmsave.models.squad_planner import SquadPlannerSlot
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
@@ -65,10 +69,12 @@ from fmsave.readers._common import (
     HUMANS_SECTION,
     INJURY_MANAGER_SECTION,
     JOB_CENTRE_SECTION,
+    MISSING_REFERENCE,
     SAVE_SUMMARY_SECTION,
     SPAN_REGION,
     TACTICS_SECTION,
     TRAINING_SECTION,
+    layout_mismatch,
 )
 from fmsave.readers.affiliates import (
     build_affiliate_groups,
@@ -90,6 +96,7 @@ from fmsave.readers.jobs import find_job_centre_layout, read_job_vacancies
 from fmsave.readers.league_tables import build_league_tables
 from fmsave.readers.managed import (
     find_managed_club_layouts,
+    first_human,
     first_human_selector,
     resolve_managed_clubs,
 )
@@ -97,6 +104,7 @@ from fmsave.readers.match_summaries import (
     MatchSummaryScores,
     find_match_summary_layout,
     locate_match_summary_scores,
+    locate_officials,
 )
 from fmsave.readers.matches import (
     build_player_match_stats,
@@ -104,6 +112,7 @@ from fmsave.readers.matches import (
     locate_match_records,
 )
 from fmsave.readers.nations import find_nation_table_layout, read_nations
+from fmsave.readers.persons import PersonBlockDecoder, build_person_block_decoder
 from fmsave.readers.player_scan import window_end
 from fmsave.readers.players import build_player_decoder, collect_player_stats
 from fmsave.readers.results import (
@@ -133,13 +142,18 @@ from fmsave.readers.season_stats import (
     read_season_stats_section,
 )
 from fmsave.readers.span import SPAN_RECORDS_CACHE_KEY, SpanRecords
+from fmsave.readers.squad_planner import (
+    build_squad_planner,
+    find_squad_planner_layout,
+    read_planner_selectors,
+)
 from fmsave.readers.stadiums import (
     StadiumIndex,
     build_stadiums,
     find_stadium_layout,
     stadium_table_stats,
 )
-from fmsave.readers.staff import find_staff_layouts, read_staff
+from fmsave.readers.staff import find_staff_layouts, locate_human_header, read_staff
 from fmsave.readers.stages import StageIndex, named_stages
 from fmsave.readers.suspensions import (
     SuspensionEntry,
@@ -173,6 +187,7 @@ STAGES_TABLE_CACHE_KEY = "table:stages"
 NATIONS_TABLE_CACHE_KEY = "table:nations"
 COMPETITIONS_TABLE_CACHE_KEY = "table:competitions"
 FIXTURES_TABLE_CACHE_KEY = "table:fixtures"
+OFFICIALS_TABLE_CACHE_KEY = "table:officials"
 TRANSFER_WINDOWS_TABLE_CACHE_KEY = "table:transfer_windows"
 LEAGUE_TABLES_TABLE_CACHE_KEY = "table:league_tables"
 COMPETITION_RULES_TABLE_CACHE_KEY = "table:competition_rules"
@@ -190,6 +205,7 @@ JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
 STADIUMS_TABLE_CACHE_KEY = "table:stadiums"
 STAFF_TABLE_CACHE_KEY = "table:staff"
 STAFF_LISTS_TABLE_CACHE_KEY = "table:staff_lists"
+SQUAD_PLANNER_TABLE_CACHE_KEY = "table:squad_planner"
 TACTICS_TABLE_CACHE_KEY = "table:tactics"
 SET_PIECES_TABLE_CACHE_KEY = "table:set_pieces"
 SELECTIONS_TABLE_CACHE_KEY = "table:selections"
@@ -627,6 +643,8 @@ class Save:
         result. This does not establish whether the save retained its score, and does not mean
         the match finished goalless.
 
+        `referee_id` joins to `officials()` on builds with a registered calendar layout.
+
         `stadium_uid` names the ground each match is played at, which comes from the stadium
         table: this reader therefore needs that table and raises when the game database holds
         none.
@@ -657,7 +675,7 @@ class Save:
         context = self._context
         save_info = context.info
         gate_bounds = self._gate_bounds()
-        layout = find_layout(FixtureCalendarLayout, SPAN_REGION, None, save_info.build).layout
+        calendar = find_layout(FixtureCalendarLayout, SPAN_REGION, None, save_info.build)
         # One game_db borrow covers all three indexes the joins go through, so a cold call
         # decompresses that section once rather than once per index. The span is streamed after
         # the borrow ends, so the two large regions are never held in memory together.
@@ -687,7 +705,13 @@ class Save:
         del game_db
         span_records = context.span_records()
         fixtures, fixture_stats, fixture_offsets = build_fixtures_with_offsets(
-            span_records, stage_index, competition_index, club_index, stadium_index, layout
+            span_records,
+            stage_index,
+            competition_index,
+            club_index,
+            stadium_index,
+            calendar.layout,
+            include_referee_ids=calendar.exact,
         )
         fixtures, result_stats = self._scored_fixtures(
             fixtures,
@@ -703,6 +727,41 @@ class Save:
         self._enforce_checks((fixture_check,))
         self._store_reader_checks((fixture_check,))
         return Table(fixtures, Fixture)
+
+    def officials(self) -> Table[Official]:
+        """Match officials with readable person records, in referee ID order.
+
+        Join `Fixture.referee_id` to `Official.referee_id` within the same save.
+        Coverage varies. A fixture can reference an official absent from this table.
+
+        Raises:
+            UnsupportedGameError: This build has no registered referee layout.
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed after opening.
+            CorruptSaveError: The game database is damaged or was being written.
+            ReaderCheckError: The name pools, club index, or in-game date could not be read.
+        """
+        return self._context.cached(OFFICIALS_TABLE_CACHE_KEY, self._read_officials)
+
+    def _read_officials(self) -> Table[Official]:
+        context = self._context
+        info = context.info
+        if not find_layout(FixtureCalendarLayout, SPAN_REGION, None, info.build).exact:
+            raise UnsupportedGameError("officials require a registered referee layout")
+        schema = info.section_schemas.get(GAME_DB_SECTION)
+        summary_layout = find_match_summary_layout(schema, info.build)
+        person_layout = find_layout(PersonBlockLayout, GAME_DB_SECTION, schema, info.build).layout
+
+        def person_decoder() -> PersonBlockDecoder:
+            clock = info.game_date
+            if clock is None:
+                raise ReaderCheckError(f"{info.file_name}: the save's in-game date is unreadable")
+            return build_person_block_decoder(
+                person_layout, context.name_pools(), context.club_index(), clock, info.file_name
+            )
+
+        with context.section(GAME_DB_SECTION) as game_db:
+            return Table(locate_officials(game_db, summary_layout, person_decoder), Official)
 
     def _scored_fixtures(
         self,
@@ -1971,6 +2030,57 @@ class Save:
         )
         self._enforce_checks(reader_checks)
         return _StaffTables(Table(staff_rows, Staff), Table(list_rows, StaffList), reader_checks)
+
+    def squad_planner(self) -> Table[SquadPlannerSlot]:
+        """The human manager's numbered slots for the current season and the next 2 seasons.
+
+        Available on FM27 build `27.0.0+2486695` with a single human manager. The table
+        has 27 slots per season, including empty slots, and preserves depth order.
+        A save with no human manager returns an empty table.
+
+        Raises:
+            UnsupportedGameError: The save's build, schema, or manager count is unsupported.
+            ReaderCheckError: The planner or its owner could not be located unambiguously.
+            CorruptSaveError: A record runs past the end of its section.
+            SaveChangedError: The file changed on disk before the table was read.
+            SaveClosedError: The save is closed.
+        """
+        return self._context.cached(SQUAD_PLANNER_TABLE_CACHE_KEY, self._read_squad_planner)
+
+    def _read_squad_planner(self) -> Table[SquadPlannerSlot]:
+        context = self._context
+        info = self._info
+        humans_schema = info.section_schemas.get(HUMANS_SECTION)
+        layout = find_squad_planner_layout(info.game, humans_schema, info.build)
+        humans_layout = find_layout(HumansLayout, HUMANS_SECTION, humans_schema, info.build).layout
+        with context.section(HUMANS_SECTION) as humans:
+            owner = first_human(humans, humans_layout, info.file_name)
+            if owner is None:
+                return Table((), SquadPlannerSlot)
+            count, selector = owner
+            if count != 1:
+                raise UnsupportedGameError("squad planner requires a single human manager")
+            if selector in (0, MISSING_REFERENCE):
+                raise layout_mismatch(
+                    info.file_name, "the squad planner owner has no person selector", HUMANS_SECTION
+                )
+            groups = read_planner_selectors(
+                humans,
+                humans_layout.first_selector_offset + 4,
+                layout,
+                humans_layout.scouting_budget_marker,
+                info.file_name,
+            )
+        staff_layout = find_layout(
+            StaffLayout, GAME_DB_SECTION, info.section_schemas.get(GAME_DB_SECTION), info.build
+        ).layout
+        with context.section(GAME_DB_SECTION) as game_db:
+            if locate_human_header(game_db, selector, staff_layout, require_unique=True) is None:
+                raise layout_mismatch(
+                    info.file_name, "the squad planner owner has no unique human person record"
+                )
+            records = context.player_records() if any(any(slots) for slots in groups) else None
+        return Table(build_squad_planner(groups, records), SquadPlannerSlot)
 
     def tactics(self) -> Table[Tactic]:
         """Every tactic the manager's teams store, by team and then in stored order.

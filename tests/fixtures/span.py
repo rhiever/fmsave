@@ -131,7 +131,7 @@ def fixture_record_bytes(
     year: int,
     time_slot: int,
     season_start_year: int,
-    match_record_id: int,
+    referee_id: int,
     round_index: int,
     played: bool,
     date2: int = 0x1234,
@@ -164,7 +164,7 @@ def fixture_record_bytes(
     record[13:17] = packed_kick_off(day_of_year, year, time_slot)
     struct.pack_into("<I", record, 17, date2)
     struct.pack_into("<H", record, 26, season_start_year)
-    struct.pack_into("<I", record, 32, match_record_id)
+    struct.pack_into("<I", record, 32, referee_id)
     record[36] = phase
     record[37] = leg
     record[38] = round_index

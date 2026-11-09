@@ -9,8 +9,7 @@ myst:
 A save holds players, clubs and competitions across the game world. The available history
 varies by career; it is not a complete archive of every match or injury.
 
-30 readers get at it. Each one returns a `Table` of records, and each one reads the save
-you point it at and nothing else.
+Each reader returns a `Table` of records from the save you open.
 
 ## People
 
@@ -55,7 +54,7 @@ stores with no league nation, such as some school and university teams. Their
 
 ## Competitions
 
-`stages()`, `competitions()`, `fixtures()`, `league_tables()`, `competition_rules()`,
+`stages()`, `competitions()`, `fixtures()`, `officials()`, `league_tables()`, `competition_rules()`,
 `transfer_windows()`, `player_match_stats()`, `player_season_stats()`, `player_season_history()`
 
 Fixtures provide dates, teams, rounds and scores where fmsave can decode an unambiguous result.
@@ -66,6 +65,11 @@ zero, and `fmsave export league-tables` notes on standard error when it writes n
 `fixtures()` for the division's clubs and matches until then. `competition_rules()` takes a
 rules block's competition from the table stored after it, so before the season starts fewer
 blocks carry a `competition_id`.
+
+On registered FM26 and FM27 builds, join a played fixture's `referee_id` to
+`Official.referee_id` from `officials()` in the same save. A referee can appear in many
+fixtures. An unplayed fixture has no referee ID, and a played fixture can carry an ID
+with no matching official in the table. `Official.person_uid` is the person's separate UID.
 
 `player_season_stats()` is each player's current season, as the squad and player screens show it:
 one row per competition type and team, with counts such as minutes, xG, passes and tackles, and
@@ -96,6 +100,9 @@ includes stored preset and alternate tactics; a row is a copy for one team, so t
 can appear more than once. `selections()` holds each team's stored starters and substitutes. A
 starter's slot is a tactic slot, but nothing stored says which tactic is selected, and the
 substitutes can keep players past the next match's bench size.
+
+`squad_planner()` reads numbered slots for the current season and the next 2 seasons
+on FM27 build `27.0.0+2486695` with a single human manager.
 
 ## Limits and missing values
 

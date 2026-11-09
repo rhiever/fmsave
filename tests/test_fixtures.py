@@ -129,7 +129,7 @@ EXPECTED_COLUMNS = (
     "is_neutral_venue",
     "stadium_uid",
     "stadium_name",
-    "match_record_id",
+    "referee_id",
     "match_rules_template",
     "unknown_date2",
     "unknown_phase",
@@ -177,7 +177,7 @@ def raw_fixture_at(span_offset: int) -> RawFixture:
         packed_kick_off=0,
         kick_off_year=2031,
         season_start_year=2030,
-        match_record_id=None,
+        referee_id=None,
         round_index=0,
         played=False,
         date2=0,
@@ -359,7 +359,7 @@ def test_an_unplayed_cup_tie_has_no_round_index_and_no_match_record(
     assert cup_tie.stage_id == CUP_FIXTURE_STAGE_ID
     assert cup_tie.round_index is None
     assert cup_tie.played is False
-    assert cup_tie.match_record_id is None
+    assert cup_tie.referee_id is None
     assert cup_tie.competition_id == SECOND_COMPETITION_ID
     unnamed_round = cup_tie.round
     assert unnamed_round is not None
@@ -677,7 +677,7 @@ def test_fixture_gates_fail_one_at_a_time(
 def test_field_statuses_follow_the_fixture_coverage() -> None:
     for verified_field in ("stage_id", "competition_id", "round", "date", "kick_off_time"):
         assert field_status(Fixture, verified_field) == "verified", verified_field
-    for unconfirmed_field in ("competition_name", "match_record_id", "match_rules_template"):
+    for unconfirmed_field in ("competition_name", "match_rules_template"):
         assert field_status(Fixture, unconfirmed_field) == "unconfirmed", unconfirmed_field
     assert Fixture.UNKNOWN_KEYS == (
         "date2",

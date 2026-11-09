@@ -1011,8 +1011,8 @@ UNLISTED_STADIUM_ORDINAL = 150
 NO_ROUND_INDEX = 255
 # A team id no club of the example save lists.
 UNREGISTERED_FIXTURE_TEAM_ID = 79999
-FIRST_MATCH_RECORD_ID = 880_000
-STRAY_MATCH_RECORD_ID = 990_000
+FIRST_REFEREE_ID = 880_000
+STRAY_REFEREE_ID = 990_000
 FIXTURE_SEPARATOR_BYTES = 64
 # Comfortably past the 1 MiB that separates one run of fixture records from the next.
 STRAY_CLUSTER_GAP_BYTES = 2 * 1024 * 1024
@@ -1128,7 +1128,7 @@ NEUTRAL_VENUE_MINIMUM_FIXTURES = (
 DUPLICATE_STRAY_FIXTURE = MAIN_CLUSTER_FIXTURES[0]
 
 
-def fixture_blob(example: ExampleFixture, match_record_id: int) -> bytes:
+def fixture_blob(example: ExampleFixture, referee_id: int) -> bytes:
     """One fixture calendar record with its lead-in bytes."""
     return fixture_record_bytes(
         stage_id=example.stage_id,
@@ -1139,7 +1139,7 @@ def fixture_blob(example: ExampleFixture, match_record_id: int) -> bytes:
         year=FIXTURE_KICK_OFF_YEAR,
         time_slot=example.time_slot,
         season_start_year=example.season_start_year,
-        match_record_id=match_record_id,
+        referee_id=referee_id,
         round_index=example.round_index,
         played=example.played,
         date2=FIXTURE_DATE2,
@@ -1980,11 +1980,11 @@ def career_span_payload(
     that follows a preamble is then the table that preamble belongs to.
     """
     calendar_blobs = [
-        fixture_blob(example, FIRST_MATCH_RECORD_ID + position)
+        fixture_blob(example, FIRST_REFEREE_ID + position)
         for position, example in enumerate((*MAIN_CLUSTER_FIXTURES, *extra_fixtures))
     ]
     stray_blobs = [
-        fixture_blob(example, STRAY_MATCH_RECORD_ID + position)
+        fixture_blob(example, STRAY_REFEREE_ID + position)
         for position, example in enumerate((*STRAY_FIXTURES, *extra_strays))
     ]
     payload = (

@@ -1085,7 +1085,7 @@ def calendar_fixture(
         is_neutral_venue=None,
         stadium_uid=None,
         stadium_name=None,
-        match_record_id=None,
+        referee_id=None,
         match_rules_template=(),
         unknown={},
     )

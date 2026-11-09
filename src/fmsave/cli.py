@@ -51,10 +51,12 @@ from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import PlayerMatchStats
 from fmsave.models.meta import SaveInfo
 from fmsave.models.nations import Nation
+from fmsave.models.officials import Official
 from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
 from fmsave.models.season_history import PlayerSeasonHistory
 from fmsave.models.season_stats import PlayerSeasonStats
+from fmsave.models.squad_planner import SquadPlannerSlot
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
@@ -706,6 +708,10 @@ def _competition_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable
     return (competition for competition in competitions if competition.id == competition_id)
 
 
+def _official_rows(career_save: fmsave.Save, _scope: _ExportScope) -> Iterable[object]:
+    return career_save.officials()
+
+
 def _fixture_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[object]:
     """A club or nation scope keeps a match either side of which is in it."""
     fixtures = career_save.fixtures()
@@ -929,6 +935,10 @@ def _injury_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[obje
     return (row for row in injuries if row.player_uid in player_uids)
 
 
+def _squad_planner_rows(career_save: fmsave.Save, _scope: _ExportScope) -> Iterable[object]:
+    return career_save.squad_planner()
+
+
 def _training_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[object]:
     """The training calendars of the scope's clubs, which only the managed club has."""
     training = career_save.training()
@@ -1017,6 +1027,7 @@ _EXPORT_TABLES: dict[str, _ExportTable] = {
     "competitions": _ExportTable(Competition, _COMPETITION_SCOPES, _competition_rows),
     "nations": _ExportTable(Nation, frozenset({_NATION_SCOPE, _EVERY_ROW_SCOPE}), _nation_rows),
     "fixtures": _ExportTable(Fixture, _EVERY_SCOPE, _fixture_rows),
+    "officials": _ExportTable(Official, _EVERY_ROW_ONLY, _official_rows),
     "league-tables": _ExportTable(
         LeagueTable, _EVERY_SCOPE, _league_table_rows, empty_note=_NO_LEAGUE_TABLES_NOTE
     ),
@@ -1055,6 +1066,7 @@ _EXPORT_TABLES: dict[str, _ExportTable] = {
     "mentoring": _ExportTable(
         MentoringGroup, _CLUB_SCOPES, _mentoring_rows, note=_MANAGED_CLUB_ONLY_NOTE
     ),
+    "squad-planner": _ExportTable(SquadPlannerSlot, _EVERY_ROW_ONLY, _squad_planner_rows),
     "tactics": _ExportTable(Tactic, _CLUB_SCOPES, _tactic_rows, note=_MANAGED_CLUB_ONLY_NOTE),
     "set-pieces": _ExportTable(
         SetPieceRoutine, _CLUB_SCOPES, _set_piece_rows, note=_MANAGED_CLUB_ONLY_NOTE
