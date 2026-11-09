@@ -79,6 +79,7 @@ from fmsave.models.rules import (
 )
 from fmsave.models.season_history import PlayerSeasonHistory
 from fmsave.models.season_stats import PlayerSeasonStats, SeasonStatsKind
+from fmsave.models.squad_planner import SquadPlannerSlot
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import (
     Staff,
@@ -182,6 +183,7 @@ __all__ = [
     "SetPieceRoutine",
     "SponsorType",
     "Sponsorship",
+    "SquadPlannerSlot",
     "SquadStatus",
     "Stadium",
     "Staff",

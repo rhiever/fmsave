@@ -150,6 +150,7 @@ STAFF_LISTS_READER = "staff_lists"
 TACTICS_READER = "tactics"
 SET_PIECES_READER = "set_pieces"
 SELECTIONS_READER = "selections"
+SQUAD_PLANNER_READER = "squad_planner"
 TRAINING_READER = "training"
 MENTORING_READER = "mentoring"
 
@@ -2954,7 +2955,7 @@ def validate_save(career_save: Save) -> ValidationReport:
     competitions, fixtures, officials, league tables, transfer windows, competition rules, per-match
     player stats, stadiums, finances, sponsorships, affiliates, job vacancies, staff, staff
     lists, injury types, injury history, training, mentoring, tactics, set pieces, selections,
-    club facilities. The order puts each reader after the ones whose work it reuses, so a shared
+    club facilities, and on FM27, the squad planner. The order puts each reader after the ones whose work it reuses, so a shared
     decode that fails is reported where it failed: stadiums follow the fixtures whose calendar
     they read, injury types precede the injury history that names its types, and the two
     readers of each shared pass sit side by side. A reader with a failed blocking check is
@@ -3015,6 +3016,8 @@ def validate_save(career_save: Save) -> ValidationReport:
         (SELECTIONS_READER, career_save.selections),
         (FACILITIES_READER, career_save.facilities),
     )
+    if save_info.game == "FM27":
+        reader_tables += ((SQUAD_PLANNER_READER, career_save.squad_planner),)
     validations: list[ReaderValidation] = []
     failed_passes: dict[str, FmsaveError] = {}
     # Validation already reports the checks, so suppress their warnings during the run.

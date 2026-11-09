@@ -255,7 +255,7 @@ def _manager_staff_uid(
     return human_uids[0] if len(human_uids) == 1 else None
 
 
-def _first_human(humans: bytes, layout: HumansLayout, file_name: str) -> tuple[int, int] | None:
+def first_human(humans: bytes, layout: HumansLayout, file_name: str) -> tuple[int, int] | None:
     """(human count, first human manager's selector), or None when the save lists no human.
 
     Raises:
@@ -316,10 +316,10 @@ def first_human_selector(humans: bytes, layout: HumansLayout, file_name: str) ->
     Raises:
         CorruptSaveError: The `humans` section ends before the count or the selector.
     """
-    first_human = _first_human(humans, layout, file_name)
-    if first_human is None:
+    human = first_human(humans, layout, file_name)
+    if human is None:
         return None
-    _human_count, selector = first_human
+    _human_count, selector = human
     return None if selector in _NO_PERSON_UIDS else selector
 
 
@@ -362,10 +362,10 @@ def resolve_managed_clubs(
             without route 1, the summary links the manager to more than one club.
         ValueError: The layouts are inconsistent.
     """
-    first_human = _first_human(humans, layouts.humans, file_name)
-    if first_human is None:
+    human = first_human(humans, layouts.humans, file_name)
+    if human is None:
         return ManagedClubsResult((), ManagedStats(0, 0, 0, 0))
-    human_count, selector = first_human
+    human_count, selector = human
     has_person_id = selector not in _NO_PERSON_UIDS
     chain_club = (
         _chain_record_club(game_db, selector, club_index, clock, layouts.contracts, file_name)

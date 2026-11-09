@@ -44,6 +44,7 @@ TABLE_RECORD_TYPES = (
     fmsave.TeamTraining,
     fmsave.MentoringGroup,
     fmsave.Tactic,
+    fmsave.SquadPlannerSlot,
     fmsave.SetPieceRoutine,
     fmsave.Selection,
     fmsave.ClubFacilities,

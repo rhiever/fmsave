@@ -1479,7 +1479,10 @@ def test_every_club_and_staff_table_writes_its_rows_as_json(
     assert len(json.loads(output_text)) == expected_count
 
 
-@pytest.mark.parametrize("table_name", [name for name in cli._EXPORT_TABLES if "-" in name])
+# The FM27-only squad planner uses its own save fragment in test_squad_planner.
+@pytest.mark.parametrize(
+    "table_name", [name for name in cli._EXPORT_TABLES if "-" in name and name != "squad-planner"]
+)
 def test_a_table_is_named_with_hyphens_or_with_the_readers_underscores(
     save_path: Path, capsys: pytest.CaptureFixture[str], table_name: str
 ) -> None:

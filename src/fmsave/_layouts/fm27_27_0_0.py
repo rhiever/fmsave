@@ -8,7 +8,13 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from fmsave._layouts import GameInfoLayout, LayoutEntry, SaveSummaryLayout, SummaryStringsLayout
+from fmsave._layouts import (
+    GameInfoLayout,
+    LayoutEntry,
+    SaveSummaryLayout,
+    SquadPlannerLayout,
+    SummaryStringsLayout,
+)
 from fmsave._layouts.fm26_26_3_2 import (
     AFFILIATE_GROUPS,
     CLUB_RECORDS,
@@ -331,6 +337,15 @@ HUMANS = replace(
     scouting_budget_maximum=100_000_000,
 )
 
+SQUAD_PLANNER = SquadPlannerLayout(
+    lead_marker=bytes.fromhex("40000002 0f2d0764"),
+    lead_date_marker=b"\x07\x1e",
+    lead_tail=b"\x01\x02\x00\x04",
+    group_marker=b"\x03\x1b",
+    set_marker=b"\x1b",
+    footer_marker=b"\x33\x00\x01",
+)
+
 LAYOUTS = (
     LayoutEntry("game_info", 47, BUILD, GAME_INFO),
     LayoutEntry("save_game_summary", 31, BUILD, SAVE_SUMMARY),
@@ -369,6 +384,7 @@ LAYOUTS = (
         )
     ),
     LayoutEntry("humans", 24, BUILD, HUMANS),
+    LayoutEntry("humans", 24, BUILD, SQUAD_PLANNER),
     LayoutEntry("feeder_man", 5, BUILD, AFFILIATE_GROUPS),
     LayoutEntry("job_centre", 1, BUILD, JOB_CENTRE),
     LayoutEntry("training_man", 32, BUILD, TRAINING),

@@ -124,3 +124,15 @@ only for the club the save's human manager runs.
 .. autoclass:: fmsave.TrainingDay
 .. autoclass:: fmsave.MentoringGroup
 ```
+
+
+## Squad planner
+
+`squad_planner()` reads 27 numbered slots per season for the current season and the
+next 2 seasons. It supports FM27 build `27.0.0+2486695` with a single human manager.
+An empty slot has no player UIDs. Unresolved references keep their place as `None`.
+The field meanings are unconfirmed.
+
+```{eval-rst}
+.. autoclass:: fmsave.SquadPlannerSlot
+```

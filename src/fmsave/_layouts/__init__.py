@@ -94,6 +94,18 @@ class HumansLayout:
     scouting_budget_maximum: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class SquadPlannerLayout:
+    """The registered lead, set headers, and footer of the human squad planner."""
+
+    lead_marker: bytes
+    lead_date_marker: bytes
+    lead_tail: bytes
+    group_marker: bytes
+    set_marker: bytes
+    footer_marker: bytes
+
+
 # Count checks (such as the name pool minimum) apply only to a decompressed `game_db` at
 # least this large; smaller sections come from fragments that cannot meet full-save counts.
 FULL_SAVE_MINIMUM_GAME_DB_BYTES = 16 * 1024 * 1024
@@ -2465,6 +2477,7 @@ type Layout = (
     | CompetitionIdPairLayout
     | NationTableLayout
     | HumansLayout
+    | SquadPlannerLayout
     | InjuryTypeTableLayout
     | InjuryManagerLayout
     | AffiliateGroupLayout

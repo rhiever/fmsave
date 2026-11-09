@@ -9,8 +9,7 @@ myst:
 A save holds players, clubs and competitions across the game world. The available history
 varies by career; it is not a complete archive of every match or injury.
 
-31 readers get at it. Each one returns a `Table` of records, and each one reads the save
-you point it at and nothing else.
+Each reader returns a `Table` of records from the save you open.
 
 ## People
 
@@ -101,6 +100,9 @@ includes stored preset and alternate tactics; a row is a copy for one team, so t
 can appear more than once. `selections()` holds each team's stored starters and substitutes. A
 starter's slot is a tactic slot, but nothing stored says which tactic is selected, and the
 substitutes can keep players past the next match's bench size.
+
+`squad_planner()` reads numbered slots for the current season and the next 2 seasons
+on FM27 build `27.0.0+2486695` with a single human manager.
 
 ## Limits and missing values
 

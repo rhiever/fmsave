@@ -5737,6 +5737,19 @@
     dict({
       'build': '27.0.0+2486695',
       'layout': dict({
+        'footer_marker': b'3\x00\x01',
+        'group_marker': b'\x03\x1b',
+        'lead_date_marker': b'\x07\x1e',
+        'lead_marker': b'@\x00\x00\x02\x0f-\x07d',
+        'lead_tail': b'\x01\x02\x00\x04',
+        'set_marker': b'\x1b',
+      }),
+      'region': 'humans',
+      'schema': 24,
+    }),
+    dict({
+      'build': '27.0.0+2486695',
+      'layout': dict({
         'count_offset': 12,
         'group_size_range': tuple(
           1,

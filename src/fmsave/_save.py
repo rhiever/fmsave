@@ -23,9 +23,11 @@ from fmsave._layouts import (
     ContractLayout,
     FixtureCalendarLayout,
     GateBounds,
+    HumansLayout,
     LeagueTableLayout,
     PersonBlockLayout,
     StadiumTableLayout,
+    StaffLayout,
     StageResultLayout,
     SuspensionLayout,
     find_layout,
@@ -51,6 +53,7 @@ from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
 from fmsave.models.season_history import PlayerSeasonHistory
 from fmsave.models.season_stats import PlayerSeasonStats
+from fmsave.models.squad_planner import SquadPlannerSlot
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
@@ -66,10 +69,12 @@ from fmsave.readers._common import (
     HUMANS_SECTION,
     INJURY_MANAGER_SECTION,
     JOB_CENTRE_SECTION,
+    MISSING_REFERENCE,
     SAVE_SUMMARY_SECTION,
     SPAN_REGION,
     TACTICS_SECTION,
     TRAINING_SECTION,
+    layout_mismatch,
 )
 from fmsave.readers.affiliates import (
     build_affiliate_groups,
@@ -91,6 +96,7 @@ from fmsave.readers.jobs import find_job_centre_layout, read_job_vacancies
 from fmsave.readers.league_tables import build_league_tables
 from fmsave.readers.managed import (
     find_managed_club_layouts,
+    first_human,
     first_human_selector,
     resolve_managed_clubs,
 )
@@ -136,13 +142,18 @@ from fmsave.readers.season_stats import (
     read_season_stats_section,
 )
 from fmsave.readers.span import SPAN_RECORDS_CACHE_KEY, SpanRecords
+from fmsave.readers.squad_planner import (
+    build_squad_planner,
+    find_squad_planner_layout,
+    read_planner_selectors,
+)
 from fmsave.readers.stadiums import (
     StadiumIndex,
     build_stadiums,
     find_stadium_layout,
     stadium_table_stats,
 )
-from fmsave.readers.staff import find_staff_layouts, read_staff
+from fmsave.readers.staff import find_staff_layouts, locate_human_header, read_staff
 from fmsave.readers.stages import StageIndex, named_stages
 from fmsave.readers.suspensions import (
     SuspensionEntry,
@@ -194,6 +205,7 @@ JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
 STADIUMS_TABLE_CACHE_KEY = "table:stadiums"
 STAFF_TABLE_CACHE_KEY = "table:staff"
 STAFF_LISTS_TABLE_CACHE_KEY = "table:staff_lists"
+SQUAD_PLANNER_TABLE_CACHE_KEY = "table:squad_planner"
 TACTICS_TABLE_CACHE_KEY = "table:tactics"
 SET_PIECES_TABLE_CACHE_KEY = "table:set_pieces"
 SELECTIONS_TABLE_CACHE_KEY = "table:selections"
@@ -2018,6 +2030,57 @@ class Save:
         )
         self._enforce_checks(reader_checks)
         return _StaffTables(Table(staff_rows, Staff), Table(list_rows, StaffList), reader_checks)
+
+    def squad_planner(self) -> Table[SquadPlannerSlot]:
+        """The human manager's numbered slots for the current season and the next 2 seasons.
+
+        Available on FM27 build `27.0.0+2486695` with a single human manager. The table
+        has 27 slots per season, including empty slots, and preserves depth order.
+        A save with no human manager returns an empty table.
+
+        Raises:
+            UnsupportedGameError: The save's build, schema, or manager count is unsupported.
+            ReaderCheckError: The planner or its owner could not be located unambiguously.
+            CorruptSaveError: A record runs past the end of its section.
+            SaveChangedError: The file changed on disk before the table was read.
+            SaveClosedError: The save is closed.
+        """
+        return self._context.cached(SQUAD_PLANNER_TABLE_CACHE_KEY, self._read_squad_planner)
+
+    def _read_squad_planner(self) -> Table[SquadPlannerSlot]:
+        context = self._context
+        info = self._info
+        humans_schema = info.section_schemas.get(HUMANS_SECTION)
+        layout = find_squad_planner_layout(info.game, humans_schema, info.build)
+        humans_layout = find_layout(HumansLayout, HUMANS_SECTION, humans_schema, info.build).layout
+        with context.section(HUMANS_SECTION) as humans:
+            owner = first_human(humans, humans_layout, info.file_name)
+            if owner is None:
+                return Table((), SquadPlannerSlot)
+            count, selector = owner
+            if count != 1:
+                raise UnsupportedGameError("squad planner requires a single human manager")
+            if selector in (0, MISSING_REFERENCE):
+                raise layout_mismatch(
+                    info.file_name, "the squad planner owner has no person selector", HUMANS_SECTION
+                )
+            groups = read_planner_selectors(
+                humans,
+                humans_layout.first_selector_offset + 4,
+                layout,
+                humans_layout.scouting_budget_marker,
+                info.file_name,
+            )
+        staff_layout = find_layout(
+            StaffLayout, GAME_DB_SECTION, info.section_schemas.get(GAME_DB_SECTION), info.build
+        ).layout
+        with context.section(GAME_DB_SECTION) as game_db:
+            if locate_human_header(game_db, selector, staff_layout, require_unique=True) is None:
+                raise layout_mismatch(
+                    info.file_name, "the squad planner owner has no unique human person record"
+                )
+            records = context.player_records() if any(any(slots) for slots in groups) else None
+        return Table(build_squad_planner(groups, records), SquadPlannerSlot)
 
     def tactics(self) -> Table[Tactic]:
         """Every tactic the manager's teams store, by team and then in stored order.

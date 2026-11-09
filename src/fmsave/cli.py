@@ -56,6 +56,7 @@ from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
 from fmsave.models.season_history import PlayerSeasonHistory
 from fmsave.models.season_stats import PlayerSeasonStats
+from fmsave.models.squad_planner import SquadPlannerSlot
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
@@ -934,6 +935,10 @@ def _injury_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[obje
     return (row for row in injuries if row.player_uid in player_uids)
 
 
+def _squad_planner_rows(career_save: fmsave.Save, _scope: _ExportScope) -> Iterable[object]:
+    return career_save.squad_planner()
+
+
 def _training_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[object]:
     """The training calendars of the scope's clubs, which only the managed club has."""
     training = career_save.training()
@@ -1061,6 +1066,7 @@ _EXPORT_TABLES: dict[str, _ExportTable] = {
     "mentoring": _ExportTable(
         MentoringGroup, _CLUB_SCOPES, _mentoring_rows, note=_MANAGED_CLUB_ONLY_NOTE
     ),
+    "squad-planner": _ExportTable(SquadPlannerSlot, _EVERY_ROW_ONLY, _squad_planner_rows),
     "tactics": _ExportTable(Tactic, _CLUB_SCOPES, _tactic_rows, note=_MANAGED_CLUB_ONLY_NOTE),
     "set-pieces": _ExportTable(
         SetPieceRoutine, _CLUB_SCOPES, _set_piece_rows, note=_MANAGED_CLUB_ONLY_NOTE

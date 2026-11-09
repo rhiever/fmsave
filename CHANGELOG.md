@@ -4,13 +4,21 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-08
+
+### Added
+
+- Read numbered squad planner slots for the current season and the next 2 seasons in
+  single-manager saves on FM27 build `27.0.0+2486695`. Use `squad_planner()` in Python
+  or the `squad-planner` export. (#77)
+
 ### Changed
 
 - Renamed `Fixture.match_record_id` and its export column to `referee_id`. On registered FM26
   and FM27 builds, the ID can repeat across fixtures and joins to the new
   `Save.officials()` table. The output schema version is now 4. (#76)
 
-Thanks to @GiorgioGandolfi88 for the report. Refs #76.
+Thanks to @GiorgioGandolfi88 for the report and @javiercostoya for researching the squad planner. Refs #76 and #77.
 
 ## [0.10.1] - 2026-11-08
 

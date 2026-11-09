@@ -44,6 +44,7 @@ READER_NAMES = (
     "staff",
     "staff_lists",
     "tactics",
+    "squad_planner",
     "set_pieces",
     "selections",
     "training",

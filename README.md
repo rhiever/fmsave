@@ -65,8 +65,6 @@ Each reader returns a `Table`: `where(...)`, `filter(...)`, `sorted_by(...)`, `f
 
 ## What else it reads
 
-31 readers in all, each returning a `Table` of records:
-
 - **People**: `players()`, `contracts()`, `suspensions()`, `staff()`, `staff_lists()`
 - **Clubs**: `clubs()`, `managed_clubs()`, `finances()`, `sponsorships()`, `facilities()`,
   `stadiums()`, `affiliates()`, `job_vacancies()`
@@ -77,6 +75,8 @@ Each reader returns a `Table`: `where(...)`, `filter(...)`, `sorted_by(...)`, `f
 - **Injuries**: `injury_types()`, `injuries()`
 - **Your own club's work**, which only the club you manage stores: `training()`, `mentoring()`,
   `tactics()`, `set_pieces()`, `selections()`
+- **Squad planner**: `squad_planner()` reads numbered slots for a single human manager on FM27
+  build `27.0.0+2486695`.
 
 Every field is either verified against the game or unconfirmed; ask with
 `fmsave.field_status(fmsave.Player, "contract.wage")`. Values come from the save as stored, a value
@@ -160,6 +160,7 @@ game stores its data:
 <a href="https://github.com/guyluzon64" title="@guyluzon64"><img src="https://github.com/guyluzon64.png?size=80" width="40" height="40" alt="@guyluzon64"></a>
 <a href="https://github.com/hostlund" title="@hostlund"><img src="https://github.com/hostlund.png?size=80" width="40" height="40" alt="@hostlund"></a>
 <a href="https://github.com/ironkay-beep" title="@ironkay-beep"><img src="https://github.com/ironkay-beep.png?size=80" width="40" height="40" alt="@ironkay-beep"></a>
+<a href="https://github.com/javiercostoya" title="@javiercostoya"><img src="https://github.com/javiercostoya.png?size=80" width="40" height="40" alt="@javiercostoya"></a>
 <a href="https://github.com/jeohist" title="@jeohist"><img src="https://github.com/jeohist.png?size=80" width="40" height="40" alt="@jeohist"></a>
 <a href="https://github.com/johnmmcparland" title="@johnmmcparland"><img src="https://github.com/johnmmcparland.png?size=80" width="40" height="40" alt="@johnmmcparland"></a>
 <a href="https://github.com/jtstothard" title="@jtstothard"><img src="https://github.com/jtstothard.png?size=80" width="40" height="40" alt="@jtstothard"></a>

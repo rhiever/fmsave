@@ -739,6 +739,11 @@
         'unknown_enum18',
         'unknown_b19',
       ]),
+      'SquadPlannerSlot': list([
+        'season_offset',
+        'slot',
+        'player_uids',
+      ]),
       'Stadium': list([
         'uid',
         'name',
