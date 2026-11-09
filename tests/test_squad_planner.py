@@ -151,8 +151,9 @@ def test_a_cached_planner_stays_usable_after_close(tmp_path: Path) -> None:
 
 def test_a_replaced_save_cannot_supply_planner_data(tmp_path: Path) -> None:
     path = planner_path(tmp_path, LEAD + group() * 4 + FOOTER)
-    replacement = tmp_path / "replacement.bin"
-    replacement.write_bytes(path.read_bytes())
+    replacement_folder = tmp_path / "replacement"
+    replacement_folder.mkdir()
+    replacement = planner_path(replacement_folder, b"", count=0, game_db=b"")
     with open_fm27(path) as save:
         os.replace(replacement, path)
         with pytest.raises(fmsave.SaveChangedError):
