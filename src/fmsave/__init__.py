@@ -61,6 +61,7 @@ from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import MatchPosition, PlayerMatchStats
 from fmsave.models.meta import SaveInfo, SectionInfo
 from fmsave.models.nations import Nation
+from fmsave.models.officials import Official
 from fmsave.models.players import (
     Ability,
     Attributes,
@@ -107,7 +108,7 @@ from fmsave.models.training import (
 from fmsave.name_maps import read_competition_names
 from fmsave.table import Table
 
-OUTPUT_SCHEMA_VERSION = 3
+OUTPUT_SCHEMA_VERSION = 4
 
 __all__ = [
     "OUTPUT_SCHEMA_VERSION",
@@ -155,6 +156,7 @@ __all__ = [
     "MentoringGroup",
     "Nation",
     "NotAFmSaveError",
+    "Official",
     "Personality",
     "Player",
     "PlayerMatchStats",

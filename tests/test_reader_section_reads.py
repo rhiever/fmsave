@@ -29,6 +29,7 @@ from fmsave.readers import season_history as season_history_module
 from fmsave.readers import season_stats as season_stats_module
 from tests.fixtures.career import career_fragment
 from tests.fixtures.season_history import history_archive, history_index, history_unit
+from tests.test_officials import official_bytes
 
 GAME_DB = "game_db"
 HUMANS = "humans"
@@ -54,6 +55,7 @@ READER_SECTION_READS: dict[str, tuple[dict[str, int], int]] = {
     "competitions": ({GAME_DB: 1}, 0),
     "nations": ({GAME_DB: 1}, 0),
     "fixtures": ({GAME_DB: 1, SPAN: 1}, 0),
+    "officials": ({GAME_DB: 1}, 0),
     "league_tables": ({GAME_DB: 1, SPAN: 1}, 0),
     "transfer_windows": ({GAME_DB: 1}, 0),
     "competition_rules": ({GAME_DB: 1, SPAN: 1}, 0),
@@ -84,6 +86,7 @@ READER_SECTION_READS: dict[str, tuple[dict[str, int], int]] = {
 def career_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """One career fragment for the whole module; every test here only reads it."""
     return career_fragment(
+        extra_staff=official_bytes(),
         history_archive_section=history_archive([history_unit(starts=1, minutes=90)]),
         history_index_section=history_index([(0,)]),
         player_history_selectors=(0, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF),

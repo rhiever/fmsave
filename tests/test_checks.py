@@ -169,6 +169,7 @@ READER_ORDER = (
     "competitions",
     "nations",
     "fixtures",
+    "officials",
     "league_tables",
     "transfer_windows",
     "competition_rules",
@@ -1118,6 +1119,7 @@ def test_validate_save_reports_every_reader_ok_with_gates_not_applied(
         "nations": 0,
         # This fragment's span carries no fixture records and no table blocks at all.
         "fixtures": 0,
+        "officials": 0,
         # This fragment holds no tagged stream at all, so there is no window to decode.
         "transfer_windows": 0,
         "league_tables": 0,
@@ -1290,6 +1292,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "packet_existing_disagreements": 0,
             "packet_scored_fixtures": 0,
         },
+        "officials": {},
         "transfer_windows": {
             "dated_records_without_a_closing_time": 0,
             "windows_with_unreadable_dates": 0,
@@ -1567,6 +1570,7 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered
         "competitions": "ok",
         "nations": "ok",
         "fixtures": "ok",
+        "officials": "ok",
         "transfer_windows": "ok",
         "league_tables": "ok",
         "competition_rules": "ok",
@@ -1760,6 +1764,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
             "result_records_minimum",
             "results_joined",
         ],
+        "officials": [],
         "transfer_windows": ["transfer_windows_minimum"],
         "league_tables": [
             "table_blocks_minimum",

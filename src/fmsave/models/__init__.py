@@ -35,6 +35,7 @@ from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import MatchPosition, PlayerMatchStats
 from fmsave.models.meta import SaveInfo, SectionInfo
 from fmsave.models.nations import Nation
+from fmsave.models.officials import Official
 from fmsave.models.players import (
     Ability,
     Attributes,
@@ -116,6 +117,7 @@ __all__ = [
     "Mentality",
     "MentoringGroup",
     "Nation",
+    "Official",
     "Personality",
     "Player",
     "PlayerMatchStats",

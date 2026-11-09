@@ -63,7 +63,7 @@ def test_strict_core_reads_only_correlated_fields_and_keeps_status_unknown() -> 
     assert fixture.played is None
     assert fixture.home_goals is None and fixture.away_goals is None
     assert fixture.strict_anchor
-    assert "match_record_id" in fixture.unsupported_fields
+    assert "referee_id" in fixture.unsupported_fields
 
 
 def test_owned_prefix_belongs_to_following_fixture_not_preceding_fixture() -> None:

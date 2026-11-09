@@ -4,9 +4,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
-- Corrected the description of `Fixture.match_record_id`. In FM26, it can repeat across fixtures and appears to identify the referee. (#76)
+- Renamed `Fixture.match_record_id` and its export column to `referee_id`. On registered FM26
+  and FM27 builds, the ID can repeat across fixtures and joins to the new
+  `Save.officials()` table. The output schema version is now 4. (#76)
 
 Thanks to @GiorgioGandolfi88 for the report. Refs #76.
 

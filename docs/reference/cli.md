@@ -65,7 +65,7 @@ positional arguments:
   SAVE                  path to a .fm save file
   TABLE                 the table to write: players, contracts, suspensions,
                         clubs, managed-clubs, stages, competitions, nations,
-                        fixtures, league-tables, transfer-windows,
+                        fixtures, officials, league-tables, transfer-windows,
                         competition-rules, player-match-stats, player-season-
                         stats, player-season-history, stadiums, finances,
                         sponsorships, facilities, affiliates, job-vacancies,

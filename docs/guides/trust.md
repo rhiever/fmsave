@@ -134,7 +134,8 @@ refused. Please report any problem with an unverified build.
 
 FM27 returns decoded rows with warnings by default. Invalid sponsorship lists are skipped and
 the warning explains the gap in coverage. The validation report lists unsupported readers and
-shows FM27 field statuses. Staff age, birth date,
+shows FM27 field statuses. On registered builds, it marks the fixture and official
+`referee_id` fields verified. Staff age, birth date,
 and contract end date are verified. The 21 staff ratings added in 0.10.0 are also
 verified against the in-game rating labels. Global field-status labels describe FM26.
 

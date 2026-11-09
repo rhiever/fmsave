@@ -46,6 +46,7 @@ from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import PlayerMatchStats
 from fmsave.models.meta import SaveInfo
 from fmsave.models.nations import Nation
+from fmsave.models.officials import Official
 from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
 from fmsave.models.season_history import PlayerSeasonHistory
@@ -97,6 +98,7 @@ from fmsave.readers.match_summaries import (
     MatchSummaryScores,
     find_match_summary_layout,
     locate_match_summary_scores,
+    locate_officials,
 )
 from fmsave.readers.matches import (
     build_player_match_stats,
@@ -104,6 +106,7 @@ from fmsave.readers.matches import (
     locate_match_records,
 )
 from fmsave.readers.nations import find_nation_table_layout, read_nations
+from fmsave.readers.persons import PersonBlockDecoder, build_person_block_decoder
 from fmsave.readers.player_scan import window_end
 from fmsave.readers.players import build_player_decoder, collect_player_stats
 from fmsave.readers.results import (
@@ -173,6 +176,7 @@ STAGES_TABLE_CACHE_KEY = "table:stages"
 NATIONS_TABLE_CACHE_KEY = "table:nations"
 COMPETITIONS_TABLE_CACHE_KEY = "table:competitions"
 FIXTURES_TABLE_CACHE_KEY = "table:fixtures"
+OFFICIALS_TABLE_CACHE_KEY = "table:officials"
 TRANSFER_WINDOWS_TABLE_CACHE_KEY = "table:transfer_windows"
 LEAGUE_TABLES_TABLE_CACHE_KEY = "table:league_tables"
 COMPETITION_RULES_TABLE_CACHE_KEY = "table:competition_rules"
@@ -627,6 +631,8 @@ class Save:
         result. This does not establish whether the save retained its score, and does not mean
         the match finished goalless.
 
+        `referee_id` joins to `officials()` on builds with a registered calendar layout.
+
         `stadium_uid` names the ground each match is played at, which comes from the stadium
         table: this reader therefore needs that table and raises when the game database holds
         none.
@@ -657,7 +663,7 @@ class Save:
         context = self._context
         save_info = context.info
         gate_bounds = self._gate_bounds()
-        layout = find_layout(FixtureCalendarLayout, SPAN_REGION, None, save_info.build).layout
+        calendar = find_layout(FixtureCalendarLayout, SPAN_REGION, None, save_info.build)
         # One game_db borrow covers all three indexes the joins go through, so a cold call
         # decompresses that section once rather than once per index. The span is streamed after
         # the borrow ends, so the two large regions are never held in memory together.
@@ -687,7 +693,13 @@ class Save:
         del game_db
         span_records = context.span_records()
         fixtures, fixture_stats, fixture_offsets = build_fixtures_with_offsets(
-            span_records, stage_index, competition_index, club_index, stadium_index, layout
+            span_records,
+            stage_index,
+            competition_index,
+            club_index,
+            stadium_index,
+            calendar.layout,
+            include_referee_ids=calendar.exact,
         )
         fixtures, result_stats = self._scored_fixtures(
             fixtures,
@@ -703,6 +715,41 @@ class Save:
         self._enforce_checks((fixture_check,))
         self._store_reader_checks((fixture_check,))
         return Table(fixtures, Fixture)
+
+    def officials(self) -> Table[Official]:
+        """Match officials with readable person records, in referee ID order.
+
+        Join `Fixture.referee_id` to `Official.referee_id` within the same save.
+        Coverage varies. A fixture can reference an official absent from this table.
+
+        Raises:
+            UnsupportedGameError: This build has no registered referee layout.
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed after opening.
+            CorruptSaveError: The game database is damaged or was being written.
+            ReaderCheckError: The name pools, club index, or in-game date could not be read.
+        """
+        return self._context.cached(OFFICIALS_TABLE_CACHE_KEY, self._read_officials)
+
+    def _read_officials(self) -> Table[Official]:
+        context = self._context
+        info = context.info
+        if not find_layout(FixtureCalendarLayout, SPAN_REGION, None, info.build).exact:
+            raise UnsupportedGameError("officials require a registered referee layout")
+        schema = info.section_schemas.get(GAME_DB_SECTION)
+        summary_layout = find_match_summary_layout(schema, info.build)
+        person_layout = find_layout(PersonBlockLayout, GAME_DB_SECTION, schema, info.build).layout
+
+        def person_decoder() -> PersonBlockDecoder:
+            clock = info.game_date
+            if clock is None:
+                raise ReaderCheckError(f"{info.file_name}: the save's in-game date is unreadable")
+            return build_person_block_decoder(
+                person_layout, context.name_pools(), context.club_index(), clock, info.file_name
+            )
+
+        with context.section(GAME_DB_SECTION) as game_db:
+            return Table(locate_officials(game_db, summary_layout, person_decoder), Official)
 
     def _scored_fixtures(
         self,

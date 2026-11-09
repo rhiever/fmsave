@@ -46,6 +46,7 @@ EXPECTED_READERS = (
     "competitions",
     "nations",
     "fixtures",
+    "officials",
     "league_tables",
     "transfer_windows",
     "competition_rules",
@@ -71,14 +72,14 @@ EXPECTED_READERS = (
 # Readers whose ranges the recorded baselines do not hold yet. The baselines are written by a
 # separate tool against the whole corpus, so a reader added since they were last written has no
 # range to be compared with, and its own checks are what bound it until they are written again.
-READERS_WITHOUT_RECORDED_RANGES: frozenset[str] = frozenset({"nations", "selections"})
+READERS_WITHOUT_RECORDED_RANGES: frozenset[str] = frozenset({"nations", "officials", "selections"})
 # Columns whose recorded ranges the output schema has since left behind, either because the
 # column was renamed or removed or because an empty cell in it now means something the recorded
 # rate was not measured against. A rename or a removal bumps the schema version and is recorded
 # column by column in the output schema snapshot, which is what guards the change itself, so a
 # column named here is a stale range rather than a column a reader lost. These are the pre-1.0
 # renames; they come out of here when the ranges are written again.
-RETIRED_BASELINE_COLUMNS: dict[str, frozenset[str]] = {}
+RETIRED_BASELINE_COLUMNS: dict[str, frozenset[str]] = {"fixtures": frozenset({"match_record_id"})}
 
 
 def save_label(relative_name: str) -> str:

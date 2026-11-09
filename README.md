@@ -65,12 +65,12 @@ Each reader returns a `Table`: `where(...)`, `filter(...)`, `sorted_by(...)`, `f
 
 ## What else it reads
 
-30 readers in all, each returning a `Table` of records:
+31 readers in all, each returning a `Table` of records:
 
 - **People**: `players()`, `contracts()`, `suspensions()`, `staff()`, `staff_lists()`
 - **Clubs**: `clubs()`, `managed_clubs()`, `finances()`, `sponsorships()`, `facilities()`,
   `stadiums()`, `affiliates()`, `job_vacancies()`
-- **Competitions**: `stages()`, `competitions()`, `fixtures()`, `league_tables()`,
+- **Competitions**: `stages()`, `competitions()`, `fixtures()`, `officials()`, `league_tables()`,
   `competition_rules()`, `transfer_windows()`, `player_match_stats()`, `player_season_stats()`,
   `player_season_history()`
 - **Nations**: `nations()` pairs save-local nation ids with game database ids.
@@ -125,7 +125,7 @@ fmsave export career.fm players --nation 7 --columns name,age,club_name,contract
 fmsave validate career.fm --json
 ```
 
-`export` writes any of the 30 tables as CSV, JSON, or JSON Lines, and needs a scope:
+`export` writes any of the 31 tables as CSV, JSON, or JSON Lines, and needs a scope:
 `--club`, `--managed-club`, `--competition`, `--nation` or `--all`. Nested groups flatten to
 `contract_wage`-style columns and a coded value gives a label column plus a `_code` column, so JSON
 is the lossless format. `--all` is explicit and is for local analysis of your own single-player

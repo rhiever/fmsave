@@ -51,6 +51,7 @@ from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import PlayerMatchStats
 from fmsave.models.meta import SaveInfo
 from fmsave.models.nations import Nation
+from fmsave.models.officials import Official
 from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
 from fmsave.models.season_history import PlayerSeasonHistory
@@ -706,6 +707,10 @@ def _competition_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable
     return (competition for competition in competitions if competition.id == competition_id)
 
 
+def _official_rows(career_save: fmsave.Save, _scope: _ExportScope) -> Iterable[object]:
+    return career_save.officials()
+
+
 def _fixture_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[object]:
     """A club or nation scope keeps a match either side of which is in it."""
     fixtures = career_save.fixtures()
@@ -1017,6 +1022,7 @@ _EXPORT_TABLES: dict[str, _ExportTable] = {
     "competitions": _ExportTable(Competition, _COMPETITION_SCOPES, _competition_rows),
     "nations": _ExportTable(Nation, frozenset({_NATION_SCOPE, _EVERY_ROW_SCOPE}), _nation_rows),
     "fixtures": _ExportTable(Fixture, _EVERY_SCOPE, _fixture_rows),
+    "officials": _ExportTable(Official, _EVERY_ROW_ONLY, _official_rows),
     "league-tables": _ExportTable(
         LeagueTable, _EVERY_SCOPE, _league_table_rows, empty_note=_NO_LEAGUE_TABLES_NOTE
     ),

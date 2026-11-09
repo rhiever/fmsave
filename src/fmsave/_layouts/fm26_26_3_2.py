@@ -807,6 +807,7 @@ MATCH_RECORDS = MatchRecordLayout(
 
 MATCH_SUMMARIES = MatchSummaryLayout(
     header_bytes=37,
+    official_index_offset=0,
     uid_offset=4,
     uid_copy_offset=8,
     kind_offset=12,
@@ -832,6 +833,7 @@ MATCH_SUMMARIES = MatchSummaryLayout(
     goals_maximum=40,
     trailing_array_count=2,
     null_date_bytes=b"\x01\x00\x6c\x07",
+    person_block_offset_from_end=1,
 )
 
 # The fixture calendar record is 68 bytes from the home team id, with the locator byte, the
@@ -848,7 +850,7 @@ FIXTURE_CALENDAR = FixtureCalendarLayout(
     kick_off_date_offset=13,
     date2_offset=17,
     season_start_year_offset=26,
-    match_record_id_offset=32,
+    referee_id_offset=32,
     phase_offset=36,
     leg_offset=37,
     round_index_offset=38,

@@ -26,6 +26,7 @@ READER_NAMES = (
     "competitions",
     "nations",
     "fixtures",
+    "officials",
     "stadiums",
     "transfer_windows",
     "injury_types",

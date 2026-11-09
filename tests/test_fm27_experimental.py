@@ -285,7 +285,7 @@ def test_fm27_validation_reports_only_fm27_field_verification(tmp_path: Path, bu
         report = fmsave.validate_save(save)
     field_statuses = report.to_json_dict()["field_statuses"]
     assert isinstance(field_statuses, dict)
-    assert {name for name, status in field_statuses.items() if status == "verified"} == {
+    verified = {
         "Staff.age",
         "Staff.birth_date",
         "Staff.contract_end",
@@ -311,6 +311,9 @@ def test_fm27_validation_reports_only_fm27_field_verification(tmp_path: Path, bu
         "StaffAttributes.technical",
         "StaffAttributes.working_with_youngsters",
     }
+    if build == BUILD:
+        verified.update({"Fixture.referee_id", "Official.referee_id"})
+    assert {name for name, status in field_statuses.items() if status == "verified"} == verified
     assert set(field_statuses.values()) == {"verified", "unconfirmed"}
     assert fmsave.field_status(fmsave.Staff, "age") == "unconfirmed"
     statuses = {reader.reader: reader.status for reader in report.readers}

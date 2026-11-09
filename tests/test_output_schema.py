@@ -26,6 +26,7 @@ TABLE_RECORD_TYPES = (
     fmsave.Nation,
     fmsave.PlayerSeasonHistory,
     fmsave.Fixture,
+    fmsave.Official,
     fmsave.LeagueTable,
     fmsave.TransferWindow,
     fmsave.CompetitionRules,

@@ -26,7 +26,7 @@ _UNSUPPORTED_FIXTURE_FIELDS = (
     "kick_off_time",
     "season_start_year",
     "round_index",
-    "match_record_id",
+    "referee_id",
     "match_rules_template",
     "phase",
     "leg",
