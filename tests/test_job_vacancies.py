@@ -248,6 +248,7 @@ def test_the_stats_count_every_shape_the_feed_holds(career_path: Path) -> None:
         records=3,
         tagged=3,
         dates_ordered=3,
+        relative_dates_ordered=3,
         advertised_steps=2,
         advertised_ascending_steps=2,
         reserved_zero=3,
@@ -430,4 +431,101 @@ def test_the_table_is_read_once_and_raises_after_the_save_is_closed(career_path:
         assert save.job_vacancies() is first_table
 
     with pytest.raises(SaveClosedError):
+        save.job_vacancies()
+
+
+@pytest.fixture
+def missing_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dataclasses import replace
+
+    from tests.fixtures import career
+    from tests.fixtures.container import default_sections, game_info_body
+
+    sections = [
+        replace(section, body=game_info_body(game_day_of_year=0))
+        if section.name == "game_info"
+        else section
+        for section in default_sections()
+    ]
+    monkeypatch.setattr(career, "default_sections", lambda: sections)
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_missing_clock_returns_vacancies_with_unavailable_check_warning(
+    tmp_path: Path, missing_clock: None, strict: bool
+) -> None:
+    path = career_fragment().write(tmp_path / "career.bin")
+    with fmsave.open(path, strict=strict) as save:
+        assert save.info.game_date is None
+        with pytest.warns(fmsave.ReaderCheckWarning, match="clock.*unavailable"):
+            rows = save.job_vacancies()
+        assert len(rows) == 3
+        assert rows[0].advertised_date == date(2031, 1, 20)
+        check = save._reader_check(JOB_VACANCIES_READER)
+        assert check is not None
+        gate = next(gate for gate in check.gates if gate.name == "job_vacancy_dates_ordered")
+        assert not gate.applied
+        assert gate.observed is None
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_missing_clock_does_not_excuse_malformed_job_section(
+    tmp_path: Path, missing_clock: None, strict: bool
+) -> None:
+    path = career_fragment(job_centre_section=job_centre_body((), stored_count=1)).write(
+        tmp_path / "career.bin"
+    )
+    with (
+        fmsave.open(path, strict=strict) as save,
+        pytest.raises(ReaderCheckError, match="job_centre"),
+    ):
+        save.job_vacancies()
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_missing_clock_preserves_relative_date_validation(
+    tmp_path: Path, missing_clock: None, strict: bool
+) -> None:
+    records = [altered_records(0, date_12=packed_date(10, 2031))[0]] * MINIMUM_RECORDS
+    path = career_fragment(job_centre_section=job_centre_body(records)).write(
+        tmp_path / "career.bin"
+    )
+    failure = (
+        pytest.raises(ReaderCheckError, match="job_vacancy_relative_dates_ordered")
+        if strict
+        else pytest.warns(fmsave.ReaderCheckWarning, match="job_vacancy_relative_dates_ordered")
+    )
+    with (
+        fmsave.open(path, strict=strict) as save,
+        pytest.warns(fmsave.ReaderCheckWarning, match="clock.*unavailable"),
+        failure,
+    ):
+        save.job_vacancies()
+
+
+def test_future_advertisements_return_rows_in_strict_mode(tmp_path: Path) -> None:
+    records = [
+        altered_records(0, advertised=packed_date(90, 2031), date_12=packed_date(95, 2031))[0]
+    ] * MINIMUM_RECORDS
+    path = career_fragment(job_centre_section=job_centre_body(records)).write(
+        tmp_path / "career.bin"
+    )
+    with (
+        fmsave.open(path, strict=True) as save,
+        pytest.warns(fmsave.ReaderCheckWarning, match="job_vacancy_dates_ordered"),
+    ):
+        rows = save.job_vacancies()
+    assert len(rows) == MINIMUM_RECORDS
+    assert rows[0].advertised_date == date(2031, 3, 31)
+
+
+def test_readable_clock_preserves_relative_date_validation(tmp_path: Path) -> None:
+    records = [altered_records(0, date_12=packed_date(10, 2031))[0]] * MINIMUM_RECORDS
+    path = career_fragment(job_centre_section=job_centre_body(records)).write(
+        tmp_path / "career.bin"
+    )
+    with (
+        fmsave.open(path, strict=True) as save,
+        pytest.raises(ReaderCheckError, match="job_vacancy_relative_dates_ordered"),
+    ):
         save.job_vacancies()

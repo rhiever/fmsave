@@ -438,7 +438,7 @@ def test_healthy_result_counts_pass_every_gate_and_a_small_span_applies_none() -
         ),
         pytest.param(
             ResultStats(0, 0, 0, 0, 0, 0, 0, 0, 0),
-            list(RESULT_GATE_NAMES),
+            ["result_records_minimum", "results_joined"],
             id="a-pass-that-found-nothing",
         ),
     ],
@@ -451,9 +451,14 @@ def test_result_gates_fail_one_at_a_time(stats: ResultStats, expected_failures: 
     if not expected_failures:
         enforce("fixtures", results, strict=True)
         return
-    with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("fixtures", results, strict=True)
-    message = str(error_info.value)
+    if "results_for_unplayed" in expected_failures:
+        with pytest.raises(fmsave.ReaderCheckError) as error_info:
+            enforce("fixtures", results, strict=True)
+        message = str(error_info.value)
+    else:
+        with pytest.warns(fmsave.ReaderCheckWarning) as caught:
+            enforce("fixtures", results, strict=True)
+        message = str(caught[0].message)
     assert expected_failures[0] in message
     for fictional_text in ("Alex", "Northbridge", "Example", FILE_NAME):
         assert fictional_text not in message
@@ -503,27 +508,27 @@ def with_result_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
         ),
     ],
 )
-def test_each_result_gate_stops_the_reader_when_its_count_passes_its_bound(
+def test_result_checks_warn_for_coverage_and_reject_contradictory_scores(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     span_results: Sequence[ExampleResult],
     failing_gate: str,
 ) -> None:
-    """Every one of the three gates has to be able to fail on real counts and stop the reader.
-
-    Each case drives one gate's own input past the bound that ships, leaving the other two
-    comfortably inside theirs, so a gate that could never fire is caught here.
-    """
     career_path = write_career(tmp_path, span_results=tuple(span_results))
     with_result_bounds(monkeypatch)
 
-    with (
-        fmsave.open(career_path, strict=True) as career_save,
-        pytest.raises(fmsave.ReaderCheckError) as error_info,
-    ):
-        career_save.fixtures()
+    with fmsave.open(career_path, strict=True) as career_save:
+        if failing_gate == "results_for_unplayed":
+            with pytest.raises(fmsave.ReaderCheckError) as error_info:
+                career_save.fixtures()
+            message = str(error_info.value)
+        else:
+            with pytest.warns(fmsave.ReaderCheckWarning) as caught:
+                fixtures = career_save.fixtures()
+            assert len(fixtures) > 0
+            assert career_save.fixtures() is fixtures
+            message = str(caught[0].message)
 
-    message = str(error_info.value)
     assert failing_gate in message
     for other_gate in set(RESULT_GATE_NAMES) - {failing_gate}:
         assert other_gate not in message

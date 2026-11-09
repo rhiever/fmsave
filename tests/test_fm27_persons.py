@@ -25,7 +25,11 @@ from tests.test_persons import (
 
 
 def shifted_block(
-    *, legal_name: str | None = None, relations: bool = True, home_grown_club: int | None = None
+    *,
+    legal_name: str | None = None,
+    relations: bool = True,
+    home_grown_club: int | None = None,
+    birth_year: int = 2004,
 ) -> bytes:
     relation_entries = (relation_entry_bytes(12, 8, 9, 100),) if relations else ()
     if home_grown_club is not None:
@@ -35,7 +39,7 @@ def shifted_block(
         surname_id=0,
         common_name_id=0xFFFFFFFF,
         legal_name=legal_name,
-        birth=packed_date(60, 2004),
+        birth=packed_date(60, birth_year),
         nation_id=44,
         personality=DEFAULT_PERSONALITY,
         trait_bits=1 << 27,

@@ -567,27 +567,18 @@ def test_the_rules_gates_fail_one_at_a_time(
     if not expected_failures:
         enforce("competition_rules", results, strict=True)
         return
-    with pytest.raises(fmsave.ReaderCheckError) as error_info:
+    with pytest.warns(fmsave.ReaderCheckWarning) as error_info:
         enforce("competition_rules", results, strict=True)
-    message = str(error_info.value)
+    message = str(error_info[0].message)
     assert expected_failures[0] in message
     for fictional_text in ("Alex", "Northbridge", "Example", FILE_NAME):
         assert fictional_text not in message
 
 
-def test_a_full_size_span_applies_the_gates_and_a_broken_decode_raises(
+def test_a_full_size_span_applies_the_gates_and_warns(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The reader really raises: the example span holds two blocks, far below the floor.
-
-    Lowering the span threshold is what makes the gates apply to a fragment, and then the
-    fragment's own counts fail them, so this proves the gate reaches the caller rather than
-    only the evaluator. This reader now builds the league tables and the calendar, whose own
-    gates judge the same span and would raise first on a fragment this size, so their floors
-    are relaxed to what a fragment can meet and the save is written with the two score records
-    the result checks need a population from. Every bound this reader is judged by is left
-    exactly as registered.
-    """
+    """A small rule population warns while keeping decoded rows available."""
     monkeypatch.setattr(
         fmsave.Save,
         "_gate_bounds",
@@ -612,11 +603,11 @@ def test_a_full_size_span_applies_the_gates_and_a_broken_decode_raises(
 
     with (
         fmsave.open(career_path, strict=True) as career_save,
-        pytest.raises(fmsave.ReaderCheckError) as error_info,
+        pytest.warns(fmsave.ReaderCheckWarning) as error_info,
     ):
-        career_save.competition_rules()
+        assert len(career_save.competition_rules()) == 2
 
-    assert "rules_markers_minimum" in str(error_info.value)
+    assert "rules_markers_minimum" in str(error_info[0].message)
 
 
 def test_a_link_that_stops_linking_fails_the_count_no_share_could_catch() -> None:
@@ -642,9 +633,9 @@ def test_a_link_that_stops_linking_fails_the_count_no_share_could_catch() -> Non
 
     assert failed_gate_names(results) == ["rules_linked_blocks_minimum"]
     assert not gate_named(results, "rules_link_round_dates").applied
-    with pytest.raises(fmsave.ReaderCheckError) as error_info:
+    with pytest.warns(fmsave.ReaderCheckWarning) as error_info:
         enforce("competition_rules", results, strict=True)
-    assert "rules_linked_blocks_minimum" in str(error_info.value)
+    assert "rules_linked_blocks_minimum" in str(error_info[0].message)
 
 
 def test_a_save_with_too_few_runs_to_judge_is_not_held_to_the_count() -> None:
@@ -680,7 +671,7 @@ def test_a_failed_league_table_check_stops_the_rules_being_built(
     def failing_league_table_gates(
         stats: object, bounds: GateBounds, span_bytes: int
     ) -> tuple[GateResult, ...]:
-        return (GateResult("a_failed_gate", 0.5, 0.9, None, False, True),)
+        return (GateResult("table_venue_calendar_agreement", 0.5, 0.9, None, False, True),)
 
     monkeypatch.setattr(_checks, "evaluate_league_tables", failing_league_table_gates)
 

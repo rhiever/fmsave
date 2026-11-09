@@ -195,7 +195,7 @@ def test_the_window_gates_apply_and_fail_one_at_a_time() -> None:
     broken = {
         "a-decode-that-finds-nothing": (
             {"windows": 0, "incomplete": 0},
-            list(TRANSFER_WINDOW_GATE_NAMES),
+            ["transfer_windows_minimum"],
         ),
         "just-under-the-count-floor": ({"windows": 9}, ["transfer_windows_minimum"]),
         "exactly-on-the-count-floor": ({"windows": 10}, []),

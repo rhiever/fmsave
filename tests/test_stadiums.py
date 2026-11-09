@@ -861,7 +861,7 @@ def test_the_field_statuses_follow_the_stadium_coverage() -> None:
         ),
     ],
 )
-def test_the_stadium_gates_fail_one_at_a_time(
+def test_the_stadium_gates_warn_one_at_a_time_even_in_strict_mode(
     stats: StadiumStats, expected_failures: list[str]
 ) -> None:
     results = evaluate_stadiums(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
@@ -871,9 +871,9 @@ def test_the_stadium_gates_fail_one_at_a_time(
     if not expected_failures:
         enforce("stadiums", results, strict=True)
         return
-    with pytest.raises(fmsave.ReaderCheckError) as error_info:
+    with pytest.warns(fmsave.ReaderCheckWarning) as warning_info:
         enforce("stadiums", results, strict=True)
-    message = str(error_info.value)
+    message = str(warning_info[0].message)
     assert expected_failures[0] in message
     for fictional_text in ("Northbridge", "Example Park", FILE_NAME):
         assert fictional_text not in message

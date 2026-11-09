@@ -9,15 +9,11 @@ While a reader decodes, it counts what it sees into a stats record from `fmsave.
 `MatchStats`, `StadiumStats`, `FinanceStats`, `FacilityStats`, `AffiliateStats`,
 `JobVacancyStats`, `StaffStats`, `InjuryTypeStats`, `InjuryStats`, `TrainingStats` or
 `TacticStats`).
-The `evaluate_*` functions compare those counts with the loose `GateBounds` registered for the
-save's layout and return one `GateResult` per check, and `enforce` reports an applied check
-that failed, before the reader caches its table: it raises `GateCheckError` on a save opened
-with `strict=True`, and otherwise warns `ReaderCheckWarning` with the same message and lets the
-reader hand its table back. A bound is a measurement of the saves it was drawn from and no
-more, so a save unlike those is not a save fmsave should refuse to read. What still raises is a
-structural failure, which readers raise for themselves: a decode with no table to hand back.
-The checks apply only to a `game_db` of at least `GateBounds.minimum_applies_from_bytes`, since
-smaller sections come from fragments that cannot meet full-save counts.
+The `evaluate_*` functions compare the counts with the `GateBounds` registered for the
+layout and return a `GateResult` per check. Failed checks warn before the reader caches its
+table. In strict mode, failed blocking checks raise `GateCheckError`. Structural failures
+raise when a reader cannot establish a table. Most checks only apply to full-size sections
+because synthetic fragments cannot meet full-save counts.
 
 `validate_save` runs every reader and returns a `ValidationReport`, which holds only structural
 facts, counts and rates: never names, uids or other values from the save.
@@ -216,6 +212,115 @@ _LIKELY_CAUSES: FrozenMapping[str, str] = FrozenMapping(
 )
 
 
+# Population size, prevalence, historical/current-state correlations, and parser coverage
+# cannot establish a decoding error. Keep their measurements and warnings in every mode.
+# A gate that combines those expectations with an integrity check stays advisory until the
+# integrity condition can be judged separately. Counts declared by the input, complete owned
+# walks, signatures, and internal identities are not population expectations.
+_ADVISORY_GATES = frozenset(
+    {
+        "affiliate_lists_found",
+        "affiliate_members_resolved",
+        "affiliate_teams_linked",
+        "age_median",
+        "aged_in_range",
+        "chain_teams_resolved",
+        "clubs_minimum",
+        "competition_database_ids_mapped",
+        "competitions_minimum",
+        "contract_head",
+        "date_marked_chain_records",
+        "double_round_robin_divisions",
+        "facility_clubs_minimum",
+        "facility_unset_ratings",
+        "finance_balance_continuity",
+        "finance_clubs_with_sponsors",
+        "finance_series_minimum",
+        "fixture_club_teams_resolved",
+        "fixture_cluster_share",
+        "fixture_stadiums_resolved",
+        "fixture_stage_resolved",
+        "fixture_strays_minimum",
+        "fixtures_minimum",
+        "handling_above_finishing",
+        "height_in_range",
+        "height_median",
+        "home_grown_club_refs_resolved",
+        "home_near_current",
+        "injury_log_dates",
+        "injury_log_recent_team_matches",
+        "injury_log_teams_resolved",
+        "injury_type_entries_minimum",
+        "injury_typed_dates_near_clock",
+        "injury_typed_types_resolved",
+        "issued_after_clock",
+        "job_vacancy_dates_ordered",
+        "join_date_valid",
+        "mentoring_members_at_club",
+        "names_resolved",
+        "no_contract_in_effect",
+        "outfield_goalkeeper_block_low",
+        "past_dated_tail_ends",
+        "per_match_competition_in_stage_space",
+        "per_match_minutes_in_range",
+        "person_blocks",
+        "players_minimum",
+        "players_with_chain",
+        "reputation_found",
+        "reputation_median",
+        "result_records_minimum",
+        "results_joined",
+        "rules_fully_parsed",
+        "rules_link_round_dates",
+        "rules_linked_blocks_minimum",
+        "rules_markers_minimum",
+        "season_stats_minutes_in_range",
+        "season_stats_overall_sums_competitions",
+        "season_stats_players_with_record",
+        "season_stats_records_keyed_to_players",
+        "second_nation_qualifier",
+        "selection_picks_at_club",
+        "selection_picks_resolved",
+        "sponsor_clubs_minimum",
+        "stadium_capacity_within_all_seater",
+        "stadium_home_grounds_owned",
+        "stadium_owners_resolved",
+        "stadium_pitch_within_limits",
+        "stadium_rows_minimum",
+        "staff_block_40_in_range",
+        "staff_codes_in_set",
+        "staff_list_ids_are_staff",
+        "staff_listed_contracted_here",
+        "staff_minimum",
+        "staff_person_blocks",
+        "staff_preference_slots",
+        "stage_rows_minimum",
+        "stage_rows_with_competition",
+        "stage_table_tail_bytes",
+        "stage_trailing_sentinel",
+        "status_normal",
+        "suspension_entries_minimum",
+        "suspension_scopes_known",
+        "suspension_share_of_players",
+        "table_block_duplicates_minimum",
+        "table_block_team_in_range",
+        "table_blocks_minimum",
+        "table_groups_resolved",
+        "tactic_selection_selectors_at_club",
+        "tactic_selection_selectors_resolved",
+        "tails_parsed",
+        "tails_without_clause_table",
+        "team_lists_found",
+        "team_resolved",
+        "training_blocks_match_club_teams",
+        "training_week_steps",
+        "transfer_windows_minimum",
+        "with_natural_position",
+        "world_not_above_current",
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class GateResult:
     """One reader check: an observed count or rate compared with its bounds.
@@ -226,8 +331,8 @@ class GateResult:
         minimum: The lowest value that passes, or None when there is no lower bound.
         maximum: The highest value that passes, or None when there is no upper bound.
         passed: Whether the check passed; a check that was not applied always passes.
-        applied: Whether the check applied: False when `game_db` is too small for full-save
-            counts.
+        applied: Whether the check could be evaluated. False for undersized sections,
+            empty optional populations, or an unavailable prerequisite such as the save clock.
     """
 
     name: str
@@ -237,9 +342,14 @@ class GateResult:
     passed: bool
     applied: bool
 
+    @property
+    def advisory(self) -> bool:
+        """Whether a failed check only warns, including in strict mode."""
+        return self.name in _ADVISORY_GATES
+
     def to_json_dict(self) -> dict[str, object]:
         """The check as a JSON-ready dict."""
-        return {
+        record: dict[str, object] = {
             "name": self.name,
             "observed": self.observed,
             "minimum": self.minimum,
@@ -247,6 +357,9 @@ class GateResult:
             "passed": self.passed,
             "applied": self.applied,
         }
+        if self.advisory:
+            record["advisory"] = True
+        return record
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,8 +426,8 @@ def _share_gate(
     whose calendar gives no club a home ground, a calendar whose records store no ground at
     all. A share with no denominator is then a fact about the save rather than a layout that
     has moved, so the check is reported as not applied instead of failing for want of a rate.
-    A check used this way always sits beside a count check that does fail when a decode found
-    nothing, so an empty population never hides a broken locator.
+    Population count checks can still warn when a search found nothing. Their thresholds
+    cannot distinguish a broken locator from a legitimately empty population.
     """
     return _gate(name, _rate(numerator, denominator), bound, applied and denominator > 0)
 
@@ -364,7 +477,7 @@ def evaluate_players(
             "relation_sentinel",
             _rate(stats.relation_sentinel_ok, stats.relation_entries),
             bounds.relation_sentinel,
-            applied,
+            applied and stats.relation_entries > 0,
         ),
         _gate(
             "second_nation_qualifier",
@@ -405,7 +518,7 @@ def evaluate_players(
             "condition_sharpness_in_range",
             _rate(stats.condition_sharpness_in_range, records),
             bounds.condition_sharpness_in_range,
-            applied,
+            applied and records > 0,
         ),
         _gate(
             "join_date_valid",
@@ -485,7 +598,7 @@ def evaluate_contracts(
             "clause_terminator",
             _rate(stats.clause_tables_ending_at_tail, stats.clause_tables),
             bounds.clause_terminator,
-            applied,
+            applied and stats.clause_tables > 0,
         ),
         _gate(
             "contract_head",
@@ -527,7 +640,7 @@ def evaluate_clubs(
             "status_confirmation",
             _rate(stats.status_confirmed, stats.status_normal),
             bounds.status_confirmation,
-            applied,
+            applied and stats.status_normal > 0,
         ),
         _gate(
             "affiliate_lists_found",
@@ -559,7 +672,8 @@ def evaluate_suspensions(
     The first two apply whenever the section is large enough, including when the search found
     no entry at all: an empty result scores below the share's lower bound and leaves the clock
     check with no rate, so an entry layout that has moved fails here rather than reporting a
-    save whose players are never banned. The scope check judges what the entries that were
+    save whose players are never banned. These population signals are advisory. The scope
+    check also warns because decoded entries can retain an unknown scope code. It judges what the entries that were
     found say rather than how many there are, so it is not applied when there are none and
     the first check is what fails then. `suspension_entries_minimum` counts the entries
     themselves, which is what judges an empty search on a build whose share has no floor
@@ -615,7 +729,7 @@ def evaluate_stages(
             "stage_ids_ascending",
             _rate(stats.ascending_steps, stats.steps),
             bounds.stage_ids_ascending,
-            applied,
+            applied and stats.steps > 0,
         ),
         _gate(
             "stage_rows_with_competition",
@@ -664,13 +778,13 @@ def evaluate_competitions(
             "competition_database_id_conflicts",
             _rate(stats.database_id_conflicts, competitions),
             bounds.competition_database_id_conflicts,
-            applied,
+            applied and (competitions > 0 or stats.database_id_conflicts > 0),
         ),
         _gate(
             "competition_names_within_database_ids",
             _rate(stats.with_name, stats.with_database_id),
             bounds.competition_names_within_database_ids,
-            applied,
+            applied and (stats.with_database_id > 0 or stats.with_name > 0),
         ),
     )
 
@@ -699,8 +813,8 @@ def evaluate_fixtures(
     These judge what one pass over the span read, not `game_db`, so they apply from the span's
     own size threshold. The first five apply whenever the span is large enough, including when
     the pass found no fixture at all: an empty calendar scores below the record floor and the
-    stray floor and leaves the three shares without a denominator, so a calendar locator that
-    has moved fails here rather than reporting a career with no matches.
+    stray floor and leaves shares without a denominator. These are advisory signals of
+    reduced coverage; they do not establish whether the calendar was decoded incorrectly.
 
     `fixture_stadiums_resolved` is the one exception, because a calendar legitimately holds
     records that store no ground: it applies only when some record stores one. A calendar that
@@ -760,16 +874,12 @@ def evaluate_results(
     """The stage-keyed result checks, in a fixed order.
 
     These judge the same pass over the span the calendar's own checks do, so they apply from
-    the span's size threshold. All three apply whenever the span is large enough, including
-    when nothing was accepted at all: an empty result scores below the record floor and leaves
-    both shares without a denominator, so a locator that has moved fails here rather than
-    reporting a career whose matches were never scored.
+    the span's size threshold. Record counts and joining coverage are advisory, since
+    retained history can differ between careers. The unplayed-match comparison applies only
+    when results joined fixtures.
 
-    `results_joined` is what says the record is still being read correctly. The scores are found
-    by one locator and the calendar they join by another, in a different region, so the two
-    agree on a date and both team ids only if both are being decoded right; the same records
-    joined on a key wrong by one day, or with the two sides swapped, joined nothing at all on
-    every save measured. A decode that drifted would keep finding records and stop matching.
+    `results_joined` compares independently located scores and fixtures. Incorrect date or
+    team reads can reduce this share, but incomplete calendar coverage can do so as well.
 
     `results_for_unplayed` is the tripwire for the opposite failure, a join loose enough to
     attach scores to matches the calendar says have not been played. That is wrong however many
@@ -784,7 +894,7 @@ def evaluate_results(
             "results_for_unplayed",
             _rate(stats.score_for_unplayed, stats.joined),
             bounds.results_for_unplayed,
-            applied,
+            applied and stats.joined > 0,
         ),
     )
 
@@ -794,11 +904,8 @@ def evaluate_transfer_windows(
 ) -> tuple[GateResult, ...]:
     """The transfer-window reader's checks, in a fixed order.
 
-    Both apply whenever the section is large enough, including when the walk decoded nothing:
-    an empty result scores zero windows, which fails the count, and leaves the date share with
-    no denominator at all, which fails for want of a rate rather than passing quietly. That is
-    the point of the pair, since the tagged stream holds far more dated records than windows
-    and a decode that has moved would otherwise look like a save that simply has none.
+    The population floor is advisory. Date completeness is checked only when the walk
+    found complete or incomplete window candidates. An empty population has no date to judge.
     """
     applied = _applies(bounds, game_db_bytes)
     windows = stats.windows
@@ -808,7 +915,7 @@ def evaluate_transfer_windows(
             "transfer_window_dates",
             _rate(windows, windows + stats.incomplete),
             bounds.transfer_window_dates,
-            applied,
+            applied and windows + stats.incomplete > 0,
         ),
     )
 
@@ -828,7 +935,7 @@ def evaluate_league_tables(
     threshold. The first four apply whenever the span is large enough, including when the pass
     found no block at all: an empty result scores below the block floor and the duplicate
     floor, and leaves the two shares without a denominator, so a table layout that has moved
-    fails here rather than reporting a career with no tables. The division floor applies on
+    produces advisory warnings. The division floor applies on
     the same terms once the fixture calendar shows at least that many divisions under way.
 
     `table_venue_calendar_agreement` is the exception, and is the check that keeps the slot
@@ -1509,8 +1616,8 @@ def evaluate_stadium_table(
     The home-ground check needs the fixture calendar and joins the stadium reader's own checks
     instead.
 
-    `stadium_rows_minimum` is what fails when the walk finds nothing, so the three shares
-    beside it are free to report an empty population as not applied.
+    The row count and coverage shares are advisory. Empty populations leave the shares
+    unapplied; the independent table walk enforces structural completeness.
     """
     applied = _applies(bounds, game_db_bytes)
     rows = stats.rows
@@ -1652,9 +1759,8 @@ def evaluate_injuries(stats: InjuryStats, bounds: GateBounds) -> tuple[GateResul
     them separates a sound decode from the same rows read one or four bytes late.
 
     `injury_log_ascending` is judged on the steps between rows whose date decodes, and it is
-    deliberately **not** excused when there are no such steps: a section full of rows from
-    which not one date decodes is what a decode read one byte out looks like, so it fails
-    there for want of a rate. The typed shares are excused when
+    applied when the log contains at least two rows. Such a log with no decoded date steps
+    still fails; zero or one row cannot establish a backwards step. The typed shares are excused when
     the section holds no typed row, and the recent-team share when no row of the last month
     has a player with a team, because a career can legitimately hold neither. The type share
     is excused as well when the name table is empty, since a save carrying no per-match file
@@ -1685,7 +1791,7 @@ def evaluate_injuries(stats: InjuryStats, bounds: GateBounds) -> tuple[GateResul
             "injury_log_lead_byte",
             _rate(stats.log_lead_ok, log_rows),
             bounds.injury_log_lead_byte,
-            applied,
+            applied and log_rows > 0,
         ),
         _gate(
             "injury_log_dates",
@@ -1697,7 +1803,7 @@ def evaluate_injuries(stats: InjuryStats, bounds: GateBounds) -> tuple[GateResul
             "injury_log_ascending",
             _rate(stats.log_ascending_steps, stats.log_steps),
             bounds.injury_log_ascending,
-            applied,
+            applied and log_rows > 1,
         ),
         _gate(
             "injury_log_teams_resolved",
@@ -1781,12 +1887,10 @@ def evaluate_finances(
     broken decode. Only the clubs of the one or two league nations a save tracks keep a series,
     and which nations those are changes during a career, so an empty result has to be allowed.
 
-    The series floor is what catches a locator that has stopped finding chains, and it applies
-    only where the save lists a managed club, whose own club held a series on every save
-    measured. That leaves one hole, deliberately: on a save with no human manager a locator
-    finding nothing returns an empty table and raises nothing. No count of club records could
-    close it without failing a save that legitimately tracks no league nation the manager is in,
-    and `clubs_with_series` and `records_searched` are reported as anomalies either way.
+    The series floor is advisory and applies where the save lists a managed club.
+    `clubs_with_series` and `records_searched` remain visible even for an empty result.
+    Within-row arithmetic and conflicting chains are checked separately from population size
+    and the career-dependent continuity between monthly balances.
     """
     applied = _applies(bounds, game_db_bytes)
     rows = stats.rows
@@ -1979,9 +2083,9 @@ def evaluate_job_vacancies(stats: JobVacancyStats, bounds: GateBounds) -> tuple[
         _gate("job_vacancy_tag", _rate(stats.tagged, records), bounds.job_vacancy_tag, applied),
         _gate(
             "job_vacancy_dates_ordered",
-            _rate(stats.dates_ordered, records),
+            _rate(stats.dates_ordered, records) if stats.dates_ordered is not None else None,
             bounds.job_vacancy_dates_ordered,
-            applied,
+            applied and stats.dates_ordered is not None,
         ),
         _gate(
             "job_vacancy_advertised_ascending",
@@ -1995,6 +2099,17 @@ def evaluate_job_vacancies(stats: JobVacancyStats, bounds: GateBounds) -> tuple[
             bounds.job_vacancy_reserved_zero,
             applied,
         ),
+    ) + (
+        (
+            _gate(
+                "job_vacancy_relative_dates_ordered",
+                _rate(stats.relative_dates_ordered, records),
+                bounds.job_vacancy_dates_ordered,
+                applied,
+            ),
+        )
+        if stats.relative_dates_ordered is not None
+        else ()
     )
 
 
@@ -2255,8 +2370,9 @@ def evaluate_tactics(
     manager runs, national teams included, so it is compared with the blocks found by
     structure. Club teams can have no stored block, so coverage compares the team-id locator
     with the structurally located blocks naming club teams. Duplicate stored blocks count
-    separately and cannot be excused as absent teams. A disagreeing header or an inventory
-    with no club blocks scores zero whatever the locator found.
+    separately and cannot be excused as absent teams. An explicitly empty inventory or one
+    containing only national-team blocks passes when its header agrees and the club locator
+    also found no blocks. A disagreeing header or locator still fails.
 
     The record-count share checks the team's declared count independently.
     The two walk shares are judged on all stored tactic records. They are excused when the
@@ -2269,9 +2385,14 @@ def evaluate_tactics(
     slots_applied = applied and (stats.tactic_blocks > 0 or stats.stored_tactics > 0)
     header_agrees = (
         stats.header_blocks == stats.stored_blocks
-        and 0 < stats.stored_club_blocks <= min(stats.club_team_count, stats.stored_blocks)
+        and 0 <= stats.stored_club_blocks <= min(stats.club_team_count, stats.stored_blocks)
     )
-    blocks_found = stats.blocks_found if header_agrees else 0
+    if not header_agrees:
+        block_coverage = 0.0
+    elif stats.stored_club_blocks == 0:
+        block_coverage = float(stats.blocks_found == 0)
+    else:
+        block_coverage = _rate(stats.blocks_found, stats.stored_club_blocks)
     return (
         _gate(
             "tactics_manager_selector_matches",
@@ -2281,7 +2402,7 @@ def evaluate_tactics(
         ),
         _gate(
             "tactics_team_blocks_match_club",
-            _rate(blocks_found, stats.stored_club_blocks) if header_agrees else 0.0,
+            block_coverage,
             bounds.tactics_team_blocks_match_club,
             applied,
         ),
@@ -2597,14 +2718,16 @@ def _likely_cause(gate_name: str) -> str:
     return "" if cause is None else f"; likely {cause}"
 
 
-def _failure_summary(reader_name: str, results: Sequence[GateResult]) -> str | None:
+def _failure_summary(
+    reader_name: str, results: Sequence[GateResult], *, blocking_only: bool = False
+) -> str | None:
     """ "<reader> failed checks: <gate>=<observed> (expected <min>..<max>); ...", or None."""
     failures = [
-        f"{result.name}={_format_number(result.observed)} "
+        f"{'advisory: ' if result.advisory else ''}{result.name}={_format_number(result.observed)} "
         f"(expected {_format_bound(result.minimum)}..{_format_bound(result.maximum)}"
         f"{_likely_cause(result.name)})"
         for result in results
-        if result.applied and not result.passed
+        if result.applied and not result.passed and (not blocking_only or not result.advisory)
     ]
     if not failures:
         return None
@@ -2625,66 +2748,58 @@ def _warn_failure(message: str) -> None:
     )
 
 
+def _blocks_reader(result: GateResult) -> bool:
+    return result.applied and not result.passed and not result.advisory
+
+
+def checks_fail(reader_checks: Sequence[ReaderCheck]) -> bool:
+    """Whether these checks would stop a strict reader, without emitting warnings."""
+    return _gates_enabled and any(
+        _blocks_reader(gate) for check in reader_checks for gate in check.gates
+    )
+
+
 def enforce(reader_name: str, results: Sequence[GateResult], *, strict: bool) -> bool:
-    """Report a failed applied check. The message holds only rounded rates and bounds.
-
-    On a strict save the failure is raised, and on any other save it is warned about with that
-    same message and the reader hands its table back: a bound measured on a handful of saves
-    is not something to refuse a whole save over.
-
-    Returns:
-        Whether a failure was warned about, which is False on a strict save and whenever
-        every applied check passed.
-
-    Raises:
-        ReaderCheckError: An applied check failed and `strict` is True.
-
-    Warns:
-        ReaderCheckWarning: An applied check failed and `strict` is False.
-    """
-    summary = _failure_summary(reader_name, results)
-    if summary is None or not _gates_enabled:
+    """Raise for blocking failures in strict mode and warn about other failures."""
+    if not _gates_enabled:
         return False
-    message = f"{summary}. {_REPORT_REQUEST}"
     if strict:
-        raise GateCheckError(message)
-    _warn_failure(message)
+        blocking = _failure_summary(reader_name, results, blocking_only=True)
+        if blocking is not None:
+            raise GateCheckError(f"{blocking}. {_REPORT_REQUEST}")
+    summary = _failure_summary(reader_name, results)
+    if summary is None:
+        return False
+    _warn_failure(f"{summary}. {_REPORT_REQUEST}")
     return True
 
 
 def enforce_checks(reader_checks: Sequence[ReaderCheck], *, strict: bool) -> bool:
-    """Report the applied checks of these readers that failed, naming each failed reader.
-
-    On a strict save the failure is raised, carrying every one of the readers' checks so that a
-    report can show them, and on any other save it is warned about with that same message.
-
-    Returns:
-        Whether a failure was warned about, which is False on a strict save and whenever
-        every applied check passed.
-
-    Raises:
-        ReaderCheckError: An applied check failed and `strict` is True.
-
-    Warns:
-        ReaderCheckWarning: An applied check failed and `strict` is False.
-    """
-    summaries = [
-        summary
-        for reader_check in reader_checks
-        if (summary := _failure_summary(reader_check.reader, reader_check.gates)) is not None
-    ]
-    if not summaries or not _gates_enabled:
+    """Judge a shared decode and retain every reader's checks when it raises."""
+    if not _gates_enabled:
         return False
-    message = f"{'. '.join(summaries)}. {_REPORT_REQUEST}"
-    if strict:
-        raise GateCheckError(message, tuple(reader_checks))
-    _warn_failure(message)
+    if strict and checks_fail(reader_checks):
+        blocking = [
+            summary
+            for check in reader_checks
+            if (summary := _failure_summary(check.reader, check.gates, blocking_only=True))
+            is not None
+        ]
+        raise GateCheckError(f"{'. '.join(blocking)}. {_REPORT_REQUEST}", tuple(reader_checks))
+    warnings_to_report = [
+        summary
+        for check in reader_checks
+        if (summary := _failure_summary(check.reader, check.gates)) is not None
+    ]
+    if not warnings_to_report:
+        return False
+    _warn_failure(f"{'. '.join(warnings_to_report)}. {_REPORT_REQUEST}")
     return True
 
 
 # How one reader fared: the type of `ReaderValidation.status`, named so that a caller can
-# declare it. "ok" is a table read with every applied check passed, "failed" a check that did
-# not pass, and "error" another fmsave error raised while reading.
+# declare it. "ok" is a decoded table without a blocking failure, "failed" a blocking
+# failure, and "error" another fmsave error raised while reading.
 type ReaderStatus = Literal["ok", "failed", "error"]
 
 
@@ -2692,13 +2807,11 @@ type ReaderStatus = Literal["ok", "failed", "error"]
 class ReaderValidation:
     """How one reader fared in `validate_save`.
 
-    A reader is "failed" when a check of its own did not pass, and it is the only one reported
-    so: the readers that join through it read the table it returned and are judged on their own
-    checks.
+    When a reader returns a table, only a failed blocking check marks it "failed". Readers
+    that join through the table are judged on their own checks.
 
-    A save opened with `strict=True` is reported differently, because a failed check stops the
-    reader there and everything downstream of it with it. Players, contracts and suspensions
-    are decoded in one pass, so when a check of any of the three fails, all three are reported
+    In strict mode, failed blocking checks can stop downstream readers. Players,
+    contracts, and suspensions are decoded in one pass. If that pass fails, all three are reported
     "failed" and none of their tables is read, and each of them still lists its own gates: a
     reader can be "failed" while every one of its own gates passed. Fixtures, league tables,
     competition rules and stadiums share the one streamed pass over the span the same way, and
@@ -2716,9 +2829,8 @@ class ReaderValidation:
             "finances", "sponsorships", "affiliates", "job_vacancies", "staff", "staff_lists",
             "injury_types", "injuries", "training", "mentoring", "tactics", "set_pieces",
             "selections" or "facilities".
-        status: "ok" when the reader returned its table and every applied check of its own
-            passed, "failed" when a check did not, and "error" when it raised another fmsave
-            error.
+        status: "ok" when the reader returned its table without failing a blocking check,
+            "failed" for a blocking failure, and "error" when it raised another fmsave error.
         record_count: How many records the reader decoded, or None when it did not get far
             enough to count them.
         gates: The reader's checks, in a fixed order; empty when the reader has no checks of
@@ -2802,15 +2914,9 @@ def _completed_validation(
     coverage: Mapping[str, float],
     reader_check: ReaderCheck | None,
 ) -> ReaderValidation:
-    """A reader that returned its table: "failed" when a check of its own did not pass.
-
-    On a save opened without `strict=True` a failed check no longer stops the reader, so this
-    is where most "failed" rows come from. The check has already been evaluated and kept beside
-    the table, so the report reads the result off it rather than making a reader raise to find
-    out. Coverage is left out of a failed row, as it is of one that raised.
-    """
+    """Report checks beside a decoded table. Advisory failures keep its coverage visible."""
     gates = () if reader_check is None else reader_check.gates
-    failed = any(gate.applied and not gate.passed for gate in gates)
+    failed = any(_blocks_reader(gate) for gate in gates)
     return ReaderValidation(
         reader_name,
         "failed" if failed else "ok",
@@ -2848,18 +2954,16 @@ def validate_save(career_save: Save) -> ValidationReport:
     club facilities. The order puts each reader after the ones whose work it reuses, so a shared
     decode that fails is reported where it failed: stadiums follow the fixtures whose calendar
     they read, injury types precede the injury history that names its types, and the two
-    readers of each shared pass sit side by side. A reader whose checks fail is reported
-    "failed" with its checks, and one that raises another fmsave error is reported "error"
+    readers of each shared pass sit side by side. A reader with a failed blocking check is
+    reported "failed" with its checks. A reader that raises another fmsave error is reported "error"
     without the error's text; the remaining readers still run. The report holds only structural
     facts, counts and rates, never names, uids or other values from the save.
 
     Readers run here exactly as they would for any other caller, with their warnings suppressed
     for the length of the run: this report lists every check each reader ran, so a warning
     beside it would only repeat what it already says. Running them leaves the save no different
-    from how a caller who read those tables himself would leave it. On a save opened the
-    default way nothing raises for a failed check, so every table this decodes is kept: the
-    reader calls a caller makes afterwards are free of charge, and say nothing further about a
-    check this report has already reported.
+    from how a caller who read those tables would leave it. Tables returned by a reader stay
+    cached for later calls.
 
     Some readers share one decode: the players, contracts and suspensions of the player pass,
     the fixtures, league tables, competition rules and stadiums that all need the one streamed
@@ -2909,11 +3013,7 @@ def validate_save(career_save: Save) -> ValidationReport:
     )
     validations: list[ReaderValidation] = []
     failed_passes: dict[str, FmsaveError] = {}
-    # A failed check warns rather than raising on a save opened the default way, and this
-    # report lists every check each reader ran: a warning beside it would only repeat what the
-    # report already says, and would make `fmsave validate` noisiest on exactly the saves it
-    # exists to diagnose. The readers run as they would for any other caller, so a run leaves
-    # nothing behind that changes how the save reads afterwards.
+    # Validation already reports the checks, so suppress their warnings during the run.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", ReaderCheckWarning)
         for reader_name, read_table in reader_tables:

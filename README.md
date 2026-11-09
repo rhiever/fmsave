@@ -83,8 +83,9 @@ Every field is either verified against the game or unconfirmed; ask with
 fmsave cannot read is `None` rather than a guess, and money is kept in the unit the game stores it
 in, which can differ from the currency it displays.
 
-Reader checks test completeness, joins and expected ranges. A failed check warns and returns the
-table; `strict=True` raises instead. Structural failures raise in either mode. See
+Reader checks test completeness, joins, and expected ranges. Failed checks warn and return
+decoded tables by default. Strict mode stops on failed integrity checks; population and coverage
+checks remain warnings. See
 [Trusting a number](https://rhiever.github.io/fmsave/guides/trust.html) before relying on a result.
 
 ## What it cannot read
@@ -157,6 +158,7 @@ game stores its data:
 <a href="https://github.com/GetChatGPTToDoIt" title="@GetChatGPTToDoIt"><img src="https://github.com/GetChatGPTToDoIt.png?size=80" width="40" height="40" alt="@GetChatGPTToDoIt"></a>
 <a href="https://github.com/guyluzon64" title="@guyluzon64"><img src="https://github.com/guyluzon64.png?size=80" width="40" height="40" alt="@guyluzon64"></a>
 <a href="https://github.com/hostlund" title="@hostlund"><img src="https://github.com/hostlund.png?size=80" width="40" height="40" alt="@hostlund"></a>
+<a href="https://github.com/ironkay-beep" title="@ironkay-beep"><img src="https://github.com/ironkay-beep.png?size=80" width="40" height="40" alt="@ironkay-beep"></a>
 <a href="https://github.com/jeohist" title="@jeohist"><img src="https://github.com/jeohist.png?size=80" width="40" height="40" alt="@jeohist"></a>
 <a href="https://github.com/johnmmcparland" title="@johnmmcparland"><img src="https://github.com/johnmmcparland.png?size=80" width="40" height="40" alt="@johnmmcparland"></a>
 <a href="https://github.com/jtstothard" title="@jtstothard"><img src="https://github.com/jtstothard.png?size=80" width="40" height="40" alt="@jtstothard"></a>

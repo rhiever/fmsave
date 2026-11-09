@@ -41,8 +41,8 @@ const value = (key, i) => column(key)?.[i];
 const shown = (key, i) => format(COLUMNS.get(key), value(key, i));
 const hasSquad = () => data?.squadUid !== null && data?.squadUid !== undefined;
 
-function load(meta, count, numbers, text) {
-  data = { meta, n: count, num: {}, text, stats: null, squadUid: meta.club_uid, squadCount: null, haystack: null };
+function load(meta, count, numbers, text, readerWarnings = []) {
+  data = { meta, readerWarnings, n: count, num: {}, text, stats: null, squadUid: meta.club_uid, squadCount: null, haystack: null };
   for (const [key, buf] of Object.entries(numbers)) {
     data.num[key] = buf instanceof ArrayBuffer ? (buf.byteLength === count * 8 ? new Float64Array(buf) : new Float32Array(buf)) : buf;
   }
@@ -784,12 +784,16 @@ function onWorkerMessage({ data: msg }) {
       state.loading = false;
       state.demo = null;
       clearInterval(tick);
-      load(pendingMeta, msg.count, msg.numbers, msg.text);
+      load(pendingMeta, msg.count, msg.numbers, msg.text, msg.warnings);
       showApp();
       break;
     case "stats": {
       const first = !data.stats;
       applyStats(msg.kind, msg.numbers);
+      if (msg.warnings?.length) {
+        data.readerWarnings.push(...msg.warnings);
+        showCoverageNote();
+      }
       if (!first && msg.kind === state.wantedKind) toast(`${kindLabel(msg.kind)} stats loaded.`, 1600);
       break;
     }
@@ -905,6 +909,11 @@ function showStart() {
   setChrome(false);
   $("meta").textContent = "";
 }
+function showCoverageNote() {
+  const note = [data.meta.coverage_note, ...data.readerWarnings].filter(Boolean).join(" ");
+  $("coverage-note").textContent = note;
+  $("coverage-note").hidden = !note;
+}
 function showApp({ keep = false } = {}) {
   setChrome(true);
   // A file asked for before another save was opened is dropped on arrival, so its button starts over.
@@ -913,8 +922,7 @@ function showApp({ keep = false } = {}) {
   }
   if (keep) return;
   const m = data.meta;
-  $("coverage-note").textContent = m.coverage_note || "";
-  $("coverage-note").hidden = !m.coverage_note;
+  showCoverageNote();
   $("meta").innerHTML = [m.save && `<b>${esc(m.save)}</b>`, m.club && esc(m.club), m.date && esc(day(Date.parse(m.date) / DAY))].filter(Boolean).join(", ");
   for (const b of $("csv-menu").querySelectorAll("[data-csv]")) b.hidden = (state.demo && b.dataset.csv !== "view") || (!hasSquad() && b.dataset.csv === "squad");
   $("tabs").querySelector('[data-list="squad"]').hidden = !hasSquad();

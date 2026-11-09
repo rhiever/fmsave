@@ -215,21 +215,17 @@ def failing_selection_check(*_args: object) -> ReaderCheck:
 
 
 @pytest.mark.parametrize("first_reader", ["tactics", "set_pieces", "selections"])
-def test_a_failed_selection_check_stops_only_selections(
+def test_advisory_selection_check_warns_and_preserves_all_tables(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first_reader: str
 ) -> None:
     monkeypatch.setattr(_checks, "check_selections", failing_selection_check)
     save_path = career_fragment().write(tmp_path / "career.bin")
     with fmsave.open(save_path, strict=True) as save:
-        if first_reader == "selections":
-            with pytest.raises(fmsave.ReaderCheckError, match="selection_picks_at_club"):
-                save.selections()
-        else:
-            getattr(save, first_reader)()
+        with pytest.warns(fmsave.ReaderCheckWarning, match="selection_picks_at_club"):
+            assert len(getattr(save, first_reader)()) > 0
         assert len(save.tactics()) == 2
         assert len(save.set_pieces()) > 0
-        with pytest.raises(fmsave.ReaderCheckError, match="selection_picks_at_club"):
-            save.selections()
+        assert len(save.selections()) > 0
 
 
 def test_a_pick_of_a_player_at_another_club_resolves_but_is_not_at_the_club(

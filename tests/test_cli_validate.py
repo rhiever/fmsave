@@ -95,11 +95,13 @@ def save_path(career_save_path: Path) -> Path:
 
 
 def failing_contract_gates(*arguments: object) -> tuple[GateResult, ...]:
-    return (GateResult("tails_parsed", 0.5, 0.9, None, passed=False, applied=True),)
+    return (GateResult("clause_terminator", 0.5, 0.9, None, passed=False, applied=True),)
 
 
 def failing_league_table_gates(*arguments: object) -> tuple[GateResult, ...]:
-    return (GateResult("table_blocks_minimum", 2, 1_000, None, passed=False, applied=True),)
+    return (
+        GateResult("table_venue_calendar_agreement", 2, 1_000, None, passed=False, applied=True),
+    )
 
 
 def failing_staff_gates(*arguments: object) -> tuple[GateResult, ...]:
@@ -193,6 +195,19 @@ def test_validate_text_lists_each_reader_and_the_build(
         assert private_text not in output_text
 
 
+def test_validate_text_reports_an_advisory_without_failing(
+    save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def unusual_age(*_args: object) -> tuple[GateResult, ...]:
+        return (GateResult("age_median", 17, 20, 30, False, True),)
+
+    monkeypatch.setattr("fmsave._checks.evaluate_players", unusual_age)
+    assert cli.main(["validate", str(save_path)]) == cli.EXIT_OK
+    output = capsys.readouterr()
+    assert "players: ok (4 records)\n  warning: age_median = 17 expected 20..30" in output.out
+    assert output.err == ""
+
+
 def test_a_failed_contract_check_exits_3_and_names_the_gate(
     save_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -200,7 +215,7 @@ def test_a_failed_contract_check_exits_3_and_names_the_gate(
     assert cli.main(["validate", str(save_path)]) == cli.EXIT_UNSUPPORTED
     output_lines = capsys.readouterr().out.splitlines()
     assert "contracts: failed (4 records)" in output_lines
-    assert "  tails_parsed = 0.5 expected 0.9.." in output_lines
+    assert "  clause_terminator = 0.5 expected 0.9.." in output_lines
     # The contracts share a decode with the players, but the failed gate is the contracts' own:
     # the pass still produced all three tables, so only the reader whose counts are out of
     # bounds is reported failed.
@@ -261,7 +276,7 @@ def test_a_failed_league_table_check_leaves_the_other_span_readers_ok(
     assert cli.main(["validate", str(save_path)]) == cli.EXIT_UNSUPPORTED
     output_lines = capsys.readouterr().out.splitlines()
     assert "league_tables: failed (2 records)" in output_lines
-    assert "  table_blocks_minimum = 2 expected 1000.." in output_lines
+    assert "  table_venue_calendar_agreement = 2 expected 1000.." in output_lines
     assert "fixtures: ok (6 records)" in output_lines
     assert "competition_rules: ok (2 records)" in output_lines
 

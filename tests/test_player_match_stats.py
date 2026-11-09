@@ -787,10 +787,16 @@ def test_the_gates_fail_one_at_a_time_when_their_counts_are_driven_past_their_bo
     """Each gate fails on its own count; an empty search still fails the competition check."""
     results = evaluate_player_match_stats(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert failed_gate_names(results) == list(expected_failures)
-    with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("player_match_stats", results, strict=True)
-    assert str(error_info.value).startswith("player_match_stats failed checks: ")
-    assert expected_failures[0] in str(error_info.value)
+    if "per_match_rating_in_range" in expected_failures:
+        with pytest.raises(fmsave.ReaderCheckError) as error_info:
+            enforce("player_match_stats", results, strict=True)
+        message = str(error_info.value)
+    else:
+        with pytest.warns(fmsave.ReaderCheckWarning) as caught:
+            enforce("player_match_stats", results, strict=True)
+        message = str(caught[0].message)
+    assert message.startswith("player_match_stats failed checks: ")
+    assert expected_failures[0] in message
 
 
 def test_historical_match_records_without_statistics_do_not_fail_statistic_checks() -> None:
@@ -884,8 +890,10 @@ def test_the_reader_raises_when_its_counts_are_past_its_bounds_and_returns_its_t
         assert career_save._context.cached_value(PLAYER_MATCH_STATS_TABLE_CACHE_KEY) is None
     message = str(error_info.value)
     assert message.startswith("player_match_stats failed checks: ")
-    for gate_name in MATCH_GATE_NAMES:
+    for gate_name in ("per_match_rating_in_range", "per_match_lists_complete"):
         assert gate_name in message
+    for gate_name in ("per_match_minutes_in_range", "per_match_competition_in_stage_space"):
+        assert gate_name not in message
 
     meetable_bounds = bounds_only_this_reader_can_fail(
         per_match_competition_in_stage_space=(0.70, None),

@@ -104,8 +104,7 @@ options:
                         a UTF-8 CSV of database_id,name naming competitions,
                         which no save stores
   -o, --output PATH     write to this file instead of standard output
-  --strict              stop rather than write when a reader's checks fail
-                        (they warn by default)
+  --strict              stop if a reader fails a blocking check
 ```
 
 ## fmsave validate

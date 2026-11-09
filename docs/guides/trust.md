@@ -42,20 +42,28 @@ A missing match score does not mean a 0-0 result.
 
 ## Reader checks
 
-Checks test completeness, joins and expected ranges. A failed check produces a
-`ReaderCheckWarning` and returns the table. Some range checks may fail on a valid save unlike the
-reference careers; investigate the failed check before using its output.
+Checks test completeness, joins, and expected ranges. Population sizes, typical ranges, parser
+coverage, and comparisons between historical and current career state are advisory. They warn
+and return the table even in strict mode. This includes age and height distributions, suspension
+rates, missing optional data, and match-minute expectations.
 
-Use strict mode when your pipeline should stop on a failed check:
+Strict mode enforces checks backed by record integrity, such as conflicting identities,
+incomplete declared lists, and inconsistent finance arithmetic. These checks warn by default
+in FM26 and FM27 and raise when you opt into strict mode. Passing them does not prove that
+every decoded value is correct.
 
 ```python
 with fmsave.open("career.fm", strict=True) as career_save:
-    squad = career_save.players()  # raises ReaderCheckError on a failed check
+    squad = career_save.players()  # raises ReaderCheckError on a failed blocking check
 ```
 
 A structural failure that prevents a table from being decoded raises `ReaderCheckError` in either
 mode. Empty output can be valid: `player_match_stats()` accepts it when every player explicitly
 has no stored history. Missing or incomplete histories still fail checks.
+
+An empty optional population has no records to compare. Its integrity checks are marked
+unapplied; population warnings remain visible. Job vacancies can be read without a save clock.
+They warn that clock validation is unavailable and still check the dates within each record.
 
 ## Validation reports
 
@@ -74,10 +82,10 @@ for reader in report.readers:
 Club uid 0 is valid. A club reference is missing when it is `None`, so use `is not None`
 to keep valid references in filters.
 
-A reader's status is `ok`, `failed` (a check did not pass) or `error` (it raised).
-Each `ReaderValidation` also carries `gates`, `coverage` and `anomalies`.
-Passing checks is useful evidence, but does not confirm every field's meaning or guarantee full
-historical coverage.
+A reader's status is `ok` when it returns a table without blocking failures, `failed` when a
+blocking check fails, or `error` when another reader error occurs. Advisory failures appear
+as warnings in text reports and carry `"advisory": true` in JSON. They leave coverage visible.
+Each `ReaderValidation` also carries `gates`, `coverage`, and `anomalies`.
 
 The same report is available from the command line:
 
@@ -124,8 +132,9 @@ statistics come from, are borrowed too; their readers locate their data by store
 check what they read. FM26 layouts are never used for FM27 saves, and FM28 or later saves are
 refused. Please report any problem with an unverified build.
 
-Failed checks always stop an FM27 reader, even with `strict=False`. The validation
-report lists unsupported readers and shows FM27 field statuses. Staff age, birth date,
+FM27 returns decoded rows with warnings by default. Invalid sponsorship lists are skipped and
+the warning explains the gap in coverage. The validation report lists unsupported readers and
+shows FM27 field statuses. Staff age, birth date,
 and contract end date are verified. The 21 staff ratings added in 0.10.0 are also
 verified against the in-game rating labels. Global field-status labels describe FM26.
 

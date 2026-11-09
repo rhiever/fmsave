@@ -4,12 +4,21 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-08
+
 ### Changed
 
 - FM27 validation marks staff age, birth date, and contract end date verified. (#66)
 - FM27 validation marks the 21 staff ratings added in 0.10.0 verified. (#68)
 
-Thanks to @paul-anthony-oneill and @menidi for help testing. Refs #66 and #68.
+### Fixed
+
+- FM27 `finances()` returns validated monthly rows when only the sponsorship checks fail. `sponsorships()` raises for failed blocking checks in strict mode. (#75)
+- FM27 readers return decoded data with warnings by default. Strict mode is opt-in for both game editions. The web app shows reader warnings beside the data. (#75)
+- Population, coverage, and career-state checks warn even in strict mode. This includes age and height ranges, minimum record counts, suspension rates, and match-minute expectations. Empty optional populations no longer fail integrity checks with no records to compare. (#75)
+- Job vacancies remain readable without a save clock, with a warning about unavailable clock validation. Dates within each record are still checked. Explicit empty tactics inventories remain readable when their declared counts agree. (#75)
+
+Thanks to @ironkay-beep for the report and @paul-anthony-oneill and @menidi for help testing. Refs #66, #68, and #75.
 
 ## [0.10.0] - 2026-11-05
 

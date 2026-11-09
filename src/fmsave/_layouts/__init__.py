@@ -1910,6 +1910,11 @@ class TrainingLayout:
 class GateBounds:
     """Loose bounds for the reader checks on what the `game_db` readers decode.
 
+    These bounds describe diagnostic measurements, not their severity. `GateResult.advisory`
+    keeps population, coverage, and career-state expectations nonblocking in every mode.
+    Counts declared by the input and record integrity are judged separately. Descriptions
+    below of a check failing mean its measurement missed a bound, not that a reader raises.
+
     Each `BoundPair` is an inclusive `(minimum, maximum)` pair; None leaves that side open.
     Rates are shares from 0 to 1, and the other bounds are counts or medians. The checks apply
     only when `game_db` is at least `minimum_applies_from_bytes` long, because smaller sections
@@ -2598,7 +2603,7 @@ def _find_fm27_layout[LayoutT: Layout](
 
     A shared schema number is not evidence of cross-edition compatibility, so FM26 layouts are
     never candidates. A region registered with no schema carries none to compare and is
-    borrowed; its readers locate their data by in-band markers and run checks that fail closed.
+    borrowed. Its readers locate data by in-band markers and check what they decode.
     """
     from fmsave._errors import ISSUES_URL, UnsupportedGameError
 

@@ -5,8 +5,10 @@ from pathlib import Path
 import pytest
 
 import fmsave
+from fmsave import cli
 from fmsave.cli import main
-from tests.test_fm27_experimental import BUILD, fm27_fragment
+from tests.test_fm27_experimental import BUILD, UNREGISTERED_BUILD, fm27_fragment
+from tests.test_fm27_player_partial import fm27_player_path
 
 
 def test_registered_fm27_opens_without_an_opt_in(tmp_path: Path) -> None:
@@ -15,7 +17,7 @@ def test_registered_fm27_opens_without_an_opt_in(tmp_path: Path) -> None:
     with save:
         assert save.info.game == "FM27"
         assert save.info.build == BUILD
-        assert save._strict
+        assert not save._strict
 
 
 def test_cli_reads_registered_fm27_without_a_flag(
@@ -48,6 +50,31 @@ def test_the_registered_fm27_build_is_known_and_still_partial_coverage(
     assert "FM27 coverage" in captured.err
     assert main(["info", str(fm27_fragment(tmp_path)), "--json"]) == 0
     assert '"known_build": true' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("strict", (False, True))
+def test_fm27_cli_export_respects_strict(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    strict: bool,
+) -> None:
+    def failing_player_checks(*_args: object) -> tuple[fmsave.GateResult, ...]:
+        return (fmsave.GateResult("relation_sentinel", 0.5, 0.999, None, False, True),)
+
+    monkeypatch.setattr("fmsave._checks.evaluate_players", failing_player_checks)
+    path = fm27_player_path(tmp_path, build=UNREGISTERED_BUILD)
+    args = ["export", str(path), "players", "--all", "--columns", "name"]
+    if strict:
+        args.append("--strict")
+    assert main(args) == (cli.EXIT_UNSUPPORTED if strict else cli.EXIT_OK)
+    output = capsys.readouterr()
+    assert "relation_sentinel" in output.err
+    if strict:
+        assert output.out == ""
+    else:
+        assert "warning: players failed checks" in output.err
+        assert output.out.splitlines() == ["name", "Alex Example"]
 
 
 def test_fm26_opens_a_large_part_under_the_same_file_relative_bounds(tmp_path: Path) -> None:

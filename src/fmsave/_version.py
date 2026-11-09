@@ -444,7 +444,7 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
                 f"{file_name} was saved by FM26 build {version.build}, which fmsave {__version__} has no "
                 "full set of layouts for. Metadata is checked against observed layouts; "
                 f"other readers use the {FALLBACK_BUILD} layouts where it has none of its own. "
-                "Readers check their results and raise ReaderCheckError if they do not fit."
+                "Readers check their decoded data and warn about failed checks by default."
             ),
             skip_file_prefixes=(str(Path(fmsave.__file__).parent) + os.sep,),
         )
@@ -465,8 +465,8 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
                 f"fmsave {__version__} has no layouts registered for it. It borrows the "
                 f"{', '.join(registered_fm27_builds())} layouts for each section whose schema "
                 "matches, and a reader of a section whose schema differs raises "
-                "UnsupportedGameError. Readers check their results and raise ReaderCheckError "
-                f"if they do not fit. Please report problems at {ISSUES_URL}. "
+                "UnsupportedGameError. Readers warn about failed checks by default. "
+                f"Please report problems at {ISSUES_URL}. "
             )
         )
         warnings.warn(

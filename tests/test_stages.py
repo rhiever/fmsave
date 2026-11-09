@@ -431,9 +431,14 @@ def test_stage_gates_fail_one_at_a_time_with_a_message_naming_the_gate(
     if not expected_failures:
         enforce("stages", results, strict=True)
         return
-    with pytest.raises(fmsave.ReaderCheckError) as error_info:
-        enforce("stages", results, strict=True)
-    message = str(error_info.value)
+    if expected_failures[0] in {"stage_walk_gaps", "stage_ids_ascending"}:
+        with pytest.raises(fmsave.ReaderCheckError) as error_info:
+            enforce("stages", results, strict=True)
+        message = str(error_info.value)
+    else:
+        with pytest.warns(fmsave.ReaderCheckWarning) as warning_info:
+            enforce("stages", results, strict=True)
+        message = str(warning_info[0].message)
     assert expected_failures[0] in message
     for fictional_text in ("Alex", "Northbridge", "Example", FILE_NAME):
         assert fictional_text not in message
@@ -475,27 +480,23 @@ def test_the_example_rows_are_each_one_stride_long() -> None:
         pytest.param("competitions", "competitions_minimum", id="competitions"),
     ],
 )
-def test_each_reader_enforces_its_checks_before_it_hands_back_a_table(
+def test_small_populations_warn_and_return_tables_even_in_strict_mode(
     career_save_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     reader_name: str,
     expected_gate: str,
 ) -> None:
-    """A reader that evaluated its checks and never enforced them would return this table.
-
-    The example save holds far fewer rows than a career does, so once the checks apply the
-    counts are below their bounds and the reader must raise rather than return.
-    """
+    """A small population remains readable while its diagnostic warning is retained."""
     applied_bounds = dataclasses.replace(BOUNDS, minimum_applies_from_bytes=0)
     monkeypatch.setattr(fmsave.Save, "_gate_bounds", lambda career_save: applied_bounds)
 
     with (
         fmsave.open(career_save_path, strict=True) as career_save,
-        pytest.raises(fmsave.ReaderCheckError) as error_info,
+        pytest.warns(fmsave.ReaderCheckWarning, match=expected_gate) as warning_info,
     ):
-        getattr(career_save, reader_name)()
+        assert len(getattr(career_save, reader_name)()) > 0
 
-    message = str(error_info.value)
+    message = str(warning_info[0].message)
     assert expected_gate in message
     for fictional_text in ("Alex", "Northbridge", "Example", FILE_NAME):
         assert fictional_text not in message

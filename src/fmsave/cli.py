@@ -336,7 +336,7 @@ def _build_parser() -> _CommandLineParser:
     export_parser.add_argument(
         "--strict",
         action="store_true",
-        help="stop rather than write when a reader's checks fail (they warn by default)",
+        help="stop if a reader fails a blocking check",
     )
 
     validate_parser = subcommands.add_parser(
@@ -1244,10 +1244,9 @@ def _render_validation_text(report: ValidationReport) -> str:
     for reader in report.readers:
         count_text = "" if reader.record_count is None else f" ({reader.record_count} records)"
         lines.append(f"{reader.reader}: {reader.status}{count_text}")
-        if reader.status != "failed":
-            continue
         lines.extend(
-            f"  {gate.name} = {_format_check_number(gate.observed, 'none')} expected "
+            f"  {'warning: ' if gate.advisory else ''}{gate.name} = "
+            f"{_format_check_number(gate.observed, 'none')} expected "
             f"{_format_check_number(gate.minimum, '')}..{_format_check_number(gate.maximum, '')}"
             for gate in reader.gates
             if gate.applied and not gate.passed

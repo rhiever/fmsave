@@ -19,6 +19,7 @@ import math
 import os
 import re
 import time
+import warnings
 from array import array
 from collections.abc import Callable, Iterable, Sequence
 from datetime import date
@@ -310,9 +311,26 @@ def open_save(path: str) -> dict[str, object]:
     }
 
 
+def _read_with_warnings[ResultT](read: Callable[[], ResultT]) -> tuple[ResultT, list[str]]:
+    """Collect reader check messages for display next to the decoded data."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", fmsave.ReaderCheckWarning)
+        result = read()
+    messages = []
+    for warning in caught:
+        if issubclass(warning.category, fmsave.ReaderCheckWarning):
+            messages.append(str(warning.message))
+        else:
+            warnings.showwarning(
+                warning.message, warning.category, warning.filename, warning.lineno
+            )
+    return result, messages
+
+
 def read_players() -> dict[str, object]:
     """Read every named player and return the page's columns."""
-    players = _state["save"].players().filter(lambda player: bool(player.name))
+    table, check_warnings = _read_with_warnings(_state["save"].players)
+    players = table.filter(lambda player: bool(player.name))
     _state["players"] = players
     _state["order"] = {player.uid: index for index, player in enumerate(players)}
     numbers = player_numbers(players)
@@ -324,13 +342,14 @@ def read_players() -> dict[str, object]:
         "count": len(players),
         "numbers": packed,
         "text": player_text(players),
+        "warnings": check_warnings,
         "seconds": round(time.monotonic() - _state["started"], 1),
     }
 
 
 def read_stats() -> dict[str, object]:
     """Read this season's stats, then close the save, and return the overall columns."""
-    stats = _state["save"].player_season_stats()
+    stats, check_warnings = _read_with_warnings(_state["save"].player_season_stats)
     close_save()
     _state["stats"] = stats
     by_player: dict[int, list[Any]] = {}
@@ -340,6 +359,7 @@ def read_stats() -> dict[str, object]:
     return {
         "kind": "overall",
         "numbers": stats_columns("overall"),
+        "warnings": check_warnings,
         "seconds": round(time.monotonic() - _state["started"], 1),
     }
 

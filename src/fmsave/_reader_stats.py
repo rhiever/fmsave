@@ -763,6 +763,8 @@ class JobVacancyStats:
 
     `dates_ordered` counts records whose advertised date decodes and is on or before the save's
     in-game date **and** whose second date decodes and is on or after the advertised one.
+    Without a readable clock, `dates_ordered` is None. `relative_dates_ordered` counts the
+    order of the two record dates independently of the clock.
     `advertised_steps` counts the moves from one record with a decodable advertised date to the
     next, and `advertised_ascending_steps` those that did not reach an earlier date: the save
     stores the feed in advertised order, so a step backwards is a decode that has moved rather
@@ -779,7 +781,7 @@ class JobVacancyStats:
 
     records: int
     tagged: int
-    dates_ordered: int
+    dates_ordered: int | None
     advertised_steps: int
     advertised_ascending_steps: int
     reserved_zero: int
@@ -788,6 +790,7 @@ class JobVacancyStats:
     with_competition: int
     with_league_position: int
     flagged: int
+    relative_dates_ordered: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

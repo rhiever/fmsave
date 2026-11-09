@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from collections.abc import Callable, Mapping, Sequence
 from types import TracebackType
 from typing import NamedTuple, Self, cast
@@ -16,7 +17,7 @@ from fmsave._container import (
     read_section,
 )
 from fmsave._context import SaveContext, closed_save_error
-from fmsave._errors import ReaderCheckError, UnsupportedGameError
+from fmsave._errors import ReaderCheckError, ReaderCheckWarning, UnsupportedGameError
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import (
     ContractLayout,
@@ -181,7 +182,7 @@ HISTORY_SELECTORS_CACHE_KEY = "player_history_selectors"
 PLAYER_SEASON_STATS_TABLE_CACHE_KEY = "table:player_season_stats"
 INJURY_TYPES_TABLE_CACHE_KEY = "table:injury_types"
 INJURIES_TABLE_CACHE_KEY = "table:injuries"
-FINANCES_TABLE_CACHE_KEY = "table:finances"
+FINANCE_TABLES_CACHE_KEY = "finance_tables"
 SPONSORSHIPS_TABLE_CACHE_KEY = "table:sponsorships"
 FACILITIES_TABLE_CACHE_KEY = "table:facilities"
 AFFILIATES_TABLE_CACHE_KEY = "table:affiliates"
@@ -200,7 +201,7 @@ MENTORING_TABLE_CACHE_KEY = "table:mentoring"
 _SHARED_PASS_CACHE_KEYS: Mapping[str, str] = {
     _checks.PLAYER_PASS: PLAYERS_TABLE_CACHE_KEY,
     _checks.SPAN_PASS: SPAN_RECORDS_CACHE_KEY,
-    _checks.FINANCE_PASS: FINANCES_TABLE_CACHE_KEY,
+    _checks.FINANCE_PASS: FINANCE_TABLES_CACHE_KEY,
     _checks.STAFF_PASS: STAFF_TABLE_CACHE_KEY,
     _checks.TACTICS_PASS: TACTICS_TABLE_CACHE_KEY,
     _checks.TRAINING_PASS: TRAINING_TABLE_CACHE_KEY,
@@ -208,11 +209,11 @@ _SHARED_PASS_CACHE_KEYS: Mapping[str, str] = {
 
 
 class _FinanceTables(NamedTuple):
-    """The two tables one decode pass over the club records builds, and their _checks."""
+    """The two tables built in one pass over the club records."""
 
     finances: Table[FinanceMonth]
     sponsorships: Table[Sponsorship]
-    reader_checks: tuple[ReaderCheck, ...]
+    sponsorship_check: ReaderCheck
 
 
 # What a save with no managed club counts: a manager between jobs has no team block at all, so
@@ -288,15 +289,6 @@ class _PlayerTables(NamedTuple):
     failed_suspension_check: ReaderCheck | None = None
 
 
-def _checks_fail(reader_checks: Sequence[ReaderCheck]) -> bool:
-    """Whether these checks would stop a strict save."""
-    try:
-        _checks.enforce_checks(reader_checks, strict=True)
-    except ReaderCheckError:
-        return True
-    return False
-
-
 def _passed_suspensions(tables: _PlayerTables) -> Table[Suspension]:
     """The pass's suspension table, or the error of the check it failed on its own.
 
@@ -334,11 +326,10 @@ class Save:
     not kept open. Each reader reopens the file, checks that it has not changed since
     it was opened, and reads only the parts it needs.
 
-    Every reader measures what it decoded against the bounds its checks carry. A failed check
-    warns with `ReaderCheckWarning` and the reader hands its table back; a save opened with
-    `strict=True` raises `ReaderCheckError` instead. A structural failure, where the decode
-    has no table to hand back, raises either way. `fmsave.validate_save` reports every check
-    of every reader without raising or warning.
+    Reader checks warn with `ReaderCheckWarning` and leave the table available by default.
+    In strict mode, blocking checks raise `ReaderCheckError` and advisory checks still warn.
+    Structural failures raise in either mode. `fmsave.validate_save` reports each reader's
+    checks without raising or warning.
 
     A Save is not thread-safe: use one Save per thread. Records and tables it returns
     are immutable, safe to share, and keep working after the Save is closed.
@@ -421,8 +412,8 @@ class Save:
                 listed twice (by one club or by two).
 
         Warns:
-            ReaderCheckWarning: On a full-size save, the club records fall outside the checks'
-                bounds. A save opened with strict=True raises ReaderCheckError instead.
+            ReaderCheckWarning: The club records fail an advisory check, or fail a blocking
+                check outside strict mode.
         """
         context = self._context
         return context.cached(CLUBS_TABLE_CACHE_KEY, self._read_clubs)
@@ -433,8 +424,8 @@ class Save:
         Person fields (name, birth date, nationality, personality, traits and the rest) are filled
         in from each player's person block, or stay None or empty when no block validates.
         The table is read on the first call to `players()`, `contracts()` or `suspensions()`,
-        from one decode pass; later calls to any of them return the same tables. When a check
-        of that pass fails, none of the three tables is kept, so each of them raises, except
+        from one decode pass; later calls to any of them return the same tables. When a blocking
+        check of that pass raises, all three readers raise, except
         that a failed FM27 suspension check stops only `suspensions()`.
 
         Raises:
@@ -452,7 +443,8 @@ class Save:
         Warns:
             ReaderCheckWarning: On a full-size save, the players, contracts or suspensions
                 decoded fall outside the checks' bounds, or, with a name map, the competition
-                table does. A save opened with strict=True raises ReaderCheckError instead.
+                table does. Advisory checks warn in either game. Blocking checks raise
+                ReaderCheckError in strict mode.
         """
         context = self._context
         return context.cached(PLAYERS_TABLE_CACHE_KEY, self._players_table_entry_point)
@@ -462,8 +454,8 @@ class Save:
 
         Only players whose contract is not None appear. The table is read on the first
         call to `players()`, `contracts()` or `suspensions()`, from one decode pass; later
-        calls to any of them return the same tables. When a check of that pass fails, none
-        of the three tables is kept, so each of them raises, except that a failed FM27
+        calls to any of them return the same tables. When a blocking check of that pass raises,
+        all three readers raise, except that a failed FM27
         suspension check stops only `suspensions()`.
 
         Raises:
@@ -481,7 +473,8 @@ class Save:
         Warns:
             ReaderCheckWarning: On a full-size save, the players, contracts or suspensions
                 decoded fall outside the checks' bounds, or, with a name map, the competition
-                table does. A save opened with strict=True raises ReaderCheckError instead.
+                table does. Advisory checks warn in either game. Blocking checks raise
+                ReaderCheckError in strict mode.
         """
         context = self._context
         return context.cached(CONTRACTS_TABLE_CACHE_KEY, self._contracts_table_entry_point)
@@ -495,10 +488,9 @@ class Save:
         player belongs to, which for a player registered with a team another club controls is
         that controlling club. The table is read on the first call to
         `players()`, `contracts()` or `suspensions()`, from one decode pass; later calls to
-        any of them return the same tables. When a check of that pass fails, none of the
-        three tables is kept, so each of them raises. On FM27 the suspension checks are judged
-        on their own: when only they fail, this reader raises, and `players()` and
-        `contracts()` still read, with every `Player.suspensions` None. FM27 ban coverage has
+        any of them return the same tables. A blocking failure can stop the whole pass.
+        In strict mode on FM27, a suspension-only failure raises here. `players()` and
+        `contracts()` remain available, with every `Player.suspensions` None. FM27 ban coverage has
         not been compared with the game.
 
         A ban covering one competition carries `competition_id` in the stage id space, which
@@ -523,7 +515,8 @@ class Save:
         Warns:
             ReaderCheckWarning: On a full-size save, the players, contracts or suspensions
                 decoded fall outside the checks' bounds, or, with a name map, the competition
-                table does. A save opened with strict=True raises ReaderCheckError instead.
+                table does. Advisory checks warn in either game. Blocking checks raise
+                ReaderCheckError in strict mode.
         """
         context = self._context
         return context.cached(SUSPENSIONS_TABLE_CACHE_KEY, self._suspensions_table_entry_point)
@@ -1219,11 +1212,6 @@ class Save:
         context = self._context
         save_info = context.info
         clock = save_info.game_date
-        if clock is None:
-            raise ReaderCheckError(
-                f"{save_info.file_name}: the save's in-game date is unreadable, so a vacancy's "
-                "advertised date cannot be judged against it"
-            )
         gate_bounds = self._gate_bounds()
         layout = find_job_centre_layout(
             save_info.section_schemas.get(JOB_CENTRE_SECTION), save_info.build
@@ -1250,6 +1238,14 @@ class Save:
                 clock,
                 layout,
                 save_info.file_name,
+            )
+        if clock is None:
+            warnings.warn(
+                f"{save_info.file_name}: the vacancy clock-dependent date check is unavailable; "
+                "the save's in-game date is unreadable",
+                ReaderCheckWarning,
+                stacklevel=2,
+                skip_file_prefixes=(os.path.dirname(__file__),),
             )
         vacancy_check = _checks.check_job_vacancies(vacancy_stats, gate_bounds)
         self._enforce_checks((vacancy_check,))
@@ -1646,9 +1642,8 @@ class Save:
         `wage_payroll_weekly`, a yearly figure is a weekly one times 52, a club's latest month
         is its last row, and a club summary is its rows grouped by `club_uid`.
 
-        The table is read on the first call to `finances()` or `sponsorships()`, from one decode
-        pass; later calls to either return the same tables. When a check of that pass fails,
-        neither table is kept, so both raise.
+        Both readers share one decode and cache their results. On FM27, the sponsorship
+        reader enforces its own checks. On FM26, the checks are judged together.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -1659,12 +1654,10 @@ class Save:
                 unreadable, so no month can be dated.
 
         Warns:
-            ReaderCheckWarning: On a full-size save, the months and sponsors decoded fall
-                outside the checks' bounds, or the club table falls outside its own. A save
-                opened with strict=True raises ReaderCheckError instead.
+            ReaderCheckWarning: Monthly finance or club checks fail. On FM26, sponsorship
+                checks can also warn here. Strict mode raises for failed blocking checks.
         """
-        context = self._context
-        return context.cached(FINANCES_TABLE_CACHE_KEY, self._finances_table_entry_point)
+        return self._finance_tables().finances
 
     def sponsorships(self) -> Table[Sponsorship]:
         """Every sponsorship contract the save lists for a club, in stored order.
@@ -1673,8 +1666,8 @@ class Save:
         club's contracts keep the order the save stores them in. **The list keeps contracts that
         have ended**, and an ended contract's `annual_value` can remain non-zero. Dates and
         values are retained as stored. Filtering by `end` alone has not been established to
-        reproduce the game's displayed sponsorship income. An invalid structurally located
-        FM27 list raises `ReaderCheckError`, regardless of save size.
+        reproduce the game's displayed sponsorship income. On FM27, an invalid list is
+        skipped and reported as a warning. Strict mode raises `ReaderCheckError` instead.
 
         `kind` carries a label only for the codes an FM27 sponsorship screen displayed a type
         against; every other code, and every FM26 code, is UNKNOWN. Take a contract's length
@@ -1683,9 +1676,8 @@ class Save:
         `annual_value` over its running rows, except one unexpired kind 6 row it left out.
         Money is a whole number in the save's base currency, as in `finances()`.
 
-        The table is read on the first call to `finances()` or `sponsorships()`, from one decode
-        pass; later calls to either return the same tables. When a check of that pass fails,
-        neither table is kept, so both raise.
+        Both readers share one decode and cache their results. On FM27, the sponsorship
+        reader enforces its own checks. On FM26, the checks are judged together.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -1696,23 +1688,21 @@ class Save:
                 unreadable, so no month can be dated.
 
         Warns:
-            ReaderCheckWarning: On a full-size save, the months and sponsors decoded fall
-                outside the checks' bounds, or the club table falls outside its own. A save
-                opened with strict=True raises ReaderCheckError instead.
+            ReaderCheckWarning: Finance, sponsorship, or club checks fail. Strict mode
+                raises for failed blocking checks.
         """
         context = self._context
         return context.cached(SPONSORSHIPS_TABLE_CACHE_KEY, self._sponsorships_table_entry_point)
 
-    def _finances_table_entry_point(self) -> Table[FinanceMonth]:
-        tables = self._decode_finance_tables()
-        self._store_reader_checks(tables.reader_checks)
-        self._context.cached(SPONSORSHIPS_TABLE_CACHE_KEY, lambda: tables.sponsorships)
-        return tables.finances
+    def _finance_tables(self) -> _FinanceTables:
+        return self._context.cached(FINANCE_TABLES_CACHE_KEY, self._decode_finance_tables)
 
     def _sponsorships_table_entry_point(self) -> Table[Sponsorship]:
-        tables = self._decode_finance_tables()
-        self._store_reader_checks(tables.reader_checks)
-        self._context.cached(FINANCES_TABLE_CACHE_KEY, lambda: tables.finances)
+        tables = self._finance_tables()
+        if self._info.game == "FM27":
+            checks = (tables.sponsorship_check,)
+            self._enforce_checks(checks)
+            self._store_reader_checks(checks)
         return tables.sponsorships
 
     def _decode_finance_tables(self) -> _FinanceTables:
@@ -1750,15 +1740,20 @@ class Save:
                 len(managed_clubs) > 0,
             )
             game_db_length = len(game_db)
-        # Both checks run before either table is built: when one fails, nothing is cached and
-        # the next call decodes and checks again.
-        reader_checks = (
-            _checks.check_finances(finance_stats, gate_bounds, game_db_length),
-            _checks.check_sponsorships(finance_stats, gate_bounds, game_db_length),
-        )
+        # Sponsorships depend on locating the finance chains, so a finance failure stops the
+        # shared pass and carries both sets of checks for validation. When finance checks pass
+        # on FM27, only the sponsorship reader enforces its own checks.
+        finance_check = _checks.check_finances(finance_stats, gate_bounds, game_db_length)
+        sponsorship_check = _checks.check_sponsorships(finance_stats, gate_bounds, game_db_length)
+        reader_checks = (finance_check, sponsorship_check)
+        if save_info.game == "FM27" and (
+            not self._strict or not _checks.checks_fail((finance_check,))
+        ):
+            reader_checks = (finance_check,)
         self._enforce_checks(reader_checks)
+        self._store_reader_checks(reader_checks)
         return _FinanceTables(
-            Table(months, FinanceMonth), Table(sponsorships, Sponsorship), reader_checks
+            Table(months, FinanceMonth), Table(sponsorships, Sponsorship), sponsorship_check
         )
 
     def facilities(self) -> Table[ClubFacilities]:
@@ -2179,7 +2174,7 @@ class Save:
         selection_check = _checks.check_selections(selection_stats, gate_bounds, game_db_length)
         self._enforce_checks(tactic_checks)
         failed_selection_check = None
-        if self._strict and _checks_fail((selection_check,)):
+        if self._strict and _checks.checks_fail((selection_check,)):
             failed_selection_check = selection_check
         else:
             self._enforce_checks((selection_check,))
@@ -2533,7 +2528,11 @@ class Save:
             else game_db_length
         )
         check = _checks.check_nations(stats, bounds, check_bytes)
-        self._enforce_checks((check,))
+        if info.game == "FM27":
+            # Without a unique authenticated table, the empty result is a failed decode.
+            _checks.enforce_checks((check,), strict=True)
+        else:
+            self._enforce_checks((check,))
         self._store_reader_checks((check,))
         return Table(nations, Nation)
 
@@ -2620,12 +2619,11 @@ class Save:
             suspension_entries_by_position: Mapping[int, tuple[SuspensionEntry, ...]] = (
                 locate_suspensions(game_db, player_records, suspension_layout)
             )
-            # FM27 judges the bans before any player is decoded, so a failed suspension check
-            # stops only `suspensions()`: the players are then decoded with no bans at all,
-            # which leaves every Player.suspensions None rather than an empty list.
+            # Judge FM27 bans separately in strict mode so a failed suspension check can
+            # leave the players and contracts available with unknown bans.
             separate_suspension_check: ReaderCheck | None = None
             omit_suspensions = False
-            if save_info.game == "FM27":
+            if self._strict and save_info.game == "FM27":
                 separate_suspension_check = _checks.check_suspensions(
                     suspension_stats(
                         suspension_entries_by_position, len(player_records.record_offsets), clock
@@ -2633,7 +2631,7 @@ class Save:
                     gate_bounds,
                     len(game_db),
                 )
-                omit_suspensions = _checks_fail((separate_suspension_check,))
+                omit_suspensions = _checks.checks_fail((separate_suspension_check,))
                 if omit_suspensions:
                     suspension_entries_by_position = {}
             # With a name map the competitions are read first, checks and all. Every
@@ -2766,13 +2764,9 @@ def open_save(
 
     Args:
         path: The save file to read.
-        strict: Whether a failed reader check stops the reader. The checks are bounds measured
-            on a handful of saves, so a save stranger than those is read and warned about by
-            default: a reader whose checks fail issues `ReaderCheckWarning` and hands its table
-            back. With True it raises `ReaderCheckError` instead, which is what a pipeline that
-            would rather stop than read a table it cannot vouch for wants. A structural failure,
-            where the decode has no table to hand back, raises either way. FM27 reader checks
-            always raise, even with strict=False.
+        strict: Whether a failed blocking check stops the reader. The default warns and
+            returns decoded data. Advisory checks also warn in strict mode. Structural
+            failures raise in either mode.
         competition_names: Names for competitions, keyed on `Competition.database_id`, either
             as a mapping or as the path of a two-column CSV that
             `fmsave.read_competition_names` reads. No save stores a competition name and fmsave
@@ -2805,6 +2799,6 @@ def open_save(
     return Save(
         container_index,
         info,
-        strict=strict or info.game == "FM27",
+        strict=strict,
         competition_names=names,
     )

@@ -73,7 +73,7 @@ function openSave(file, reply) {
     reply({ type: "stage", stage: "players" });
     const players = call("read_players");
     const numbers = packed(players.numbers);
-    reply({ type: "players", count: players.count, numbers, text: players.text }, Object.values(numbers));
+    reply({ type: "players", count: players.count, numbers, text: players.text, warnings: players.warnings }, Object.values(numbers));
   } catch (error) {
     unmount();
     throw error;
@@ -83,7 +83,7 @@ function openSave(file, reply) {
   try {
     const stats = call("read_stats");
     const numbers = packed(stats.numbers);
-    reply({ type: "stats", kind: stats.kind, numbers }, Object.values(numbers));
+    reply({ type: "stats", kind: stats.kind, numbers, warnings: stats.warnings }, Object.values(numbers));
   } catch (error) {
     reply({ type: "error", request: "stats", text: error.safe ? error.message : "Season stats could not be read from this save." });
   } finally {
