@@ -97,8 +97,9 @@ class Fixture:
         stadium_name: Denormalised name of stadium_uid. Only a couple of hundred grounds
             store a name, so this is None on nearly every match even where stadium_uid is
             filled in; `Stadium.name` says why (unconfirmed).
-        match_record_id: Id of the match record the save keeps for a played match, or None
-            when the match is unplayed (unconfirmed).
+        match_record_id: Stored ID for a played match, or None when unavailable.
+            In FM26, it appears to identify the referee and can repeat across fixtures
+            (unconfirmed).
         match_rules_template: The three bytes naming the shared match-rules template this
             match uses. It is a template many competitions share and is **never** a
             competition id (unconfirmed).

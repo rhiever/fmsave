@@ -156,6 +156,7 @@ game stores its data:
 <a href="https://github.com/Buglerru" title="@Buglerru"><img src="https://github.com/Buglerru.png?size=80" width="40" height="40" alt="@Buglerru"></a>
 <a href="https://github.com/BWH95" title="@BWH95"><img src="https://github.com/BWH95.png?size=80" width="40" height="40" alt="@BWH95"></a>
 <a href="https://github.com/GetChatGPTToDoIt" title="@GetChatGPTToDoIt"><img src="https://github.com/GetChatGPTToDoIt.png?size=80" width="40" height="40" alt="@GetChatGPTToDoIt"></a>
+<a href="https://github.com/GiorgioGandolfi88" title="@GiorgioGandolfi88"><img src="https://github.com/GiorgioGandolfi88.png?size=80" width="40" height="40" alt="@GiorgioGandolfi88"></a>
 <a href="https://github.com/guyluzon64" title="@guyluzon64"><img src="https://github.com/guyluzon64.png?size=80" width="40" height="40" alt="@guyluzon64"></a>
 <a href="https://github.com/hostlund" title="@hostlund"><img src="https://github.com/hostlund.png?size=80" width="40" height="40" alt="@hostlund"></a>
 <a href="https://github.com/ironkay-beep" title="@ironkay-beep"><img src="https://github.com/ironkay-beep.png?size=80" width="40" height="40" alt="@ironkay-beep"></a>

@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Fixed
+
+- Corrected the description of `Fixture.match_record_id`. In FM26, it can repeat across fixtures and appears to identify the referee. (#76)
+
+Thanks to @GiorgioGandolfi88 for the report. Refs #76.
+
 ## [0.10.1] - 2026-11-08
 
 ### Changed
