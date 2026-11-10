@@ -4,6 +4,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-11-10
+
 ### Fixed
 
 - `training()` and `mentoring()` read FM27 `27.0.1+2494687` saves whose training blocks carry
