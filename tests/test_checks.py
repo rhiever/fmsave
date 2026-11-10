@@ -1393,7 +1393,12 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "typed_rows_far_from_the_clock": 0,
             "typed_rows_over_a_week_old": 0,
         },
-        "training": {"undated_weeks": 1, "header_entries": 1, "library_entries": 3},
+        "training": {
+            "undated_weeks": 1,
+            "header_entries": 1,
+            "library_entries": 3,
+            "nonzero_block_trailers": 0,
+        },
         "mentoring": {"members_without_a_player": 2, "members_elsewhere": 0},
         "tactics": {
             "preset_tactics": 0,

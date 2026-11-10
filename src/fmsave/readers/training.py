@@ -77,6 +77,7 @@ class TrainingWalkCounts:
     `week_steps` counts the moves from one week of a block to the next where both weeks carry
     a date, and `seven_day_steps` those that stepped exactly a week. `blocks_end` is the offset
     the walk stopped at, which is where the search for the schedule library starts.
+    `nonzero_trailers` counts the blocks whose trailer is not all zero.
     """
 
     header_entries: int
@@ -85,6 +86,7 @@ class TrainingWalkCounts:
     seven_day_steps: int
     undated_weeks: int
     blocks_end: int
+    nonzero_trailers: int = 0
 
 
 def _short_section_error(section_bytes: int, header_entries: int, file_name: str) -> Exception:
@@ -244,8 +246,14 @@ def _read_group(
     return (group_number, label, members), members_offset + members_bytes
 
 
-def _skip_block_trailer(section: bytes, cursor: int, layout: TrainingLayout, file_name: str) -> int:
-    """The offset past a block's trailer after its mentoring groups, which must be all zero."""
+def _skip_block_trailer(
+    section: bytes, cursor: int, layout: TrainingLayout, file_name: str
+) -> tuple[int, bool]:
+    """The offset past a block's trailer after its mentoring groups, and whether it is not zero.
+
+    The trailer is not decoded. FM27 27.0.0 leaves it zero; 27.0.1 writes a word there on a block
+    with mentoring groups. The walk after it still has to find the next block or the end.
+    """
     trailer_end = cursor + layout.block_trailer_bytes
     if trailer_end > len(section):
         raise layout_mismatch(
@@ -253,12 +261,7 @@ def _skip_block_trailer(section: bytes, cursor: int, layout: TrainingLayout, fil
             "a block's trailer runs past the end of the section",
             section_name=TRAINING_SECTION,
         )
-    if any(section[cursor:trailer_end]):
-        raise UnsupportedGameError(
-            f"{file_name}: training blocks whose trailer is not all zero are not supported by "
-            "this layout"
-        )
-    return trailer_end
+    return trailer_end, any(section[cursor:trailer_end])
 
 
 def _block_starts_here(
@@ -312,6 +315,7 @@ def walk_training_blocks(
     week_steps = 0
     seven_day_steps = 0
     undated_weeks = 0
+    nonzero_trailers = 0
     cursor = blocks_offset
     while True:
         team_id = _block_starts_here(section, cursor, club_team_ids, seen_team_ids)
@@ -358,7 +362,8 @@ def walk_training_blocks(
         for _group_index in range(stored_group_count):
             group, position = _read_group(section, position, layout, file_name)
             groups.append(group)
-        position = _skip_block_trailer(section, position, layout, file_name)
+        position, trailer_set = _skip_block_trailer(section, position, layout, file_name)
+        nonzero_trailers += trailer_set
         seen_team_ids.add(team_id)
         blocks.append(RawTrainingBlock(team_id, tuple(weeks), tuple(groups)))
         blocks_end = position
@@ -379,6 +384,7 @@ def walk_training_blocks(
         week_steps=week_steps,
         seven_day_steps=seven_day_steps,
         undated_weeks=undated_weeks,
+        nonzero_trailers=nonzero_trailers,
         blocks_end=blocks_end,
     )
     return tuple(blocks), counts
@@ -545,6 +551,7 @@ def build_training_tables(
         week_steps=counts.week_steps,
         seven_day_steps=counts.seven_day_steps,
         undated_weeks=counts.undated_weeks,
+        nonzero_trailers=counts.nonzero_trailers,
         library_entries=0 if library is None else len(library),
         groups=len(group_rows),
         members=member_count,
@@ -565,6 +572,7 @@ def unmanaged_training_stats() -> TrainingStats:
         week_steps=0,
         seven_day_steps=0,
         undated_weeks=0,
+        nonzero_trailers=0,
         library_entries=0,
         groups=0,
         members=0,

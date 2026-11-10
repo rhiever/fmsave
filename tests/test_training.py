@@ -297,6 +297,7 @@ def test_the_walk_counts_every_block_week_and_step(career_path: Path) -> None:
         "undated_weeks": 1,
         "header_entries": 1,
         "library_entries": 3,
+        "nonzero_block_trailers": 0,
     }
 
 

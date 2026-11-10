@@ -207,11 +207,24 @@ def test_fm27_blocks_after_one_with_groups_are_still_walked() -> None:
     assert counts.blocks_end == len(body)
 
 
-@pytest.mark.parametrize("trailer", (b"\x01\x00\x00\x00", b"\x00\x00\x00\x80"))
-def test_fm27_block_trailer_that_is_not_zero_is_rejected(trailer: bytes) -> None:
-    body = fm27_section(groups=(fm27_group(1, "Example Group 1", (7,)),), trailer=trailer)
-    with pytest.raises(UnsupportedGameError, match="trailer"):
-        walk_training_blocks(body, TEAMS, LAYOUT, "fictional.bin")
+@pytest.mark.parametrize("trailer", (b"\x05\x00\x00\x00", b"\x00\x00\x00\x80"))
+def test_fm27_block_trailer_that_is_not_zero_is_stepped_over_and_counted(trailer: bytes) -> None:
+    first = fm27_section(
+        days=(48,), names=("Example Light",), groups=(fm27_group(1, "G", (4,)),), trailer=trailer
+    )
+    second = fm27_section(days=(55,), names=("Example Balanced",), team_id=NORTHBRIDGE_TEAM_B)
+    body = first + b"\x00" + second[33:]
+    blocks, counts = walk_training_blocks(
+        body, frozenset({NORTHBRIDGE_TEAM_A, NORTHBRIDGE_TEAM_B}), LAYOUT, "fictional.bin"
+    )
+    assert [block.team_id for block in blocks] == [NORTHBRIDGE_TEAM_A, NORTHBRIDGE_TEAM_B]
+    assert [block.groups for block in blocks] == [((1, "G", (4,)),), ()]
+    assert (counts.nonzero_trailers, counts.blocks_end) == (1, len(body))
+
+
+def test_fm27_zero_block_trailers_count_none() -> None:
+    _, counts = walk_training_blocks(fm27_section(), TEAMS, LAYOUT, "fictional.bin")
+    assert counts.nonzero_trailers == 0
 
 
 @pytest.mark.parametrize("trailer_bytes", (0, 3))

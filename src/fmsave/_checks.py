@@ -2715,8 +2715,10 @@ def check_training(stats: TrainingStats, bounds: GateBounds, game_db_bytes: int)
     """The training reader's checks, record count and anomaly counts.
 
     The anomalies are counts rather than faults: the weeks whose stored date does not decode,
-    the per-person header entries the reader does not decode at all, and the saved schedules
-    found after the last block, which a manager who has saved none legitimately has none of.
+    the per-person header entries the reader does not decode at all, the saved schedules
+    found after the last block, which a manager who has saved none legitimately has none of,
+    and the blocks whose undecoded trailer is not zero, which FM27 27.0.1 writes on a block with
+    mentoring groups.
     """
     return ReaderCheck(
         TRAINING_READER,
@@ -2727,6 +2729,7 @@ def check_training(stats: TrainingStats, bounds: GateBounds, game_db_bytes: int)
                 "undated_weeks": stats.undated_weeks,
                 "header_entries": stats.header_entries,
                 "library_entries": stats.library_entries,
+                "nonzero_block_trailers": stats.nonzero_trailers,
             }
         ),
     )
