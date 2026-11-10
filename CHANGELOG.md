@@ -4,6 +4,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Added
+
+- Read each team's match stats screen figures, 2 rows per match, for every match whose report
+  an FM26 26.3.1 or 26.3.2 save keeps. Use `team_match_stats()` in Python or the
+  `team-match-stats` export, and join rows to `fixtures()` on `competition_id`, `home_team_id`,
+  `away_team_id`, and `date`. (#80)
+
+Thanks to @GiorgioGandolfi88 for researching per-match team statistics. Refs #80.
+
 ## [0.11.0] - 2026-11-08
 
 ### Added

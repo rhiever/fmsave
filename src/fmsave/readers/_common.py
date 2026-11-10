@@ -43,6 +43,9 @@ TACTICS_SECTION = "tactics_man"
 # tens of KB of variable-length blocks.
 TRAINING_SECTION = "training_man"
 
+# The match report store: one compressed frame per match, tens of MB on a long career.
+MATCH_REPORTS_SECTION = "match_stats_cfg"
+
 
 def section_label(file_name: str, section_name: str = GAME_DB_SECTION) -> str:
     """ "<file name>: section '<section name>'", the common prefix of a reader's error text."""

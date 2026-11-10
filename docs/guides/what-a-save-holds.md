@@ -55,7 +55,8 @@ stores with no league nation, such as some school and university teams. Their
 ## Competitions
 
 `stages()`, `competitions()`, `fixtures()`, `officials()`, `league_tables()`, `competition_rules()`,
-`transfer_windows()`, `player_match_stats()`, `player_season_stats()`, `player_season_history()`
+`transfer_windows()`, `player_match_stats()`, `team_match_stats()`, `player_season_stats()`,
+`player_season_history()`
 
 Fixtures provide dates, teams, rounds and scores where fmsave can decode an unambiguous result.
 
@@ -78,6 +79,13 @@ histories stored within player records. Coverage varies by save and player; it i
 career match log. Empty output passes validation when every player explicitly has no stored
 history.
 Incomplete or unresolved histories fail the reader checks.
+
+`team_match_stats()` gives each side's figures from the game's match stats screen: shots, xG,
+possession, passes, crosses, tackles, aerials, fouls, cards, corners, and distance. A match has
+2 rows, 1 per team. Join them to `fixtures()` on `competition_id`, `home_team_id`,
+`away_team_id`, and `date`. The game keeps these reports for some matches only, mostly recent
+ones, so older fixtures often have no rows. Progressive passes appear only on matches the game
+kept in its detailed format. The reader supports FM26 builds 26.3.1 and 26.3.2.
 
 ## Injuries
 

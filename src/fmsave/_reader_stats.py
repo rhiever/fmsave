@@ -929,3 +929,25 @@ class SeasonHistoryStats:
     unowned_lists: int
     players_without_history: int
     unresolved_teams: int
+
+
+@dataclass(frozen=True, slots=True)
+class TeamMatchStatsStats:
+    """What the walk of the match report store counted.
+
+    `entries` counts the reports the page index lists and `decompressed` those whose frame
+    decompressed whole. Of those, `without_header` lack a competition and two teams and
+    `incomplete` have a header but squads that do not frame; neither gives rows. `framed`
+    reports give two rows each unless their key is one of the `duplicate_keys` more than one
+    report holds, which are all left out. `detailed` counts framed reports in the long format,
+    and `rows` the rows handed out.
+    """
+
+    entries: int
+    decompressed: int
+    without_header: int
+    incomplete: int
+    framed: int
+    detailed: int
+    duplicate_keys: int
+    rows: int

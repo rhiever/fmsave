@@ -61,6 +61,7 @@ from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
 from fmsave.models.tactics import Selection, SetPieceRoutine, Tactic
+from fmsave.models.team_match_stats import TeamMatchStats
 from fmsave.models.training import MentoringGroup, TeamTraining
 from fmsave.table import Table
 
@@ -728,6 +729,23 @@ def _fixture_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[obj
     )
 
 
+def _team_match_stats_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[object]:
+    """A club or nation scope keeps both rows of a match either side of which is in it."""
+    team_stats = career_save.team_match_stats()
+    competition_id = scope.competition_id
+    if competition_id is not None:
+        return (row for row in team_stats if row.competition_id == competition_id)
+    if scope.club_uids is None and scope.nation_id is None:
+        return team_stats
+    keeps_club = _club_uid_filter(career_save, scope)
+    team_ids = {
+        team.team_id for club in career_save.clubs() if keeps_club(club.uid) for team in club.teams
+    }
+    return (
+        row for row in team_stats if row.home_team_id in team_ids or row.away_team_id in team_ids
+    )
+
+
 def _league_table_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[object]:
     """A club or nation scope keeps a whole table holding a row of such a club.
 
@@ -1036,6 +1054,7 @@ _EXPORT_TABLES: dict[str, _ExportTable] = {
         CompetitionRules, _COMPETITION_SCOPES, _competition_rules_rows, note=_COMPETITION_RULES_NOTE
     ),
     "player-match-stats": _ExportTable(PlayerMatchStats, _EVERY_SCOPE, _player_match_stats_rows),
+    "team-match-stats": _ExportTable(TeamMatchStats, _EVERY_SCOPE, _team_match_stats_rows),
     "player-season-stats": _ExportTable(
         PlayerSeasonStats,
         _CLUB_AND_NATION_SCOPES,

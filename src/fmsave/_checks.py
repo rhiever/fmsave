@@ -62,6 +62,7 @@ from fmsave._reader_stats import (
     StageStats,
     SuspensionStats,
     TacticStats,
+    TeamMatchStatsStats,
     TrainingStats,
     TransferWindowStats,
 )
@@ -135,6 +136,8 @@ TRANSFER_WINDOWS_READER = "transfer_windows"
 LEAGUE_TABLES_READER = "league_tables"
 COMPETITION_RULES_READER = "competition_rules"
 PLAYER_MATCH_STATS_READER = "player_match_stats"
+TEAM_MATCH_STATS_READER = "team_match_stats"
+_MATCH_REPORTS_SECTION = "match_stats_cfg"
 SEASON_HISTORY_READER = "player_season_history"
 SEASON_STATS_READER = "player_season_stats"
 INJURY_TYPES_READER = "injury_types"
@@ -260,6 +263,7 @@ _ADVISORY_GATES = frozenset(
         "issued_after_clock",
         "job_vacancy_dates_ordered",
         "join_date_valid",
+        "match_reports_framed",
         "mentoring_members_at_club",
         "names_resolved",
         "no_contract_in_effect",
@@ -1610,6 +1614,52 @@ def check_player_match_stats(
     )
 
 
+def evaluate_team_match_stats(
+    stats: TeamMatchStatsStats, bounds: GateBounds
+) -> tuple[GateResult, ...]:
+    """The team match stats reader's checks, in a fixed order.
+
+    Every report the page index lists must decompress whole: the count is the save's own. The
+    framed share is advisory, because a long detailed report can hold a stray walk that leaves
+    its squads unframed. Both judge nothing when the index lists no report.
+    """
+    return (
+        _share_gate(
+            "match_report_entries_decompressed",
+            stats.decompressed,
+            stats.entries,
+            bounds.match_report_entries_decompressed,
+            applied=True,
+        ),
+        _share_gate(
+            "match_reports_framed",
+            stats.framed,
+            stats.decompressed,
+            bounds.match_reports_framed,
+            applied=True,
+        ),
+    )
+
+
+def check_team_match_stats(stats: TeamMatchStatsStats, bounds: GateBounds) -> ReaderCheck:
+    """The team match stats reader's checks, row count and anomaly counts."""
+    return ReaderCheck(
+        TEAM_MATCH_STATS_READER,
+        stats.rows,
+        evaluate_team_match_stats(stats, bounds),
+        FrozenMapping(
+            {
+                "index_entries": stats.entries,
+                "undecompressed_entries": stats.entries - stats.decompressed,
+                "reports_without_header": stats.without_header,
+                "incomplete_reports": stats.incomplete,
+                "detailed_reports": stats.detailed,
+                "duplicate_keys": stats.duplicate_keys,
+            }
+        ),
+    )
+
+
 def evaluate_stadium_table(
     stats: StadiumStats, bounds: GateBounds, game_db_bytes: int
 ) -> tuple[GateResult, ...]:
@@ -2955,7 +3005,8 @@ def validate_save(career_save: Save) -> ValidationReport:
     competitions, fixtures, officials, league tables, transfer windows, competition rules, per-match
     player stats, stadiums, finances, sponsorships, affiliates, job vacancies, staff, staff
     lists, injury types, injury history, training, mentoring, tactics, set pieces, selections,
-    club facilities, and on FM27, the squad planner. The order puts each reader after the ones whose work it reuses, so a shared
+    club facilities, on FM27 the squad planner, and on an FM26 save with a match report store,
+    the team match stats. The order puts each reader after the ones whose work it reuses, so a shared
     decode that fails is reported where it failed: stadiums follow the fixtures whose calendar
     they read, injury types precede the injury history that names its types, and the two
     readers of each shared pass sit side by side. A reader with a failed blocking check is
@@ -3018,6 +3069,8 @@ def validate_save(career_save: Save) -> ValidationReport:
     )
     if save_info.game == "FM27":
         reader_tables += ((SQUAD_PLANNER_READER, career_save.squad_planner),)
+    if save_info.game == "FM26" and _MATCH_REPORTS_SECTION in save_info.section_schemas:
+        reader_tables += ((TEAM_MATCH_STATS_READER, career_save.team_match_stats),)
     validations: list[ReaderValidation] = []
     failed_passes: dict[str, FmsaveError] = {}
     # Validation already reports the checks, so suppress their warnings during the run.

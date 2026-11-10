@@ -60,7 +60,7 @@ tables' nation fields to `nation_id`, then use `database_id` with an external na
 ## Competitions
 
 `stages()`, `competitions()`, `fixtures()`, `officials()`, `league_tables()`, `transfer_windows()`,
-`competition_rules()` and `player_match_stats()`.
+`competition_rules()`, `player_match_stats()` and `team_match_stats()`.
 
 ```{eval-rst}
 .. autoclass:: fmsave.Stage
@@ -75,6 +75,7 @@ tables' nation fields to `nation_id`, then use `database_id` with an external na
 .. autoclass:: fmsave.CompetitionRules
 .. autoclass:: fmsave.RulesRound
 .. autoclass:: fmsave.PlayerMatchStats
+.. autoclass:: fmsave.TeamMatchStats
 ```
 
 ## Season statistics

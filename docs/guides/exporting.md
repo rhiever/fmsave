@@ -75,6 +75,10 @@ fmsave export career.fm player-season-stats --managed-club -o season.csv
 Export the officials lookup with `fmsave export career.fm officials --all`. Join the officials and fixture
 exports on `referee_id` within the same save.
 
+`fmsave export career.fm team-match-stats --managed-club` writes both sides of every match your
+club played that the save still keeps a report for. Join the rows to the fixtures export on
+`competition_id`, `home_team_id`, `away_team_id`, and `date`.
+
 Supply exactly 1 scope supported by the table:
 
 - `--managed-club`: the club you run.
