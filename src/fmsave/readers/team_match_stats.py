@@ -15,7 +15,7 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 
-from fmsave._errors import UnsupportedGameError
+from fmsave._errors import CorruptSaveError, UnsupportedGameError
 from fmsave._layouts import MatchReportLayout, find_layout
 from fmsave._reader_stats import TeamMatchStatsStats
 from fmsave.models.team_match_stats import TeamMatchStats
@@ -106,6 +106,11 @@ def index_entries(
                 )
             entries.append((start, size))
             search_from = max(search_from, start + size)
+    previous_end = 0
+    for start, size in sorted(entries):
+        if start < previous_end:
+            raise layout_mismatch(file_name, "two match reports overlap", MATCH_REPORTS_SECTION)
+        previous_end = start + size
     return tuple(entries)
 
 
@@ -151,6 +156,8 @@ def _header(report: bytes, layout: MatchReportLayout) -> _Header | None:
     if away_at < 0:
         return None
     skip = len(layout.team_marker)
+    if away_at + skip + _U32.size > len(report):
+        return None
     minutes = _U32.unpack_from(report, layout.kick_off_offset)[0]
     try:
         kick_off = _YEAR_ONE + datetime.timedelta(minutes=minutes)
@@ -196,6 +203,13 @@ def _record_length(report: bytes, anchor: int, layout: MatchReportLayout) -> int
     return layout.record_bytes + (flag_at - base_flag_at) + flag * layout.optional_block_bytes
 
 
+def _walk(head: int, successor: dict[int, int]) -> list[int]:
+    walk = [head]
+    while walk[-1] in successor:
+        walk.append(successor[walk[-1]])
+    return walk
+
+
 def _squads(
     report: bytes, layout: MatchReportLayout, seed_pattern: re.Pattern[bytes]
 ) -> _Squads | None:
@@ -223,19 +237,27 @@ def _squads(
             successor[anchor] = anchor + length
             anchor += length
     reached = set(successor.values())
-    chains: list[list[int]] = []
+    # Each anchor's walk length is worked out once, so walks that merge cost nothing twice.
+    remaining: dict[int, int] = {}
     for seed in seeds:
-        if seed in reached:
-            continue
-        chain = [seed]
-        while chain[-1] in successor:
-            chain.append(successor[chain[-1]])
-        chains.append(chain)
-    longest = sorted(sorted(chains, key=len, reverse=True)[:2])
+        path: list[int] = []
+        anchor = seed
+        while anchor not in remaining and anchor in successor:
+            path.append(anchor)
+            anchor = successor[anchor]
+        known = remaining.setdefault(anchor, 1)
+        for walked in reversed(path):
+            known += 1
+            remaining[walked] = known
+    heads = [seed for seed in seeds if seed not in reached]
+    longest = sorted(sorted(heads, key=lambda head: remaining[head], reverse=True)[:2])
     if len(longest) != 2:
         return None
-    home, away = longest
+    home = _walk(longest[0], successor)
+    away = _walk(longest[1], successor)
     if min(len(home), len(away)) < layout.minimum_squad:
+        return None
+    if home[0] < max(back for _, _, back in layout.team_fields):
         return None
     detailed = all(
         home[0] - back >= 0 and report[home[0] - back] == layout.detail_marker
@@ -256,7 +278,7 @@ def _squads(
     ):
         return None
     away_end = away[-1] + away_length
-    if any(chain[0] >= away_end and len(chain) > 1 for chain in chains):
+    if any(head >= away_end and remaining[head] > 1 for head in heads):
         return None
     return _Squads(home=tuple(home), away=tuple(away), detailed=detailed)
 
@@ -316,37 +338,52 @@ def read_team_match_stats(
 ) -> tuple[list[TeamMatchStats], TeamMatchStatsStats]:
     """Two rows for every report whose squads frame and whose key no other report shares.
 
+    Each report's values are taken as soon as it decompresses, so only one report is held.
+
     Raises:
-        ReaderCheckError: The page index does not walk.
+        ReaderCheckError: The page index does not walk, or two reports overlap.
+        CorruptSaveError: The reports decompress to more than the layout allows.
     """
     entries = index_entries(section, layout, file_name)
     seed_pattern = re.compile(b"(?=" + re.escape(layout.anchor_run) + b")")
     view = memoryview(section)
-    framed: list[tuple[_Header, _Squads, bytes]] = []
-    decompressed = without_header = incomplete = 0
+    budget = layout.maximum_expansion * len(section) + layout.maximum_report_bytes
+    framed: list[tuple[_Header, bool, dict[str, int | float | None], dict[str, int | float | None]]]
+    framed = []
+    decompressed = without_header = incomplete = detailed = 0
     for start, size in entries:
         report = _decompress(view[start : start + size], layout)
         if report is None:
             continue
+        budget -= len(report)
+        if budget < 0:
+            raise CorruptSaveError(
+                f"{file_name}: section {MATCH_REPORTS_SECTION!r} decompresses to more than "
+                "its reports can hold"
+            )
         decompressed += 1
         header = _header(report, layout)
         if header is None:
             without_header += 1
             continue
         squads = _squads(report, layout, seed_pattern)
-        if squads is None:
+        try:
+            if squads is None:
+                raise struct.error
+            home = _team_values(report, squads.home, squads.detailed, layout)
+            away = _team_values(report, squads.away, squads.detailed, layout)
+        except struct.error:
             incomplete += 1
             continue
-        framed.append((header, squads, report))
+        detailed += squads.detailed
+        framed.append((header, squads.detailed, home, away))
 
     # Two reports with one key cannot be told apart, so neither is used.
-    key_counts = Counter(header for header, _, _ in framed)
+    key_counts = Counter(header for header, _, _, _ in framed)
     rows: list[TeamMatchStats] = []
-    for header, squads, report in framed:
+    for header, is_detailed, home, away in framed:
         if key_counts[header] > 1:
             continue
-        home = _team_values(report, squads.home, squads.detailed, layout)
-        away = _team_values(report, squads.away, squads.detailed, layout)
         home_possession, away_possession = _possession(
             int(home["passes_completed"] or 0), int(away["passes_completed"] or 0)
         )
@@ -367,7 +404,7 @@ def read_team_match_stats(
                     kick_off_time=header.kick_off.time(),
                     team_id=team_id,
                     is_home=is_home,
-                    detailed_report=squads.detailed,
+                    detailed_report=is_detailed,
                     possession_percent=possession,
                     ball_distribution_percent=ball,
                     **values,  # type: ignore[arg-type]
@@ -379,7 +416,7 @@ def read_team_match_stats(
         without_header=without_header,
         incomplete=incomplete,
         framed=len(framed),
-        detailed=sum(1 for _, squads, _ in framed if squads.detailed),
+        detailed=detailed,
         duplicate_keys=sum(1 for count in key_counts.values() if count > 1),
         rows=len(rows),
     )

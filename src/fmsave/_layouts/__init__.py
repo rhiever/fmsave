@@ -114,7 +114,9 @@ class MatchReportLayout:
     `first_page_offset`. A page opens with its u32 index and its length-prefixed name, then
     `page_marker_bytes` bytes that its data header repeats, then the u32 entry count at
     `entry_count_offset_after_name`. Each entry is a u32 report id, offset and size; offsets
-    count from the page's data, which starts `data_header_bytes` past the entry table.
+    count from the page's data, which starts `data_header_bytes` past the entry table. A report
+    decompresses to at most `maximum_report_bytes`, and all of them to at most
+    `maximum_expansion` times the section plus one largest report.
 
     Reports: header fields count from the report's start. The two team ids each follow the
     first `team_marker` from `team_search_start`, the away one at least `away_search_gap`
@@ -134,6 +136,7 @@ class MatchReportLayout:
     entry_bytes: int
     data_header_bytes: int
     maximum_report_bytes: int
+    maximum_expansion: int
     kick_off_offset: int
     competition_id_offset: int
     competition_marker: int

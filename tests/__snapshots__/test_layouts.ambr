@@ -2956,6 +2956,7 @@
         'first_page_offset': 18,
         'float_limit': 100000.0,
         'kick_off_offset': 11,
+        'maximum_expansion': 32,
         'maximum_report_bytes': 8388608,
         'minimum_anchor': 100,
         'minimum_squad': 11,

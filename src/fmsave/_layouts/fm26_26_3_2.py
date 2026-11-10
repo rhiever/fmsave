@@ -1293,6 +1293,8 @@ MATCH_REPORTS = MatchReportLayout(
     entry_bytes=12,
     data_header_bytes=13,
     maximum_report_bytes=8 * 1024 * 1024,
+    # The reports of the corpus saves decompress to at most a few times the section.
+    maximum_expansion=32,
     kick_off_offset=11,
     competition_id_offset=38,
     competition_marker=0x02,

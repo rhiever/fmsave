@@ -460,3 +460,43 @@ def test_export_writes_the_rows_and_scopes_them(tmp_path: Path) -> None:
 def test_every_field_has_a_status() -> None:
     for name in column_names(fmsave.TeamMatchStats):
         assert fmsave.field_status(fmsave.TeamMatchStats, name) in ("verified", "unconfirmed")
+
+
+def test_overlapping_reports_raise() -> None:
+    from fmsave._layouts.fm26_26_3_2 import MATCH_REPORTS
+    from fmsave.readers.team_match_stats import read_team_match_stats
+
+    one = frame(summary_match())
+    section = bytearray(store([one, one]))
+    # Point the second entry back at the first frame.
+    second_entry = section.index(struct.pack("<III", 1, len(one), len(one)))
+    struct.pack_into("<I", section, second_entry + 4, 0)
+    with pytest.raises(fmsave.ReaderCheckError, match="overlap"):
+        read_team_match_stats(bytes(section), MATCH_REPORTS, "example.fm")
+
+
+def test_a_team_id_cut_off_by_the_report_end_gives_no_header() -> None:
+    from fmsave._layouts.fm26_26_3_2 import MATCH_REPORTS
+    from fmsave.readers.team_match_stats import read_team_match_stats
+
+    report = bytearray(200)
+    report[37] = 0x02
+    report[100:102] = b"\x03\x02"
+    report[196:198] = b"\x03\x02"
+    rows, stats = read_team_match_stats(
+        store([zstd.compress(bytes(report))]), MATCH_REPORTS, "example.fm"
+    )
+    assert (rows, stats.without_header) == ([], 1)
+
+
+def test_reports_that_expand_past_the_budget_raise() -> None:
+    from dataclasses import replace
+
+    from fmsave._layouts.fm26_26_3_2 import MATCH_REPORTS
+    from fmsave.readers.team_match_stats import read_team_match_stats
+
+    report = report_bytes(summary_match())
+    later = frame(summary_match(kick_off=KICK_OFF + datetime.timedelta(days=1)))
+    layout = replace(MATCH_REPORTS, maximum_expansion=1, maximum_report_bytes=len(report))
+    with pytest.raises(fmsave.CorruptSaveError, match="decompresses to more than"):
+        read_team_match_stats(store([zstd.compress(report), later]), layout, "example.fm")
