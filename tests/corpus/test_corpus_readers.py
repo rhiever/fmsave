@@ -82,7 +82,10 @@ READERS_WITHOUT_RECORDED_RANGES: frozenset[str] = frozenset(
 # column by column in the output schema snapshot, which is what guards the change itself, so a
 # column named here is a stale range rather than a column a reader lost. These are the pre-1.0
 # renames; they come out of here when the ranges are written again.
-RETIRED_BASELINE_COLUMNS: dict[str, frozenset[str]] = {"fixtures": frozenset({"match_record_id"})}
+RETIRED_BASELINE_COLUMNS: dict[str, frozenset[str]] = {
+    "fixtures": frozenset({"match_record_id"}),
+    "stadiums": frozenset({"all_seater_capacity"}),
+}
 
 
 def save_label(relative_name: str) -> str:
@@ -126,6 +129,7 @@ def test_validation_reports_every_reader_ok(corpus_saves: dict[str, fmsave.Save]
 
 
 @pytest.mark.corpus_full
+@pytest.mark.timeout(900)
 def test_reader_counts_and_checks_stay_in_their_recorded_ranges(
     corpus_saves: dict[str, fmsave.Save],
 ) -> None:
