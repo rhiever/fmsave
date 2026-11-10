@@ -69,8 +69,8 @@ Each reader returns a `Table`: `where(...)`, `filter(...)`, `sorted_by(...)`, `f
 - **Clubs**: `clubs()`, `managed_clubs()`, `finances()`, `sponsorships()`, `facilities()`,
   `stadiums()`, `affiliates()`, `job_vacancies()`
 - **Competitions**: `stages()`, `competitions()`, `fixtures()`, `officials()`, `league_tables()`,
-  `competition_rules()`, `transfer_windows()`, `player_match_stats()`, `player_season_stats()`,
-  `player_season_history()`
+  `competition_rules()`, `transfer_windows()`, `player_match_stats()`, `team_match_stats()`,
+  `player_season_stats()`, `player_season_history()`
 - **Nations**: `nations()` pairs save-local nation ids with game database ids.
 - **Injuries**: `injury_types()`, `injuries()`
 - **Your own club's work**, which only the club you manage stores: `training()`, `mentoring()`,

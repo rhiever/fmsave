@@ -58,6 +58,7 @@ from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
 from fmsave.models.tactics import Selection, SetPieceRoutine, Tactic
+from fmsave.models.team_match_stats import TeamMatchStats
 from fmsave.models.training import MentoringGroup, TeamTraining
 from fmsave.name_maps import (
     _EMPTY_COMPETITION_NAMES,  # pyright: ignore[reportPrivateUsage]
@@ -69,6 +70,7 @@ from fmsave.readers._common import (
     HUMANS_SECTION,
     INJURY_MANAGER_SECTION,
     JOB_CENTRE_SECTION,
+    MATCH_REPORTS_SECTION,
     MISSING_REFERENCE,
     SAVE_SUMMARY_SECTION,
     SPAN_REGION,
@@ -169,6 +171,7 @@ from fmsave.readers.tactics import (
     read_tactics_header,
     walk_tactic_blocks,
 )
+from fmsave.readers.team_match_stats import find_match_report_layout, read_team_match_stats
 from fmsave.readers.training import (
     build_training_tables,
     find_training_layout,
@@ -192,6 +195,7 @@ TRANSFER_WINDOWS_TABLE_CACHE_KEY = "table:transfer_windows"
 LEAGUE_TABLES_TABLE_CACHE_KEY = "table:league_tables"
 COMPETITION_RULES_TABLE_CACHE_KEY = "table:competition_rules"
 PLAYER_MATCH_STATS_TABLE_CACHE_KEY = "table:player_match_stats"
+TEAM_MATCH_STATS_TABLE_CACHE_KEY = "table:team_match_stats"
 PLAYER_SEASON_HISTORY_TABLE_CACHE_KEY = "table:player_season_history"
 HISTORY_SELECTORS_CACHE_KEY = "player_history_selectors"
 PLAYER_SEASON_STATS_TABLE_CACHE_KEY = "table:player_season_stats"
@@ -1548,6 +1552,44 @@ class Save:
         self._enforce_checks((match_check,))
         self._store_reader_checks((match_check,))
         return Table(match_rows, PlayerMatchStats)
+
+    def team_match_stats(self) -> Table[TeamMatchStats]:
+        """Each team's statistics in every match whose report the save keeps, two rows a match.
+
+        These are the figures of the game's match stats screen: shots, expected goals,
+        possession, passes, crosses, tackles, aerials, fouls, cards, corners and distance.
+        The game keeps reports for some matches only, mostly recent ones, so a played fixture
+        can have no rows. Join to `fixtures()` on `competition_id`, `home_team_id`,
+        `away_team_id` and `date`; see `TeamMatchStats`.
+
+        Available on FM26 builds 26.3.1 and 26.3.2 and FM27 build 27.0.0. A report whose
+        squads do not frame, or whose match key another report shares, gives no rows and is
+        counted in the checks.
+
+        Raises:
+            UnsupportedGameError: The save's game or build has no registered report layout.
+            ReaderCheckError: The report index does not walk, or a check failed on a save
+                opened with strict=True.
+            SaveChangedError: The file changed on disk before the table was read.
+            SaveClosedError: The save is closed.
+        """
+        return self._context.cached(TEAM_MATCH_STATS_TABLE_CACHE_KEY, self._read_team_match_stats)
+
+    def _read_team_match_stats(self) -> Table[TeamMatchStats]:
+        context = self._context
+        info = context.info
+        layout = find_match_report_layout(
+            info.game,
+            info.section_schemas.get(MATCH_REPORTS_SECTION),
+            info.build,
+            known_build=info.known_build,
+        )
+        with context.section(MATCH_REPORTS_SECTION) as section:
+            rows, stats = read_team_match_stats(section, layout, info.file_name)
+        check = _checks.check_team_match_stats(stats, self._gate_bounds())
+        self._enforce_checks((check,))
+        self._store_reader_checks((check,))
+        return Table(rows, TeamMatchStats)
 
     def player_season_stats(self) -> Table[PlayerSeasonStats]:
         """Every player's stats for the current season, as the squad and player screens show them.

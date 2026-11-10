@@ -27,6 +27,7 @@ from fmsave._layouts import (
     LeagueTableLayout,
     MatchCacheLayout,
     MatchRecordLayout,
+    MatchReportLayout,
     MatchSummaryLayout,
     NamePoolLayout,
     NationTableLayout,
@@ -1281,6 +1282,74 @@ STAFF = StaffLayout(
     human_personality_floor=0,
 )
 
+# The match report store. Every field below matched the game's match stats screen on twenty
+# matches of both report formats. Team totals over a season match `player_season_stats()`.
+MATCH_REPORTS = MatchReportLayout(
+    page_count_offset=14,
+    first_page_offset=18,
+    page_name_prefix=b"pks_",
+    page_marker_bytes=4,
+    entry_count_offset_after_name=6,
+    entry_bytes=12,
+    data_header_bytes=13,
+    maximum_report_bytes=8 * 1024 * 1024,
+    # The reports of the corpus saves decompress to at most a few times the section.
+    maximum_expansion=32,
+    kick_off_offset=11,
+    competition_id_offset=38,
+    competition_marker=0x02,
+    team_search_start=100,
+    team_marker=b"\x03\x02",
+    away_search_gap=16,
+    anchor_run=b"\xff\xff\xff\xff",
+    anchor_marker=0x02,
+    anchor_marker_offsets=(9, 22),
+    minimum_anchor=100,
+    record_bytes=214,
+    event_count_offset=108,
+    event_item_header_bytes=3,
+    event_entry_count_offset=2,
+    event_entry_bytes=15,
+    optional_flag_gap=4,
+    optional_block_bytes=11,
+    detail_marker_offsets=(203, 199, 195, 191, 183),
+    detail_marker=0xFF,
+    team_block_gap=532,
+    team_block_gap_step=3,
+    minimum_squad=11,
+    player_fields=(
+        ("shots", "B", -59),
+        ("shots_on_target", "B", -58),
+        ("blocked_shots", "B", -57),
+        ("shots_outside_box", "B", -56),
+        ("clear_cut_chances", "B", -55),
+        ("fouls_made", "B", -40),
+        ("offsides", "B", -38),
+        ("yellow_cards", "B", -37),
+        ("red_cards", "B", -36),
+        ("crosses_attempted", "B", -11),
+        ("crosses_completed", "B", -10),
+        ("tackles_attempted", "B", -8),
+        ("tackles_completed", "B", -7),
+        ("aerial_challenges_attempted", "B", -5),
+        ("headers_won", "B", -4),
+        ("expected_goals", "f", -75),
+        ("non_penalty_expected_goals", "f", 103),
+    ),
+    progressive_passes_field=("B", 78),
+    distance_field=("f", 40),
+    detailed_distance_scale=0.001,
+    team_fields=(
+        ("woodwork", "B", 393),
+        ("corners", "B", 383),
+        ("passes_attempted", "H", 364),
+        ("passes_completed", "H", 362),
+        ("final_third_passes", "H", 260),
+        ("ball_distribution_units", "H", 348),
+    ),
+    float_limit=1e5,
+)
+
 GATE_BOUNDS = GateBounds(
     minimum_applies_from_bytes=FULL_SAVE_MINIMUM_GAME_DB_BYTES,
     span_minimum_applies_from_bytes=FULL_SAVE_MINIMUM_SPAN_BYTES,
@@ -1751,6 +1820,10 @@ GATE_BOUNDS = GateBounds(
     season_stats_players_with_record=(0.999, None),
     season_stats_overall_sums_competitions=(0.99, None),
     season_stats_minutes_in_range=(0.999, None),
+    # Every indexed report of 46 corpus saves decompresses. Framing misses at most three
+    # reports a save, all in the long detailed format, against thousands framed.
+    match_report_entries_decompressed=(1, 1),
+    match_reports_framed=(0.99, None),
 )
 
 # The season-statistics section, the unlisted frame the community calls `player_stats.dat`.
@@ -1914,4 +1987,5 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=SEASON_STATS),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=SEASON_HISTORY),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=GATE_BOUNDS),
+    LayoutEntry(region="match_stats_cfg", schema=6, build=BUILD, layout=MATCH_REPORTS),
 )

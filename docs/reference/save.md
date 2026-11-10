@@ -21,7 +21,7 @@ runs every reader at once and reports how each fared, without raising or warning
 .. autoclass:: fmsave.Save
    :members: info, closed, clubs, players, contracts, suspensions, managed_clubs, stages,
        competitions, nations, fixtures, officials, stadiums, transfer_windows, injury_types, injuries, affiliates,
-       job_vacancies, league_tables, competition_rules, player_match_stats,
+       job_vacancies, league_tables, competition_rules, player_match_stats, team_match_stats,
        player_season_stats, player_season_history, finances, sponsorships, facilities, staff, staff_lists, tactics,
        set_pieces, selections, squad_planner, training, mentoring, experimental_span, close
 ```

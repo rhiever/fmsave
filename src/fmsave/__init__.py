@@ -98,6 +98,7 @@ from fmsave.models.tactics import (
     TacticSettingUnit,
     TacticSlot,
 )
+from fmsave.models.team_match_stats import TeamMatchStats
 from fmsave.models.training import (
     MentoringGroup,
     TeamTraining,
@@ -200,6 +201,7 @@ __all__ = [
     "TacticSettingUnit",
     "TacticSlot",
     "Team",
+    "TeamMatchStats",
     "TeamTraining",
     "TrainingDay",
     "TrainingSchedule",

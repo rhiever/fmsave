@@ -106,6 +106,67 @@ class SquadPlannerLayout:
     footer_marker: bytes
 
 
+@dataclass(frozen=True, slots=True)
+class MatchReportLayout:
+    """The page index of the match report store and the fields of one decompressed report.
+
+    Pages: the section stores `page_count_offset`'s count of pages, the first at
+    `first_page_offset`. A page opens with its u32 index and its length-prefixed name, then
+    `page_marker_bytes` bytes that its data header repeats, then the u32 entry count at
+    `entry_count_offset_after_name`. Each entry is a u32 report id, offset and size; offsets
+    count from the page's data, which starts `data_header_bytes` past the entry table. A report
+    decompresses to at most `maximum_report_bytes`, and all of them to at most
+    `maximum_expansion` times the section plus one largest report.
+
+    Reports: header fields count from the report's start. The two team ids each follow the
+    first `team_marker` from `team_search_start`, the away one at least `away_search_gap`
+    later. Player records are walked from seeds: an `anchor_run` right after an anchor whose
+    two `anchor_marker_offsets` hold `anchor_marker`. A record is `record_bytes` long, plus its
+    event list (count at `event_count_offset`, items of `event_item_header_bytes` and
+    `event_entry_bytes` per entry counted at `event_entry_count_offset`) and, when the flag
+    `optional_flag_gap` bytes after the list is 1, `optional_block_bytes` more. Player fields
+    count from the anchor; team fields count back from the team's first anchor.
+    """
+
+    page_count_offset: int
+    first_page_offset: int
+    page_name_prefix: bytes
+    page_marker_bytes: int
+    entry_count_offset_after_name: int
+    entry_bytes: int
+    data_header_bytes: int
+    maximum_report_bytes: int
+    maximum_expansion: int
+    kick_off_offset: int
+    competition_id_offset: int
+    competition_marker: int
+    team_search_start: int
+    team_marker: bytes
+    away_search_gap: int
+    anchor_run: bytes
+    anchor_marker: int
+    anchor_marker_offsets: tuple[int, int]
+    minimum_anchor: int
+    record_bytes: int
+    event_count_offset: int
+    event_item_header_bytes: int
+    event_entry_count_offset: int
+    event_entry_bytes: int
+    optional_flag_gap: int
+    optional_block_bytes: int
+    detail_marker_offsets: tuple[int, ...]
+    detail_marker: int
+    team_block_gap: int
+    team_block_gap_step: int
+    minimum_squad: int
+    player_fields: tuple[tuple[str, str, int], ...]
+    progressive_passes_field: tuple[str, int]
+    distance_field: tuple[str, int]
+    detailed_distance_scale: float
+    team_fields: tuple[tuple[str, str, int], ...]
+    float_limit: float
+
+
 # Count checks (such as the name pool minimum) apply only to a decompressed `game_db` at
 # least this large; smaller sections come from fragments that cannot meet full-save counts.
 FULL_SAVE_MINIMUM_GAME_DB_BYTES = 16 * 1024 * 1024
@@ -2121,6 +2182,10 @@ class GateBounds:
     the layout's maximum per appearance times their appearances, of lines). They apply from
     `minimum_applies_from_bytes` of `game_db`.
 
+    Team match stats: `match_report_entries_decompressed` (index entries whose frame
+    decompresses whole, of entries) and `match_reports_framed` (reports whose header and both
+    squads frame, of decompressed reports). They apply whenever the index lists an entry.
+
     Stadiums: `stadium_rows_minimum` (rows walked), `stadium_pitch_within_limits` (rows whose
     pitch length is inside the layout's range and inside their own stored minimum and maximum
     for both length and width, of the rows that are not the template the table ends with),
@@ -2452,6 +2517,8 @@ class GateBounds:
     season_stats_players_with_record: BoundPair
     season_stats_overall_sums_competitions: BoundPair
     season_stats_minutes_in_range: BoundPair
+    match_report_entries_decompressed: BoundPair
+    match_reports_framed: BoundPair
 
 
 type Layout = (
@@ -2478,6 +2545,7 @@ type Layout = (
     | NationTableLayout
     | HumansLayout
     | SquadPlannerLayout
+    | MatchReportLayout
     | InjuryTypeTableLayout
     | InjuryManagerLayout
     | AffiliateGroupLayout

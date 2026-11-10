@@ -4,6 +4,18 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-10
+
+### Added
+
+- Read each team's match stats screen figures, 2 rows per match, for every match whose report
+  the save keeps, on FM26 26.3.1 and 26.3.2 and FM27 `27.0.0+2486695`. Use `team_match_stats()`
+  in Python or the `team-match-stats` export, and join rows to `fixtures()` on
+  `competition_id`, `home_team_id`, `away_team_id`, and `date`. FM27 fields stay unconfirmed in
+  the validation report until they are checked against the game. (#80)
+
+Thanks to @GiorgioGandolfi88 for researching per-match team statistics. Refs #80.
+
 ## [0.11.0] - 2026-11-08
 
 ### Added

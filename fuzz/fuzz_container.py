@@ -36,6 +36,7 @@ READER_NAMES = (
     "league_tables",
     "competition_rules",
     "player_match_stats",
+    "team_match_stats",
     "player_season_stats",
     "player_season_history",
     "finances",

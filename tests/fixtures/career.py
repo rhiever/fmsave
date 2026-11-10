@@ -2638,6 +2638,7 @@ def career_fragment(
     history_archive_section: bytes | None = None,
     history_index_section: bytes | None = None,
     player_history_selectors: Sequence[int] = (0xFFFFFFFF,) * 4,
+    match_stats_section: bytes | None = None,
 ) -> ContainerFragment:
     """The whole career fragment.
 
@@ -2684,6 +2685,7 @@ def career_fragment(
         season_stats_section: The whole season-statistics section body, written as its own
             span frame after the fixtures and tables, in place of the one
             `career_season_stats_body` describes. Empty bytes leave the frame out.
+        match_stats_section: The whole match report store section, or None to leave it out.
     """
     selector = UNMATCHED_MANAGER_SELECTOR if manager_between_jobs else MANAGER_SELECTOR
     replacements = {
@@ -2762,6 +2764,8 @@ def career_fragment(
             career_training_section() if training_section is None else training_section,
         )
     )
+    if match_stats_section is not None:
+        sections.append(SectionFrame("match_stats_cfg", match_stats_section))
     if news_results:
         sections.append(
             SectionFrame(
