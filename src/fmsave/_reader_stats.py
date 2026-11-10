@@ -900,7 +900,8 @@ class TrainingStats:
     `library_entries` counts the saved schedules found after the last block. `groups` counts
     the mentoring groups, `members` their members, `members_resolved` those whose stored
     selector names a player record, and `members_at_club` the resolved members who are
-    players of the managed club.
+    players of the managed club. `nonzero_trailers` counts the blocks whose undecoded trailer
+    is not all zero.
     """
 
     managed_club_exists: bool
@@ -916,6 +917,7 @@ class TrainingStats:
     members: int
     members_resolved: int
     members_at_club: int
+    nonzero_trailers: int = 0
 
 
 @dataclass(frozen=True, slots=True)

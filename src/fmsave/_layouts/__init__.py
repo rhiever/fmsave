@@ -1888,10 +1888,10 @@ class TrainingLayout:
     `block_entry_bytes` entries, each of which the walk requires to start with
     `block_entry_lead_byte` although nothing else in it is decoded, a u32 count of weekly
     records, those records, `block_tail_bytes` of tail (not decoded), a u32 count of mentoring
-    groups, those groups, `block_trailer_bytes` that must all be zero, and the byte
+    groups, those groups, `block_trailer_bytes` of trailer, and the byte
     `block_terminator` -- except after the last block, which is followed by unrelated data.
-    The trailer is not decoded and is zero on every block measured; bytes there that are not
-    zero are a shape the layout does not know, and the walk refuses them rather than skip them.
+    The trailer is not decoded. FM27 27.0.0 leaves it zero, and 27.0.1 writes a word there on a
+    block with mentoring groups; the walk steps over it and counts the blocks where it is not zero.
     The walk reads a block only while the stored team id is a team of the managed club it has
     not already read, which is what ends it on the last block.
 

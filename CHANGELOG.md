@@ -4,6 +4,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Fixed
+
+- `training()` and `mentoring()` read FM27 `27.0.1+2494687` saves whose training blocks carry
+  a value after their mentoring groups, where `27.0.0` leaves zero. The value is not decoded;
+  the validation report counts the blocks that carry one as `nonzero_block_trailers`. (#82)
+
+Thanks to @javiercostoya for the report. Refs #82.
+
 ## [0.12.0] - 2026-11-10
 
 ### Added
