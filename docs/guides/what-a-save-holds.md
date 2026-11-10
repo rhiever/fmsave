@@ -85,7 +85,8 @@ possession, passes, crosses, tackles, aerials, fouls, cards, corners, and distan
 2 rows, 1 per team. Join them to `fixtures()` on `competition_id`, `home_team_id`,
 `away_team_id`, and `date`. The game keeps these reports for some matches only, mostly recent
 ones, so older fixtures often have no rows. Progressive passes appear only on matches the game
-kept in its detailed format. The reader supports FM26 builds 26.3.1 and 26.3.2.
+kept in its detailed format. The reader supports FM26 builds 26.3.1 and 26.3.2 and FM27 build
+`27.0.0+2486695`.
 
 ## Injuries
 

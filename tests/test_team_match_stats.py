@@ -44,8 +44,9 @@ class ExamplePlayer:
     events: tuple[int, ...] = ()
     optional_block: bool = False
 
-    def length(self) -> int:
-        return 214 + sum(3 + 15 * count for count in self.events) + 11 * self.optional_block
+    def length(self, inserted: int = 0) -> int:
+        events = sum(3 + 15 * count for count in self.events)
+        return 214 + inserted + events + 11 * self.optional_block
 
 
 @dataclass(frozen=True)
@@ -70,13 +71,15 @@ class ExampleReport:
     gap: int = SUMMARY_GAP
     trailing_walk: int = 0
     extra: dict[int, bytes] = field(default_factory=dict)
+    # FM27 records hold this many bytes more, from 77 bytes past the anchor.
+    inserted: int = 0
 
 
 def squad(count: int = 11, **values: object) -> tuple[ExamplePlayer, ...]:
     return tuple(ExamplePlayer(**values) for _ in range(count))  # type: ignore[arg-type]
 
 
-def _write_player(report: bytearray, anchor: int, player: ExamplePlayer) -> None:
+def _write_player(report: bytearray, anchor: int, player: ExamplePlayer, inserted: int = 0) -> None:
     report[anchor + 1 : anchor + 9] = b"\xff" * 8
     report[anchor + 9] = report[anchor + 22] = 0x02
     for offset, value in (
@@ -95,13 +98,13 @@ def _write_player(report: bytearray, anchor: int, player: ExamplePlayer) -> None
         (-7, player.tackles[1]),
         (-5, player.aerials[0]),
         (-4, player.aerials[1]),
-        (78, player.progressive),
+        (78 + inserted, player.progressive),
     ):
         report[anchor + offset] = value
     struct.pack_into("<f", report, anchor - 75, player.xg)
-    struct.pack_into("<f", report, anchor + 103, player.npxg)
+    struct.pack_into("<f", report, anchor + 103 + inserted, player.npxg)
     struct.pack_into("<f", report, anchor + 40, player.distance)
-    at = anchor + 108
+    at = anchor + 108 + inserted
     report[at] = len(player.events)
     at += 1
     for count in player.events:
@@ -110,7 +113,7 @@ def _write_player(report: bytearray, anchor: int, player: ExamplePlayer) -> None
     report[at + 4] = int(player.optional_block)
 
 
-def _write_team(report: bytearray, first_anchor: int, team: ExampleTeam) -> int:
+def _write_team(report: bytearray, first_anchor: int, team: ExampleTeam, inserted: int) -> int:
     report[first_anchor - 393] = team.woodwork
     report[first_anchor - 383] = team.corners
     struct.pack_into("<H", report, first_anchor - 364, team.passes[0])
@@ -119,14 +122,14 @@ def _write_team(report: bytearray, first_anchor: int, team: ExampleTeam) -> int:
     struct.pack_into("<H", report, first_anchor - 260, team.final_third)
     anchor = first_anchor
     for player in team.players:
-        _write_player(report, anchor, player)
-        anchor += player.length()
+        _write_player(report, anchor, player, inserted)
+        anchor += player.length(inserted)
     return anchor
 
 
 def report_bytes(example: ExampleReport) -> bytes:
-    home_length = sum(player.length() for player in example.home.players)
-    away_length = sum(player.length() for player in example.away.players)
+    home_length = sum(player.length(example.inserted) for player in example.home.players)
+    away_length = sum(player.length(example.inserted) for player in example.away.players)
     size = HOME_FIRST_ANCHOR + home_length + example.gap + away_length + 600
     report = bytearray(size)
     minutes = int((example.kick_off - datetime.datetime(1, 1, 1)).total_seconds()) // 60  # noqa: DTZ001
@@ -138,8 +141,8 @@ def report_bytes(example: ExampleReport) -> bytes:
     if example.detailed:
         for back in DETAIL_MARKERS:
             report[HOME_FIRST_ANCHOR - back] = 0xFF
-    home_end = _write_team(report, HOME_FIRST_ANCHOR, example.home)
-    away_end = _write_team(report, home_end + example.gap, example.away)
+    home_end = _write_team(report, HOME_FIRST_ANCHOR, example.home, example.inserted)
+    away_end = _write_team(report, home_end + example.gap, example.away, example.inserted)
     for index in range(example.trailing_walk):
         _write_player(report, away_end + 100 + 214 * index, ExamplePlayer())
     for at, value in example.extra.items():
@@ -320,6 +323,46 @@ def test_distance_adds_up_in_single_precision() -> None:
 
     rows, _ = read_team_match_stats(store([frame(example)]), MATCH_REPORTS, "example.fm")
     assert rows[0].distance_km == single
+
+
+def test_fm27_records_read_past_their_8_extra_bytes() -> None:
+    from fmsave._layouts.fm26_26_3_2 import MATCH_REPORTS as FM26_MATCH_REPORTS
+    from fmsave._layouts.fm27_27_0_0 import BUILD as FM27_BUILD
+    from fmsave.readers.team_match_stats import find_match_report_layout, read_team_match_stats
+
+    layout = find_match_report_layout("FM27", 6, FM27_BUILD, known_build=True)
+    home = ExampleTeam(
+        players=squad(11, shots=1, npxg=0.25, progressive=4, events=(1, 2)), passes=(500, 450)
+    )
+    away = ExampleTeam(players=squad(11, npxg=0.125, progressive=3, optional_block=True))
+    detailed = ExampleReport(
+        home=home,
+        away=away,
+        kick_off=KICK_OFF + datetime.timedelta(days=7),
+        detailed=True,
+        gap=1_400,
+        inserted=8,
+    )
+    section = store([frame(summary_match(inserted=8)), frame(detailed)])
+
+    rows, stats = read_team_match_stats(section, layout, "example.fm")
+    assert (stats.framed, stats.incomplete, stats.detailed) == (2, 0, 1)
+    summary_home, _, detailed_home, detailed_away = rows
+    assert (summary_home.shots, summary_home.non_penalty_expected_goals) == (13, 1.5)
+    assert summary_home.passes_attempted == 500
+    assert (detailed_home.progressive_passes, detailed_away.progressive_passes) == (44, 33)
+    assert detailed_home.non_penalty_expected_goals == pytest.approx(2.75)
+    assert detailed_away.non_penalty_expected_goals == pytest.approx(1.375)
+
+    _, fm26_stats = read_team_match_stats(section, FM26_MATCH_REPORTS, "example.fm")
+    assert (fm26_stats.framed, fm26_stats.incomplete) == (0, 2)
+
+
+def test_an_fm27_build_without_a_layout_is_unsupported() -> None:
+    from fmsave.readers.team_match_stats import find_match_report_layout
+
+    with pytest.raises(fmsave.UnsupportedGameError):
+        find_match_report_layout("FM27", 6, "27.1.0+1", known_build=False)
 
 
 def test_records_with_events_and_optional_blocks_stay_in_one_squad(tmp_path: Path) -> None:

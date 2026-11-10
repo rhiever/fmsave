@@ -57,6 +57,9 @@ from fmsave._layouts.fm26_26_3_2 import (
     MATCH_RECORDS as FM26_MATCH_RECORDS,
 )
 from fmsave._layouts.fm26_26_3_2 import (
+    MATCH_REPORTS as FM26_MATCH_REPORTS,
+)
+from fmsave._layouts.fm26_26_3_2 import (
     MATCH_SUMMARIES as FM26_MATCH_SUMMARIES,
 )
 from fmsave._layouts.fm26_26_3_2 import (
@@ -346,6 +349,24 @@ SQUAD_PLANNER = SquadPlannerLayout(
     footer_marker=b"\x33\x00\x01",
 )
 
+# Each player record holds 8 bytes more, inserted 77 bytes past its anchor, so every field from
+# there on sits 8 bytes later. Reports carried over from an FM26 career read to the same values
+# as in its FM26 save, with the new bytes zero.
+_MATCH_RECORD_INSERT_AT = 77
+_MATCH_RECORD_INSERT_BYTES = 8
+MATCH_REPORTS = replace(
+    FM26_MATCH_REPORTS,
+    record_bytes=FM26_MATCH_REPORTS.record_bytes + _MATCH_RECORD_INSERT_BYTES,
+    event_count_offset=FM26_MATCH_REPORTS.event_count_offset + _MATCH_RECORD_INSERT_BYTES,
+    player_fields=tuple(
+        (name, code, offset + _MATCH_RECORD_INSERT_BYTES)
+        if offset >= _MATCH_RECORD_INSERT_AT
+        else (name, code, offset)
+        for name, code, offset in FM26_MATCH_REPORTS.player_fields
+    ),
+    progressive_passes_field=("B", 86),
+)
+
 LAYOUTS = (
     LayoutEntry("game_info", 47, BUILD, GAME_INFO),
     LayoutEntry("save_game_summary", 31, BUILD, SAVE_SUMMARY),
@@ -391,4 +412,5 @@ LAYOUTS = (
     LayoutEntry("injury_manager", 8, BUILD, INJURY_MANAGER),
     LayoutEntry("match_file", None, BUILD, INJURY_TYPE_TABLE),
     LayoutEntry("tactics_man", 26, BUILD, TACTICS),
+    LayoutEntry("match_stats_cfg", 6, BUILD, MATCH_REPORTS),
 )

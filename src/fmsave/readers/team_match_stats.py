@@ -29,6 +29,7 @@ else:
 _U32 = struct.Struct("<I")
 _ENTRY = struct.Struct("<III")
 _F32 = struct.Struct("<f")
+_GAMES = ("FM26", "FM27")
 _YEAR_ONE = datetime.datetime(1, 1, 1)  # noqa: DTZ001 - the save stores naive local times
 
 
@@ -42,7 +43,7 @@ def find_match_report_layout(
     Raises:
         UnsupportedGameError: No layout is registered for this build and schema.
     """
-    if game == "FM26" and known_build:
+    if game in _GAMES and known_build:
         match = find_layout(MatchReportLayout, MATCH_REPORTS_SECTION, schema, build)
         if match.exact:
             return match.layout

@@ -3005,7 +3005,7 @@ def validate_save(career_save: Save) -> ValidationReport:
     competitions, fixtures, officials, league tables, transfer windows, competition rules, per-match
     player stats, stadiums, finances, sponsorships, affiliates, job vacancies, staff, staff
     lists, injury types, injury history, training, mentoring, tactics, set pieces, selections,
-    club facilities, on FM27 the squad planner, and on an FM26 save with a match report store,
+    club facilities, on FM27 the squad planner, and on a save with a match report store,
     the team match stats. The order puts each reader after the ones whose work it reuses, so a shared
     decode that fails is reported where it failed: stadiums follow the fixtures whose calendar
     they read, injury types precede the injury history that names its types, and the two
@@ -3069,7 +3069,7 @@ def validate_save(career_save: Save) -> ValidationReport:
     )
     if save_info.game == "FM27":
         reader_tables += ((SQUAD_PLANNER_READER, career_save.squad_planner),)
-    if save_info.game == "FM26" and _MATCH_REPORTS_SECTION in save_info.section_schemas:
+    if save_info.game in ("FM26", "FM27") and _MATCH_REPORTS_SECTION in save_info.section_schemas:
         reader_tables += ((TEAM_MATCH_STATS_READER, career_save.team_match_stats),)
     validations: list[ReaderValidation] = []
     failed_passes: dict[str, FmsaveError] = {}

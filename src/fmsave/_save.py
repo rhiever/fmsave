@@ -1562,8 +1562,9 @@ class Save:
         can have no rows. Join to `fixtures()` on `competition_id`, `home_team_id`,
         `away_team_id` and `date`; see `TeamMatchStats`.
 
-        Available on FM26 builds 26.3.1 and 26.3.2. A report whose squads do not frame, or
-        whose match key another report shares, gives no rows and is counted in the checks.
+        Available on FM26 builds 26.3.1 and 26.3.2 and FM27 build 27.0.0. A report whose
+        squads do not frame, or whose match key another report shares, gives no rows and is
+        counted in the checks.
 
         Raises:
             UnsupportedGameError: The save's game or build has no registered report layout.
