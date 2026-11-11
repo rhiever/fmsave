@@ -557,7 +557,7 @@ def test_a_team_id_cut_off_by_the_report_end_gives_no_header() -> None:
 
     report = bytearray(200)
     report[37] = 0x02
-    report[100:102] = b"\x03\x02"
+    report[173:175] = b"\x03\x02"
     report[196:198] = b"\x03\x02"
     rows, stats = read_team_match_stats(
         store([zstd.compress(bytes(report))]), MATCH_REPORTS, "example.fm"
