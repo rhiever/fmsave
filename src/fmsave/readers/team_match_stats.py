@@ -151,11 +151,14 @@ def _header(report: bytes, layout: MatchReportLayout) -> _Header | None:
     if len(report) < layout.team_search_start * 2 or report[at - 1] != layout.competition_marker:
         return None
     home_at = report.find(layout.team_marker, layout.team_search_start)
+    # The marker also occurs inside venue IDs and names. Team entries are consecutive.
+    while home_at >= 0 and not report.startswith(
+        layout.team_marker, home_at + layout.team_entry_bytes
+    ):
+        home_at = report.find(layout.team_marker, home_at + 1)
     if home_at < 0:
         return None
-    away_at = report.find(layout.team_marker, home_at + layout.away_search_gap)
-    if away_at < 0:
-        return None
+    away_at = home_at + layout.team_entry_bytes
     skip = len(layout.team_marker)
     if away_at + skip + _U32.size > len(report):
         return None
@@ -216,15 +219,19 @@ def _squads(
 ) -> _Squads | None:
     """The anchors of the home and away squads, or None when either does not frame whole.
 
-    Seeds are walked record by record while each next record carries its markers. The two
-    longest walks are the squads, home first. Both must be at least a starting eleven; in the
-    summary format the team block between them must be too short to hide a missing record; and
-    no walk of two or more records may follow the away squad, which would be a squad cut in two.
+    Seeds must leave room for the team fields that precede the squad. Each seed is walked
+    record by record while the next record carries its markers. The two longest walks are
+    the squads, home first. Both must be at least a starting eleven. In the summary format,
+    the block between them must be too short to hide a missing record. No walk of two or more
+    records may follow the away squad, which would be a squad cut in two.
     """
+    # An earlier header hit can join a real walk after its first player. It cannot
+    # start a squad if there is no room for that squad's team fields.
+    first_possible_anchor = max(back for _, _, back in layout.team_fields)
     seeds = sorted(
         {
             match.start() - 1
-            for match in seed_pattern.finditer(report)
+            for match in seed_pattern.finditer(report, first_possible_anchor + 1)
             if _is_marked(report, match.start() - 1, layout)
         }
     )
@@ -257,8 +264,6 @@ def _squads(
     home = _walk(longest[0], successor)
     away = _walk(longest[1], successor)
     if min(len(home), len(away)) < layout.minimum_squad:
-        return None
-    if home[0] < max(back for _, _, back in layout.team_fields):
         return None
     detailed = all(
         home[0] - back >= 0 and report[home[0] - back] == layout.detail_marker

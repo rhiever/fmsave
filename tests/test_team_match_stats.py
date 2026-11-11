@@ -137,7 +137,7 @@ def report_bytes(example: ExampleReport) -> bytes:
     report[37] = 0x02
     struct.pack_into("<I", report, 38, example.competition_id)
     report[100:106] = b"\x03\x02" + struct.pack("<I", example.home_team_id)
-    report[120:126] = b"\x03\x02" + struct.pack("<I", example.away_team_id)
+    report[123:129] = b"\x03\x02" + struct.pack("<I", example.away_team_id)
     if example.detailed:
         for back in DETAIL_MARKERS:
             report[HOME_FIRST_ANCHOR - back] = 0xFF
@@ -363,6 +363,39 @@ def test_an_fm27_build_without_a_layout_is_unsupported() -> None:
 
     with pytest.raises(fmsave.UnsupportedGameError):
         find_match_report_layout("FM27", 6, "27.1.0+1", known_build=False)
+
+
+def test_team_marker_inside_venue_id_does_not_change_team_ids(tmp_path: Path) -> None:
+    def team(team_id: int) -> bytes:
+        return b"\x03\x02" + struct.pack("<I", team_id)
+
+    # The venue ID includes the same bytes that introduce a team entry.
+    venue = b"\x02" + struct.pack("<I", 0x010203) + bytes(15)
+    example = summary_match(extra={100: venue + team(HOME_TEAM) + bytes(17) + team(AWAY_TEAM)})
+    with open_store(tmp_path, store([frame(example)])) as save:
+        home, away = save.team_match_stats()
+
+    assert (home.home_team_id, home.away_team_id) == (HOME_TEAM, AWAY_TEAM)
+    assert (home.team_id, home.shots, away.team_id, away.shots) == (HOME_TEAM, 13, AWAY_TEAM, 12)
+
+
+def test_earlier_false_anchor_does_not_displace_the_first_player() -> None:
+    from fmsave._layouts.fm27_27_0_0 import MATCH_REPORTS
+    from fmsave.readers.team_match_stats import read_team_match_stats
+
+    report = bytearray(report_bytes(summary_match(inserted=8)))
+    # The false record has a variable part that lands on the second home player.
+    false_anchor = HOME_FIRST_ANCHOR - 213
+    report[false_anchor + 1 : false_anchor + 9] = b"\xff" * 8
+    report[false_anchor + 9] = report[false_anchor + 22] = 2
+    report[false_anchor + 116] = 1
+    report[false_anchor + 119] = 14
+
+    section = store([zstd.compress(bytes(report))])
+    rows, stats = read_team_match_stats(section, MATCH_REPORTS, "example.fm")
+    assert stats.incomplete == 0
+    home, away = rows
+    assert (home.players, home.shots, away.players, away.shots) == (11, 13, 12, 12)
 
 
 def test_records_with_events_and_optional_blocks_stay_in_one_squad(tmp_path: Path) -> None:

@@ -4,6 +4,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Fixed
+
+- `team_match_stats()` reads the home and away team IDs from consecutive team entries, even
+  when the same marker appears in the venue ID. (#85)
+- `team_match_stats()` ignores squad starts that leave no room for the preceding team
+  statistics, so a marker in the header cannot displace the first player in a report. (#86)
+
+Thanks to @GiorgioGandolfi88 for the reports. Refs #85 and #86.
+
 ## [0.12.1] - 2026-11-10
 
 ### Fixed
