@@ -118,9 +118,9 @@ class MatchReportLayout:
     decompresses to at most `maximum_report_bytes`, and all of them to at most
     `maximum_expansion` times the section plus one largest report.
 
-    Reports: header fields count from the report's start. The two team ids each follow the
-    first `team_marker` from `team_search_start`, the away one at least `away_search_gap`
-    later. Player records are walked from seeds: an `anchor_run` right after an anchor whose
+    Reports: header fields count from the report's start. The two team ids follow a pair of
+    `team_marker` tags `team_entry_bytes` apart, searched from `team_search_start`. Player
+    records are walked from seeds: an `anchor_run` right after an anchor whose
     two `anchor_marker_offsets` hold `anchor_marker`. A record is `record_bytes` long, plus its
     event list (count at `event_count_offset`, items of `event_item_header_bytes` and
     `event_entry_bytes` per entry counted at `event_entry_count_offset`) and, when the flag
@@ -142,7 +142,7 @@ class MatchReportLayout:
     competition_marker: int
     team_search_start: int
     team_marker: bytes
-    away_search_gap: int
+    team_entry_bytes: int
     anchor_run: bytes
     anchor_marker: int
     anchor_marker_offsets: tuple[int, int]

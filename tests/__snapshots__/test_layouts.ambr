@@ -2930,7 +2930,6 @@
           22,
         ),
         'anchor_run': b'\xff\xff\xff\xff',
-        'away_search_gap': 16,
         'competition_id_offset': 38,
         'competition_marker': 2,
         'data_header_bytes': 13,
@@ -3059,6 +3058,7 @@
         'record_bytes': 214,
         'team_block_gap': 532,
         'team_block_gap_step': 3,
+        'team_entry_bytes': 23,
         'team_fields': tuple(
           tuple(
             'woodwork',
@@ -6176,7 +6176,6 @@
           22,
         ),
         'anchor_run': b'\xff\xff\xff\xff',
-        'away_search_gap': 16,
         'competition_id_offset': 38,
         'competition_marker': 2,
         'data_header_bytes': 13,
@@ -6305,6 +6304,7 @@
         'record_bytes': 222,
         'team_block_gap': 532,
         'team_block_gap_step': 3,
+        'team_entry_bytes': 23,
         'team_fields': tuple(
           tuple(
             'woodwork',

@@ -4,6 +4,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-11-11
+
+### Fixed
+
+- `team_match_stats()` uses the spacing between team entries to identify the home and away teams. (#85)
+- `team_match_stats()` keeps reports that were dropped when the header was mistaken for the start
+  of a squad. (#86)
+
+Thanks to @GiorgioGandolfi88 for the reports. Refs #85 and #86.
+
 ## [0.12.1] - 2026-11-10
 
 ### Fixed
