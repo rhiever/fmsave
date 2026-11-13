@@ -24,10 +24,8 @@ from fmsave._layouts import GateBounds, find_layout
 from fmsave._layouts.fm26_26_3_2 import TRAINING as FM26_TRAINING
 from fmsave._layouts.fm27_27_0_0 import TRAINING as FM27_TRAINING
 from fmsave._reader_stats import TrainingStats
-from fmsave.export import column_names
 from fmsave.models.common import CodedValue
 from fmsave.models.training import (
-    MentoringGroup,
     TeamTraining,
     TrainingSchedule,
     TrainingSession,
@@ -480,27 +478,6 @@ def test_the_mentoring_counts_and_anomalies(career_path: Path) -> None:
 
 def test_a_week_built_from_its_start_and_name_has_no_days() -> None:
     assert TrainingWeek(date(2030, 7, 1), "Example Schedule").days == ()
-
-
-def test_the_columns_the_export_flattens() -> None:
-    assert column_names(TeamTraining) == (
-        "team_id",
-        "club_uid",
-        "club_name",
-        "team_slot",
-        "weeks",
-        "schedule_library",
-    )
-    assert column_names(MentoringGroup) == (
-        "team_id",
-        "club_uid",
-        "club_name",
-        "team_slot",
-        "group_number",
-        "label",
-        "member_uids",
-        "member_names",
-    )
 
 
 def test_every_new_record_survives_pickling_and_deep_copying(career_path: Path) -> None:

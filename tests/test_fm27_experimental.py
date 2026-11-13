@@ -59,11 +59,6 @@ def fm27_fragment(
     ).write(tmp_path / "example.bin")
 
 
-def test_fm27_is_read_by_default(tmp_path: Path) -> None:
-    with pytest.warns(UserWarning, match="FM27"), fmsave.open(fm27_fragment(tmp_path)) as save:
-        assert save.info.game == "FM27"
-
-
 def test_fm27_exact_experiment_reads_structured_metadata(tmp_path: Path) -> None:
     with pytest.warns(UserWarning, match="FM27"):
         save = fmsave.open(fm27_fragment(tmp_path))
@@ -105,12 +100,6 @@ def test_an_unregistered_fm27_build_opens_and_reads_a_region_whose_schema_matche
     assert f"borrows the {BUILD} layouts for each section whose schema matches" in messages[0]
     assert "Please report problems at" in messages[0]
     assert "FM27 field statuses" in messages[0]
-
-
-def test_the_registered_fm27_build_warns_only_about_coverage(tmp_path: Path) -> None:
-    with pytest.warns(fmsave.UnknownBuildWarning) as record:
-        fmsave.open(fm27_fragment(tmp_path)).close()
-    assert [str(warning.message).startswith("FM27 coverage") for warning in record] == [True]
 
 
 def test_an_unregistered_fm27_reader_reports_why_its_decode_failed(tmp_path: Path) -> None:

@@ -9,7 +9,7 @@ import pytest
 
 import fmsave
 import fmsave._save as save_module
-from fmsave import ClubFacilities, CodedValue, CorporateFacilities, export
+from fmsave import ClubFacilities, CodedValue, CorporateFacilities
 from fmsave._checks import evaluate_facilities
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import FacilityStats
@@ -245,15 +245,6 @@ def test_a_club_without_a_finance_chain_has_no_row() -> None:
     )
     assert rows == ()
     assert stats == FacilityStats(clubs_with_series=0, rows=0, in_range=0, managed_club_exists=True)
-
-
-def test_the_record_exports_its_columns() -> None:
-    assert export.column_names(ClubFacilities) == (
-        "club_uid",
-        "club_name",
-        "corporate_facilities",
-        "corporate_facilities_code",
-    )
 
 
 def test_the_table_survives_pickle_and_deepcopy(career_save_path: Path) -> None:

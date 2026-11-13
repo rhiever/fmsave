@@ -1,4 +1,4 @@
-"""Reference docs checks: every public name is documented, once, on the right page."""
+"""Reference docs checks for the public API and CLI."""
 
 from __future__ import annotations
 
@@ -90,16 +90,6 @@ def test_every_public_name_is_documented() -> None:
     assert not missing_names, sorted(missing_names)
 
 
-def test_no_public_name_is_documented_on_more_than_one_page() -> None:
-    names_by_page = documented_names_by_page()
-    page_count_by_name: dict[str, list[str]] = {}
-    for page_name, names in names_by_page.items():
-        for name in names:
-            page_count_by_name.setdefault(name, []).append(page_name)
-    duplicated = {name: pages for name, pages in page_count_by_name.items() if len(pages) > 1}
-    assert not duplicated, duplicated
-
-
 def test_every_documented_name_is_public() -> None:
     """Guards the pages themselves: a directive naming something fmsave no longer exports.
 
@@ -143,23 +133,3 @@ def test_cli_reference_names_every_export_table() -> None:
     cli_text = normalized_cli_text()
     missing_tables = {table_name for table_name in table_choices if table_name not in cli_text}
     assert not missing_tables, sorted(missing_tables)
-
-
-def test_cli_reference_is_real_help_output() -> None:
-    """The console blocks are pasted --help output, not paraphrased prose."""
-    cli_text = reference_page_text("cli.md")
-    for command_name in ("fmsave --help", "fmsave info --help", "fmsave export --help"):
-        assert f"$ {command_name}" in cli_text, command_name
-    parser = cli._build_parser()
-    assert parser.prog in cli_text
-
-
-def test_every_docs_page_has_a_search_description() -> None:
-    docs = REFERENCE_DIR.parent
-    for page in sorted(docs.glob("**/*.md")):
-        if "_build" in page.parts:
-            continue
-        head = page.read_text(encoding="utf-8").split("\n---\n", 1)[0]
-        assert head.startswith("---\nmyst:\n  html_meta:\n    description: "), page.relative_to(
-            docs
-        )

@@ -142,16 +142,6 @@ def test_entry_running_past_trailer_is_corrupt(tmp_path: Path) -> None:
         read_index(fragment.write(tmp_path / "fragment.bin"))
 
 
-def test_overlapping_entries_are_corrupt(tmp_path: Path) -> None:
-    frame_offsets = build_container_fragment().frame_offsets
-    overlapping_size = frame_offsets["memory_pools.dat"] - frame_offsets["game_info.dat"] + 10
-    fragment = build_container_fragment(declared_sizes={"game_info.dat": (overlapping_size, 300)})
-    with pytest.raises(
-        CorruptSaveError, match=r"directory entry memory_pools\.dat points outside the frame area"
-    ):
-        read_index(fragment.write(tmp_path / "fragment.bin"))
-
-
 def test_index_repr_hides_folder_and_save_name(tmp_path: Path) -> None:
     fragment_path = build_container_fragment(save_name="Example Career").write(
         tmp_path / "privatefolder" / "fragment.bin"

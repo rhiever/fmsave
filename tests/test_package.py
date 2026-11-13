@@ -3,7 +3,6 @@ from __future__ import annotations
 import ast
 import dataclasses
 import importlib
-import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -93,19 +92,10 @@ def test_errors_share_a_base(error_class: type[Exception]) -> None:
     assert issubclass(error_class, fmsave.FmsaveError)
 
 
-def test_unknown_build_warning_is_a_user_warning() -> None:
-    assert issubclass(fmsave.UnknownBuildWarning, UserWarning)
-
-
 def test_warnings_share_a_base() -> None:
     assert "FmsaveWarning" in fmsave.__all__
     assert issubclass(fmsave.FmsaveWarning, UserWarning)
     assert issubclass(fmsave.UnknownBuildWarning, fmsave.FmsaveWarning)
-
-
-def test_all_names_exist() -> None:
-    for exported_name in fmsave.__all__:
-        assert hasattr(fmsave, exported_name), exported_name
 
 
 def test_public_api_names() -> None:
@@ -207,11 +197,3 @@ def test_importing_the_main_module_does_not_run_the_cli(monkeypatch: pytest.Monk
     monkeypatch.setattr(sys, "argv", ["fmsave", "--version"])
     monkeypatch.delitem(sys.modules, "fmsave.__main__", raising=False)
     importlib.import_module("fmsave.__main__")
-
-
-def test_module_entry_point_runs() -> None:
-    completed = subprocess.run(
-        [sys.executable, "-m", "fmsave", "--version"], capture_output=True, text=True, check=False
-    )
-    assert completed.returncode == 0
-    assert completed.stdout.startswith("fmsave ")

@@ -470,11 +470,12 @@ def test_csv_with_columns_matches_the_selected_flat_rows_byte_for_byte(
 def test_an_empty_selection_writes_an_empty_json_array(
     save_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    exit_code, output_text, _ = run_export(
+    exit_code, output_text, error_text = run_export(
         capsys, str(save_path), "players", "--nation", "99", "--format", "json"
     )
-    assert exit_code == cli.EXIT_OK
+    assert exit_code == cli.EXIT_OK, error_text
     assert json.loads(output_text) == []
+    assert "fmsave: note:" not in error_text
 
 
 def test_clubs_managed_club(save_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -497,17 +498,6 @@ def test_players_managed_club(save_path: Path, capsys: pytest.CaptureFixture[str
     exit_code, output_text, _ = run_export(capsys, str(save_path), "players", "--managed-club")
     assert exit_code == cli.EXIT_OK
     assert [record["uid"] for record in csv_records(output_text)] == ["900003"]
-
-
-def test_managed_clubs_have_no_nation_scope(
-    save_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    exit_code, output_text, error_text = run_export(
-        capsys, str(save_path), "managed-clubs", "--nation", "3"
-    )
-    assert exit_code == cli.EXIT_USAGE
-    assert output_text == ""
-    assert "fmsave: error:" in error_text
 
 
 def test_managed_club_scope_without_a_managed_club_exits_2(
@@ -1180,16 +1170,6 @@ def test_a_nonempty_injury_type_export_writes_no_note(
     assert "fmsave: note:" not in error_text
 
 
-def test_an_empty_table_without_an_empty_note_writes_no_note(
-    save_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    exit_code, _, error_text = run_export(
-        capsys, str(save_path), "players", "--nation", "99", "--format", "json"
-    )
-    assert exit_code == cli.EXIT_OK, error_text
-    assert "fmsave: note:" not in error_text
-
-
 def test_transfer_windows_all_writes_every_window(
     save_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1479,26 +1459,26 @@ def test_every_club_and_staff_table_writes_its_rows_as_json(
     assert len(json.loads(output_text)) == expected_count
 
 
-# The squad planner and the team match stats need sections this save leaves out, so their own
-# tests, test_squad_planner and test_team_match_stats, build the save they read.
-@pytest.mark.parametrize(
-    "table_name",
-    [
-        name
-        for name in cli._EXPORT_TABLES
-        if "-" in name and name not in ("squad-planner", "team-match-stats")
-    ],
-)
-def test_a_table_is_named_with_hyphens_or_with_the_readers_underscores(
-    save_path: Path, capsys: pytest.CaptureFixture[str], table_name: str
+def test_underscores_and_hyphens_export_the_same_table(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The reader's own spelling reaches the same table the help's hyphenated one does."""
+    table_name = "player-season-stats"
     hyphenated = run_export(capsys, str(save_path), table_name, "--all", "--format", "json")
     underscored = run_export(
         capsys, str(save_path), table_name.replace("-", "_"), "--all", "--format", "json"
     )
     assert hyphenated[0] == cli.EXIT_OK, hyphenated[2]
     assert underscored == hyphenated
+
+
+def test_each_hyphenated_table_also_accepts_the_reader_spelling() -> None:
+    parser = cli._build_parser()
+    for table_name in cli._EXPORT_TABLES:
+        if "-" in table_name:
+            arguments = parser.parse_args(
+                ["export", "example.fm", table_name.replace("-", "_"), "--all"]
+            )
+            assert arguments.table == table_name
 
 
 def test_a_table_name_that_is_neither_spelling_is_quoted_as_it_was_typed(

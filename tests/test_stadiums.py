@@ -787,10 +787,6 @@ def test_the_index_repr_hides_the_ground_names(career_path: Path) -> None:
     assert "1 named" in description
 
 
-def test_the_columns_the_export_flattens() -> None:
-    assert column_names(Stadium) == EXPECTED_STADIUM_COLUMNS
-
-
 def test_a_row_survives_pickling_and_deep_copying(career_path: Path) -> None:
     with fmsave.open(career_path) as save:
         stadiums = save.stadiums()

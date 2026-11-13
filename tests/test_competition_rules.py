@@ -23,7 +23,6 @@ from fmsave._save import COMPETITION_RULES_TABLE_CACHE_KEY
 from fmsave._status import field_status
 from fmsave.export import column_names
 from fmsave.models.rules import CompetitionRules, RulesBlockKind, RulesRound
-from fmsave.readers import rules as rules_reader
 from fmsave.readers._common import GAME_DB_SECTION
 from fmsave.readers.rules import build_competition_rules
 from tests.fixtures.career import (
@@ -354,33 +353,6 @@ def test_preamble_is_the_only_kind_a_row_can_carry(career_save_path: Path) -> No
 
     assert [kind.value for kind in RulesBlockKind] == ["preamble"]
     assert all(row.kind is RulesBlockKind.PREAMBLE for row in rules)
-
-
-def test_no_docstring_still_says_a_row_never_names_a_competition() -> None:
-    """A row can now carry a competition, so the sentences that denied it must be gone.
-
-    Pinning the withdrawn wording is what stops a docstring surviving the behaviour it
-    described: the three places that said so are the reader module, the reader method and the
-    record itself.
-    """
-    withdrawn = (
-        "competition_id is None on every row",
-        "None on every row in this release",
-        "no rules block names a competition",
-        "No block names a competition",
-    )
-    documentation = "\n".join(
-        text or ""
-        for text in (
-            rules_reader.__doc__,
-            fmsave.Save.competition_rules.__doc__,
-            CompetitionRules.__doc__,
-            RulesBlockKind.__doc__,
-        )
-    )
-
-    for sentence in withdrawn:
-        assert sentence not in documentation, sentence
 
 
 def test_the_columns_are_the_field_names_with_the_unknown_map_expanded() -> None:

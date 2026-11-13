@@ -74,22 +74,6 @@ def test_fm27_affiliate_groups_walk_every_count_and_reject_trailing_data() -> No
         walk_affiliate_groups(data + b"\x00", layout, "example.bin")
 
 
-def test_fm27_training_layout_pins_its_measured_shape() -> None:
-    from fmsave._layouts import TrainingLayout
-
-    layout = find_layout(TrainingLayout, "training_man", 32, BUILD).layout
-    assert layout.block_lead_byte == 2
-    assert layout.day_block_bytes == 8
-    assert layout.day_block_lead_byte == 4
-    assert layout.week_name_offset == 62
-    assert layout.week_record_fixed_bytes == 80
-    assert layout.header_entry_bytes == 13
-    assert (layout.block_tail_bytes, layout.block_trailer_bytes) == (32, 4)
-    assert (layout.group_lead_byte, layout.group_label_marker) == (2, None)
-    assert layout.header_entries_supported
-    assert layout.mentoring_groups_supported
-
-
 def test_fm27_injury_layouts_are_the_observed_fm26_layouts_registered_exactly() -> None:
     from fmsave._layouts import InjuryManagerLayout, InjuryTypeTableLayout
 

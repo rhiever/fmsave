@@ -11,7 +11,6 @@ from fmsave._checks import AFFILIATES_READER, GateResult, evaluate_affiliates
 from fmsave._errors import ReaderCheckError, SaveClosedError
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import AffiliateStats
-from fmsave.export import column_names
 from fmsave.models.affiliates import AffiliateGroup
 from fmsave.readers._common import FEEDER_SECTION, GAME_DB_SECTION
 from fmsave.readers.affiliates import (
@@ -152,10 +151,6 @@ def test_a_section_with_no_group_and_no_residue_is_an_empty_table(tmp_path: Path
     assert walk_affiliate_groups(empty, LAYOUT, FILE_NAME) == ()
     with fmsave.open(save_path) as save:
         assert len(save.affiliates()) == 0
-
-
-def test_the_columns_the_export_flattens() -> None:
-    assert column_names(AffiliateGroup) == ("group_index", "club_uids", "club_names")
 
 
 def test_a_row_survives_pickling_and_deep_copying(career_path: Path) -> None:

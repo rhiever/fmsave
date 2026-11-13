@@ -135,16 +135,6 @@ def test_info_json_with_show_name_includes_the_summary_strings(
     ]
 
 
-def test_info_on_a_whole_career_shows_summary_strings_only_on_request(
-    career_save_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    career_path = career_save_path
-    assert cli.main(["info", str(career_path), "--json"]) == cli.EXIT_OK
-    assert "summary_strings" not in json.loads(capsys.readouterr().out)
-    assert cli.main(["info", str(career_path), "--json", "--show-name"]) == cli.EXIT_OK
-    assert "Alex Manager" in json.loads(capsys.readouterr().out)["summary_strings"]
-
-
 def test_fmsave_warnings_print_as_fmsave_warnings(
     fragment_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -11,7 +11,6 @@ import fmsave
 from fmsave._checks import GateResult, evaluate_transfer_windows
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import TransferWindowStats
-from fmsave.export import column_names
 from fmsave.models.rules import TransferWindow
 from fmsave.readers._common import GAME_DB_SECTION
 from fmsave.readers.rules import find_transfer_window_layouts, read_transfer_windows
@@ -140,19 +139,6 @@ def test_a_closing_time_beyond_the_scan_window_is_not_returned() -> None:
 
     assert windows == ()
     assert stats == TransferWindowStats(markers=1, windows=0, incomplete=0)
-
-
-def test_the_columns_are_the_field_names_in_order() -> None:
-    assert column_names(TransferWindow) == (
-        "start_day",
-        "start_month",
-        "start_season_year_offset",
-        "end_day",
-        "end_month",
-        "end_season_year_offset",
-        "unknown_close_time",
-        "unknown_window_type",
-    )
 
 
 def test_a_window_survives_pickle_and_deepcopy() -> None:

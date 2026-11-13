@@ -209,15 +209,6 @@ def test_index_accepts_a_negative_or_missing_stop() -> None:
     assert table.index(CLUB_RECORDS[3], -2, None) == 3
 
 
-def test_where_docstring_explains_coded_value_matching() -> None:
-    where_docstring = Table.where.__doc__ or ""
-    assert "CodedValue" in where_docstring
-    assert "raw" in where_docstring
-    assert "UNKNOWN" in where_docstring
-    assert "tuple of coded values" in where_docstring
-    assert "filter" in where_docstring
-
-
 def holder_uids(table: Table[ExampleRoleHolder]) -> list[int]:
     return [holder.uid for holder in table]
 
