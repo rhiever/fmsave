@@ -115,8 +115,8 @@ def test_borrowed_fm27_calendar_leaves_referee_ids_unknown(tmp_path: Path) -> No
         fixtures = save.fixtures()
         assert fixtures.where(played=True)
         assert all(fixture.referee_id is None for fixture in fixtures)
-        with pytest.raises(fmsave.UnsupportedGameError):
-            save.officials()
+        (official,) = save.officials()
+        assert official.referee_id == REFEREE_ID
         report = fmsave.validate_save(save)
         assert report.field_statuses["Fixture.referee_id"] == "unconfirmed"
 

@@ -53,13 +53,20 @@ def section_label(file_name: str, section_name: str = GAME_DB_SECTION) -> str:
 
 
 def layout_mismatch(
-    file_name: str, detail: str, section_name: str = GAME_DB_SECTION
+    file_name: str,
+    detail: str,
+    section_name: str = GAME_DB_SECTION,
+    *,
+    share_detail: bool = False,
 ) -> ReaderCheckError:
-    """A ReaderCheckError saying the save layout differs from what fmsave expects."""
-    return ReaderCheckError(
+    """Describe a layout mismatch. Share detail only when it contains no private values."""
+    error = ReaderCheckError(
         f"{section_label(file_name, section_name)}: {detail}, so the save layout differs from "
         f"what fmsave expects. Please report it at {ISSUES_URL}"
     )
+    if share_detail:
+        error.report_reason = detail
+    return error
 
 
 # How far to shift a year for its high byte. A stored year is a little-endian u16.

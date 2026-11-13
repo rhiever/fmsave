@@ -215,7 +215,8 @@ def read_summary_facts(container_index: ContainerIndex) -> SummaryFacts:
     clock = read_summary_clock(summary, summary_layout, version)
     if version.major == 27 and clock is None:
         raise ReaderCheckError(
-            f"{file_name}: FM27 summary does not fit its structured clock layout"
+            f"{file_name}: FM27 summary does not fit its structured clock layout. "
+            f"Please report it at {ISSUES_URL}"
         )
     return SummaryFacts(
         version,
@@ -411,7 +412,7 @@ def read_game_info_facts(
     )
     game_info = read_metadata_section(container_index, GAME_INFO_SECTION)
     try:
-        if not known_build:
+        if not known_build or (version.major == 27 and not layout_match.exact):
             return decode_unrecognized_game_info(
                 game_info,
                 layout_match.layout,
@@ -464,15 +465,14 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
                 f"{file_name} was saved by FM27 build {version.build}, an unverified build: "
                 f"fmsave {__version__} has no layouts registered for it. It borrows the "
                 f"{', '.join(registered_fm27_builds())} layouts for each section whose schema "
-                "matches, and a reader of a section whose schema differs raises "
-                "UnsupportedGameError. Readers warn about failed checks by default. "
+                "matches, and tries an available FM27 layout when the schema differs. "
+                "Readers warn about failed checks by default. "
                 f"Please report problems at {ISSUES_URL}. "
             )
         )
         warnings.warn(
             UnknownBuildWarning(
-                f"{unverified}FM27 coverage: only registered layouts are enabled; "
-                "unsupported readers fail closed. Structural checks are not semantic or "
+                f"{unverified}FM27 coverage: structural checks are not semantic or "
                 "in-game verification. Run fmsave validate SAVE --json for FM27 field statuses."
             ),
             skip_file_prefixes=(str(Path(fmsave.__file__).parent) + os.sep,),

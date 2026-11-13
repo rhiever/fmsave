@@ -127,15 +127,28 @@ def test_fm26_planner_layout_is_unsupported(tmp_path: Path) -> None:
         save.squad_planner()
 
 
-def test_planner_layout_does_not_lend_to_another_fm27_build(tmp_path: Path) -> None:
+def test_planner_layout_lends_to_another_fm27_build(tmp_path: Path) -> None:
     path = planner_path(tmp_path, LEAD + group() * 4 + FOOTER, build=UNREGISTERED_BUILD)
-    with open_fm27(path) as save, pytest.raises(fmsave.UnsupportedGameError, match="planner"):
-        save.squad_planner()
+    with open_fm27(path) as save:
+        assert len(save.squad_planner()) == 81
 
 
-def test_planner_rejects_an_unregistered_humans_schema(tmp_path: Path) -> None:
+def test_planner_tries_an_unregistered_humans_schema(tmp_path: Path) -> None:
     path = planner_path(tmp_path, LEAD + group() * 4 + FOOTER, schema=25)
-    with open_fm27(path) as save, pytest.raises(fmsave.UnsupportedGameError):
+    with (
+        open_fm27(path) as save,
+        pytest.warns(fmsave.UnknownBuildWarning, match="save schema 25"),
+    ):
+        assert len(save.squad_planner()) == 81
+
+
+def test_borrowed_planner_does_not_treat_an_unreadable_owner_as_empty(tmp_path: Path) -> None:
+    path = planner_path(tmp_path, LEAD + group() * 4 + FOOTER, count=0, schema=25)
+    with (
+        open_fm27(path) as save,
+        pytest.warns(fmsave.UnknownBuildWarning, match="save schema 25"),
+        pytest.raises(fmsave.ReaderCheckError, match="planner owner could not be located"),
+    ):
         save.squad_planner()
 
 

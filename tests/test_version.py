@@ -201,21 +201,26 @@ def test_version_is_found_whatever_length_the_next_string_has(
     assert save_info.build_number == 2329565
 
 
-def test_future_game_is_unsupported(tmp_path: Path) -> None:
+def test_fm27_unreadable_summary_reports_decode_failure(tmp_path: Path) -> None:
     body = save_summary_body(version="27.0.1+3000001")
-    with pytest.raises(UnsupportedGameError) as error_info:
+    with (
+        pytest.warns(UnknownBuildWarning, match="save schema 29"),
+        pytest.raises(ReaderCheckError, match="structured clock layout") as error_info,
+    ):
         read_save_info(build_index(tmp_path, sections_with(save_game_summary=body)))
-    assert "FM27" in str(error_info.value)
     assert ISSUES_URL in str(error_info.value)
 
 
-def test_future_game_is_unsupported_even_when_other_section_signatures_differ(
+def test_unreadable_summary_is_reported_before_other_section_signatures(
     tmp_path: Path,
 ) -> None:
     sections = sections_with(
         save_game_summary=save_summary_body(version="27.0.1+3000001"), memory_pools=bytes(16)
     )
-    with pytest.raises(UnsupportedGameError, match="FM27"):
+    with (
+        pytest.warns(UnknownBuildWarning, match="save schema 29"),
+        pytest.raises(ReaderCheckError, match="structured clock layout"),
+    ):
         read_save_info(build_index(tmp_path, sections))
 
 

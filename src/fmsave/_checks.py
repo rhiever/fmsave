@@ -27,14 +27,14 @@ import warnings
 from collections import Counter
 from collections.abc import Generator, Iterable, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from statistics import median_low
 from typing import TYPE_CHECKING, Literal
 
 from fmsave._context import closed_save_error
 from fmsave._errors import ISSUES_URL, FmsaveError, ReaderCheckError, ReaderCheckWarning
 from fmsave._frozen import FrozenMapping
-from fmsave._layouts import BoundPair, GateBounds
+from fmsave._layouts import BoundPair, GateBounds, StaffLayout, registered_layouts
 from fmsave._package import __version__
 from fmsave._reader_stats import (
     AffiliateStats,
@@ -2861,6 +2861,16 @@ type ReaderStatus = Literal["ok", "failed", "error"]
 
 
 @dataclass(frozen=True, slots=True)
+class ReaderLayout:
+    """Layout provenance safe to include in a validation report."""
+
+    region: str
+    build: str
+    schema: int | None
+    save_schema: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class ReaderValidation:
     """How one reader fared in `validate_save`.
 
@@ -2895,6 +2905,8 @@ class ReaderValidation:
         coverage: The table's coverage (the share of non-None values per column); empty
             unless the status is "ok".
         anomalies: Counts of records the reader decoded but flags, such as unresolved teams.
+        layout: Layout provenance when the reader reports a borrowed layout.
+        reason: A structural failure detail when the reader can report it without save data.
     """
 
     reader: str
@@ -2903,10 +2915,12 @@ class ReaderValidation:
     gates: tuple[GateResult, ...]
     coverage: Mapping[str, float]
     anomalies: Mapping[str, int]
+    layout: ReaderLayout | None = None
+    reason: str | None = None
 
     def to_json_dict(self) -> dict[str, object]:
         """The reader's outcome as a JSON-ready dict."""
-        return {
+        outcome: dict[str, object] = {
             "reader": self.reader,
             "status": self.status,
             "record_count": self.record_count,
@@ -2914,6 +2928,11 @@ class ReaderValidation:
             "coverage": dict(self.coverage),
             "anomalies": dict(self.anomalies),
         }
+        if self.layout is not None:
+            outcome["layout"] = asdict(self.layout)
+        if self.reason is not None:
+            outcome["reason"] = self.reason
+        return outcome
 
 
 @dataclass(frozen=True, slots=True)
@@ -2998,7 +3017,9 @@ def _unsuccessful_validation(reader_name: str, error: FmsaveError) -> ReaderVali
                 _NO_COVERAGE,
                 reader_check.anomalies,
             )
-    return ReaderValidation(reader_name, "failed", None, (), _NO_COVERAGE, _NO_ANOMALIES)
+    return ReaderValidation(
+        reader_name, "failed", None, (), _NO_COVERAGE, _NO_ANOMALIES, reason=error.report_reason
+    )
 
 
 def validate_save(career_save: Save) -> ValidationReport:
@@ -3013,8 +3034,9 @@ def validate_save(career_save: Save) -> ValidationReport:
     decode that fails is reported where it failed: stadiums follow the fixtures whose calendar
     they read, injury types precede the injury history that names its types, and the two
     readers of each shared pass sit side by side. A reader with a failed blocking check is
-    reported "failed" with its checks. A reader that raises another fmsave error is reported "error"
-    without the error's text; the remaining readers still run. The report holds only structural
+    reported "failed" with its checks. A reader that raises another fmsave error is reported "error".
+    When a structural check can share its reason safely, the report includes it. The remaining
+    readers still run. The report holds only structural
     facts, counts and rates, never names, uids or other values from the save.
 
     Readers run here exactly as they would for any other caller, with their warnings suppressed
@@ -3110,6 +3132,10 @@ def validate_save(career_save: Save) -> ValidationReport:
             validations.append(
                 _completed_validation(reader_name, len(table), table.coverage, reader_check)
             )
+    for index, validation in enumerate(validations):
+        layout = career_save._reader_layout(validation.reader)  # pyright: ignore[reportPrivateUsage]
+        if layout is not None:
+            validations[index] = replace(validation, layout=layout)
     experimental_counts: dict[str, int] = {}
     if save_info.game == "FM27":
         try:
@@ -3137,7 +3163,17 @@ def validate_save(career_save: Save) -> ValidationReport:
                 ),
                 "rejected_rule_candidates": raw_span.rejected_rule_candidates,
             }
-    fm27_verified = _FM27_VERIFIED_FIELDS
+    fm27_verified: frozenset[str] = (
+        _FM27_VERIFIED_FIELDS
+        if save_info.game == "FM27"
+        and any(
+            entry.build.startswith("27.")
+            and entry.schema == save_info.section_schemas.get("game_db")
+            and isinstance(entry.layout, StaffLayout)
+            for entry in registered_layouts()
+        )
+        else frozenset()
+    )
     if save_info.known_build:
         fm27_verified |= _FM27_REFEREE_VERIFIED_FIELDS
     return ValidationReport(
