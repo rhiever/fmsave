@@ -76,12 +76,9 @@ def test_fm27_exact_experiment_reads_structured_metadata(tmp_path: Path) -> None
     assert BUILD in known_builds()
 
 
-@pytest.mark.parametrize("build,schema", [("27.0.1+3000001", 48), (BUILD, 48), ("0" + BUILD, 47)])
-def test_fm27_unknown_metadata_schema_or_version_fails_closed(
-    tmp_path: Path, build: str, schema: int
-) -> None:
+def test_fm27_malformed_version_is_unsupported(tmp_path: Path) -> None:
     with pytest.raises(UnsupportedGameError):
-        fmsave.open(fm27_fragment(tmp_path, build=build, info_schema=schema))
+        fmsave.open(fm27_fragment(tmp_path, build="0" + BUILD))
 
 
 UNREGISTERED_BUILD = "27.1.0+3000001"
@@ -116,59 +113,52 @@ def test_the_registered_fm27_build_warns_only_about_coverage(tmp_path: Path) -> 
     assert [str(warning.message).startswith("FM27 coverage") for warning in record] == [True]
 
 
-def test_an_unregistered_fm27_reader_whose_schema_changed_fails_by_itself(
-    tmp_path: Path,
-) -> None:
+def test_an_unregistered_fm27_reader_reports_why_its_decode_failed(tmp_path: Path) -> None:
     feeder = SectionFrame("feeder_man", section_body(".dat", 6, bytes(16)))
     path = fm27_fragment(
-        tmp_path,
-        build=UNREGISTERED_BUILD,
-        game_db=nation_table_bytes(),
-        extra_sections=(feeder,),
+        tmp_path, build=UNREGISTERED_BUILD, game_db=nation_table_bytes(), extra_sections=(feeder,)
     )
     with pytest.warns(fmsave.UnknownBuildWarning):
         save = fmsave.open(path)
     with save:
-        with pytest.raises(UnsupportedGameError) as error_info:
+        with pytest.raises(fmsave.ReaderCheckError, match="feeder_man"):
             save.affiliates()
-        message = str(error_info.value)
-        assert "'feeder_man'" in message
-        assert UNREGISTERED_BUILD in message
-        assert "schema 6 differs from the schema 5 registered for build" in message
         assert len(save.nations()) == 251
         report = fmsave.validate_save(save)
-    statuses = {reader.reader: reader.status for reader in report.readers}
-    assert statuses["nations"] == "ok"
-    assert statuses["affiliates"] != "ok"
+    statuses = {reader.reader: reader.to_json_dict() for reader in report.readers}
+    assert statuses["nations"]["status"] == "ok"
+    assert statuses["affiliates"]["status"] == "failed"
+    assert "reason" in statuses["affiliates"]
     assert not report.known_build
 
 
-def test_an_unregistered_fm27_game_db_schema_refuses_its_readers_not_the_save(
-    tmp_path: Path,
-) -> None:
+def test_fm27_nations_try_an_unregistered_schema(tmp_path: Path) -> None:
     path = fm27_fragment(
         tmp_path, build=UNREGISTERED_BUILD, game_db=nation_table_bytes(), game_db_schema=4001
     )
     with pytest.warns(fmsave.UnknownBuildWarning):
-        save = fmsave.open(path)
-    with save, pytest.raises(UnsupportedGameError, match="'game_db'.*schema 4001 differs"):
-        save.nations()
+        save = fmsave.open(path, strict=True)
+    with save:
+        with pytest.warns(fmsave.UnknownBuildWarning, match="save schema 4001"):
+            assert len(save.nations()) == 251
+        with pytest.warns(fmsave.UnknownBuildWarning, match="save schema 4001"):
+            report = fmsave.validate_save(save)
+    assert report.field_statuses["Staff.age"] == "unconfirmed"
 
 
-@pytest.mark.parametrize(
-    "info_schema,summary_schema", [(48, 31), (47, 32)], ids=("game_info", "summary")
-)
-def test_an_unregistered_fm27_build_with_other_metadata_schemas_is_refused(
-    tmp_path: Path, info_schema: int, summary_schema: int
+@pytest.mark.parametrize("build", [BUILD, UNREGISTERED_BUILD])
+@pytest.mark.parametrize("info_schema,summary_schema", [(48, 31), (47, 32)])
+def test_fm27_tries_other_metadata_schemas(
+    tmp_path: Path, build: str, info_schema: int, summary_schema: int
 ) -> None:
     path = fm27_fragment(
-        tmp_path,
-        build=UNREGISTERED_BUILD,
-        info_schema=info_schema,
-        summary_schema=summary_schema,
+        tmp_path, build=build, info_schema=info_schema, summary_schema=summary_schema
     )
-    with pytest.raises(UnsupportedGameError, match="FM27"):
-        fmsave.open(path)
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        save = fmsave.open(path)
+    with save:
+        assert save.info.game_date == date(2032, 7, 8)
+        assert save.info.db_version == "27.0.0+0"
 
 
 def test_an_unregistered_fm27_build_metadata_takes_the_checked_path(tmp_path: Path) -> None:
@@ -224,12 +214,14 @@ def test_fm27_info_marks_an_unregistered_build_as_unverified(
 
 
 def test_fm27_layouts_never_borrow_across_game_editions() -> None:
-    # FM26 registers training_man 31 and game_info 46; no FM27 build borrows either.
+    # These schema numbers belong to FM26. Any trial still uses an FM27 layout.
     for build in (BUILD, "27.9.0+1"):
-        with pytest.raises(UnsupportedGameError):
-            find_layout(TrainingLayout, "training_man", 31, build)
-        with pytest.raises(UnsupportedGameError):
-            find_layout(GameInfoLayout, "game_info", 46, build)
+        with pytest.warns(fmsave.UnknownBuildWarning, match="save schema 31"):
+            training = find_layout(TrainingLayout, "training_man", 31, build)
+        with pytest.warns(fmsave.UnknownBuildWarning, match="save schema 46"):
+            info = find_layout(GameInfoLayout, "game_info", 46, build)
+        assert (training.source_build, training.source_schema, training.exact) == (BUILD, 32, False)
+        assert (info.source_build, info.source_schema, info.exact) == (BUILD, 47, False)
 
 
 def test_fm27_info_cli_default(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

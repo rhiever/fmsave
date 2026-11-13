@@ -114,7 +114,7 @@ the game displays. Check that unit before interpreting a difference.
 `UnknownBuildWarning` means fmsave does not recognize that FM26 build. Readers still run; inspect
 their checks before relying on the output. fmsave also issues it for every FM27 save, because
 FM27 coverage is partial, and for an FM27 build with no registered layouts it also says that
-fmsave borrows the registered build's layouts where section schemas match.
+fmsave tries layouts from registered FM27 builds and warns when it uses a different schema.
 
 
 ## FM27 coverage
@@ -122,19 +122,18 @@ fmsave borrows the registered build's layouts where section schemas match.
 FM27 build `27.0.0+2486695` opens normally and reports `known_build` true: every reader has a
 layout registered for it, which does not confirm any field's meaning.
 
-Other FM27 builds open as unverified builds and report `known_build` false; `fmsave info` shows
-them as "unverified build". For each section whose schema equals the one registered for
-`27.0.0+2486695`, fmsave borrows that build's layout. A reader of a section whose schema
-differs raises `UnsupportedGameError` naming the section, schema and build, and the other
-readers still run. The save summary and `game_info` must fit a registered layout, or the save
-is refused. Regions with no schema number, such as the one fixtures, league tables and season
-statistics come from, are borrowed too; their readers locate their data by stored markers and
-check what they read. FM26 layouts are never used for FM27 saves, and FM28 or later saves are
-refused. Please report any problem with an unverified build.
+Other FM27 builds report `known_build` false, and `fmsave info` shows them as unverified.
+Readers prefer the build's own layout and a matching section schema. If the schema differs,
+they try an unambiguous FM27 layout and warn that the fields are unverified. A reader whose
+structure does not fit reports the decode failure. The save summary and `game_info` must
+still pass their metadata checks for the save to open. Schema-free regions such as the fixture
+calendar use their stored markers. FM27 readers use FM27 layouts. Other game editions need
+their own layouts.
 
 FM27 returns decoded rows with warnings by default. Invalid sponsorship lists are skipped and
-the warning explains the gap in coverage. The validation report lists unsupported readers and
-shows FM27 field statuses. On registered builds, it marks the fixture and official
+the warning explains the gap in coverage. The validation report lists failed readers and shows FM27 field statuses. For borrowed match
+report layouts it also records the layout build and schema. When a reader can report a failure
+reason without including save data, the report includes that reason. On registered builds, it marks the fixture and official
 `referee_id` fields verified. Staff age, birth date,
 and contract end date are verified. The 21 staff ratings added in 0.10.0 are also
 verified against the in-game rating labels. Global field-status labels describe FM26.

@@ -48,6 +48,7 @@ def walk_affiliate_groups(
             f"the section holds {len(feeder)} bytes, too few for its {layout.groups_offset}-byte "
             "header",
             section_name=FEEDER_SECTION,
+            share_detail=True,
         )
     (stored_group_count,) = _UINT32.unpack_from(feeder, layout.count_offset)
     cursor = layout.groups_offset
@@ -84,6 +85,7 @@ def walk_affiliate_groups(
             f"the {stored_group_count} groups end {len(feeder) - cursor} bytes before the "
             "section does",
             section_name=FEEDER_SECTION,
+            share_detail=True,
         )
     return tuple(groups)
 

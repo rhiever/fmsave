@@ -7,6 +7,8 @@ changing its schema. Modules are organised per game year and build.
 
 from __future__ import annotations
 
+import os
+import warnings
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -2577,6 +2579,8 @@ class LayoutEntry:
 class LayoutMatch[LayoutT]:
     layout: LayoutT
     exact: bool
+    source_build: str
+    source_schema: int | None
 
 
 FALLBACK_BUILD = "26.3.2+2329565"
@@ -2632,10 +2636,8 @@ def find_layout[LayoutT: Layout](
     counts only among builds every region's layout fits, so one build's override of a shared
     schema is never applied to another build's save.
 
-    An FM27 save never borrows across editions. A registered FM27 build uses only its own
-    layouts, at the schema it registered. Another FM27 build borrows a registered FM27 layout
-    only for a region whose schema equals the registered one exactly, including a region
-    registered with no schema; any other region raises `UnsupportedGameError` for that reader.
+    FM27 prefers the save's own build and schema, then a shared schema. When the schema
+    differs, try a unique layout from the save's build or other registered FM27 builds.
     """
     candidates = [
         entry
@@ -2657,7 +2659,7 @@ def find_layout[LayoutT: Layout](
             and entry.build == layout_build
             and isinstance(entry.layout, layout_type)
         ):
-            return LayoutMatch(entry.layout, exact=True)
+            return LayoutMatch(entry.layout, True, entry.build, entry.schema)
     for entry in candidates:
         if (
             schema is not None
@@ -2665,13 +2667,13 @@ def find_layout[LayoutT: Layout](
             and entry.build in full_builds
             and isinstance(entry.layout, layout_type)
         ):
-            return LayoutMatch(entry.layout, exact=True)
+            return LayoutMatch(entry.layout, True, entry.build, entry.schema)
     for entry in candidates:
         if entry.build == layout_build and isinstance(entry.layout, layout_type):
-            return LayoutMatch(entry.layout, exact=entry.schema is None)
+            return LayoutMatch(entry.layout, entry.schema is None, entry.build, entry.schema)
     for entry in candidates:
         if entry.build == FALLBACK_BUILD and isinstance(entry.layout, layout_type):
-            return LayoutMatch(entry.layout, exact=False)
+            return LayoutMatch(entry.layout, False, entry.build, entry.schema)
     raise LookupError(f"no {layout_type.__name__} registered for region {region!r}")
 
 
@@ -2682,49 +2684,45 @@ def _find_fm27_layout[LayoutT: Layout](
     schema: int | None,
     build: str,
 ) -> LayoutMatch[LayoutT]:
-    """An FM27 layout: the build's own, or a registered FM27 build's at exactly this schema.
-
-    A shared schema number is not evidence of cross-edition compatibility, so FM26 layouts are
-    never candidates. A region registered with no schema carries none to compare and is
-    borrowed. Its readers locate data by in-band markers and check what they decode.
-    """
-    from fmsave._errors import ISSUES_URL, UnsupportedGameError
+    """Select a unique same-edition layout, warning before a cross-schema read."""
+    from fmsave._errors import ISSUES_URL, UnknownBuildWarning, UnsupportedGameError
 
     lender_builds = registered_fm27_builds()
-    if build in lender_builds:
-        for entry in candidates:
-            if (
-                entry.build == build
-                and entry.schema == schema
-                and isinstance(entry.layout, layout_type)
-            ):
-                return LayoutMatch(entry.layout, exact=True)
-        raise UnsupportedGameError(
-            f"FM27: {layout_type.__name__} in {region!r} "
-            f"has no supported layout for build {build}, schema {schema}. See {ISSUES_URL}"
+    lent = [
+        entry
+        for entry in candidates
+        if entry.build in lender_builds and isinstance(entry.layout, layout_type)
+    ]
+    own = [entry for entry in lent if entry.build == build]
+    tiers = (
+        [entry for entry in own if entry.schema == schema],
+        [entry for entry in lent if entry.schema == schema],
+        own,
+        lent,
+    )
+    for tier in tiers:
+        if not tier:
+            continue
+        first = tier[0]
+        if any(entry.layout != first.layout for entry in tier):
+            raise UnsupportedGameError(
+                f"FM27: multiple {layout_type.__name__} layouts fit the build and schema "
+                f"information for {region!r}, build {build}, schema {schema}. See {ISSUES_URL}"
+            )
+        if not isinstance(first.layout, layout_type):
+            raise TypeError("layout registry returned an unexpected layout type")
+        if schema is not None and first.schema != schema:
+            warnings.warn(
+                UnknownBuildWarning(
+                    f"FM27 build {build}: trying {first.build}'s {region!r} layout at schema "
+                    f"{first.schema} on save schema {schema}. Decoded fields are unverified."
+                ),
+                skip_file_prefixes=(os.path.dirname(os.path.dirname(__file__)) + os.sep,),
+            )
+        return LayoutMatch(
+            first.layout, first.build == build and first.schema == schema, first.build, first.schema
         )
-    lent = [entry for entry in candidates if entry.build in lender_builds]
-    matching: list[LayoutT] = []
-    for entry in lent:
-        if (
-            entry.schema == schema
-            and isinstance(entry.layout, layout_type)
-            and entry.layout not in matching
-        ):
-            matching.append(entry.layout)
-    if len(matching) == 1:
-        return LayoutMatch(matching[0], exact=False)
-    lenders = ", ".join(lender_builds)
-    if matching:
-        raise UnsupportedGameError(
-            f"FM27: {layout_type.__name__} in {region!r} matches more than one layout registered "
-            f"for build {lenders} at schema {schema}, so build {build} borrows none. "
-            f"See {ISSUES_URL}"
-        )
-    registered = ", ".join(sorted({str(entry.schema) for entry in lent})) or "none"
     raise UnsupportedGameError(
-        f"FM27: {layout_type.__name__} in {region!r} cannot be read on build {build}: "
-        f"fmsave has no layouts registered for that build, and the section's schema {schema} "
-        f"differs from the schema {registered} registered for build {lenders}. "
-        f"Please report it at {ISSUES_URL}"
+        f"FM27: no {layout_type.__name__} layout for {region!r}, build {build}, "
+        f"schema {schema}. See {ISSUES_URL}"
     )

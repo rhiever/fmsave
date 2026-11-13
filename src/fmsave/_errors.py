@@ -22,6 +22,8 @@ class UnsupportedGameError(FmsaveError):
 class ReaderCheckError(FmsaveError):
     """A reader's checks failed, so its output would not be trustworthy."""
 
+    report_reason: str | None = None
+
 
 class SaveChangedError(FmsaveError):
     """The save file changed on disk after it was opened."""
@@ -42,7 +44,7 @@ class FmsaveWarning(UserWarning):
 class UnknownBuildWarning(FmsaveWarning):
     """The save comes from an FM26 build fmsave has no full set of layout tables for, or from
     FM27, which fmsave reads only in part. For an FM27 build with no layouts registered, the
-    message also says it borrows the registered FM27 layouts where section schemas match."""
+    message also explains how fmsave tries registered FM27 layouts."""
 
 
 class ReaderCheckWarning(FmsaveWarning):

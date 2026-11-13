@@ -24,7 +24,11 @@ from fmsave._layouts import (
     FixtureCalendarLayout,
     GateBounds,
     HumansLayout,
+    Layout,
+    LayoutMatch,
     LeagueTableLayout,
+    MatchReportLayout,
+    MatchSummaryLayout,
     PersonBlockLayout,
     StadiumTableLayout,
     StaffLayout,
@@ -171,7 +175,7 @@ from fmsave.readers.tactics import (
     read_tactics_header,
     walk_tactic_blocks,
 )
-from fmsave.readers.team_match_stats import find_match_report_layout, read_team_match_stats
+from fmsave.readers.team_match_stats import read_team_match_stats
 from fmsave.readers.training import (
     build_training_tables,
     find_training_layout,
@@ -739,7 +743,7 @@ class Save:
         Coverage varies. A fixture can reference an official absent from this table.
 
         Raises:
-            UnsupportedGameError: This build has no registered referee layout.
+            UnsupportedGameError: No usable match summary or person layout is available.
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed after opening.
             CorruptSaveError: The game database is damaged or was being written.
@@ -750,10 +754,9 @@ class Save:
     def _read_officials(self) -> Table[Official]:
         context = self._context
         info = context.info
-        if not find_layout(FixtureCalendarLayout, SPAN_REGION, None, info.build).exact:
-            raise UnsupportedGameError("officials require a registered referee layout")
         schema = info.section_schemas.get(GAME_DB_SECTION)
-        summary_layout = find_match_summary_layout(schema, info.build)
+        summary = find_layout(MatchSummaryLayout, GAME_DB_SECTION, schema, info.build)
+        self._note_reader_layout(_checks.OFFICIALS_READER, GAME_DB_SECTION, schema, summary)
         person_layout = find_layout(PersonBlockLayout, GAME_DB_SECTION, schema, info.build).layout
 
         def person_decoder() -> PersonBlockDecoder:
@@ -765,7 +768,12 @@ class Save:
             )
 
         with context.section(GAME_DB_SECTION) as game_db:
-            return Table(locate_officials(game_db, summary_layout, person_decoder), Official)
+            officials = locate_officials(game_db, summary.layout, person_decoder)
+        if info.game == "FM27" and not summary.exact and not officials:
+            raise layout_mismatch(
+                info.file_name, "no match official could be identified", share_detail=True
+            )
+        return Table(officials, Official)
 
     def _scored_fixtures(
         self,
@@ -1562,7 +1570,7 @@ class Save:
         can have no rows. Join to `fixtures()` on `competition_id`, `home_team_id`,
         `away_team_id` and `date`; see `TeamMatchStats`.
 
-        Available on FM26 builds 26.3.1 and 26.3.2 and FM27 build 27.0.0. A report whose
+        Reads FM26 and FM27 match report stores with a registered or borrowed layout. A report whose
         squads do not frame, or whose match key another report shares, gives no rows and is
         counted in the checks.
 
@@ -1578,14 +1586,20 @@ class Save:
     def _read_team_match_stats(self) -> Table[TeamMatchStats]:
         context = self._context
         info = context.info
-        layout = find_match_report_layout(
-            info.game,
-            info.section_schemas.get(MATCH_REPORTS_SECTION),
-            info.build,
-            known_build=info.known_build,
+        schema = info.section_schemas.get(MATCH_REPORTS_SECTION)
+        if schema is None:
+            raise UnsupportedGameError("this save has no team match stats section")
+        match = find_layout(MatchReportLayout, MATCH_REPORTS_SECTION, schema, info.build)
+        self._note_reader_layout(
+            _checks.TEAM_MATCH_STATS_READER, MATCH_REPORTS_SECTION, schema, match
         )
         with context.section(MATCH_REPORTS_SECTION) as section:
-            rows, stats = read_team_match_stats(section, layout, info.file_name)
+            rows, stats = read_team_match_stats(
+                section,
+                match.layout,
+                info.file_name,
+                check_borrowed=not match.exact or not info.known_build,
+            )
         check = _checks.check_team_match_stats(stats, self._gate_bounds())
         self._enforce_checks((check,))
         self._store_reader_checks((check,))
@@ -2076,12 +2090,12 @@ class Save:
     def squad_planner(self) -> Table[SquadPlannerSlot]:
         """The human manager's numbered slots for the current season and the next 2 seasons.
 
-        Available on FM27 build `27.0.0+2486695` with a single human manager. The table
+        Available on FM27 with a single human manager. The table
         has 27 slots per season, including empty slots, and preserves depth order.
         A save with no human manager returns an empty table.
 
         Raises:
-            UnsupportedGameError: The save's build, schema, or manager count is unsupported.
+            UnsupportedGameError: No planner layout is available, or the manager count is unsupported.
             ReaderCheckError: The planner or its owner could not be located unambiguously.
             CorruptSaveError: A record runs past the end of its section.
             SaveChangedError: The file changed on disk before the table was read.
@@ -2093,11 +2107,19 @@ class Save:
         context = self._context
         info = self._info
         humans_schema = info.section_schemas.get(HUMANS_SECTION)
-        layout = find_squad_planner_layout(info.game, humans_schema, info.build)
+        match = find_squad_planner_layout(info.game, humans_schema, info.build)
+        self._note_reader_layout(_checks.SQUAD_PLANNER_READER, HUMANS_SECTION, humans_schema, match)
         humans_layout = find_layout(HumansLayout, HUMANS_SECTION, humans_schema, info.build).layout
         with context.section(HUMANS_SECTION) as humans:
             owner = first_human(humans, humans_layout, info.file_name)
             if owner is None:
+                if match.source_schema != humans_schema:
+                    raise layout_mismatch(
+                        info.file_name,
+                        "the planner owner could not be located",
+                        HUMANS_SECTION,
+                        share_detail=True,
+                    )
                 return Table((), SquadPlannerSlot)
             count, selector = owner
             if count != 1:
@@ -2109,7 +2131,7 @@ class Save:
             groups = read_planner_selectors(
                 humans,
                 humans_layout.first_selector_offset + 4,
-                layout,
+                match.layout,
                 humans_layout.scouting_budget_marker,
                 info.file_name,
             )
@@ -2513,6 +2535,20 @@ class Save:
         return _TrainingTables(
             Table(team_rows, TeamTraining), Table(group_rows, MentoringGroup), reader_checks
         )
+
+    def _note_reader_layout[LayoutT: Layout](
+        self, reader_name: str, region: str, schema: int | None, match: LayoutMatch[LayoutT]
+    ) -> None:
+        if match.exact and self._info.known_build:
+            return
+        self._context.cached(
+            f"layout:{reader_name}",
+            lambda: _checks.ReaderLayout(region, match.source_build, match.source_schema, schema),
+        )
+
+    def _reader_layout(self, reader_name: str) -> _checks.ReaderLayout | None:
+        stored = self._context.cached_value(f"layout:{reader_name}")
+        return stored if isinstance(stored, _checks.ReaderLayout) else None
 
     def _reader_check(self, reader_name: str) -> ReaderCheck | None:
         """The checks a reader passed when its table was read, or None before it was read."""
@@ -2930,9 +2966,8 @@ def open_save(
         FileNotFoundError: The file does not exist.
         NotAFmSaveError: The file is not a Football Manager save.
         CorruptSaveError: The save is damaged or was being written.
-        UnsupportedGameError: The save is from another Football Manager version, or from an
-            FM27 build with no layouts registered whose save summary or game_info section
-            schema differs from the registered build's.
+        UnsupportedGameError: The save is from another Football Manager edition, or no
+            unambiguous candidate layout is available for required metadata.
         ReaderCheckError: The save metadata does not match the expected layout.
         OSError: A competition name CSV cannot be opened or read.
         TypeError: A competition name mapping holds a key that is not an int, or a name that is

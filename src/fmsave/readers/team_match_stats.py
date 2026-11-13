@@ -15,8 +15,8 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 
-from fmsave._errors import CorruptSaveError, UnsupportedGameError
-from fmsave._layouts import MatchReportLayout, find_layout
+from fmsave._errors import CorruptSaveError
+from fmsave._layouts import MatchReportLayout
 from fmsave._reader_stats import TeamMatchStatsStats
 from fmsave.models.team_match_stats import TeamMatchStats
 from fmsave.readers._common import MATCH_REPORTS_SECTION, layout_mismatch
@@ -29,31 +29,11 @@ else:
 _U32 = struct.Struct("<I")
 _ENTRY = struct.Struct("<III")
 _F32 = struct.Struct("<f")
-_GAMES = ("FM26", "FM27")
 _YEAR_ONE = datetime.datetime(1, 1, 1)  # noqa: DTZ001 - the save stores naive local times
 
 
-def find_match_report_layout(
-    game: str, schema: int | None, build: str, *, known_build: bool
-) -> MatchReportLayout:
-    """The registered match report layout for the save's build.
-
-    Field offsets are build-specific, so only a build whose layouts are all registered reads.
-
-    Raises:
-        UnsupportedGameError: No layout is registered for this build and schema.
-    """
-    if game in _GAMES and known_build:
-        match = find_layout(MatchReportLayout, MATCH_REPORTS_SECTION, schema, build)
-        if match.exact:
-            return match.layout
-    raise UnsupportedGameError(
-        f"team match stats have no supported layout for {game} build {build}"
-    )
-
-
 def index_entries(
-    section: bytes, layout: MatchReportLayout, file_name: str
+    section: bytes, layout: MatchReportLayout, file_name: str, *, check_borrowed: bool = False
 ) -> tuple[tuple[int, int], ...]:
     """The (start, size) of every report frame the page index lists, in index order.
 
@@ -62,7 +42,10 @@ def index_entries(
     """
     if len(section) < layout.first_page_offset:
         raise layout_mismatch(
-            file_name, "the match report index is cut short", MATCH_REPORTS_SECTION
+            file_name,
+            "the match report index is cut short",
+            MATCH_REPORTS_SECTION,
+            share_detail=True,
         )
     page_count = _U32.unpack_from(section, layout.page_count_offset)[0]
     entries: list[tuple[int, int]] = []
@@ -73,14 +56,20 @@ def index_entries(
         at = section.find(signature, search_from)
         if at < 0 or (page == 0 and at != layout.first_page_offset):
             raise layout_mismatch(
-                file_name, f"match report page {page} is missing", MATCH_REPORTS_SECTION
+                file_name,
+                f"match report page {page} is missing",
+                MATCH_REPORTS_SECTION,
+                share_detail=True,
             )
         after_name = at + len(signature)
         marker = section[after_name : after_name + layout.page_marker_bytes]
         count_at = after_name + layout.entry_count_offset_after_name
         if count_at + 4 > len(section):
             raise layout_mismatch(
-                file_name, f"match report page {page} is cut short", MATCH_REPORTS_SECTION
+                file_name,
+                f"match report page {page} is cut short",
+                MATCH_REPORTS_SECTION,
+                share_detail=True,
             )
         count = _U32.unpack_from(section, count_at)[0]
         table_at = count_at + 4
@@ -94,7 +83,10 @@ def index_entries(
             != marker
         ):
             raise layout_mismatch(
-                file_name, f"match report page {page} has no data header", MATCH_REPORTS_SECTION
+                file_name,
+                f"match report page {page} has no data header",
+                MATCH_REPORTS_SECTION,
+                share_detail=True,
             )
         search_from = data_at
         for _report_id, offset, size in _ENTRY.iter_unpack(
@@ -103,14 +95,34 @@ def index_entries(
             start = data_at + offset
             if size == 0 or start + size > len(section):
                 raise layout_mismatch(
-                    file_name, "a match report runs past the section", MATCH_REPORTS_SECTION
+                    file_name,
+                    "a match report runs past the section",
+                    MATCH_REPORTS_SECTION,
+                    share_detail=True,
                 )
             entries.append((start, size))
             search_from = max(search_from, start + size)
+    if check_borrowed and search_from < len(section):
+        # The store may carry a tail after its last report. Only an empty index or
+        # a structurally named next page contradicts the declared page count.
+        next_page = layout.page_name_prefix + str(page_count).encode()
+        signature = struct.pack("<II", page_count, len(next_page)) + next_page
+        if not entries or section.find(signature, search_from) >= 0:
+            raise layout_mismatch(
+                file_name,
+                "the match report index leaves trailing data",
+                MATCH_REPORTS_SECTION,
+                share_detail=True,
+            )
     previous_end = 0
     for start, size in sorted(entries):
         if start < previous_end:
-            raise layout_mismatch(file_name, "two match reports overlap", MATCH_REPORTS_SECTION)
+            raise layout_mismatch(
+                file_name,
+                "two match reports overlap",
+                MATCH_REPORTS_SECTION,
+                share_detail=True,
+            )
         previous_end = start + size
     return tuple(entries)
 
@@ -340,7 +352,7 @@ def _shares_half_up(home: int, away: int) -> tuple[int, int]:
 
 
 def read_team_match_stats(
-    section: bytes, layout: MatchReportLayout, file_name: str
+    section: bytes, layout: MatchReportLayout, file_name: str, *, check_borrowed: bool = False
 ) -> tuple[list[TeamMatchStats], TeamMatchStatsStats]:
     """Two rows for every report whose squads frame and whose key no other report shares.
 
@@ -350,7 +362,7 @@ def read_team_match_stats(
         ReaderCheckError: The page index does not walk, or two reports overlap.
         CorruptSaveError: The reports decompress to more than the layout allows.
     """
-    entries = index_entries(section, layout, file_name)
+    entries = index_entries(section, layout, file_name, check_borrowed=check_borrowed)
     seed_pattern = re.compile(b"(?=" + re.escape(layout.anchor_run) + b")")
     view = memoryview(section)
     budget = layout.maximum_expansion * len(section) + layout.maximum_report_bytes
@@ -384,6 +396,14 @@ def read_team_match_stats(
         detailed += squads.detailed
         framed.append((header, squads.detailed, home, away))
 
+    if check_borrowed and entries and not framed:
+        raise layout_mismatch(
+            file_name,
+            "no indexed match report could be decoded",
+            MATCH_REPORTS_SECTION,
+            share_detail=True,
+        )
+
     # Two reports with one key cannot be told apart, so neither is used.
     key_counts = Counter(header for header, _, _, _ in framed)
     rows: list[TeamMatchStats] = []
@@ -416,6 +436,13 @@ def read_team_match_stats(
                     **values,  # type: ignore[arg-type]
                 )
             )
+    if check_borrowed and entries and not rows:
+        raise layout_mismatch(
+            file_name,
+            "all decoded match reports have ambiguous keys",
+            MATCH_REPORTS_SECTION,
+            share_detail=True,
+        )
     stats = TeamMatchStatsStats(
         entries=len(entries),
         decompressed=decompressed,

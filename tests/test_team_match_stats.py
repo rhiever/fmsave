@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import struct
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -11,7 +12,9 @@ import fmsave
 from fmsave.cli import main
 from fmsave.export import column_names
 from tests.fixtures.career import career_fragment
-from tests.fixtures.container import section_body, zstd
+from tests.fixtures.container import SectionFrame, section_body, zstd
+from tests.test_fm27_experimental import BUILD as FM27_BUILD
+from tests.test_fm27_experimental import UNREGISTERED_BUILD, fm27_fragment
 
 HOME_TEAM = 701
 AWAY_TEAM = 702
@@ -327,10 +330,9 @@ def test_distance_adds_up_in_single_precision() -> None:
 
 def test_fm27_records_read_past_their_8_extra_bytes() -> None:
     from fmsave._layouts.fm26_26_3_2 import MATCH_REPORTS as FM26_MATCH_REPORTS
-    from fmsave._layouts.fm27_27_0_0 import BUILD as FM27_BUILD
-    from fmsave.readers.team_match_stats import find_match_report_layout, read_team_match_stats
+    from fmsave._layouts.fm27_27_0_0 import MATCH_REPORTS as layout
+    from fmsave.readers.team_match_stats import read_team_match_stats
 
-    layout = find_match_report_layout("FM27", 6, FM27_BUILD, known_build=True)
     home = ExampleTeam(
         players=squad(11, shots=1, npxg=0.25, progressive=4, events=(1, 2)), passes=(500, 450)
     )
@@ -358,11 +360,82 @@ def test_fm27_records_read_past_their_8_extra_bytes() -> None:
     assert (fm26_stats.framed, fm26_stats.incomplete) == (0, 2)
 
 
-def test_an_fm27_build_without_a_layout_is_unsupported() -> None:
-    from fmsave.readers.team_match_stats import find_match_report_layout
+@pytest.mark.parametrize("schema", [6, 7])
+def test_unregistered_fm27_team_match_stats_tries_the_layout(tmp_path: Path, schema: int) -> None:
+    payload = store([frame(summary_match(inserted=8))])[8:]
+    section = section_body(".dat", schema, payload + b"store trailer")
+    path = fm27_fragment(
+        tmp_path,
+        build=UNREGISTERED_BUILD,
+        extra_sections=(SectionFrame("match_stats_cfg", section),),
+    )
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        save = fmsave.open(path)
+    with save:
+        report = fmsave.validate_save(save)
+        assert len(save.team_match_stats()) == 2
+    validation = next(reader for reader in report.readers if reader.reader == "team_match_stats")
+    assert validation.status == "ok"
+    assert validation.to_json_dict()["layout"] == {
+        "region": "match_stats_cfg",
+        "build": FM27_BUILD,
+        "schema": 6,
+        "save_schema": schema,
+    }
 
-    with pytest.raises(fmsave.UnsupportedGameError):
-        find_match_report_layout("FM27", 6, "27.1.0+1", known_build=False)
+
+@pytest.mark.parametrize(
+    "make_store,reason",
+    [
+        (lambda: store() + b"unrecognized tail", "the match report index leaves trailing data"),
+        (
+            lambda: store([frame(summary_match(inserted=8))], [], page_count=1),
+            "the match report index leaves trailing data",
+        ),
+        (lambda: store([b"invalid compressed report"]), "no indexed match report could be decoded"),
+        (
+            lambda: store([frame(summary_match(inserted=8))] * 2),
+            "all decoded match reports have ambiguous keys",
+        ),
+    ],
+    ids=("false-empty", "undeclared-page", "bad-frame", "duplicate-keys"),
+)
+def test_borrowed_store_reports_invalid_structure(
+    tmp_path: Path, make_store: Callable[[], bytes], reason: str
+) -> None:
+    section = section_body(".dat", 7, make_store()[8:])
+    path = fm27_fragment(
+        tmp_path,
+        build=UNREGISTERED_BUILD,
+        extra_sections=(SectionFrame("match_stats_cfg", section),),
+    )
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        save = fmsave.open(path)
+    with save:
+        with (
+            pytest.warns(fmsave.UnknownBuildWarning, match="save schema 7"),
+            pytest.raises(fmsave.ReaderCheckError, match=reason),
+        ):
+            save.team_match_stats()
+        report = fmsave.validate_save(save)
+    validation = next(reader for reader in report.readers if reader.reader == "team_match_stats")
+    outcome = validation.to_json_dict()
+    assert outcome["status"] == "failed"
+    assert outcome["reason"] == reason
+    assert "example.bin" not in str(outcome)
+
+
+@pytest.mark.parametrize("section", [store(), store([], [])])
+def test_borrowed_store_accepts_an_empty_index(tmp_path: Path, section: bytes) -> None:
+    path = fm27_fragment(
+        tmp_path,
+        build=UNREGISTERED_BUILD,
+        extra_sections=(SectionFrame("match_stats_cfg", section_body(".dat", 7, section[8:])),),
+    )
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        save = fmsave.open(path)
+    with save, pytest.warns(fmsave.UnknownBuildWarning, match="save schema 7"):
+        assert not save.team_match_stats()
 
 
 def test_team_marker_inside_venue_id_does_not_change_team_ids(tmp_path: Path) -> None:

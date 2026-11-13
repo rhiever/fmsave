@@ -1275,6 +1275,14 @@ def _render_validation_text(report: ValidationReport) -> str:
     for reader in report.readers:
         count_text = "" if reader.record_count is None else f" ({reader.record_count} records)"
         lines.append(f"{reader.reader}: {reader.status}{count_text}")
+        if reader.layout is not None:
+            layout = reader.layout
+            lines.append(
+                f"  tried {layout.region} layout from build {layout.build} "
+                f"(layout schema {layout.schema}, save schema {layout.save_schema})"
+            )
+        if reader.reason is not None:
+            lines.append(f"  {reader.reason}")
         lines.extend(
             f"  {'warning: ' if gate.advisory else ''}{gate.name} = "
             f"{_format_check_number(gate.observed, 'none')} expected "
@@ -1411,9 +1419,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         warnings.simplefilter("always")
         exit_code, error_message = _run_guarded(arguments)
     shown_warnings_registry: dict[str | tuple[str, type[Warning], int], int] = {}
+    shown_fmsave_warnings: set[str] = set()
     for caught_warning in caught_warnings:
         if issubclass(caught_warning.category, FmsaveWarning):
-            print(f"fmsave: warning: {caught_warning.message}", file=sys.stderr)
+            message = str(caught_warning.message)
+            if message not in shown_fmsave_warnings:
+                print(f"fmsave: warning: {message}", file=sys.stderr)
+                shown_fmsave_warnings.add(message)
         else:
             warnings.warn_explicit(
                 caught_warning.message,

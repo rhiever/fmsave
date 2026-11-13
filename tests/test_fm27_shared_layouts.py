@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from fmsave._errors import UnsupportedGameError
+from fmsave._errors import UnknownBuildWarning
 from fmsave._layouts import find_layout
 from fmsave._layouts import fm26_26_3_2 as observed
 from fmsave.readers.affiliates import walk_affiliate_groups
@@ -37,14 +37,14 @@ def test_fm27_observed_structures_are_explicit_not_fallback(region, schema, layo
     match = find_layout(type(layout), region, schema, BUILD)
     assert match.exact
     assert match.layout == layout
-    with pytest.raises(UnsupportedGameError):
-        find_layout(type(layout), region, schema + 1, BUILD)
-    # Another FM27 build borrows the registered layout at the same schema, never at another.
     borrowed = find_layout(type(layout), region, schema, UNREGISTERED_BUILD)
     assert borrowed.layout is match.layout
     assert not borrowed.exact
-    with pytest.raises(UnsupportedGameError, match=f"schema {schema + 1} differs"):
-        find_layout(type(layout), region, schema + 1, UNREGISTERED_BUILD)
+    for build in (BUILD, UNREGISTERED_BUILD):
+        with pytest.warns(UnknownBuildWarning, match=f"save schema {schema + 1}"):
+            trial = find_layout(type(layout), region, schema + 1, build)
+        assert trial.layout is match.layout
+        assert not trial.exact
 
 
 def test_fm27_humans_layout_adds_only_the_scouting_budget_to_the_shared_one() -> None:
@@ -100,8 +100,9 @@ def test_fm27_injury_layouts_are_the_observed_fm26_layouts_registered_exactly() 
     assert types.layout.allow_match_entries
     assert manager.layout.allow_typed_rows
     assert not manager.layout.require_empty_lists
-    with pytest.raises(UnsupportedGameError):
-        find_layout(InjuryManagerLayout, "injury_manager", 9, BUILD)
+    with pytest.warns(UnknownBuildWarning, match="save schema 9"):
+        trial = find_layout(InjuryManagerLayout, "injury_manager", 9, BUILD)
+    assert not trial.exact and trial.layout == manager.layout
 
 
 def test_fm27_injury_checks_apply_to_early_season_sections_not_fragments() -> None:
@@ -144,14 +145,16 @@ def test_fm27_match_whitelist_reads_rows_only_behind_declared_histories() -> Non
     assert cache.nullable_suffix_first_date_offset == 38
 
 
-def test_fm27_sponsor_boundary_does_not_enable_unknown_schemas() -> None:
+def test_fm27_sponsor_layout_tries_unknown_schemas() -> None:
     layout_type = type(observed.SPONSOR_CHAINS)
     registered = find_layout(layout_type, "game_db", 4000, BUILD)
     assert registered.exact
     assert find_layout(layout_type, "game_db", 4000, UNREGISTERED_BUILD).layout is registered.layout
     for build in (BUILD, UNREGISTERED_BUILD):
-        with pytest.raises(UnsupportedGameError):
-            find_layout(layout_type, "game_db", 4001, build)
+        with pytest.warns(UnknownBuildWarning, match="save schema 4001"):
+            trial = find_layout(layout_type, "game_db", 4001, build)
+        assert trial.layout is registered.layout
+        assert not trial.exact
 
 
 def test_fm27_suspensions_judge_an_empty_search_by_count_not_by_share() -> None:

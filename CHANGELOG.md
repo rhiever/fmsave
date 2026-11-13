@@ -4,6 +4,18 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-11-12
+
+### Fixed
+
+- Try an available FM27 layout when a section schema is unfamiliar. Warn when borrowing a
+  different schema, and report decode failures when the data does not fit.
+- Read team match reports, officials, and squad planners on unverified builds when their data
+  fits an existing layout. Validation identifies borrowed match report layouts and explains
+  structural failures the reader can report without save data.
+
+Thanks to @GiorgioGandolfi88 for the report. Refs #86.
+
 ## [0.12.2] - 2026-11-11
 
 ### Fixed

@@ -5,7 +5,7 @@ from __future__ import annotations
 import struct
 
 from fmsave._errors import CorruptSaveError, UnsupportedGameError
-from fmsave._layouts import SquadPlannerLayout, find_layout
+from fmsave._layouts import LayoutMatch, SquadPlannerLayout, find_layout
 from fmsave._scan import decode_date
 from fmsave.models.squad_planner import SquadPlannerSlot
 from fmsave.readers._common import HUMANS_SECTION, layout_mismatch, section_label
@@ -20,11 +20,11 @@ _SCOUTING_DATE_PLACEHOLDER = b"\x01\x00\x6c\x07"
 type PlannerSelectors = tuple[tuple[tuple[int, ...], ...], ...]
 
 
-def find_squad_planner_layout(game: str, schema: int | None, build: str) -> SquadPlannerLayout:
+def find_squad_planner_layout(
+    game: str, schema: int | None, build: str
+) -> LayoutMatch[SquadPlannerLayout]:
     if game == "FM27":
-        match = find_layout(SquadPlannerLayout, HUMANS_SECTION, schema, build)
-        if match.exact:
-            return match.layout
+        return find_layout(SquadPlannerLayout, HUMANS_SECTION, schema, build)
     raise UnsupportedGameError(f"squad planner has no supported layout for {game} build {build}")
 
 
@@ -62,7 +62,9 @@ def _planner_start(
             start = marker_at + 31
         marker_at = humans.find(layout.lead_marker, marker_at + 1)
     if start is None:
-        raise layout_mismatch(file_name, "no squad planner lead was found", HUMANS_SECTION)
+        raise layout_mismatch(
+            file_name, "no squad planner lead was found", HUMANS_SECTION, share_detail=True
+        )
     return start
 
 

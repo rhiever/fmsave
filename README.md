@@ -12,10 +12,10 @@ season's stats, and CSV downloads. The save is read on your computer and never u
 ## Game coverage
 
 FM27 support covers build `27.0.0+2486695` through the normal API and commands. Other FM27
-builds open as unverified builds: fmsave borrows the `27.0.0+2486695` layouts for each section
-whose schema matches, and a reader of a section whose schema differs raises
-`UnsupportedGameError`. Every reader runs on FM27, including fixtures, league tables,
-competition rules, suspensions, per-match histories, training calendars and mentoring groups.
+builds use available FM27 layouts as unverified builds. Readers prefer matching schemas and
+warn when trying a layout registered for a different schema. Readers report sections they
+cannot decode. FM27 readers include fixtures, league tables, competition rules, suspensions,
+per-match histories, training calendars, and mentoring groups.
 Three season-stat fields are not read. Run `fmsave validate SAVE --json` for reader coverage and checks.
 
 The validation report shows which FM27 fields have been checked against the game.
