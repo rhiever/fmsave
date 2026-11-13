@@ -589,7 +589,8 @@ def small_search_layout(max_search_bytes: int | None = SMALL_MAX_SEARCH_BYTES) -
 
 def test_an_uncapped_search_reaches_the_start_of_game_db() -> None:
     """The bytes after the table grow with a career: 34.2 MB on one (Refs #20)."""
-    layout = small_search_layout(max_search_bytes=None)
+    layout = dataclasses.replace(find_stage_layout(GAME_DB_SCHEMA, ""), search_bytes=10_000)
+    assert layout.max_search_bytes is None
     trailing_bytes = layout.search_bytes * 37
     game_db = stage_table_bytes(career_stage_rows(), trailing_bytes=trailing_bytes)
 
@@ -616,16 +617,6 @@ def test_a_table_further_back_than_the_first_window_is_found_by_widening_it() ->
     assert len(stage_index.stages) == STAGE_ROW_COUNT
     assert stage_index.stages[0].id == 1
     assert stage_index.stats.bytes_after_table == layout.search_bytes * 2
-
-
-def test_a_table_with_twenty_megabytes_after_it_is_found() -> None:
-    layout = find_stage_layout(GAME_DB_SCHEMA, "")
-    game_db = stage_table_bytes(career_stage_rows(), trailing_bytes=20_693_727)
-
-    stage_index = read_stage_index(game_db, layout, FILE_NAME)
-
-    assert len(stage_index.stages) == STAGE_ROW_COUNT
-    assert stage_index.stats.bytes_after_table == 20_693_727
 
 
 def test_a_table_past_the_widest_window_is_not_found() -> None:

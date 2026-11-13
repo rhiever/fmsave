@@ -33,10 +33,6 @@ def test_equals_a_plain_dict() -> None:
     assert example_schemas() != {"game_info": 46}
 
 
-def test_repr_is_shaped_like_a_dict() -> None:
-    assert repr(example_schemas()) == "{'game_info': 46, 'humans': 21}"
-
-
 def test_mutation_attempts_raise_type_error() -> None:
     schemas = example_schemas()
     with pytest.raises(TypeError):

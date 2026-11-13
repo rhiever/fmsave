@@ -37,6 +37,7 @@ Changelog = "https://github.com/rhiever/fmsave/blob/main/CHANGELOG.md"
 fmsave = "fmsave.cli:main"
 
 [dependency-groups]
+ci = ["pytest-xdist==3.8.0"]
 test = [
     "pytest>=9.1",
     "pytest-cov>=7.1",

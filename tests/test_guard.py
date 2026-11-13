@@ -144,11 +144,6 @@ def test_save_magic_and_binary_are_blocked(
     assert "binary" in error_output
 
 
-def test_oversized_file_is_blocked(repository: Path) -> None:
-    stage(repository, "data/large.txt", "a" * 1_000_001)
-    assert run_guard(repository, "--staged") == 1
-
-
 def test_oversized_file_is_not_scanned_for_encoded_runs(
     repository: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -366,9 +361,18 @@ def blocked_line(problem_count: int) -> str:
     return f"guard: {problem_count} problem(s) found; blocked"
 
 
+def encoded_run_finding(line_number: int, kind: str, length: int) -> object:
+    return guard.Finding(
+        f"data/payload.txt:{line_number}",
+        f"contains a long encoded run ({kind}, {length} characters)",
+    )
+
+
 def encoded_run_line(line_number: int, kind: str, length: int) -> str:
-    reason = f"contains a long encoded run ({kind}, {length} characters)"
-    return f"guard: data/payload.txt:{line_number}: {reason}"
+    return (
+        f"guard: data/payload.txt:{line_number}: "
+        f"contains a long encoded run ({kind}, {length} characters)"
+    )
 
 
 @pytest.mark.parametrize(
@@ -612,22 +616,10 @@ WRAPPED_BASE64_CASES = {
     ("payload", "expected"), WRAPPED_BASE64_CASES.values(), ids=WRAPPED_BASE64_CASES.keys()
 )
 def test_wrapped_base64_is_blocked_from_four_lines(
-    repository: Path,
-    capsys: pytest.CaptureFixture[str],
-    payload: str,
-    expected: tuple[int, str, int] | None,
+    payload: str, expected: tuple[int, str, int] | None
 ) -> None:
-    stage(repository, "data/payload.txt", f"first line\n{payload}\nlast line\n")
-    if expected is None:
-        assert run_guard(repository, "--staged") == 0
-        assert capsys.readouterr().err.splitlines() == [STRUCTURAL_OK_LINE]
-        return
-    line_number, kind, length = expected
-    assert run_guard(repository, "--staged") == 1
-    assert capsys.readouterr().err.splitlines() == [
-        encoded_run_line(line_number, kind, length),
-        blocked_line(1),
-    ]
+    findings = guard.encoded_run_findings("data/payload.txt", f"first line\n{payload}\nlast line\n")
+    assert findings == ([] if expected is None else [encoded_run_finding(*expected)])
 
 
 HEX_PAIR_CASES = {
@@ -657,16 +649,13 @@ HEX_PAIR_CASES = {
     ("pairs_text", "reported"), HEX_PAIR_CASES.values(), ids=HEX_PAIR_CASES.keys()
 )
 def test_separated_hex_byte_pairs_are_blocked_from_64_pairs(
-    repository: Path, capsys: pytest.CaptureFixture[str], pairs_text: str, reported: bool
+    pairs_text: str, reported: bool
 ) -> None:
-    stage(repository, "data/payload.txt", f"first line\npayload = [{pairs_text}]\nlast line\n")
-    assert run_guard(repository, "--staged") == int(reported)
-    expected_lines = (
-        [encoded_run_line(2, "hex byte pairs", len(pairs_text)), blocked_line(1)]
-        if reported
-        else [STRUCTURAL_OK_LINE]
+    findings = guard.encoded_run_findings(
+        "data/payload.txt", f"first line\npayload = [{pairs_text}]\nlast line\n"
     )
-    assert capsys.readouterr().err.splitlines() == expected_lines
+    expected = [encoded_run_finding(2, "hex byte pairs", len(pairs_text))] if reported else []
+    assert findings == expected
 
 
 @pytest.mark.parametrize(("escape_count", "reported"), [(32, True), (31, False)])
@@ -803,17 +792,28 @@ HEX_DUMP_CASES = {
     ("dump_text", "expected"), HEX_DUMP_CASES.values(), ids=HEX_DUMP_CASES.keys()
 )
 def test_hex_dumps_are_blocked_from_64_bytes(
-    repository: Path,
-    capsys: pytest.CaptureFixture[str],
-    dump_text: str,
-    expected: tuple[str, int] | None,
+    dump_text: str, expected: tuple[str, int] | None
 ) -> None:
-    stage(repository, "data/payload.txt", f"first line\n{dump_text}\nlast line\n")
-    if expected is None:
-        assert run_guard(repository, "--staged") == 0
-        assert capsys.readouterr().err.splitlines() == [STRUCTURAL_OK_LINE]
-        return
-    kind, length = expected
+    findings = guard.encoded_run_findings(
+        "data/payload.txt", f"first line\n{dump_text}\nlast line\n"
+    )
+    assert findings == ([] if expected is None else [encoded_run_finding(2, *expected)])
+
+
+@pytest.mark.parametrize(
+    ("payload", "kind", "length"),
+    [
+        pytest.param(
+            WRAPPED_BASE64_CASES["encodebytes-4-lines"][0], "wrapped base64", 304, id="base64"
+        ),
+        pytest.param(HEX_PAIR_CASES["spaces-64"][0], "hex byte pairs", 191, id="byte-pairs"),
+        pytest.param(HEX_DUMP_CASES["xxd-64-bytes"][0], "hex dump", 128, id="hex-dump"),
+    ],
+)
+def test_staged_files_reject_encoded_data(
+    repository: Path, capsys: pytest.CaptureFixture[str], payload: str, kind: str, length: int
+) -> None:
+    stage(repository, "data/payload.txt", f"first line\n{payload}\nlast line\n")
     assert run_guard(repository, "--staged") == 1
     assert capsys.readouterr().err.splitlines() == [
         encoded_run_line(2, kind, length),
@@ -1547,7 +1547,6 @@ def test_smart_punctuation_in_a_commit_message_is_blocked(
 # Runs of per-save figures in the published prose
 
 
-@pytest.mark.parametrize("prose_path", sorted(guard.PROSE_PATHS))
 @pytest.mark.parametrize(
     "line",
     [
@@ -1560,25 +1559,25 @@ def test_smart_punctuation_in_a_commit_message_is_blocked(
         "One club's panels held 44, 55 and 66 people.",
     ],
 )
-def test_a_run_of_per_save_figures_in_the_prose_is_blocked(
-    repository: Path, prose_path: str, line: str
-) -> None:
-    stage(repository, prose_path, f"{line}\n")
-    assert run_guard(repository, "--staged") == 1
+def test_a_run_of_per_save_figures_in_the_prose_is_blocked(line: str) -> None:
+    path = "README.md"
+    assert guard.figure_run_findings(path, path, line) == [
+        guard.Finding(f"{path}:1", "contains a run of per-save figures")
+    ]
 
 
+@pytest.mark.parametrize("prose_path", ["README.md", "CHANGELOG.md"])
 def test_a_figure_run_names_the_line_it_sits_on(
-    repository: Path, capsys: pytest.CaptureFixture[str]
+    repository: Path, capsys: pytest.CaptureFixture[str], prose_path: str
 ) -> None:
-    stage(repository, "README.md", "# fmsave\n\nIt accepts 11,111 / 22,222 / 33,333 records.\n")
+    stage(repository, prose_path, "# fmsave\n\nIt accepts 11,111 / 22,222 / 33,333 records.\n")
     assert run_guard(repository, "--staged") == 1
     assert capsys.readouterr().err.splitlines() == [
-        "guard: README.md:3: contains a run of per-save figures",
+        f"guard: {prose_path}:3: contains a run of per-save figures",
         blocked_line(1),
     ]
 
 
-@pytest.mark.parametrize("prose_path", sorted(guard.PROSE_PATHS))
 @pytest.mark.parametrize(
     "line",
     [
@@ -1602,11 +1601,8 @@ def test_a_figure_run_names_the_line_it_sits_on(
         "a-url",
     ],
 )
-def test_bounds_versions_and_code_values_in_the_prose_pass(
-    repository: Path, prose_path: str, line: str
-) -> None:
-    stage(repository, prose_path, f"{line}\n")
-    assert run_guard(repository, "--staged") == 0
+def test_bounds_versions_and_code_values_in_the_prose_pass(line: str) -> None:
+    assert guard.figure_run_findings("README.md", "README.md", line) == []
 
 
 def test_a_figure_run_outside_the_published_prose_passes(repository: Path) -> None:

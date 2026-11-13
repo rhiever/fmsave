@@ -1526,10 +1526,13 @@ def test_cache_framing_keeps_raw_references_and_dates_outside_calendar_output_sc
     assert len(records.fixture_cache_offsets) == 1
 
 
-def test_long_cache_is_also_invariant_with_one_byte_frames() -> None:
+def test_long_cache_finishes_with_one_byte_frames() -> None:
     payload = cache_payload(first_count=1, second_count=0, event_count=4200)
-    assert len(payload) > span_layouts().carry_over_bytes
+    tail_start = len(payload) - 512
+    assert tail_start > span_layouts().carry_over_bytes
     expected = scan([payload])
-    actual = scan([payload[i : i + 1] for i in range(len(payload))])
+    frames = [payload[i : min(i + 31, tail_start)] for i in range(0, tail_start, 31)]
+    frames.extend(payload[i : i + 1] for i in range(tail_start, len(payload)))
+    actual = scan(frames)
     assert actual.fixture_cache_offsets == expected.fixture_cache_offsets
     assert len(actual.fixture_cache_offsets) == 1

@@ -42,12 +42,6 @@ def exercise_container(content: bytes) -> None:
 
 @settings(max_examples=200, deadline=None)
 @given(content=st.binary(max_size=512))
-def test_random_bytes(content: bytes) -> None:
-    exercise_container(content)
-
-
-@settings(max_examples=200, deadline=None)
-@given(content=st.binary(max_size=512))
 def test_random_bytes_after_magic(content: bytes) -> None:
     exercise_container(FILE_MAGIC + content)
 

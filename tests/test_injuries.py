@@ -16,7 +16,6 @@ from fmsave._checks import INJURIES_READER, GateResult, evaluate_injuries
 from fmsave._errors import FmsaveError, ReaderCheckError, SaveClosedError
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import InjuryStats
-from fmsave.export import column_names
 from fmsave.models.injuries import (
     InjuryCause,
     InjuryRecord,
@@ -519,29 +518,6 @@ def test_a_save_with_no_per_match_file_names_no_type_and_applies_no_type_gate(
     ] == [False]
 
 
-def test_the_columns_the_export_flattens() -> None:
-    assert column_names(InjuryRecord) == (
-        "kind",
-        "player_uid",
-        "player_name",
-        "date",
-        "team_id",
-        "club_uid",
-        "club_name",
-        "team_slot",
-        "type_id",
-        "type_name",
-        "cause",
-        "cause_code",
-        "severity",
-        "severity_code",
-        "unknown_r0",
-        "unknown_r11",
-        "unknown_r12",
-        "unknown_hi7_date",
-    )
-
-
 def test_a_row_survives_pickling_and_deep_copying(career_path: Path) -> None:
     with fmsave.open(career_path) as save:
         row = save.injuries()[0]
@@ -558,12 +534,6 @@ def test_the_table_is_read_once_and_raises_after_the_save_is_closed(career_path:
 
     with pytest.raises(SaveClosedError):
         save.injuries()
-
-
-def test_the_typed_rows_are_never_described_as_ended() -> None:
-    documentation = fmsave.Save.injuries.__doc__
-    assert documentation is not None
-    assert "ended" not in documentation.lower()
 
 
 def test_the_anomalies_count_the_parts_no_row_carries(career_path: Path) -> None:

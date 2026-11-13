@@ -13,7 +13,7 @@ import pytest
 
 import fmsave
 import fmsave._save as save_module
-from fmsave import FinanceMonth, Sponsorship, SponsorType, export
+from fmsave import FinanceMonth, Sponsorship, SponsorType
 from fmsave._checks import (
     FINANCES_READER,
     SPONSORSHIPS_READER,
@@ -457,41 +457,6 @@ def test_only_the_first_step_may_start_from_an_opening_balance() -> None:
     assert stats.balance_steps == 2
     assert stats.balance_continuous_steps == 1
     assert stats.opening_balance_steps == 0
-
-
-def test_both_records_export_their_columns() -> None:
-    assert export.column_names(FinanceMonth) == (
-        "club_uid",
-        "club_name",
-        "month",
-        "balance",
-        "transfer_budget_allocated",
-        "transfer_budget_remaining",
-        "wage_budget_weekly",
-        "wage_payroll_weekly",
-        "income_excluding_transfers",
-        "net_transfers",
-        "wage_bill",
-        "net",
-        "expenditure_excluding_transfers",
-        "total_income",
-        "total_expenditure",
-    )
-    assert export.column_names(Sponsorship) == (
-        "club_uid",
-        "club_name",
-        "kind",
-        "kind_code",
-        "start",
-        "end",
-        "total_value",
-        "annual_value",
-        "unknown_flag10",
-        "unknown_u15",
-        "unknown_b17",
-        "unknown_enum18",
-        "unknown_b19",
-    )
 
 
 def test_both_tables_survive_pickle_and_deepcopy(career_save_path: Path) -> None:

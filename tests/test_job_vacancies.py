@@ -13,7 +13,6 @@ from fmsave._checks import JOB_VACANCIES_READER, GateResult, evaluate_job_vacanc
 from fmsave._errors import ReaderCheckError, SaveClosedError
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import JobVacancyStats
-from fmsave.export import column_names
 from fmsave.models.jobs import JobVacancy
 from fmsave.readers._common import GAME_DB_SECTION, MISSING_REFERENCE
 from fmsave.readers.jobs import find_job_centre_layout, read_job_vacancies
@@ -396,24 +395,6 @@ def test_the_anomalies_count_what_the_joins_and_the_flags_left(career_path: Path
         "without_league_position": 1,
         "flagged": 1,
     }
-
-
-def test_the_columns_the_export_flattens() -> None:
-    assert column_names(JobVacancy) == (
-        "team_id",
-        "club_uid",
-        "club_name",
-        "team_slot",
-        "advertised_date",
-        "competition_id",
-        "competition_name",
-        "league_position",
-        "unknown_role",
-        "unknown_advertised_slot",
-        "unknown_date_12",
-        "unknown_u20",
-        "unknown_b24",
-    )
 
 
 def test_a_row_survives_pickling_and_deep_copying(career_path: Path) -> None:

@@ -109,14 +109,14 @@ jobs:
           version: "0.13.7"
           python-version: ${{ matrix.python-version }}
           enable-cache: false
-      - run: uv sync --locked
+      - run: uv sync --locked --group ci
       - name: Run tests
         env:
           COVERAGE_ARGS: ${{ matrix.coverage-args }}
         shell: bash
         run: |
           read -r -a coverage_args <<< "$COVERAGE_ARGS"
-          uv run --locked pytest -m "not corpus" "${coverage_args[@]}"
+          uv run --locked --group ci pytest -n auto --maxprocesses=4 -m "not corpus" "${coverage_args[@]}"
       - name: Build distributions
         if: matrix.python-version == '3.12'
         run: uv build
@@ -191,9 +191,10 @@ jobs:
             --quiet --no-deps --only-binary=:all: --dest released "fmsave==${version}"
           node scripts/app-smoke/smoke.mjs released/fmsave-*.whl example-career.fm
 
+  # Compatibility jobs can start alongside the Linux tests once Checks passes.
   test-windows:
     name: Tests (Windows, Python 3.14)
-    needs: [checks, test]
+    needs: checks
     if: needs.checks.outputs.extended == 'true'
     runs-on: windows-latest
     timeout-minutes: 8
@@ -206,15 +207,15 @@ jobs:
           version: "0.13.7"
           python-version: "3.14"
           enable-cache: false
-      - run: uv sync --locked
+      - run: uv sync --locked --group ci
       - name: Run tests
-        run: uv run pytest -m "not corpus"
+        run: uv run --locked --group ci pytest -n auto --maxprocesses=4 -m "not corpus"
 
   # Public repositories also test the remaining Python and operating system combinations.
   test-matrix:
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python-version }})
     if: needs.checks.outputs.extended == 'true' && github.event.repository.private == false
-    needs: [checks, test]
+    needs: checks
     runs-on: ${{ matrix.os }}
     timeout-minutes: 8
     strategy:
@@ -239,10 +240,10 @@ jobs:
           version: "0.13.7"
           python-version: ${{ matrix.python-version }}
           enable-cache: false
-      - run: uv sync --locked
+      - run: uv sync --locked --group ci
       # The corpus tier needs private saves that are not here, as in every job above.
       - name: Run tests
-        run: uv run pytest -m "not corpus"
+        run: uv run --locked --group ci pytest -n auto --maxprocesses=4 -m "not corpus"
 
   check:
     name: check

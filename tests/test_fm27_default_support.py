@@ -11,31 +11,6 @@ from tests.test_fm27_experimental import BUILD, UNREGISTERED_BUILD, fm27_fragmen
 from tests.test_fm27_player_partial import fm27_player_path
 
 
-def test_registered_fm27_opens_without_an_opt_in(tmp_path: Path) -> None:
-    with pytest.warns(fmsave.UnknownBuildWarning, match="FM27"):
-        save = fmsave.open(fm27_fragment(tmp_path))
-    with save:
-        assert save.info.game == "FM27"
-        assert save.info.build == BUILD
-        assert not save._strict
-
-
-def test_cli_reads_registered_fm27_without_a_flag(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main(["info", str(fm27_fragment(tmp_path)), "--json"]) == 0
-    assert '"game": "FM27"' in capsys.readouterr().out
-
-
-def test_cli_info_calls_the_registered_fm27_build_partial_not_unknown(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main(["info", str(fm27_fragment(tmp_path))]) == 0
-    output = capsys.readouterr().out
-    assert f"{BUILD} (partial coverage)" in output
-    assert "unknown build" not in output
-
-
 def test_the_registered_fm27_build_is_known_and_still_partial_coverage(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

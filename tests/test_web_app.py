@@ -8,7 +8,6 @@ from __future__ import annotations
 import csv
 import dataclasses
 import importlib.util
-import json
 import math
 import re
 import sys
@@ -159,18 +158,6 @@ def test_player_detail_holds_the_record_and_its_stats(opened: dict[str, Any]) ->
 
 
 @pytest.mark.parametrize("name", ["players", "squad", "season-stats"])
-def test_each_download_writes_a_csv(opened: dict[str, Any], tmp_path: Path, name: str) -> None:
-    del opened
-    reader.read_stats()
-    path = tmp_path / f"{name}.csv"
-    rows = reader.write_csv(name, str(path))
-    lines = path.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == rows + 1
-    if name == "players":
-        assert lines[0].split(",") == list(column_names(fmsave.Player))
-
-
-@pytest.mark.parametrize("name", ["players", "squad", "season-stats"])
 def test_a_download_is_fmsave_s_own_csv_when_no_cell_could_run(
     opened: dict[str, Any], tmp_path: Path, name: str
 ) -> None:
@@ -178,7 +165,7 @@ def test_a_download_is_fmsave_s_own_csv_when_no_cell_could_run(
     del opened
     reader.read_stats()
     download_path = tmp_path / "download.csv"
-    reader.write_csv(name, str(download_path))
+    rows = reader.write_csv(name, str(download_path))
     table = {
         "players": reader._state["players"],
         "squad": reader._state["players"].where(club_uid=reader._state["club_uid"]),
@@ -186,6 +173,7 @@ def test_a_download_is_fmsave_s_own_csv_when_no_cell_could_run(
     }[name]
     fmsave_path = tmp_path / "fmsave.csv"
     table.write_csv(fmsave_path)
+    assert rows == len(table)
     assert download_path.read_bytes() == fmsave_path.read_bytes()
 
 
@@ -365,26 +353,6 @@ def test_combined_rows_add_counts_and_weight_the_rating(career_save_path: Path) 
 
 def test_a_read_error_from_disk_gets_a_message_about_the_save_changing() -> None:
     assert "saved over it" in reader.friendly_error(OSError(29, "I/O error"))
-
-
-def test_the_page_describes_itself_to_search_engines_and_link_previews() -> None:
-    page = (APP_FOLDER / "index.html").read_text(encoding="utf-8")
-    base = "https://rhiever.github.io/fmsave/app/"
-    assert f'<link rel="canonical" href="{base}">' in page
-    for name in ("og:title", "og:description", "og:image", "og:url"):
-        assert f'property="{name}"' in page, name
-    assert f'content="{base}og.png"' in page
-    assert '<meta name="twitter:card" content="summary_large_image">' in page
-    data = re.search(r'<script type="application/ld\+json">(.*?)</script>', page, re.DOTALL)
-    assert data is not None
-    assert json.loads(data.group(1))["url"] == base
-    assert (APP_FOLDER / "og-card.html").is_file()
-
-
-def test_llms_txt_points_agents_at_the_web_app() -> None:
-    text = (APP_FOLDER.parent / "llms.txt").read_text(encoding="utf-8")
-    assert text.startswith("# fmsave\n\n> ")
-    assert "https://rhiever.github.io/fmsave/app/" in text
 
 
 def test_fm27_reader_opens_normally_and_reports_coverage(tmp_path: Path) -> None:

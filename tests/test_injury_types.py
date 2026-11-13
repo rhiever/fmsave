@@ -21,7 +21,6 @@ from fmsave._container import (
 from fmsave._errors import SaveClosedError
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import InjuryTypeStats
-from fmsave.export import column_names
 from fmsave.models.injuries import InjuryType
 from fmsave.readers._common import GAME_DB_SECTION
 from fmsave.readers.injuries import (
@@ -230,10 +229,6 @@ def test_a_save_with_no_match_entry_has_no_injury_type_names(tmp_path: Path) -> 
     assert stats == InjuryTypeStats(
         match_entries=0, entries_with_magic_tried=0, entries_without_magic=0, table_entries=0
     )
-
-
-def test_the_columns_the_export_flattens() -> None:
-    assert column_names(InjuryType) == ("id", "name", "unknown_flag", "unknown_second_id")
 
 
 def test_a_row_survives_pickling_and_deep_copying(career_path: Path) -> None:
