@@ -14,12 +14,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  checks:
-    name: Checks
+  paths:
+    name: Select checks
     outputs:
       extended: ${{ steps.paths.outputs.extended }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 2
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -44,6 +44,15 @@ jobs:
             fi
           fi
           echo "extended=$extended" >> "$GITHUB_OUTPUT"
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       # Structural checks only. The copied-text and denylist checks compare against the
       # private folder, which is never present here, so they run in the pre-commit hook
       # and not in CI. A green run here is not evidence that those checks passed.
@@ -86,8 +95,8 @@ jobs:
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
-    needs: checks
-    if: needs.checks.outputs.extended == 'true'
+    needs: paths
+    if: needs.paths.outputs.extended == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -131,7 +140,7 @@ jobs:
 
   docs:
     name: Docs
-    needs: checks
+    needs: paths
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -149,8 +158,8 @@ jobs:
 
   web-app:
     name: Web app reader in Pyodide
-    needs: checks
-    if: needs.checks.outputs.extended == 'true'
+    needs: paths
+    if: needs.paths.outputs.extended == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -191,11 +200,10 @@ jobs:
             --quiet --no-deps --only-binary=:all: --dest released "fmsave==${version}"
           node scripts/app-smoke/smoke.mjs released/fmsave-*.whl example-career.fm
 
-  # Compatibility jobs can start alongside the Linux tests once Checks passes.
   test-windows:
     name: Tests (Windows, Python ${{ matrix.python-version }}, shard ${{ matrix.shard }})
-    needs: checks
-    if: needs.checks.outputs.extended == 'true'
+    needs: paths
+    if: needs.paths.outputs.extended == 'true'
     runs-on: windows-latest
     timeout-minutes: 8
     strategy:
@@ -221,8 +229,8 @@ jobs:
   # Public repositories also test the remaining Python and operating system combinations.
   test-matrix:
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python-version }})
-    if: needs.checks.outputs.extended == 'true' && github.event.repository.private == false
-    needs: checks
+    if: needs.paths.outputs.extended == 'true' && github.event.repository.private == false
+    needs: paths
     runs-on: ${{ matrix.os }}
     timeout-minutes: 8
     strategy:
@@ -252,21 +260,23 @@ jobs:
 
   check:
     name: check
-    needs: [checks, test, docs, web-app, test-windows, test-matrix]
+    needs: [paths, checks, test, docs, web-app, test-windows, test-matrix]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - env:
+          PATHS_RESULT: ${{ needs.paths.result }}
           CHECKS_RESULT: ${{ needs.checks.result }}
           TEST_RESULT: ${{ needs.test.result }}
           DOCS_RESULT: ${{ needs.docs.result }}
           WEB_APP_RESULT: ${{ needs.web-app.result }}
           WINDOWS_RESULT: ${{ needs.test-windows.result }}
           MATRIX_RESULT: ${{ needs.test-matrix.result }}
-          EXTENDED: ${{ needs.checks.outputs.extended }}
+          EXTENDED: ${{ needs.paths.outputs.extended }}
           PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
         run: |
+          test "$PATHS_RESULT" = success
           test "$CHECKS_RESULT" = success
           test "$DOCS_RESULT" = success
 
