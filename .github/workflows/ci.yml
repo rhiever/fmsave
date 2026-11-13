@@ -104,9 +104,10 @@ jobs:
       matrix:
         include:
           - python-version: "3.12"
-            coverage-args: --cov=fmsave --cov-report=term-missing
-          - python-version: "3.14"
             coverage-args: ""
+          # Python 3.14 supports coverage.py's faster branch measurement core.
+          - python-version: "3.14"
+            coverage-args: --cov=fmsave --cov-report=term-missing
           - python-version: "3.15.2"
             coverage-args: ""
     steps:
