@@ -4,6 +4,30 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.12.4] - 2026-11-13
+
+### Added
+
+- Label 10 training session codes and 6 sponsorship types in FM26. Both exports keep the
+  original codes. (#11, #46)
+- Add `PlayerSeasonStats.minutes_since_last_goal` for overall club statistics in FM26 and FM27.
+- Add `PlayerMatchStats.entered_at_minute` for substitute appearances in FM26 and FM27.
+
+### Changed
+
+- Mark `Stadium.seated_capacity` and `Stadium.capacity` as verified after checking their figures
+  on the Facilities screen in FM26 and FM27. (#38)
+- Mark season penalties, red cards, mistakes leading to goals, clean sheets, goals allowed, and
+  save percentage as verified.
+- Mark player match assists, minutes played, and departure minute as verified.
+
+### Fixed
+
+- Staff validation recognizes 2 additional formation IDs in FM26 and FM27. (#90)
+- Read an additional form of European suspensions in FM26 and FM27. (#8)
+
+Thanks to @jeohist for the reports, @thetowny for the report, and @hostlund for help testing. Refs #8, #11, #38, #46, and #90.
+
 ## [0.12.3] - 2026-11-12
 
 ### Fixed

@@ -475,6 +475,7 @@
         'unknown_tag',
         'unknown_role_code',
         'unknown_rating_raw',
+        'entered_at_minute',
       ]),
       'PlayerSeasonHistory': list([
         'player_uid',
@@ -543,6 +544,7 @@
         'saves_tipped',
         'shots_on_target_faced',
         'expected_goals_prevented',
+        'minutes_since_last_goal',
         'season_year',
         'competition_reference',
         'pass_completion_percent',
@@ -659,6 +661,7 @@
         'saves_tipped',
         'shots_on_target_faced',
         'expected_goals_prevented',
+        'minutes_since_last_goal',
         'pass_completion_percent',
         'cross_completion_percent',
         'open_play_cross_completion_percent',

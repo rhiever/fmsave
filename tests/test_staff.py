@@ -490,10 +490,13 @@ def test_staff_preference_sentinel_keeps_allocated_headers_readable() -> None:
         ((0,) * 8, False, True),
         ((0, *CAREER_STAFF_CODES[1:]), False, False),
         (tuple(CAREER_STAFF_CODES), True, True),
+        ((*CAREER_STAFF_CODES[:3], 0x41, *CAREER_STAFF_CODES[4:]), True, True),
+        ((0x45, *CAREER_STAFF_CODES[1:]), True, True),
+        ((*CAREER_STAFF_CODES[:2], 0x44, *CAREER_STAFF_CODES[3:]), False, False),
     ],
-    ids=["all-zero", "one-zero", "observed"],
+    ids=["all-zero", "one-zero", "observed", "0x41-in-r8", "0x45-in-r5", "unverified-0x44"],
 )
-def test_only_an_fm27_code_list_of_zeros_counts_as_in_the_code_set(
+def test_staff_formation_codes_are_checked_and_preserved(
     codes: tuple[int, ...], fm26_in_set: bool, fm27_in_set: bool
 ) -> None:
     person = staff_object_bytes(person_id=30, uid=2_000_000_123, codes=codes)

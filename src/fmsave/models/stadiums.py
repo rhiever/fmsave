@@ -48,13 +48,12 @@ class Stadium:
             shows in brackets as seated, and the same as the total on an all-seater ground.
             It is at or below the total on all but one ground across the saves measured, and
             it is zero on roughly two grounds in five; on the one FM27 ground compared, the
-            screen then shows a single plain figure with no seated part (unconfirmed).
+            screen then shows a single plain figure with no seated part.
         expansion_capacity: The capacity the ground would hold expanded, which is at or above
             the total capacity on all but a handful of grounds.
-        capacity: The capacity used in normal matches, the lower figure the FM27 facilities
-            screen shows after the total on the one all-seater ground compared. It is empty
-            where the save stores zero, which is about four grounds in five, and at or below
-            the total on all but a handful of grounds (unconfirmed).
+        capacity: The additional capacity figure on the Facilities screen. It appears
+            alongside the total and seated figures on the FM26 grounds checked and after
+            the total on the FM27 all-seater ground checked. It is None when the save stores zero.
         owner_club_uid: Uid of the club that owns the ground, or None when the save names no
             owner or names a club it does not list. A ground with no stored owner is the
             council's: the game's own facilities screen shows one such ground as owned by the
@@ -120,14 +119,15 @@ class Stadium:
 # maximum pitch dimensions included, in yards against the stored decimetres. The uid
 # convention, the owner's id space, the smallest pitch a ground allows and the
 # calendar-derived home grounds are measured rather than displayed anywhere, so they stay
-# unconfirmed until an in-game screen names one. The seated figure matched three FM27
-# facilities screens, two grounds with standing room and one all-seater, but no FM26 screen
-# of a ground with standing room has been compared, so it stays unconfirmed here.
+# unconfirmed until an in-game screen names one. The seated figure matches Facilities
+# screens for grounds with standing room in both FM26 and FM27.
 register_field_statuses(
     Stadium,
     verified=(
         "total_capacity",
+        "seated_capacity",
         "expansion_capacity",
+        "capacity",
         "pitch_length_dm",
         "pitch_width_dm",
         "pitch_max_length_dm",
@@ -138,8 +138,6 @@ register_field_statuses(
     unconfirmed=(
         "uid",
         "name",
-        "seated_capacity",
-        "capacity",
         "owner_club_uid",
         "owner_club_name",
         "home_club_uids",

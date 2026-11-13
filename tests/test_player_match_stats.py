@@ -112,6 +112,7 @@ EXPECTED_COLUMNS = (
     "unknown_tag",
     "unknown_role_code",
     "unknown_rating_raw",
+    "entered_at_minute",
 )
 
 
@@ -182,6 +183,7 @@ def match_bytes(
     played: bool = True,
     position_mask: int = FIRST_MATCH_POSITION_MASK,
     minutes: int = 90,
+    entered_at: int = 0,
     left_at: int = 90,
     rating_x10: int = 70,
     goals: int = 0,
@@ -195,6 +197,7 @@ def match_bytes(
         played=played,
         position_mask=position_mask,
         minutes=minutes,
+        entered_at=entered_at,
         left_at=left_at,
         rating_x10=rating_x10,
         goals=goals,
@@ -516,6 +519,7 @@ def test_a_record_belonging_to_no_player_builds_no_row_and_is_counted() -> None:
         role_code=None,
         goals=None,
         assists=None,
+        entered_at_minute=None,
         left_at_minute=None,
         minutes=None,
         rating_raw=None,
@@ -643,11 +647,11 @@ def test_the_flat_columns_are_the_fields_with_the_coded_value_and_the_unknowns_e
     assert columns["unknown_rating_raw"] == [None, None, None, None]
 
 
-def test_a_match_the_game_rated_nobody_in_carries_no_rating_and_keeps_the_stored_zero() -> None:
+def test_a_match_without_a_retained_rating_keeps_the_stored_zero() -> None:
     """A stored zero is not a rating of 0.0, so it never sits in the column beside real ones.
 
     An average over the rating column is then an average of the ratings the game gave, which a
-    zero standing in for "nobody was rated" would quietly drag down.
+    zero standing in for "no rating stored" would quietly drag down.
     """
     rows, _stats = located(match_bytes(rating_x10=0))
     unrated = rows[0]
@@ -670,7 +674,7 @@ def test_a_rating_the_game_gave_is_shipped_and_keeps_no_raw_copy() -> None:
 def test_a_player_on_the_pitch_at_the_end_left_at_no_minute_at_all() -> None:
     """The stored zero means he never left, so a search for early departures cannot find him."""
     records = (
-        match_bytes(day_of_year=51, left_at=0)
+        match_bytes(day_of_year=51, entered_at=90, left_at=0, minutes=0)
         + match_bytes(day_of_year=44, left_at=7, minutes=7)
         + match_bytes(day_of_year=37, left_at=90)
     )
@@ -681,7 +685,8 @@ def test_a_player_on_the_pitch_at_the_end_left_at_no_minute_at_all() -> None:
     early = [row for row in rows if row.left_at_minute is not None and row.left_at_minute < 10]
     assert [row.date for row in early] == [date(MATCH_YEAR, 2, 13)]
     # The minutes he played are untouched, so nothing about the match is lost with the zero.
-    assert [row.minutes for row in rows] == [90, 7, 90]
+    assert [row.minutes for row in rows] == [0, 7, 90]
+    assert [row.entered_at_minute for row in rows] == [90, None, None]
 
 
 def test_a_match_with_no_statistics_leaves_both_empties_meaning_something_else() -> None:
@@ -691,6 +696,7 @@ def test_a_match_with_no_statistics_leaves_both_empties_meaning_something_else()
     assert without_stats.has_stats is False
     assert without_stats.rating is None
     assert without_stats.left_at_minute is None
+    assert without_stats.entered_at_minute is None
     assert without_stats.stats_in_range is False
     assert dict(without_stats.unknown) == {"tag": 0}
 
@@ -718,6 +724,10 @@ def test_field_statuses_follow_what_the_evidence_reaches() -> None:
         "opponent_club_short_name",
         "position",
         "goals",
+        "minutes",
+        "assists",
+        "left_at_minute",
+        "entered_at_minute",
     ):
         assert field_status(PlayerMatchStats, verified_field) == "verified", verified_field
     for unconfirmed_field in (
@@ -725,11 +735,6 @@ def test_field_statuses_follow_what_the_evidence_reaches() -> None:
         "player_name",
         "opponent_team_slot",
         "has_stats",
-        # Minutes look exactly like minutes and no displayed value pins them, which ships the
-        # field but does not confirm it.
-        "minutes",
-        "assists",
-        "left_at_minute",
         "rating",
         "passes_attempted",
         "passes_completed",

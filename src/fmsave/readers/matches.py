@@ -49,10 +49,10 @@ _DATE_BYTES = 4
 _POSITION_MASK_BITS = 16
 _NO_BODY_FLAG = 0
 _BODY_FLAG = 1
-# What a body stores for a player who was on the pitch at the final whistle, and for a match the
-# game rated nobody in. Neither is a minute or a rating, so neither is shipped as one.
+# A zero departure marks a player on the pitch at the final whistle. A zero rating
+# marks an absent retained rating. Both are represented as None in public rows.
 _NEVER_LEFT_THE_PITCH = 0
-_NOBODY_WAS_RATED = 0
+_NO_RATING_STORED = 0
 
 _NO_OPPONENT_CLUB: tuple[int | None, str | None, str | None, int | None] = (None, None, None, None)
 
@@ -78,12 +78,13 @@ class RawMatchRecord:
         position_mask: The stored position mask.
         role_code: The unidentified byte exported as `unknown["role_code"]`.
         goals: Goals scored.
-        assists: Assists, which is a hypothesis with no labelled source.
+        assists: Assists credited to the player.
+        entered_at_minute: The substitution entry minute, stored as 0 for a starter.
         left_at_minute: The minute the player left the pitch, stored as 0 for a player who was
             on it at the final whistle.
         minutes: Minutes played.
         rating_raw: The match rating before it is divided by the layout's scale, stored as 0
-            for a match the game rated nobody in.
+            when retained history has no rating.
         passes_attempted: Passes attempted.
         passes_completed: Passes completed.
     """
@@ -97,6 +98,7 @@ class RawMatchRecord:
     role_code: int | None
     goals: int | None
     assists: int | None
+    entered_at_minute: int | None
     left_at_minute: int | None
     minutes: int | None
     rating_raw: int | None
@@ -128,6 +130,7 @@ class _MatchSearch:
     role_code_index: int
     goals_index: int
     assists_index: int
+    entered_at_index: int
     left_at_index: int
     minutes_index: int
     rating_index: int
@@ -190,6 +193,7 @@ def _match_search(layout: MatchRecordLayout, clock_year: int) -> _MatchSearch:
         (layout.role_code_offset, "B", "role_code"),
         (layout.goals_offset, "B", "goals"),
         (layout.assists_offset, "B", "assists"),
+        (layout.entered_at_offset, "B", "entered_at_minute"),
         (layout.left_at_offset, "B", "left_at_minute"),
         (layout.minutes_offset, "B", "minutes"),
         (layout.rating_offset, "B", "rating"),
@@ -270,6 +274,7 @@ def _match_search(layout: MatchRecordLayout, clock_year: int) -> _MatchSearch:
         role_code_index=body_indexes["role_code"],
         goals_index=body_indexes["goals"],
         assists_index=body_indexes["assists"],
+        entered_at_index=body_indexes["entered_at_minute"],
         left_at_index=body_indexes["left_at_minute"],
         minutes_index=body_indexes["minutes"],
         rating_index=body_indexes["rating"],
@@ -376,6 +381,7 @@ def _read_match_record(
         role_code=None if b is None else b[search.role_code_index],
         goals=None if b is None else b[search.goals_index],
         assists=None if b is None else b[search.assists_index],
+        entered_at_minute=None if b is None else b[search.entered_at_index],
         left_at_minute=None if b is None else b[search.left_at_index],
         minutes=None if b is None else b[search.minutes_index],
         rating_raw=None if b is None else b[search.rating_index],
@@ -635,8 +641,8 @@ def build_player_match_stats(
 
     Two stored zeros are not numbers of their own kind and are not shipped as one. A stored
     `left_at_minute` of zero means the player was on the pitch at the final whistle rather than
-    that he left in the opening seconds, and a stored rating of zero means the game rated nobody
-    in that match rather than that it rated him 0.0; both become None, and the rating's zero is
+    that he left in the opening seconds. A zero rating means retained history has no rating.
+    Both become None, and the rating's zero is
     kept in `unknown` so the record still says what the save holds.
     """
     labels_by_mask = _position_labels(layout.position_bits)
@@ -697,7 +703,7 @@ def build_player_match_stats(
             unknown_values = {"tag": record.tag}
             if record.role_code is not None:
                 unknown_values["role_code"] = record.role_code
-            if rating_raw is not None and rating_raw == _NOBODY_WAS_RATED:
+            if rating_raw is not None and rating_raw == _NO_RATING_STORED:
                 unknown_values["rating_raw"] = rating_raw
             rows.append(
                 PlayerMatchStats(
@@ -720,6 +726,7 @@ def build_player_match_stats(
                         )
                     ),
                     minutes=minutes,
+                    entered_at_minute=record.entered_at_minute or None,
                     left_at_minute=(
                         None if left_at_minute == _NEVER_LEFT_THE_PITCH else left_at_minute
                     ),
@@ -727,7 +734,7 @@ def build_player_match_stats(
                     assists=record.assists,
                     rating=(
                         None
-                        if rating_raw is None or rating_raw == _NOBODY_WAS_RATED
+                        if rating_raw is None or rating_raw == _NO_RATING_STORED
                         else rating_raw / rating_scale
                     ),
                     passes_attempted=record.passes_attempted,

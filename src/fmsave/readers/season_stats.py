@@ -243,13 +243,16 @@ _ROW_FIELDS = tuple(field.name for field in dataclasses.fields(PlayerSeasonStats
     len(("player_uid", "player_name", "kind", "team_id")) + len(_NO_CLUB) :
 ]
 
+_GOALS_POSITION = _ROW_FIELDS.index("goals")
+_MINUTES_SINCE_GOAL_POSITION = _ROW_FIELDS.index("minutes_since_last_goal")
+
 # Omitting a metric must preserve the public model's nullability contract. The
-# role-specific fields were nullable already; the other three are withheld until their
-# meanings can be established independently: goals_outside_box on every game, the two
-# pressures fields on FM27.
+# role-specific fields were nullable already. Other omissions reflect what each
+# edition supports.
 _NULLABLE_METRICS = frozenset(
     {
         "goals_outside_box",
+        "minutes_since_last_goal",
         "pressures_attempted",
         "pressures_completed",
         "open_play_crosses_completed",
@@ -444,17 +447,23 @@ def build_season_stats(
                 if line is None:
                     continue
                 teams_resolved += club_uid is not None
+                kind = slot_kinds[slot]
+                decoded = _decode(body, line, line_reader, rating_scale)
+                minutes_since_goal = decoded.pop(_MINUTES_SINCE_GOAL_POSITION)
+                if kind is not SeasonStatsKind.OVERALL or not decoded[_GOALS_POSITION]:
+                    minutes_since_goal = None
                 rows.append(
                     PlayerSeasonStats(
                         player.uid,
                         player.name,
-                        slot_kinds[slot],
+                        kind,
                         team_id,
                         club_uid,
                         club_name,
                         club_short_name,
                         team_slot,
-                        *_decode(body, line, line_reader, rating_scale),  # pyright: ignore[reportArgumentType]
+                        *decoded,  # pyright: ignore[reportArgumentType]
+                        minutes_since_last_goal=minutes_since_goal,  # pyright: ignore[reportArgumentType]
                     )
                 )
     stats = SeasonStatsStats(
@@ -478,7 +487,9 @@ def decode_season_line(
 ) -> list[object]:
     """Decode the shared statistic fields of a complete current-style line."""
     readers = _line_readers(layout)
-    return _decode(body, offset, readers[int(goalkeeper)], layout.rating_scale)
+    decoded = _decode(body, offset, readers[int(goalkeeper)], layout.rating_scale)
+    decoded.pop(_MINUTES_SINCE_GOAL_POSITION)
+    return decoded
 
 
 def season_club_fields(

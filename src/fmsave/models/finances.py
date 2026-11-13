@@ -25,16 +25,9 @@ from fmsave.models.common import CodedValue
 class SponsorType(IntEnum):
     """What kind of sponsorship a contract is, in the words of the game's sponsorship screen.
 
-    The save groups its sponsorships into about twenty kinds. A label is given only where a
-    club's sponsorship screen displayed it against the row's own stored kind, and only on the
-    build whose screen did. On FM27 build 27.0.0 one club's screen named seven codes: 1 Main
-    Kit, 3 and 23 Stadium, 4 General, 8 Away Kit, 9 Additional Kit Sponsor and 11 Back of
-    Shirt. Two codes showing one word may still differ in a way the screen does not show, so
-    each keeps its raw number. Every other code, and every FM26 code, is UNKNOWN: no FM26
-    screen has named one yet.
-
-    A member's value is the FM27 code it was first displayed against; the save's build, not
-    the value, decides which codes read as which member.
+    Each layout labels the codes confirmed on its sponsorship screen. Unknown codes keep
+    their original number. Multiple codes can share a label, as with Stadium on FM27.
+    Use `CodedValue.raw` for the stored code.
     """
 
     UNKNOWN = -1
@@ -44,6 +37,8 @@ class SponsorType(IntEnum):
     AWAY_KIT = 8
     ADDITIONAL_KIT_SPONSOR = 9
     BACK_OF_SHIRT = 11
+    SHORTS = 12
+    KIT_MANUFACTURER = 22
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,8 +96,8 @@ class Sponsorship:
     Attributes:
         club_uid: Uid of the club (unconfirmed).
         club_name: Denormalised full name of club_uid (unconfirmed).
-        kind: What kind of sponsorship it is. Only the codes an FM27 screen named carry a
-            label; every other code, and every FM26 code, is UNKNOWN (unconfirmed).
+        kind: What kind of sponsorship it is. Codes without a confirmed label for the
+            save's edition read UNKNOWN and keep their raw number.
         start: The day the contract starts.
         end: The day it ends.
         total_value: The contract's whole value. On most running contracts it is the annual
@@ -160,6 +155,6 @@ register_field_statuses(
 )
 register_field_statuses(
     Sponsorship,
-    verified=("start", "end", "total_value", "annual_value"),
-    unconfirmed=("club_uid", "club_name", "kind", "unknown"),
+    verified=("kind", "start", "end", "total_value", "annual_value"),
+    unconfirmed=("club_uid", "club_name", "unknown"),
 )

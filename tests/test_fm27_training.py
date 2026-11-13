@@ -41,6 +41,7 @@ LAYOUT = replace(
     group_lead_byte=2,
     group_label_marker=None,
     session_labels_supported=True,
+    session_code_names=(),
 )
 TEAMS = frozenset({NORTHBRIDGE_TEAM_A})
 

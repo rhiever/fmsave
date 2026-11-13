@@ -13,9 +13,8 @@ where pairing each name with the following week -- what one earlier reader of th
 either: consecutive weeks step exactly seven days on every pair of every calendar measured.
 
 **Each week also holds its seven days, three sessions a day**, in the order the Training
-screen lists them. A session is a stored code: FM27's codes are named where a Training screen
-showed the session's full name against them, and every other code, including every FM26 code,
-reads as `TrainingSession.UNKNOWN` with its raw number kept.
+screen lists them. A session keeps its stored code and uses the label confirmed for that
+edition. A code without a confirmed label reads as `TrainingSession.UNKNOWN`.
 """
 
 from __future__ import annotations
@@ -31,24 +30,22 @@ from fmsave.models.common import CodedValue
 
 
 class TrainingSession(IntEnum):
-    """What a training session is, as an FM27 save numbers it.
+    """What a training session is, as shown on the game's training calendar.
 
-    A member's value is the code the save stores. **Eleven codes are named by a screen**: an
-    FM27 manager's Training screen showed each of these names in full against the code stored
-    for that slot, on every day of three weeks. MATCH is the slot the screen fills with the
-    day's fixture rather than a word.
+    FM26 and FM27 use different codes. Existing members keep their FM27 values, and
+    members verified only on FM26 use negative values outside the stored range. Use
+    `CodedValue.raw` for the original code in either edition.
 
-    **Every other code is UNKNOWN** and keeps its raw number. Codes 3, 4, 7, 200 to 203 and 304
-    were on the same screen with their names cut short, so they are not completed by guesswork;
-    the codes other teams and later weeks use have not been seen named on a screen this project
-    has checked.
-
-    **An FM26 save numbers its sessions differently**: its calendars hold neither the FM27
-    code for rest nor the one for a match, although its match days carry a code of their own.
-    So no FM26 session is labelled: each reads UNKNOWN with its raw number.
+    Both FM26 codes 13 and 14 display the day's fixture and are labelled MATCH. Unknown
+    codes keep their original number and use the UNKNOWN label.
     """
 
     UNKNOWN = -1
+    OUTFIELD = -2
+    ATTACKING = -3
+    PHYSICAL = -4
+    RESISTANCE = -5
+    MATCH_FOCUS = -6
     PASSING_STYLE = 0
     BUILD_UP = 1
     CHANCE_CREATION = 2
@@ -70,7 +67,7 @@ class TrainingDay:
         day: The date, which is the week's start plus the day's place in the week; None when
             the week's start does not decode.
         sessions: The day's three sessions in the order the Training screen lists them, top to
-            bottom. On an FM26 save every session is UNKNOWN with its raw code (unconfirmed).
+            bottom. Each session keeps its raw code alongside the label for its edition.
     """
 
     day: date | None
@@ -184,14 +181,11 @@ register_field_statuses(
     TrainingWeek,
     verified=("week_start", "schedule_name", "days"),
 )
-# Where each day falls is pinned on both editions: an FM27 Training screen showed every session
-# of three consecutive weeks on the day this places it, and on two FM26 careers the code that
-# marks a match sits on exactly the dates of the team's fixtures and on no other date. What an
-# FM26 code means is not known, so the sessions stay unconfirmed.
+# The training calendar matched the dates and session order over three weeks in FM27 and
+# four weeks in FM26. Each layout labels only the codes confirmed on its own edition.
 register_field_statuses(
     TrainingDay,
-    verified=("day",),
-    unconfirmed=("sessions",),
+    verified=("day", "sessions"),
 )
 register_field_statuses(
     TrainingSchedule,

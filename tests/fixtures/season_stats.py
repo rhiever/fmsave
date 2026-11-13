@@ -55,6 +55,7 @@ LINE_FIELDS: Mapping[str, tuple[int, str, int]] = {
     "shots": (45, "<H", 1),
     "shots_on_target": (47, "<H", 1),
     "mistakes_leading_to_goal": (59, "<H", 1),
+    "minutes_since_last_goal": (61, "<H", 1),
     "distance_km": (65, "<H", 10),
     "offsides": (67, "<H", 1),
     "word_69": (69, "<H", 1),
