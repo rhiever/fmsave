@@ -2,6 +2,10 @@
 
 Follow [CONTRIBUTING.md](CONTRIBUTING.md) for setup, guardrails and checks.
 
+## Local save testing
+
+Run 1 local save parser at a time across all worktrees. Wait for it to exit before starting another save check or corpus sweep. After an interruption, check for a leftover parser before retrying.
+
 ## Keeping main in sync
 
 - Branch from a fresh `origin/main`: run `git fetch origin` first.
