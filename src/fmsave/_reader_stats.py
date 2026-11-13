@@ -132,7 +132,7 @@ class SuspensionStats:
 
     `entries_with_known_scope` counts the entries whose scope code the layout lists, which on
     every save measured is all of them. The two date counts are kept apart because a ban
-    covering a whole nation is routinely dated ahead of the in-game date and a ban covering
+    referencing a nation is routinely dated ahead of the in-game date and a ban covering
     one competition never is.
     """
 

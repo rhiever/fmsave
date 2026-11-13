@@ -10,7 +10,7 @@ memory, and every export includes them.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import ClassVar
 
@@ -59,6 +59,10 @@ class PlayerSeasonStats:
     `expected_goals_per_shot` and `headers_lost_per_90`. A rate is None when there is nothing
     to divide by. `COMPUTED_FIELDS` lists them all.
 
+    FM26 squad statistics confirmed penalties taken and scored, red cards, mistakes
+    leading to goals, clean sheets, goals allowed and save percentage. FM26 and FM27
+    use the same fields for these statistics.
+
     Attributes:
         player_uid: Uid of the player.
         player_name: Denormalised name of player_uid.
@@ -90,8 +94,8 @@ class PlayerSeasonStats:
             runs above goals and shots on target on some rows, so it is withheld until its
             meaning is known (unconfirmed).
         free_kick_shots: Shots from free kicks (unconfirmed).
-        penalties_taken: Penalties taken (unconfirmed).
-        penalties_scored: Penalties scored (unconfirmed).
+        penalties_taken: Penalties taken.
+        penalties_scored: Penalties scored.
         passes_attempted: Passes attempted.
         passes_completed: Passes completed.
         progressive_passes: Progressive passes.
@@ -125,11 +129,10 @@ class PlayerSeasonStats:
         fouls_made: Fouls made.
         fouls_against: Fouls suffered.
         yellow_cards: Yellow cards.
-        red_cards: Red cards (unconfirmed).
-        mistakes_leading_to_goal: Mistakes leading to a goal (unconfirmed).
-        clean_sheets: Clean sheets; usually 0 for an outfield player (unconfirmed).
-        goals_allowed: Goals conceded as goalkeeper; usually 0 for an outfield player
-            (unconfirmed).
+        red_cards: Red cards.
+        mistakes_leading_to_goal: Mistakes leading to a goal.
+        clean_sheets: Clean sheets. Usually 0 for an outfield player.
+        goals_allowed: Goals conceded as goalkeeper. Usually 0 for an outfield player.
         saves_held: Saves held; None for an outfield player (unconfirmed).
         saves_parried: Saves parried; None for an outfield player (unconfirmed).
         saves_tipped: Saves tipped; None for an outfield player (unconfirmed).
@@ -137,6 +140,8 @@ class PlayerSeasonStats:
             (unconfirmed).
         expected_goals_prevented: Expected goals prevented (xGP); negative when a goalkeeper
             conceded more than expected (unconfirmed).
+        minutes_since_last_goal: Minutes since the most recent goal in the overall club row.
+            None for goalless players, whose screen displays zero, and for other rows.
     """
 
     player_uid: int
@@ -205,6 +210,7 @@ class PlayerSeasonStats:
     saves_tipped: int | None
     shots_on_target_faced: int | None
     expected_goals_prevented: float
+    minutes_since_last_goal: int | None = field(default=None, kw_only=True)
 
     COMPUTED_FIELDS: ClassVar[tuple[str, ...]] = (
         "pass_completion_percent",
@@ -294,7 +300,10 @@ class PlayerSeasonStats:
 
     @property
     def save_percent(self) -> float | None:
-        """Saves held, parried and tipped, as a percentage of shots on target faced."""
+        """Saves held, parried and tipped, as a percentage of shots on target faced.
+
+        Matches the FM26 goalkeeper statistics screen to the displayed precision.
+        """
         if self.saves_held is None or self.saves_parried is None or self.saves_tipped is None:
             return None
         saves = self.saves_held + self.saves_parried + self.saves_tipped
@@ -539,6 +548,15 @@ register_field_statuses(
         "fouls_made",
         "fouls_against",
         "yellow_cards",
+        "minutes_since_last_goal",
+        "penalties_taken",
+        "penalties_scored",
+        "red_cards",
+        "mistakes_leading_to_goal",
+        "clean_sheets",
+        "goals_allowed",
+        "save_percent",
+        "goals_allowed_per_90",
         "pass_completion_percent",
         "cross_completion_percent",
         "headers_won_percent",
@@ -576,18 +594,12 @@ register_field_statuses(
         "player_of_the_match",
         "goals_outside_box",
         "free_kick_shots",
-        "penalties_taken",
-        "penalties_scored",
         "open_play_crosses_attempted",
         "open_play_crosses_completed",
         "key_headers",
         "key_tackles",
         "blocks",
         "shots_blocked",
-        "red_cards",
-        "mistakes_leading_to_goal",
-        "clean_sheets",
-        "goals_allowed",
         "saves_held",
         "saves_parried",
         "saves_tipped",
@@ -597,7 +609,6 @@ register_field_statuses(
         "possession_lost",
         "open_play_cross_completion_percent",
         "conversion_percent",
-        "save_percent",
         "expected_goals_per_shot",
         "expected_goals_prevented_per_90",
         "non_penalty_expected_goals_per_90",
@@ -609,6 +620,5 @@ register_field_statuses(
         "key_tackles_per_90",
         "blocks_per_90",
         "shots_blocked_per_90",
-        "goals_allowed_per_90",
     ),
 )

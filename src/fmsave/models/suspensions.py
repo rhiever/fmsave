@@ -1,15 +1,14 @@
 """Unserved suspensions: bans a player has been given and has not yet served.
 
-The save keeps a player's suspension only while it is unserved. Every unserved ban it holds is
-listed here, including bans the game no longer displays; the save stores no flag that tells
-those apart, and why the game stops displaying one is not confirmed.
+The reader lists unserved bans it recognizes, including some the game no longer displays.
+The reason those bans are hidden is unconfirmed.
 
 A ban stores one id and one scope code that says what the id refers to. A ban on one
 competition stores a competition id in the **stage** id space, the same space `stages()`,
 `competitions()`, `fixtures()`, `league_tables()` and `player_match_stats()` use, so it joins
-to all of them. A nation-wide ban stores a **nation** id instead. The two are told apart here
-rather than by the caller: `competition_id` is None on a nation-wide ban and `nation_id` is
-None on a ban covering one competition, so neither can be read as the other.
+to all of them. Other bans store a **nation** id and can apply to a subset of that nation's
+competitions. `competition_id` and `nation_id` are populated according to the reference
+namespace.
 """
 
 from __future__ import annotations
@@ -24,20 +23,18 @@ from fmsave._status import register_field_statuses
 
 
 class SuspensionScope(StrEnum):
-    """What a ban covers, and so what the id the save stores beside it refers to.
+    """The kind of reference stored with a ban, or Europe for the recognized European form.
 
     The save writes one code per ban. Code 1 means the ban covers the one competition its id
-    names; codes 5, 6 and 10 mean the ban covers every competition of the nation its id names.
-    Any other code reads as UNKNOWN, and a ban with an unknown code carries no competition id
-    and no nation id, because nothing says which the stored number is.
-
-    What separates codes 5, 6 and 10 from one another is not known; all three were measured to
-    carry a nation id, so all three read as NATION and `Suspension.scope_code` keeps the code
-    itself for a caller who wants to tell them apart.
+    names. Codes 5, 6 and 10 carry a nation id and read as NATION. The set of competitions
+    covered can vary by code. In FM26, code 5 matched the Domestic cup label on the Bans
+    screen. `Suspension.scope_code` retains the original code. An UNKNOWN scope leaves both
+    id fields empty. The EUROPE form also leaves both ids empty.
     """
 
     COMPETITION = "competition"
     NATION = "nation"
+    EUROPE = "europe"
     UNKNOWN = "unknown"
 
 
@@ -46,10 +43,10 @@ class PlayerSuspension:
     """One unserved suspension, as listed on its player.
 
     Attributes:
-        scope: What the ban covers: one competition, a whole nation, or UNKNOWN for a scope
-            code never measured.
-        scope_code: The scope code exactly as the save stores it: 1 for a competition-wide
-            ban, 5, 6 or 10 for a nation-wide one. What separates 5, 6 and 10 is not known.
+        scope: Whether the ban references a competition or a nation, has Europe scope, or is UNKNOWN.
+        scope_code: The stored scope code. Code 1 references a competition. Codes 5, 6 and
+            10 reference a nation and can differ in the competitions they cover. The recognized
+            Europe form uses code 15.
         competition_id: Id of the competition the ban applies to, in the **stage** id space,
             so it joins `stages()`, `competitions()`, `fixtures()`, `league_tables()` and
             `player_match_stats()`. None unless the scope is COMPETITION.
@@ -57,8 +54,8 @@ class PlayerSuspension:
             map is supplied, because the save stores no competition names. A competition the
             game itself created during the career has a database id no name source outside
             the save carries, so some rows stay unnamed even with a full map (unconfirmed).
-        nation_id: Save-local id of the nation whose competitions the ban covers, in the same id space
-            as `Club.nation_id` and `Player.nation_id`. None unless the scope is NATION.
+        nation_id: Save-local id of the nation the ban references, in the same id space as
+            `Club.nation_id` and `Player.nation_id`. None unless the scope is NATION.
         issued_date: Date the ban was issued.
     """
 
@@ -86,10 +83,10 @@ class Suspension:
             (unconfirmed). It is the club the player belongs to **now**, which for an old
             ban need not be the club he was banned at.
         club_name: Denormalised full name of club_uid (unconfirmed).
-        scope: What the ban covers: one competition, a whole nation, or UNKNOWN for a scope
-            code never measured.
-        scope_code: The scope code exactly as the save stores it: 1 for a competition-wide
-            ban, 5, 6 or 10 for a nation-wide one. What separates 5, 6 and 10 is not known.
+        scope: Whether the ban references a competition or a nation, has Europe scope, or is UNKNOWN.
+        scope_code: The stored scope code. Code 1 references a competition. Codes 5, 6 and
+            10 reference a nation and can differ in the competitions they cover. The recognized
+            Europe form uses code 15.
         competition_id: Id of the competition the ban applies to, in the **stage** id space,
             so it joins `stages()`, `competitions()`, `fixtures()`, `league_tables()` and
             `player_match_stats()`. None unless the scope is COMPETITION.
@@ -97,8 +94,8 @@ class Suspension:
             map is supplied, because the save stores no competition names. A competition the
             game itself created during the career has a database id no name source outside
             the save carries, so some rows stay unnamed even with a full map (unconfirmed).
-        nation_id: Save-local id of the nation whose competitions the ban covers, in the same id space
-            as `Club.nation_id` and `Player.nation_id`. None unless the scope is NATION.
+        nation_id: Save-local id of the nation the ban references, in the same id space as
+            `Club.nation_id` and `Player.nation_id`. None unless the scope is NATION.
         issued_date: Date the ban was issued.
         unknown: Numeric fields with no known meaning (unconfirmed).
     """
@@ -125,9 +122,8 @@ class Suspension:
 # a shuffled control that scores near nothing, and with every exception a ban old enough for
 # the player to have changed club since. A ban whose code is 5, 6 or 10 never passes that
 # test and instead stores a nation the player or his club holds, which no code-1 ban ever
-# does. So the code selects the id space, and neither reading survives being applied to the
-# other group. What separates codes 5, 6 and 10 from one another is still unmeasured, which
-# is why the code itself ships beside the scope.
+# does. This verifies the reference namespace. The set of competitions covered can vary
+# among codes that reference a nation.
 register_field_statuses(
     PlayerSuspension,
     verified=("scope", "scope_code", "competition_id", "nation_id", "issued_date"),

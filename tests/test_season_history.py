@@ -249,7 +249,9 @@ def test_cli_history_scope_tracks_current_player_membership(
     from tests.fixtures.career import career_fragment
 
     path = career_fragment(
-        history_archive_section=history_archive([history_unit(minutes=180, starts=2, goals=4)]),
+        history_archive_section=history_archive(
+            [history_unit(minutes=180, starts=2, goals=4, minutes_since_last_goal=311)]
+        ),
         history_index_section=history_index([(0,)]),
         player_history_selectors=(0, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF),
     ).write(tmp_path / "history.fm")
@@ -261,6 +263,7 @@ def test_cli_history_scope_tracks_current_player_membership(
     if rows:
         assert rows[0]["season_year"] == "2030"
         assert rows[0]["goals_per_90"] == "2.0"
+        assert rows[0]["minutes_since_last_goal"] == ""
 
 
 def test_history_validation_reports_structural_anomalies(tmp_path) -> None:

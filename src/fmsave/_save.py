@@ -519,10 +519,10 @@ class Save:
 
         A ban covering one competition carries `competition_id` in the stage id space, which
         joins `stages()`, `competitions()`, `fixtures()`, `league_tables()` and
-        `player_match_stats()`; a nation-wide ban carries `nation_id` instead, and `scope`
-        says which. `competition_name` is None unless the save was opened with a name map,
-        and stays None for a competition the game itself created during the career, whose
-        database id no name source outside the save carries.
+        `player_match_stats()`; a ban referencing a nation carries `nation_id` instead.
+        The Europe form leaves both IDs empty. `competition_name` requires a name map and
+        stays None for competitions created during the career, whose IDs are absent from
+        external name maps.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -1784,8 +1784,8 @@ class Save:
         reproduce the game's displayed sponsorship income. On FM27, an invalid list is
         skipped and reported as a warning. Strict mode raises `ReaderCheckError` instead.
 
-        `kind` carries a label only for the codes an FM27 sponsorship screen displayed a type
-        against; every other code, and every FM26 code, is UNKNOWN. Take a contract's length
+        `kind` carries a label for codes confirmed on the sponsorship screen for the save's
+        edition. Other codes read UNKNOWN and retain their raw number. Take a contract's length
         in years from `total_value / annual_value`, as the screen's Duration does, not from
         `start` and `end`. On one FM27 club the screen's total income was the sum of
         `annual_value` over its running rows, except one unexpired kind 6 row it left out.
@@ -2401,12 +2401,11 @@ class Save:
             ]
             active = max(started, default=None, key=lambda week: week.week_start)
 
-        Each week carries its seven days and each day its three sessions, as
-        `TrainingSession` codes: on FM27 the sessions an FM27 Training screen named carry
-        their label, and every other code, including every FM26 code, reads UNKNOWN with its
-        raw number kept. `schedule_library` is the manager's own saved schedules,
-        which the save keeps once per section rather than per team, so every row carries the
-        same tuple, and the save may hold the same schedule twice over under two ids.
+        Each week carries its seven days and each day its three sessions. Each session
+        keeps its raw code and uses the `TrainingSession` label confirmed for the save's
+        edition, or UNKNOWN when the label is unknown. The save keeps the manager's
+        `schedule_library` once per section, so every row carries the same tuple. The save may
+        hold the same schedule under two IDs.
 
         The table is read on the first call to `training()` or `mentoring()`, from one walk;
         later calls to either return the same tables. When a check of that walk fails, neither

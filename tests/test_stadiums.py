@@ -811,7 +811,9 @@ def test_the_table_is_read_once_and_raises_after_the_save_is_closed(career_path:
 def test_the_field_statuses_follow_the_stadium_coverage() -> None:
     for verified_field in (
         "total_capacity",
+        "seated_capacity",
         "expansion_capacity",
+        "capacity",
         "pitch_length_dm",
         "pitch_width_dm",
         "built_date",
@@ -821,8 +823,6 @@ def test_the_field_statuses_follow_the_stadium_coverage() -> None:
     for unconfirmed_field in (
         "uid",
         "name",
-        "seated_capacity",
-        "capacity",
         "owner_club_uid",
         "home_club_uids",
     ):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import io
 import struct
 
 import pytest
@@ -10,7 +11,7 @@ import pytest
 from fmsave._errors import ReaderCheckError
 from fmsave._layouts import SeasonStatsLayout
 from fmsave._layouts.fm26_26_3_2 import SEASON_STATS as FM26_LAYOUT
-from fmsave.export import record_to_dict
+from fmsave.export import flatten_dict, record_to_dict, write_csv
 from fmsave.readers.season_stats import (
     SeasonPlayer,
     build_season_stats,
@@ -39,6 +40,7 @@ def extended_line() -> bytes:
             starts=2,
             minutes=180,
             goals=1,
+            minutes_since_last_goal=311,
             goals_outside_box=7,
             pressures_attempted=31,
             pressures_completed=19,
@@ -66,6 +68,7 @@ def test_extended_lines_omit_only_explicitly_unsupported_metrics() -> None:
     assert len(rows) == 2
     assert stats.overall_sums_competitions == 1
     assert stats.minutes_in_range == 2
+    assert [row.minutes_since_last_goal for row in rows] == [None, 311]
     for row in rows:
         assert row.goals == 1
         assert row.expected_goals == 1.25
@@ -137,3 +140,30 @@ def test_extended_record_damage_is_rejected(damage: str) -> None:
         struct.pack_into("<I", data, other_count_at, 0xFFFFFFFF)
     with pytest.raises(ReaderCheckError):
         walk_season_stats(bytes(data), extended_layout(), "example.bin")
+
+
+def test_fm26_minutes_since_last_goal_requires_an_overall_row_with_a_goal() -> None:
+    scorer = stat_line(goals=1, minutes_since_last_goal=311)
+    goalless = stat_line(goals=0, minutes_since_last_goal=521)
+    body = season_stats_body(
+        [
+            ExampleRecord(key=12, own_slots=(None, scorer, None, None, None, scorer, None, None)),
+            ExampleRecord(key=13, own_slots=(None,) * 5 + (goalless, None, None)),
+        ]
+    )
+    rows, _ = build_season_stats(
+        walk_season_stats(body, FM26_LAYOUT, "example.bin"),
+        body,
+        {
+            11: SeasonPlayer(900001, "Alex Example", 70001, False),
+            12: SeasonPlayer(900002, "Sam Example", 70001, False),
+        },
+        {},
+        {},
+        FM26_LAYOUT,
+    )
+    assert [row.minutes_since_last_goal for row in rows] == [None, 311, None]
+    flat_row = flatten_dict(record_to_dict(rows[1], json_ready=True))
+    csv_output = io.StringIO(newline="")
+    write_csv((flat_row,), ("minutes_since_last_goal",), csv_output)
+    assert csv_output.getvalue() == "minutes_since_last_goal\r\n311\r\n"

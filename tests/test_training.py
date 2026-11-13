@@ -24,11 +24,9 @@ from fmsave._layouts import GateBounds, find_layout
 from fmsave._layouts.fm26_26_3_2 import TRAINING as FM26_TRAINING
 from fmsave._layouts.fm27_27_0_0 import TRAINING as FM27_TRAINING
 from fmsave._reader_stats import TrainingStats
-from fmsave.models.common import CodedValue
 from fmsave.models.training import (
     TeamTraining,
     TrainingSchedule,
-    TrainingSession,
     TrainingWeek,
 )
 from fmsave.readers._common import GAME_DB_SECTION, TRAINING_SECTION
@@ -220,25 +218,25 @@ def test_each_day_follows_the_week_start_with_its_own_three_sessions() -> None:
     assert blocks[0].weeks[0].schedule_name == "Example Balanced"
 
 
-def test_an_fm26_session_is_never_labelled_even_with_a_code_the_fm27_enum_names() -> None:
+def test_fm26_uses_only_its_own_session_labels() -> None:
+    day_sessions = ((1, 2, 6), (8, 10, 11), (12, 13, 14), (103, 300, 500), *FICTIONAL_DAYS[4:])
     week = training_week_bytes(
         week_start=packed_date(48, TRAINING_YEAR),
         schedule_name="Example Balanced",
-        day_sessions=FICTIONAL_DAYS,
+        day_sessions=day_sessions,
     )
     blocks, _counts = walk_training_blocks(
         one_block_body((week,)), CLUB_TEAM_IDS, LAYOUT, FILE_NAME
     )
 
-    first_day = blocks[0].weeks[0].days[0]
-    assert first_day.sessions == (
-        CodedValue(TrainingSession.UNKNOWN, 300),
-        CodedValue(TrainingSession.UNKNOWN, 500),
-        CodedValue(TrainingSession.UNKNOWN, 300),
-    )
-    assert {
-        session.label for week in blocks[0].weeks for day in week.days for session in day.sessions
-    } == {TrainingSession.UNKNOWN}
+    days = blocks[0].weeks[0].days
+    assert [tuple(session.raw for session in day.sessions) for day in days] == list(day_sessions)
+    assert [tuple(session.label.name for session in day.sessions) for day in days[:4]] == [
+        ("OUTFIELD", "ATTACKING", "PHYSICAL"),
+        ("RESISTANCE", "RECOVERY", "REST"),
+        ("TRAVEL", "MATCH", "MATCH"),
+        ("MATCH_FOCUS", "UNKNOWN", "UNKNOWN"),
+    ]
 
 
 def test_the_days_export_nested_in_each_week_with_label_and_code(career_path: Path) -> None:
@@ -248,7 +246,7 @@ def test_the_days_export_nested_in_each_week_with_label_and_code(career_path: Pa
     first_week = cast("list[dict[str, Any]]", rows[0]["weeks"])[0]
     assert first_week["days"][0] == {
         "day": "2031-02-17",
-        "sessions": ["unknown", "unknown", "unknown"],
+        "sessions": ["rest", "recovery", "physical"],
         "sessions_code": [11, 10, 6],
     }
     assert len(first_week["days"]) == 7

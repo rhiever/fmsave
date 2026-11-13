@@ -580,6 +580,7 @@ def match_record_bytes(
     role_code: int = 0,
     goals: int = 0,
     assists: int = 0,
+    entered_at: int = 0,
     left_at: int = 90,
     minutes: int = 90,
     rating_x10: int = 70,
@@ -591,8 +592,8 @@ def match_record_bytes(
     The lead byte, the 4-byte match date, the u32 opponent first-team id, the u32 competition
     id, the tag byte and the body flag make the 15-byte header, which is the whole record when
     `played` is false. When it is true a 54-byte record follows the same header: the u16
-    position mask at +17, the role code at +23, goals at +24, assists at +28, the minute the
-    player left the pitch at +36, minutes at +39, the rating times ten at +40, and passes
+    position mask at +17, the role code at +23, goals at +24, assists at +28, the minutes
+    the player entered and left the pitch at +35 and +36, minutes at +39, the rating times ten at +40, and passes
     attempted and completed at +41 and +42. Every other body byte is `MATCH_RECORD_FILLER_BYTE`.
     """
     header = bytearray()
@@ -609,6 +610,7 @@ def match_record_bytes(
     record[23] = role_code
     record[24] = goals
     record[28] = assists
+    record[35] = entered_at
     record[36] = left_at
     record[39] = minutes
     record[40] = rating_x10

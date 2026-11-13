@@ -684,6 +684,8 @@ class SuspensionLayout:
     `entry_core_bytes` followed by either `null_suffix` or an attachment extending through
     `linked_entry_bytes`. Attachment offsets count from the child's start; its signature,
     date and flag constrain framing without assigning meanings to its other raw fields.
+    When set, `european_signature` matches a Europe entry in a singleton parent. It
+    leaves the reference bytes uninterpreted.
     """
 
     signature: tuple[tuple[int, int], ...]
@@ -703,6 +705,7 @@ class SuspensionLayout:
     linked_date_offset: int
     linked_flag_offset: int
     linked_flag_values: tuple[int, ...]
+    european_signature: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -791,6 +794,7 @@ class MatchRecordLayout:
     role_code_offset: int
     goals_offset: int
     assists_offset: int
+    entered_at_offset: int
     left_at_offset: int
     minutes_offset: int
     rating_offset: int
@@ -1931,8 +1935,8 @@ class TrainingLayout:
 
     **A day block** holds `sessions_per_day` u16 session codes at `day_sessions_offset` from its
     lead byte, one block per calendar day from the week's start. `session_labels_supported`
-    says whether the codes are the ones `TrainingSession` names; where it is False every
-    session reads UNKNOWN with its raw code.
+    says whether the codes are the values of `TrainingSession`. Other layouts supply
+    their screen-confirmed labels in `session_code_names`.
 
     `seven_day_step` is how many days apart consecutive weeks are, which the reader counts.
     """
@@ -1976,6 +1980,7 @@ class TrainingLayout:
     header_entries_supported: bool = True
     mentoring_groups_supported: bool = True
     session_labels_supported: bool = False
+    session_code_names: tuple[tuple[int, str], ...] = ()
 
     @property
     def week_trailer_bytes(self) -> int:

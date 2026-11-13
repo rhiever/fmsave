@@ -151,7 +151,7 @@ def test_a_sponsor_row_carries_its_dates_values_and_unknown_bytes(
     with fmsave.open(career_save_path) as career_save:
         sponsors = tuple(career_save.sponsorships())
     first, second, third = sponsors
-    assert first.kind.label is SponsorType.UNKNOWN
+    assert first.kind.label is SponsorType.GENERAL
     assert first.kind.raw == SPONSOR_A["sponsor_type"]
     assert first.start == date(2030, 7, 1)
     assert first.end == date(2033, 6, 30)
@@ -1164,12 +1164,19 @@ def test_fm27_sponsor_kinds_carry_the_type_their_screen_displayed() -> None:
     ]
 
 
-def test_fm26_sponsor_kinds_stay_unknown_with_their_codes() -> None:
-    """No FM26 screen has named a kind, so FM27's names are not borrowed."""
-    kinds = [code for code, _label in FM27_NAMED_KINDS]
-    sponsors = sponsors_of_kinds(kinds, BUILD_STRING)
-    assert [sponsor.kind.raw for sponsor in sponsors] == kinds
-    assert {sponsor.kind.label for sponsor in sponsors} == {SponsorType.UNKNOWN}
+def test_fm26_sponsor_kinds_use_only_labels_verified_for_fm26() -> None:
+    expected = [
+        (1, "MAIN_KIT"),
+        (4, "GENERAL"),
+        (8, "AWAY_KIT"),
+        (9, "ADDITIONAL_KIT_SPONSOR"),
+        (12, "SHORTS"),
+        (22, "KIT_MANUFACTURER"),
+        (3, "UNKNOWN"),
+        (16, "UNKNOWN"),
+    ]
+    sponsors = sponsors_of_kinds([code for code, _label in expected], BUILD_STRING)
+    assert [(sponsor.kind.raw, sponsor.kind.label.name) for sponsor in sponsors] == expected
 
 
 @pytest.mark.parametrize(

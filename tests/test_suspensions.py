@@ -214,6 +214,46 @@ VALID_ENTRY = suspension_entry_bytes(
 VALID_ENTRY_LOCATED = SuspensionEntry(COMPETITION, 1, 1234, date(2031, 2, 20), 3)
 
 
+def test_singleton_european_suspension_requires_its_own_signature() -> None:
+    layout = registered_suspension_layout()
+    entry = bytearray(
+        suspension_entry_bytes(scope_id=1234, issued=packed_date(51, 2031), e7=3, scope_code=15)
+    )
+    entry[:4] = bytes((72, 0, 1, 0))
+    entry[15:20] = bytes((0, 2, 255, 0, 0))
+    parent = bytes((1, 0, 1)) + entry
+    located = locate_suspensions(
+        buffer_with_entry(300, parent + VALID_ENTRY),
+        synthetic_player_records((200,)),
+        layout,
+    )
+    europe = located[0][0]
+    assert europe.scope.value == "europe"
+    assert europe.scope_code == 15
+    assert europe.competition_id is None
+    assert europe.nation_id is None
+    assert europe.issued == date(2031, 2, 20)
+    assert located[0][1:] == (VALID_ENTRY_LOCATED,)
+
+    for offset in (2, 6, 17, 18, 20, 22):
+        decoy = bytearray(parent)
+        decoy[offset] ^= 1
+        assert not locate_suspensions(
+            buffer_with_entry(300, bytes(decoy)), synthetic_player_records((200,)), layout
+        )
+    assert not locate_suspensions(
+        bytes(300) + parent[:-1], synthetic_player_records((200,)), layout
+    )
+    invalid_date = bytearray(parent)
+    invalid_date[12:16] = packed_date(366, 2031)
+    assert not locate_suspensions(
+        buffer_with_entry(300, bytes(invalid_date)), synthetic_player_records((200,)), layout
+    )
+    assert not locate_suspensions(
+        buffer_with_entry(300, parent), synthetic_player_records((200, 350)), layout
+    )
+
+
 def attached_suspension_bytes(*, scope_code: int = 1, e7: int = 1) -> bytes:
     """A counted child with the independently observed 28-byte attached-match suffix."""
     core = suspension_entry_bytes(

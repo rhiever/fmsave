@@ -120,9 +120,12 @@ def _read_text(
 
 
 def _session(code: int, layout: TrainingLayout) -> CodedValue[TrainingSession]:
-    """A stored session code, labelled only where the layout's codes are the enum's."""
+    """Label a stored session code using its layout and keep the original number."""
     if layout.session_labels_supported:
         return CodedValue.from_raw(TrainingSession, code)
+    for raw, name in layout.session_code_names:
+        if code == raw:
+            return CodedValue(TrainingSession[name], code)
     return CodedValue(TrainingSession.UNKNOWN, code)
 
 

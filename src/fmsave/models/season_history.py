@@ -20,6 +20,7 @@ class PlayerSeasonHistory(PlayerSeasonStats):
 
     Attributes:
         team_id: Archived team reference, or None for the missing-reference sentinel.
+        minutes_since_last_goal: Always None for archived rows (unconfirmed).
         season_year: Candidate season year; whether it identifies the start or end of a
             season is unknown (unconfirmed).
         competition_reference: Raw candidate competition reference, without a confirmed
@@ -40,8 +41,12 @@ for _status in ("verified", "unconfirmed"):
                     *(field.name for field in dataclasses.fields(PlayerSeasonStats)),
                     *PlayerSeasonStats.COMPUTED_FIELDS,
                 )
-                if field_status(PlayerSeasonStats, name) == _status
+                if name != "minutes_since_last_goal"
+                and field_status(PlayerSeasonStats, name) == _status
             )
         },
     )
-register_field_statuses(PlayerSeasonHistory, unconfirmed=("season_year", "competition_reference"))
+register_field_statuses(
+    PlayerSeasonHistory,
+    unconfirmed=("minutes_since_last_goal", "season_year", "competition_reference"),
+)

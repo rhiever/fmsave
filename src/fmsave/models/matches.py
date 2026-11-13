@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import ClassVar
 
@@ -88,27 +88,18 @@ class PlayerMatchStats:
         position: The position played, as a coded value over the mask the record stores. Only
             the goalkeeper bit is named; every other mask keeps its raw value and reads as
             UNKNOWN. None when the save holds no statistics for the match.
-        minutes: Minutes played, or None when the save holds no statistics for the match. No
-            value the game displays has been matched to this number; what says it is minutes
-            played is its shape. On the saves measured about half the matches with statistics
-            hold exactly 90, over 0.993 hold 90 or less, none holds more than 130, and the rest
-            are spread over the values below 90 rather than clustered (unconfirmed).
-        left_at_minute: The minute the player left the pitch, whether he was substituted or
-            sent off. None when he was on it at the final whistle, which the save stores as a
-            zero, and None as well when the save holds no statistics for the match; `has_stats`
-            tells those two apart. It is never 0, so a filter such as `left_at_minute < 10`
-            selects the early departures and nobody else (unconfirmed).
+        minutes: Minutes played, or None when the save holds no statistics for the match.
+        entered_at_minute: The minute the player came on as a substitute. None for starters
+            or when the save holds no statistics for the match.
+        left_at_minute: The minute the player left the pitch. None when the player stayed on
+            until the final whistle or the save holds no statistics for the match. Use
+            `has_stats` to distinguish these cases.
         goals: Goals scored, or None when the save holds no statistics for the match.
-        assists: Assists, or None when the save holds no statistics for the match. This is a
-            **hypothesis**: no displayed label has been matched to this byte, and the count
-            shown on a player's season statistics screen is what would confirm it
+        assists: Assists, or None when the save holds no statistics for the match.
+        rating: The retained match rating to one decimal place. None when the save stores
+            zero or holds no statistics for the match. The full match report can show a
+            rating when retained history has none, and its rating can differ by one tenth
             (unconfirmed).
-        rating: The match rating, which is the stored number divided by ten and so exact to one
-            decimal. None when the save holds no statistics for the match, and None as well
-            when the game rated nobody in it, which the save stores as a zero; `has_stats`
-            tells those two apart, and the stored zero is kept as `unknown["rating_raw"]` so
-            nothing is dropped. A rating is never 0.0, so an average over this column is an
-            average of the ratings the game actually gave (unconfirmed).
         passes_attempted: Passes attempted, or None when the save holds no statistics for the
             match (unconfirmed).
         passes_completed: Passes completed, or None when the save holds no statistics for the
@@ -144,10 +135,13 @@ class PlayerMatchStats:
     passes_completed: int | None
     stats_in_range: bool
     unknown: Mapping[str, int]
+    entered_at_minute: int | None = field(default=None, kw_only=True)
 
     UNKNOWN_KEYS: ClassVar[tuple[str, ...]] = ("tag", "role_code", "rating_raw")
 
 
+# FM26 match screens matched assists, minutes played and substitution departure
+# minutes. FM27 uses the same match-record fields.
 register_field_statuses(
     PlayerMatchStats,
     verified=(
@@ -159,15 +153,16 @@ register_field_statuses(
         "opponent_club_short_name",
         "position",
         "goals",
+        "assists",
+        "minutes",
+        "left_at_minute",
+        "entered_at_minute",
     ),
     unconfirmed=(
         "player_uid",
         "player_name",
         "opponent_team_slot",
         "has_stats",
-        "minutes",
-        "assists",
-        "left_at_minute",
         "rating",
         "passes_attempted",
         "passes_completed",

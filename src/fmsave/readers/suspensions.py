@@ -44,11 +44,11 @@ class SuspensionEntry:
     """One kept suspension entry, before it is joined to its player.
 
     Attributes:
-        scope: What the ban covers, as `scope_code` says.
+        scope: The reference namespace selected by `scope_code`.
         scope_code: The scope code exactly as the entry stores it.
-        scope_id: The u16 the entry stores beside the code: a competition id in the stage id
-            space when the scope is COMPETITION, a nation id when it is NATION, and a number
-            of no known meaning when the scope is UNKNOWN.
+        scope_id: The u16 beside the code. It holds a stage ID for COMPETITION, a nation ID
+            for NATION, or a number of unknown meaning for UNKNOWN. The Europe form leaves
+            the reference unread and sets this field to None.
         issued: The date the ban was issued.
         e7: The unidentified u16 exported as `unknown["e7"]`.
         competition_name: The name of `scope_id` when the scope is COMPETITION and a name map
@@ -58,7 +58,7 @@ class SuspensionEntry:
 
     scope: SuspensionScope
     scope_code: int
-    scope_id: int
+    scope_id: int | None
     issued: date
     e7: int
     competition_name: str | None = None
@@ -70,7 +70,7 @@ class SuspensionEntry:
 
     @property
     def nation_id(self) -> int | None:
-        """`scope_id` when the ban covers a whole nation, and None otherwise."""
+        """`scope_id` when the ban references a nation, and None otherwise."""
         return self.scope_id if self.scope is SuspensionScope.NATION else None
 
 
@@ -201,6 +201,7 @@ def locate_suspensions(
     readable game date, so day 366 of a non-leap year is rejected) and a scope id strictly
     inside the layout's range. A scope code the layout does not list keeps its entry, with the
     scope UNKNOWN, so the ban is still reported: only the meaning of its id is withheld.
+    The Europe form requires its own singleton parent and leaves both reference IDs empty.
     Attached forms also require a complete counted parent, valid attachment dates and the
     layout's attachment markers. An incomplete parent adds no attached entries and does not
     discard standalone entries accepted by the established search.
@@ -266,10 +267,60 @@ def locate_suspensions(
             continue
         attached_offsets.add(entry_offset)
         entries_by_position.setdefault(position, []).append((entry_offset, entry))
+    if layout.european_signature:
+        for position, entry_offset, entry in _singleton_european_entries(
+            game_db, player_records, layout, search
+        ):
+            entries_by_position.setdefault(position, []).append((entry_offset, entry))
     return {
         position: tuple(entry for _, entry in sorted(entries, key=lambda item: item[0]))
         for position, entries in sorted(entries_by_position.items())
     }
+
+
+@functools.cache
+def _european_pattern(layout: SuspensionLayout) -> re.Pattern[bytes]:
+    prefix = layout.parent_prefix + bytes((1,))
+    signature = tuple(enumerate(prefix)) + tuple(
+        (len(prefix) + offset, value) for offset, value in layout.european_signature
+    )
+    return _build_signature_pattern(signature)[0]
+
+
+def _singleton_european_entries(
+    game_db: bytes,
+    player_records: PlayerRecords,
+    layout: SuspensionLayout,
+    search: _SuspensionSearch,
+) -> Iterator[tuple[int, int, SuspensionEntry]]:
+    """Read the observed singleton Europe form without interpreting its reference bytes."""
+    offsets = player_records.record_offsets
+    prefix_length = len(layout.parent_prefix) + 1
+    entry_length = layout.entry_core_bytes + len(layout.null_suffix)
+    first_parent = max(0, offsets[0] - search.owner_back_offset)
+    for match in _european_pattern(layout).finditer(game_db, first_parent):
+        entry_offset = match.start() + prefix_length
+        position = bisect_right(offsets, match.start() + search.owner_back_offset) - 1
+        if (
+            position + 1 < len(offsets)
+            and entry_offset + entry_length > offsets[position + 1] - search.owner_back_offset
+        ):
+            continue
+        issued = decode_date(game_db, entry_offset + search.issued_date_offset)
+        if issued is None:
+            continue
+        fields = search.fields_struct.unpack_from(game_db, entry_offset)
+        yield (
+            position,
+            entry_offset,
+            SuspensionEntry(
+                SuspensionScope.EUROPE,
+                fields[search.scope_code_index],
+                None,
+                issued,
+                fields[search.e7_index],
+            ),
+        )
 
 
 @functools.cache
@@ -393,7 +444,7 @@ def suspension_stats(
     entries whose scope code is one the layout lists, and the dates against the save's
     in-game date.
 
-    The date is counted over the bans covering ONE COMPETITION alone. A ban covering a whole
+    The date is counted over the bans covering ONE COMPETITION alone. A ban referencing a
     nation is routinely dated ahead of the clock -- by one to ten days on the save states
     measured -- so counting those makes a career's own fixture list look like a misread date.
     Every save state measured holds zero competition-scope entries dated ahead, which is what
@@ -434,9 +485,8 @@ def named_entries(
 
     `name_for` is `CompetitionIndex.name_for`, the one lookup that names a competition, so a
     ban is named by exactly the rule that names its competition and this module repeats none
-    of it. It is asked only for a ban whose scope is COMPETITION: a nation-wide ban's id is a
-    nation id, and looking it up would name the ban after whatever competition happens to
-    share its number. Naming here, on the located entries, gives `Player.suspensions` and the
+    of it. It is asked only for a ban whose scope is COMPETITION: a nation reference may share its
+    number with an unrelated competition. Naming here, on the located entries, gives `Player.suspensions` and the
     `suspensions()` rows the same name from the same lookup.
     """
     return {

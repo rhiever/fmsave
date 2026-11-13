@@ -687,8 +687,8 @@ def evaluate_suspensions(
     themselves, which is what judges an empty search on a build whose share has no floor
     because a small ban list in a large database is ordinary there.
 
-    `issued_after_clock` judges the bans covering ONE COMPETITION alone. A ban covering a
-    whole nation carries a date ahead of the in-game date as ordinary career state, so over
+    `issued_after_clock` judges the bans covering ONE COMPETITION alone. A ban referencing a
+    nation carries a date ahead of the in-game date as ordinary career state, so over
     every entry this check rises and falls with a career's own fixture list and fired on a
     save whose decode was sound. Over the competition-scope entries it reads zero on every
     save state measured, which makes it a tighter check than the one it replaces: a date read

@@ -174,6 +174,7 @@ game stores its data:
 <a href="https://github.com/rui7avares-create" title="@rui7avares-create"><img src="https://github.com/rui7avares-create.png?size=80" width="40" height="40" alt="@rui7avares-create"></a>
 <a href="https://github.com/sebheusig" title="@sebheusig"><img src="https://github.com/sebheusig.png?size=80" width="40" height="40" alt="@sebheusig"></a>
 <a href="https://github.com/thaffy" title="@thaffy"><img src="https://github.com/thaffy.png?size=80" width="40" height="40" alt="@thaffy"></a>
+<a href="https://github.com/thetowny" title="@thetowny"><img src="https://github.com/thetowny.png?size=80" width="40" height="40" alt="@thetowny"></a>
 </p>
 
 ## Support

@@ -23,6 +23,9 @@ rather than at one club's players. Staff carry their people data, ability, perso
 they prefer a side to be run. FM27 exposes 21 additional, unconfirmed ratings in
 `Staff.attributes` at their stored scales.
 
+`suspensions()` includes recognized European bans. These rows use `scope="europe"` and
+leave the competition and nation IDs empty.
+
 ## Clubs
 
 `clubs()`, `managed_clubs()`, `finances()`, `sponsorships()`, `facilities()`, `stadiums()`,
@@ -80,6 +83,10 @@ career match log. Empty output passes validation when every player explicitly ha
 history.
 Incomplete or unresolved histories fail the reader checks.
 
+Current overall club statistics include `minutes_since_last_goal` for players who have scored.
+Retained match histories include `entered_at_minute` and `left_at_minute` when stored. Their
+ratings can differ from the full match report, which records ratings at higher precision.
+
 `team_match_stats()` gives each side's figures from the game's match stats screen: shots, xG,
 possession, passes, crosses, tackles, aerials, fouls, cards, corners, and distance. A match has
 2 rows, 1 per team. Join them to `fixtures()` on `competition_id`, `home_team_id`,
@@ -109,6 +116,9 @@ includes stored preset and alternate tactics; a row is a copy for one team, so t
 can appear more than once. `selections()` holds each team's stored starters and substitutes. A
 starter's slot is a tactic slot, but nothing stored says which tactic is selected, and the
 substitutes can keep players past the next match's bench size.
+
+Training sessions and sponsorship types use labels confirmed for the save's edition.
+Both retain the original codes, including codes without a confirmed label.
 
 `squad_planner()` reads numbered slots for the current season and the next 2 seasons
 on FM27 build `27.0.0+2486695` with a single human manager.

@@ -263,6 +263,18 @@ TRAINING = TrainingLayout(
     library_folder_offset=55,
     day_sessions_offset=1,
     sessions_per_day=3,
+    session_code_names=(
+        (1, "OUTFIELD"),
+        (2, "ATTACKING"),
+        (6, "PHYSICAL"),
+        (8, "RESISTANCE"),
+        (10, "RECOVERY"),
+        (11, "REST"),
+        (12, "TRAVEL"),
+        (13, "MATCH"),
+        (14, "MATCH"),
+        (103, "MATCH_FOCUS"),
+    ),
 )
 
 NAME_POOLS = NamePoolLayout(
@@ -656,6 +668,14 @@ SPONSOR_CHAINS = SponsorChainLayout(
     b19_offset=19,
     annual_offset=21,
     value_maximum=2_000_000_000,
+    kind_names=(
+        (1, "MAIN_KIT"),
+        (4, "GENERAL"),
+        (8, "AWAY_KIT"),
+        (9, "ADDITIONAL_KIT_SPONSOR"),
+        (12, "SHORTS"),
+        (22, "KIT_MANUFACTURER"),
+    ),
 )
 
 # The corporate facilities rating, 50 bytes past the end of a club's snapshot chain. Every club
@@ -674,11 +694,9 @@ FACILITY_BYTE = FacilityByteLayout(
 
 # A suspension entry has an 18-byte core and either a two-byte null suffix or a 28-byte
 # attached-match suffix. Attached forms are accepted only inside complete counted parents.
-# The byte at +14 is
-# the ban's scope and decides what the u16 at +16 is: 1 names one competition in the stage id
-# space, and 5, 6 and 10 each name a nation whose competitions the ban covers. Those are the
-# only four codes seen on any save measured; a fifth would leave the id unread rather than
-# guessed.
+# The scope code selects the reference namespace: 1 names a competition in the stage ID
+# space, and 5, 6 and 10 reference a nation. The observed singleton Europe form has its own
+# signature and leaves the reference unread.
 SUSPENSIONS = SuspensionLayout(
     signature=((4, 0xFF), (5, 0xFF), (13, 0x05), (15, 0xFF), (18, 0xFF)),
     unknown_e7_offset=7,
@@ -697,6 +715,21 @@ SUSPENSIONS = SuspensionLayout(
     linked_date_offset=21,
     linked_flag_offset=29,
     linked_flag_values=(1, 2),
+    european_signature=(
+        (1, 0),
+        (2, 1),
+        (3, 0),
+        (4, 255),
+        (5, 255),
+        (6, 0),
+        (13, 5),
+        (14, 15),
+        (15, 0),
+        (16, 2),
+        (17, 255),
+        (18, 0),
+        (19, 0),
+    ),
 )
 
 # A per-match player record is 15 bytes when the save keeps no performance body for the match
@@ -715,6 +748,7 @@ MATCH_RECORDS = MatchRecordLayout(
     role_code_offset=23,
     goals_offset=24,
     assists_offset=28,
+    entered_at_offset=35,
     left_at_offset=36,
     minutes_offset=39,
     rating_offset=40,
@@ -1241,7 +1275,7 @@ STAFF = StaffLayout(
     r4_offset=4,
     codes_offset=5,
     code_count=8,
-    code_set=frozenset({3, 4, 7, 22, 27, 28, 29, 30, 32, 33, 35, 62, 63, 64}),
+    code_set=frozenset({3, 4, 7, 22, 27, 28, 29, 30, 32, 33, 35, 62, 63, 64, 65, 69}),
     sentinel_offset=13,
     sentinel_value=12,
     preferences_offset=14,
@@ -1414,7 +1448,7 @@ GATE_BOUNDS = GateBounds(
     suspension_share_of_players=(0.001, 0.10),
     # Not one ban covering a single competition is dated after the in-game date on any save
     # state measured, so the ceiling is pure headroom over a quantity that reads zero. It
-    # judges those bans alone: a ban covering a whole nation is routinely dated one to ten
+    # judges those bans alone: a ban referencing a nation is routinely dated one to ten
     # days ahead, which is career state, and counting those fired this check on a save whose
     # decode was sound. They are reported as an anomaly instead.
     issued_after_clock=(None, 0.01),
@@ -1714,7 +1748,7 @@ GATE_BOUNDS = GateBounds(
     # late leaves at most 0.027 on either.
     staff_ability_signature=(0.99, None),
     staff_preference_slots=(0.99, None),
-    # A handful of staff objects per save carry a code outside the 14-value set, so the
+    # A handful of staff objects per save carry a code outside the observed set, so the
     # floor sits below 0.9995. One byte early leaves 0.019 and every other shift 0.
     staff_codes_in_set=(0.98, None),
     # 1.0 on every save measured, and 0.075 with the ability block one byte late and 0 four bytes
@@ -1877,6 +1911,7 @@ SEASON_STATS = SeasonStatsLayout(
         ("shots", 45, "H", 1),
         ("shots_on_target", 47, "H", 1),
         ("mistakes_leading_to_goal", 59, "H", 1),
+        ("minutes_since_last_goal", 61, "H", 1),
         ("distance_km", 65, "H", 10),
         ("offsides", 67, "H", 1),
         ("key_passes", 73, "H", 1),
