@@ -193,11 +193,16 @@ jobs:
 
   # Compatibility jobs can start alongside the Linux tests once Checks passes.
   test-windows:
-    name: Tests (Windows, Python 3.14)
+    name: Tests (Windows, Python ${{ matrix.python-version }}, shard ${{ matrix.shard }})
     needs: checks
     if: needs.checks.outputs.extended == 'true'
     runs-on: windows-latest
     timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJSON(github.event.repository.private && '["3.14"]' || '["3.12","3.13","3.14"]') }}
+        shard: ${{ fromJSON(github.event.repository.private && '["1/1"]' || '["1/2","2/2"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -205,11 +210,13 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.13.7"
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
           enable-cache: false
       - run: uv sync --locked --group ci
       - name: Run tests
-        run: uv run --locked --group ci pytest -n auto --maxprocesses=4 -m "not corpus"
+        env:
+          TEST_SHARD: ${{ matrix.shard }}
+        run: uv run --locked --group ci python -m pytest -p scripts.pytest_shard --shard "$env:TEST_SHARD" -n auto --maxprocesses=4 -m "not corpus"
 
   # Public repositories also test the remaining Python and operating system combinations.
   test-matrix:
@@ -221,15 +228,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
         python-version: ["3.12", "3.13", "3.14"]
         exclude:
-          # Run by the two jobs above, whether or not the repository is public.
+          # Run by the Linux test job on both public and private repositories.
           - os: ubuntu-latest
             python-version: "3.12"
           - os: ubuntu-latest
-            python-version: "3.14"
-          - os: windows-latest
             python-version: "3.14"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
