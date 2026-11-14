@@ -26,7 +26,7 @@ from fmsave.readers._common import MISSING_REFERENCE
 from fmsave.readers.clubs import ClubIndex
 from fmsave.readers.contracts import ContractDecoder, build_contract_decoder
 from fmsave.readers.names import NamePools
-from fmsave.readers.persons import PersonBlockDecoder, build_person_block_decoder
+from fmsave.readers.persons import PersonBlockDecoder, PersonTuple, build_person_block_decoder
 from fmsave.readers.player_scan import (
     HeaderLayout,
     build_header_layout,
@@ -169,6 +169,49 @@ class PlayerDecoder:
     date_cache: dict[int, date | None] = field(default_factory=_new_date_cache)
     edited_attribute_records: int = 0
 
+    def closing_header(
+        self,
+        game_db: bytes,
+        record_offset: int,
+        record_window_end: int,
+        pindex: int,
+        uid: int,
+        *,
+        is_last_record: bool,
+        next_record_ambiguous: bool,
+    ) -> tuple[int, int] | None:
+        layout = self.layout
+        # The next record's own header is the last thing in this window, so its uid bounds
+        # the header that closes this player's object.
+        next_uid = (
+            None
+            if is_last_record or next_record_ambiguous
+            else _UINT32.unpack_from(game_db, record_window_end + layout.uid_offset)[0]
+        )
+        # An ambiguous header still bounds the search, but cannot supply the closing UID.
+        closing_search_end = (
+            record_window_end + layout.pindex_offset if next_record_ambiguous else record_window_end
+        )
+        return closing_person_header(
+            game_db,
+            pindex,
+            record_offset + layout.decode_extent,
+            closing_search_end,
+            uid,
+            next_uid,
+        )
+
+    def decode_person(
+        self,
+        game_db: bytes,
+        record_offset: int,
+        record_window_end: int,
+        closing_header: tuple[int, int] | None,
+    ) -> PersonTuple | None:
+        person_window_end = record_window_end if closing_header is None else closing_header[0]
+        person_window_start = record_offset + self.person_window_start_offset
+        return self.person_decoder.decode(game_db, person_window_start, person_window_end)
+
     def decode(
         self,
         game_db: bytes,
@@ -177,6 +220,7 @@ class PlayerDecoder:
         *,
         is_last_record: bool,
         suspension_entries: tuple[SuspensionEntry, ...] | None,
+        next_record_ambiguous: bool = False,
     ) -> tuple[Player, Contract | None]:
         """Decode one player record's public fields, including its person block and contract.
 
@@ -185,7 +229,7 @@ class PlayerDecoder:
         `is_last_record` tells the contract chain search and fallback reader whether
         `record_window_end` is that last-record `len(game_db)` case. `suspension_entries` are
         the record's entries from `readers.suspensions.locate_suspensions`, which fill
-        `Player.suspensions`.
+        `Player.suspensions`. An ambiguous next record still ends this record's window.
         """
         layout = self.layout
         header_layout = self.header_layout
@@ -269,26 +313,17 @@ class PlayerDecoder:
             game_db, record_offset + layout.club_join_date_offset, club_join_date_raw
         )
 
-        # The next record's own header is the last thing in this window, so its uid bounds
-        # the header that closes this player's object.
-        next_uid = (
-            None
-            if is_last_record
-            else _UINT32.unpack_from(game_db, record_window_end + layout.uid_offset)[0]
-        )
-        closing_header = closing_person_header(
+        closing_header = self.closing_header(
             game_db,
-            pindex,
-            record_offset + layout.decode_extent,
+            record_offset,
             record_window_end,
+            pindex,
             uid,
-            next_uid,
+            is_last_record=is_last_record,
+            next_record_ambiguous=next_record_ambiguous,
         )
-
         unique_id = None if closing_header is None else closing_header[1]
-        person_window_end = record_window_end if closing_header is None else closing_header[0]
-        person_window_start = record_offset + self.person_window_start_offset
-        person = self.person_decoder.decode(game_db, person_window_start, person_window_end)
+        person = self.decode_person(game_db, record_offset, record_window_end, closing_header)
         (
             name,
             first_name,

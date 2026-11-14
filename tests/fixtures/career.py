@@ -2639,6 +2639,7 @@ def career_fragment(
     history_index_section: bytes | None = None,
     player_history_selectors: Sequence[int] = (0xFFFFFFFF,) * 4,
     match_stats_section: bytes | None = None,
+    game_db_section: bytes | None = None,
 ) -> ContainerFragment:
     """The whole career fragment.
 
@@ -2686,10 +2687,13 @@ def career_fragment(
             span frame after the fixtures and tables, in place of the one
             `career_season_stats_body` describes. Empty bytes leave the frame out.
         match_stats_section: The whole match report store section, or None to leave it out.
+        game_db_section: The whole game database, or None to use the default fragment.
     """
     selector = UNMATCHED_MANAGER_SELECTOR if manager_between_jobs else MANAGER_SELECTOR
     replacements = {
-        "game_db": career_game_db(
+        "game_db": game_db_section
+        if game_db_section is not None
+        else career_game_db(
             player_history_selectors=player_history_selectors,
             duplicate_club_name=duplicate_club_name,
             game_db_results=game_db_results,

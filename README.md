@@ -153,6 +153,7 @@ game stores its data:
 
 <p>
 <a href="https://github.com/1e16miin" title="@1e16miin"><img src="https://github.com/1e16miin.png?size=80" width="40" height="40" alt="@1e16miin"></a>
+<a href="https://github.com/absalom12" title="@absalom12"><img src="https://github.com/absalom12.png?size=80" width="40" height="40" alt="@absalom12"></a>
 <a href="https://github.com/Buglerru" title="@Buglerru"><img src="https://github.com/Buglerru.png?size=80" width="40" height="40" alt="@Buglerru"></a>
 <a href="https://github.com/BWH95" title="@BWH95"><img src="https://github.com/BWH95.png?size=80" width="40" height="40" alt="@BWH95"></a>
 <a href="https://github.com/GetChatGPTToDoIt" title="@GetChatGPTToDoIt"><img src="https://github.com/GetChatGPTToDoIt.png?size=80" width="40" height="40" alt="@GetChatGPTToDoIt"></a>

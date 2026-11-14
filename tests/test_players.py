@@ -52,6 +52,7 @@ from tests.fixtures.game_db import (
     STUB_STATUS_KIND,
     club_record_bytes,
     game_db_body,
+    match_list_bytes,
     name_pools_bytes,
     player_record_bytes,
     status_record_bytes,
@@ -955,25 +956,150 @@ def test_no_player_records_found_raises_reader_check() -> None:
     assert "game_db" in message
 
 
-def test_repeated_uid_raises_reader_check() -> None:
-    duplicate = dict(PLAYER_ZERO_CA)
-    duplicate["current_ability"] = 120
-    duplicate["uid"] = 900001
-    duplicate["pindex"] = 21
-    payload = (
+@pytest.fixture
+def repeated_uid_career(tmp_path: Path) -> tuple[Path, Path]:
+    from tests.fixtures.career import (
+        PLAYER_B_UID,
+        PLAYER_C_PINDEX,
+        PLAYER_C_UID,
+        career_fragment,
+        career_game_db,
+        player_a_match_records,
+        player_c_bytes,
+    )
+
+    original = player_c_bytes()
+    header = struct.pack("<III", PLAYER_C_PINDEX, PLAYER_C_UID, PLAYER_C_UID)
+    collision = original.replace(
+        header, struct.pack("<III", PLAYER_C_PINDEX, PLAYER_B_UID, PLAYER_B_UID), 1
+    )
+    assert collision != original
+    game_db = career_game_db()
+    assert game_db.count(original) == 1
+    history = match_list_bytes(player_a_match_records()) + bytes(32)
+    clean_path = career_fragment(
+        game_db_section=game_db.replace(original, original + history, 1)
+    ).write(tmp_path / "clean.fm")
+    collision_path = career_fragment(
+        game_db_section=game_db.replace(original, collision + history, 1)
+    ).write(tmp_path / "collision.fm")
+    return clean_path, collision_path
+
+
+def test_repeated_uid_omits_both_records_from_player_tables(
+    repeated_uid_career: tuple[Path, Path],
+) -> None:
+    clean_path, collision_path = repeated_uid_career
+    ambiguous_uids = {900002, 900003}
+    with fmsave.open(clean_path) as clean, fmsave.open(collision_path) as save:
+        with pytest.warns(fmsave.ReaderCheckWarning, match="player_records_with_duplicate_uids=2"):
+            contracts = save.contracts()
+        assert list(save.players()) == [
+            dataclasses.replace(player, unique_id=None) if player.uid == 900001 else player
+            for player in clean.players()
+            if player.uid not in ambiguous_uids
+        ]
+        assert list(contracts) == [
+            row for row in clean.contracts() if row.player_uid not in ambiguous_uids
+        ]
+        assert list(save.suspensions()) == [
+            row for row in clean.suspensions() if row.player_uid not in ambiguous_uids
+        ]
+        assert any(row.player_uid in ambiguous_uids for row in clean.player_match_stats())
+        assert list(save.player_match_stats()) == [
+            row for row in clean.player_match_stats() if row.player_uid not in ambiguous_uids
+        ]
+        assert list(save.player_season_stats()) == [
+            row for row in clean.player_season_stats() if row.player_uid not in ambiguous_uids
+        ]
+        assert save.players().get_by_uid(900002) is None
+
+
+def test_repeated_uid_leaves_references_unresolved(repeated_uid_career: tuple[Path, Path]) -> None:
+    clean_path, collision_path = repeated_uid_career
+    ambiguous_uids = {900002, 900003}
+    with fmsave.open(clean_path) as clean, fmsave.open(collision_path) as save:
+        with pytest.warns(fmsave.ReaderCheckWarning, match="player_records_with_duplicate_uids=2"):
+            selections = save.selections()
+        assert any(row.player_uid in ambiguous_uids for row in clean.selections())
+        assert list(selections) == [
+            dataclasses.replace(row, player_uid=None, player_name=None)
+            if row.player_uid in ambiguous_uids
+            else row
+            for row in clean.selections()
+        ]
+        assert list(save.staff()) == list(clean.staff())
+        assert list(save.staff_lists()) == list(clean.staff_lists())
+
+
+def test_repeated_uid_raises_in_strict_mode(repeated_uid_career: tuple[Path, Path]) -> None:
+    with (
+        fmsave.open(repeated_uid_career[1], strict=True) as save,
+        pytest.raises(ReaderCheckError, match="player_records_with_duplicate_uids=2"),
+    ):
+        save.players()
+
+
+def test_validation_reports_omitted_player_records(repeated_uid_career: tuple[Path, Path]) -> None:
+    with fmsave.open(repeated_uid_career[1]) as save:
+        report = fmsave.validate_save(save)
+    players = next(reader for reader in report.readers if reader.reader == "players")
+    assert players.record_count == 2
+    assert players.anomalies["player_records_with_duplicate_uids"] == 2
+
+
+def test_ambiguous_next_uid_cannot_hide_an_independent_closing_header(tmp_path: Path) -> None:
+    unique_id = 900004
+    ignored_contract = fallback_pair_bytes(packed_date(1, 2033), packed_date(1, 2030))
+    neighbor: dict[str, Any] = {
+        **PLAYER_A,
+        "pindex": 13,
+        "uid": 900003,
+        "trailing": bytes(64) + closing_header_bytes(14, unique_id) + ignored_contract + bytes(200),
+    }
+    duplicate: dict[str, Any] = {**PLAYER_B, "pindex": 15, "uid": 900002}
+    game_db = section_body(
+        ".dat",
+        GAME_DB_SCHEMA,
+        name_pools_bytes([], [], [])
+        + game_db_body([SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000)
+        + player_record_bytes(**PLAYER_B)
+        + player_record_bytes(**neighbor)
+        + player_record_bytes(**duplicate),
+    )
+    path = build_container_fragment(
+        [
+            SectionFrame("game_db", game_db) if section.name == "game_db" else section
+            for section in default_sections()
+        ]
+    ).write(tmp_path / FILE_NAME)
+    with fmsave.open(path) as save:
+        with pytest.warns(fmsave.ReaderCheckWarning, match="player_records_with_duplicate_uids=2"):
+            players = save.players()
+        assert [player.unique_id for player in players] == [unique_id]
+        assert players[0].contract is None
+
+
+def test_repeated_uid_can_leave_an_empty_player_table(tmp_path: Path) -> None:
+    duplicate: dict[str, Any] = {**PLAYER_A, "pindex": 21}
+    game_db = section_body(
+        ".dat",
+        GAME_DB_SCHEMA,
         name_pools_bytes([], [], [])
         + game_db_body([SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000)
         + player_record_bytes(**PLAYER_A)
-        + player_record_bytes(**duplicate)
+        + player_record_bytes(**duplicate),
     )
-    game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
-    name_pools = locate_name_pools(game_db, registered_name_pool_layout(), FILE_NAME)
-    with pytest.raises(ReaderCheckError) as error_info:
-        locate_player_records(game_db, name_pools.end_offset, registered_player_layout(), FILE_NAME)
-    message = str(error_info.value)
-    assert "900001" in message
-    assert FILE_NAME in message
-    assert "game_db" in message
+    sections = [
+        SectionFrame("game_db", game_db) if section.name == "game_db" else section
+        for section in default_sections()
+    ]
+    path = build_container_fragment(sections).write(tmp_path / FILE_NAME)
+    with fmsave.open(path) as save:
+        with pytest.warns(fmsave.ReaderCheckWarning, match="player_records_with_duplicate_uids=2"):
+            assert len(save.players()) == 0
+        assert len(save.contracts()) == 0
+        assert len(save.suspensions()) == 0
 
 
 def test_repeated_pindex_raises_reader_check() -> None:

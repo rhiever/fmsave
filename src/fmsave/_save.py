@@ -17,7 +17,12 @@ from fmsave._container import (
     read_section,
 )
 from fmsave._context import SaveContext, closed_save_error
-from fmsave._errors import ReaderCheckError, ReaderCheckWarning, UnsupportedGameError
+from fmsave._errors import (
+    CorruptSaveError,
+    ReaderCheckError,
+    ReaderCheckWarning,
+    UnsupportedGameError,
+)
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import (
     ContractLayout,
@@ -202,6 +207,7 @@ PLAYER_MATCH_STATS_TABLE_CACHE_KEY = "table:player_match_stats"
 TEAM_MATCH_STATS_TABLE_CACHE_KEY = "table:team_match_stats"
 PLAYER_SEASON_HISTORY_TABLE_CACHE_KEY = "table:player_season_history"
 HISTORY_SELECTORS_CACHE_KEY = "player_history_selectors"
+OMITTED_HISTORY_SELECTORS_CACHE_KEY = "omitted_player_history_selectors"
 PLAYER_SEASON_STATS_TABLE_CACHE_KEY = "table:player_season_stats"
 INJURY_TYPES_TABLE_CACHE_KEY = "table:injury_types"
 INJURIES_TABLE_CACHE_KEY = "table:injuries"
@@ -443,7 +449,7 @@ class Save:
         return context.cached(CLUBS_TABLE_CACHE_KEY, self._read_clubs)
 
     def players(self) -> Table[Player]:
-        """Every player in the save's game database, in record offset order.
+        """Players with unambiguous IDs in the game database, in record offset order.
 
         Person fields (name, birth date, nationality, personality, traits and the rest) are filled
         in from each player's person block, or stay None or empty when no block validates.
@@ -460,14 +466,14 @@ class Save:
                 valid UTF-8.
             ReaderCheckError: No club record is accepted, a club uid or club index appears
                 in two records, a team id is listed twice (by one club or by two), no player
-                records were found, two player records share a uid, or the save's in-game
+                records were found, two player records share a pindex, or the save's in-game
                 date is unreadable. With a name map, also anything the competition reader
                 raises, since the pass names each ban's competition from that table.
 
         Warns:
-            ReaderCheckWarning: On a full-size save, the players, contracts or suspensions
-                decoded fall outside the checks' bounds, or, with a name map, the competition
-                table does. Advisory checks warn in either game. Blocking checks raise
+            ReaderCheckWarning: Player records sharing a uid are omitted. On a full-size save,
+                the players, contracts or suspensions decoded may fall outside the checks'
+                bounds, as may the competition table with a name map. Blocking checks raise
                 ReaderCheckError in strict mode.
         """
         context = self._context
@@ -490,14 +496,14 @@ class Save:
                 valid UTF-8.
             ReaderCheckError: No club record is accepted, a club uid or club index appears
                 in two records, a team id is listed twice (by one club or by two), no player
-                records were found, two player records share a uid, or the save's in-game
+                records were found, two player records share a pindex, or the save's in-game
                 date is unreadable. With a name map, also anything the competition reader
                 raises, since the pass names each ban's competition from that table.
 
         Warns:
-            ReaderCheckWarning: On a full-size save, the players, contracts or suspensions
-                decoded fall outside the checks' bounds, or, with a name map, the competition
-                table does. Advisory checks warn in either game. Blocking checks raise
+            ReaderCheckWarning: Player records sharing a uid are omitted. On a full-size save,
+                the players, contracts or suspensions decoded may fall outside the checks'
+                bounds, as may the competition table with a name map. Blocking checks raise
                 ReaderCheckError in strict mode.
         """
         context = self._context
@@ -532,14 +538,14 @@ class Save:
                 valid UTF-8.
             ReaderCheckError: No club record is accepted, a club uid or club index appears
                 in two records, a team id is listed twice (by one club or by two), no player
-                records were found, two player records share a uid, or the save's in-game
+                records were found, two player records share a pindex, or the save's in-game
                 date is unreadable. With a name map, also anything the competition reader
                 raises, since every competition name a ban carries comes from that table.
 
         Warns:
-            ReaderCheckWarning: On a full-size save, the players, contracts or suspensions
-                decoded fall outside the checks' bounds, or, with a name map, the competition
-                table does. Advisory checks warn in either game. Blocking checks raise
+            ReaderCheckWarning: Player records sharing a uid are omitted. On a full-size save,
+                the players, contracts or suspensions decoded may fall outside the checks'
+                bounds, as may the competition table with a name map. Blocking checks raise
                 ReaderCheckError in strict mode.
         """
         context = self._context
@@ -1698,6 +1704,9 @@ class Save:
             self.clubs()
             club_index = context.club_index()
         selectors = cast(Mapping[int, int], context.cached_value(HISTORY_SELECTORS_CACHE_KEY))
+        omitted_selectors = cast(
+            frozenset[int], context.cached_value(OMITTED_HISTORY_SELECTORS_CACHE_KEY)
+        )
         history_players = {
             player.uid: SeasonPlayer(
                 player.uid,
@@ -1718,6 +1727,7 @@ class Save:
                 find_season_stats_layout(context.info.build),
                 context.info.file_name,
                 layout,
+                omitted_selectors=omitted_selectors,
             )
         history_check = _checks.check_season_history(stats)
         self._enforce_checks((history_check,))
@@ -2144,7 +2154,18 @@ class Save:
                     info.file_name, "the squad planner owner has no unique human person record"
                 )
             records = context.player_records() if any(any(slots) for slots in groups) else None
-        return Table(build_squad_planner(groups, records), SquadPlannerSlot)
+        rows = build_squad_planner(groups, records)
+        if records is not None and records.ambiguous_positions:
+            omitted = len(records.ambiguous_positions)
+            check = ReaderCheck(
+                _checks.SQUAD_PLANNER_READER,
+                len(rows),
+                (_checks.player_uid_collision_gate(omitted),),
+                FrozenMapping({_checks.PLAYER_UID_COLLISION_COUNT: omitted}),
+            )
+            self._enforce_checks((check,))
+            self._store_reader_checks((check,))
+        return Table(rows, SquadPlannerSlot)
 
     def tactics(self) -> Table[Tactic]:
         """Every tactic the manager's teams store, by team and then in stored order.
@@ -2838,6 +2859,7 @@ class Save:
             suspension_entries_for = suspension_entries_by_position.get
             history_layout = find_history_layout(save_info.build)
             history_selectors: dict[int, int] = {}
+            omitted_history_selectors: set[int] = set()
             decoded_players: list[Player] = []
             decoded_contracts: list[Contract] = []
             decoded_suspensions: list[Suspension] = []
@@ -2849,12 +2871,40 @@ class Save:
             last_position = len(record_offsets) - 1
             for position, record_offset in enumerate(record_offsets):
                 record_window_end = window_end(player_records, position, game_db_length)
+                next_record_ambiguous = position + 1 in player_records.ambiguous_positions
+                if position in player_records.ambiguous_positions:
+                    # Its personal fields are never exported, but its archive claim can
+                    # make a retained player's history ambiguous.
+                    closing = decoder.closing_header(
+                        game_db,
+                        record_offset,
+                        record_window_end,
+                        player_records.pindexes[position],
+                        player_records.uids[position],
+                        is_last_record=position == last_position,
+                        next_record_ambiguous=next_record_ambiguous,
+                    )
+                    try:
+                        decoder.decode_person(game_db, record_offset, record_window_end, closing)
+                    except CorruptSaveError:
+                        continue
+                    omitted_history_selectors.add(
+                        history_selector(
+                            game_db,
+                            decoder.person_decoder.last_block_start,
+                            record_offset,
+                            record_window_end,
+                            history_layout,
+                        )
+                    )
+                    continue
                 suspension_entries = suspension_entries_for(position, no_suspension_entries)
                 player, contract = decoder.decode(
                     game_db,
                     record_offset,
                     record_window_end,
                     is_last_record=position == last_position,
+                    next_record_ambiguous=next_record_ambiguous,
                     suspension_entries=None if omit_suspensions else suspension_entries,
                 )
                 history_selectors[player.uid] = history_selector(
@@ -2869,7 +2919,7 @@ class Save:
                     append_contract(contract)
                 if suspension_entries:
                     extend_suspensions(suspension_rows(player, suspension_entries))
-        # All records are decoded above. Every check of the pass runs here, before any table is
+        # The usable records are decoded above. Every check runs here, before any table is
         # built: when one fails, nothing is cached and the next call decodes and checks again.
         player_count = len(decoded_players)
         reader_checks = (
@@ -2879,6 +2929,7 @@ class Save:
                 ),
                 gate_bounds,
                 game_db_length,
+                omitted=len(player_records.ambiguous_positions),
             ),
             _checks.check_contracts(
                 decoder.contract_decoder.stats(player_count, len(decoded_contracts)),
@@ -2898,6 +2949,9 @@ class Save:
             reader_checks += (separate_suspension_check,)
         self._enforce_checks(reader_checks)
         context.cached(HISTORY_SELECTORS_CACHE_KEY, lambda: FrozenMapping(history_selectors))
+        context.cached(
+            OMITTED_HISTORY_SELECTORS_CACHE_KEY, lambda: frozenset(omitted_history_selectors)
+        )
         return _PlayerTables(
             Table(tuple(decoded_players), Player),
             Table(tuple(decoded_contracts), Contract),

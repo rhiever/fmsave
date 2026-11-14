@@ -326,6 +326,8 @@ def _cache_declarations(
     counts = {"containing_null": 0, "null": 0, "empty": 0, "nonempty": 0, "unknown": 0}
     offsets = player_records.record_offsets
     for position, ability in enumerate(offsets):
+        if position in player_records.ambiguous_positions:
+            continue
         end = (
             offsets[position + 1] - search.owner_back_offset
             if position + 1 < len(offsets)
@@ -351,7 +353,7 @@ def _cache_declarations(
         if state == "nonempty" and nonempty_offsets is not None and declaration.offset is not None:
             nonempty_offsets.add(declaration.offset)
         counts[state] += 1
-    return CacheDeclarations(slots=len(offsets), **counts)
+    return CacheDeclarations(slots=len(offsets) - len(player_records.ambiguous_positions), **counts)
 
 
 def _read_match_record(
@@ -488,6 +490,8 @@ def locate_match_records(
         list_at = parent_at + layout.parent_header_bytes
         first_at = list_at + search.list_header_bytes
         position = bisect_right(offsets, first_at + search.owner_back_offset) - 1
+        if position in player_records.ambiguous_positions:
+            continue
         end = (
             offsets[position + 1] - search.owner_back_offset
             if position + 1 < len(offsets)
@@ -671,6 +675,8 @@ def build_player_match_stats(
         if position == UNOWNED_POSITION:
             unowned += len(position_records)
             continue
+        if position in player_records.ambiguous_positions:
+            continue
         players_with_records += 1
         player_uid: int = uids[position]
         decoded_player = players.get_by_uid(player_uid)
@@ -749,7 +755,8 @@ def build_player_match_stats(
         if isinstance(records_by_position, LocatedMatchRecords)
         else None
     )
-    if declarations is not None and declarations.slots != len(player_records.uids):
+    usable_slots = len(player_records.uids) - len(player_records.ambiguous_positions)
+    if declarations is not None and declarations.slots != usable_slots:
         declarations = None
     stats = MatchStats(
         records=record_count,
@@ -767,7 +774,7 @@ def build_player_match_stats(
         lists_decoded=records_by_position.lists_decoded
         if isinstance(records_by_position, LocatedMatchRecords)
         else None,
-        history_slots=len(player_records.uids) if declarations is not None else None,
+        history_slots=declarations.slots if declarations is not None else None,
         history_containing_null=declarations.containing_null if declarations is not None else None,
         history_null=declarations.null if declarations is not None else None,
         history_empty=declarations.empty if declarations is not None else None,

@@ -201,6 +201,22 @@ def test_declared_mode_reads_a_populated_history_its_declaration_names() -> None
     assert located.history_declarations.unknown == 0
 
 
+def test_ambiguous_match_histories_do_not_count_toward_declared_coverage() -> None:
+    history = fm27_prefix() + fm27_predecessor() + match_list_bytes(played_record(), team_id=100)
+    first = history + bytes(64)
+    second = history + bytes(64)
+    data = first + second + history
+    records = dataclasses.replace(
+        synthetic_player_records((ABILITY, len(first) + ABILITY, len(first + second) + ABILITY)),
+        ambiguous_positions=frozenset({1, 2}),
+    )
+    located = locate_match_records(data, records, declared_layout(), date(2032, 5, 1))
+    assert list(located) == [0]
+    assert located.lists_found == located.lists_decoded == 1
+    assert located.history_declarations is not None
+    assert located.history_declarations.slots == located.history_declarations.nonempty == 1
+
+
 def test_declared_mode_reads_a_proven_empty_save_as_no_rows() -> None:
     data = fm27_prefix() + fm27_predecessor() + b"\x00"
     located = locate_match_records(

@@ -107,7 +107,7 @@ def test_fm27_suspension_check_that_passes_is_kept_for_validation(tmp_path: Path
     assert "suspension_entries_minimum" in [gate.name for gate in suspensions.gates]
 
 
-def failing_player_check(*_args: object) -> ReaderCheck:
+def failing_player_check(*_args: object, **_kwargs: object) -> ReaderCheck:
     gate = GateResult("relation_sentinel", 0, 1, None, passed=False, applied=True)
     return ReaderCheck("players", 0, (gate,), FrozenMapping({}))
 

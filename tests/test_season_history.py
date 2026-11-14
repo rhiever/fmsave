@@ -126,6 +126,35 @@ def test_history_rejects_duplicate_nonempty_list_ownership() -> None:
         )
 
 
+def test_omitted_players_cannot_make_a_shared_history_look_unambiguous(tmp_path) -> None:
+    from tests.fixtures.career import (
+        PLAYER_B_PINDEX,
+        PLAYER_B_UID,
+        PLAYER_C_UID,
+        career_fragment,
+        career_game_db,
+        player_b_bytes,
+    )
+
+    game_db = career_game_db(player_history_selectors=(0, 0, 0xFFFFFFFF, 1))
+    original = player_b_bytes(history_selector=0)
+    header = struct.pack("<III", PLAYER_B_PINDEX, PLAYER_B_UID, PLAYER_B_UID)
+    duplicate = original.replace(
+        header, struct.pack("<III", PLAYER_B_PINDEX, PLAYER_C_UID, PLAYER_C_UID), 1
+    )
+    assert game_db.count(original) == 1 and duplicate != original
+    path = career_fragment(
+        game_db_section=game_db.replace(original, duplicate, 1),
+        history_archive_section=history_archive([history_unit(), history_unit()]),
+        history_index_section=history_index([(0,), (152,)]),
+    ).write(tmp_path / "history.fm")
+    with (
+        fmsave.open(path) as save,
+        pytest.warns(fmsave.ReaderCheckWarning, match="player_records_with_duplicate_uids=2"),
+    ):
+        assert [row.player_uid for row in save.player_season_history()] == [900004]
+
+
 def test_history_rejects_invalid_selector() -> None:
     with pytest.raises(fmsave.ReaderCheckError):
         build_rows([history_unit()], [(0,)], {900001: 1})
