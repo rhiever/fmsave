@@ -36,8 +36,6 @@ uv run --locked ruff format --check .
 uv run --locked pyright
 ```
 
-Ruff lint reports findings in pre-commit and CI during the rollout. The format check still blocks failures.
-
 ## Guardrails
 
 - **No real data in the repository.** Never commit real saves, save fragments, hex dumps,

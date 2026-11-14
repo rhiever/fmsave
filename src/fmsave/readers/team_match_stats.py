@@ -29,7 +29,7 @@ else:
 _U32 = struct.Struct("<I")
 _ENTRY = struct.Struct("<III")
 _F32 = struct.Struct("<f")
-_YEAR_ONE = datetime.datetime(1, 1, 1)  # noqa: DTZ001 - the save stores naive local times
+_YEAR_ONE = datetime.datetime(1, 1, 1)  # the save stores naive local times
 
 
 def index_entries(
