@@ -21,6 +21,13 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
+      - id: zizmor
+        name: zizmor (staged automation changes)
+        entry: uv run --frozen python scripts/check-zizmor.py --staged
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
       - id: ruff-check
         name: ruff check
         entry: uv run --frozen ruff check --force-exclude

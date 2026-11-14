@@ -68,6 +68,10 @@ jobs:
           tar -xzf gitleaks.tar.gz gitleaks
       - name: Secret scan of full history
         run: ./gitleaks git --redact --no-banner --log-opts='--all --diff-merges=first-parent' .
+      - name: Audit automation configuration
+        env:
+          ZIZMOR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: python3 scripts/check-zizmor.py --changed-since "$ZIZMOR_BASE" --format github
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.13.7"
@@ -80,18 +84,6 @@ jobs:
         run: uv run ruff format --check .
       - name: Type check
         run: uv run pyright
-      - name: Install zizmor
-        env:
-          ZIZMOR_VERSION: "1.32.0"
-          ZIZMOR_SHA256: "bb110cc765eca9cd7efb2e284a956be5974c60027b0970f16397d86208a9957b"
-        run: |
-          curl -fsSL -o "$RUNNER_TEMP/zizmor.tar.gz" "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
-          printf '%s  %s\n' "$ZIZMOR_SHA256" "$RUNNER_TEMP/zizmor.tar.gz" | sha256sum --check -
-          tar -xzf "$RUNNER_TEMP/zizmor.tar.gz" -C "$RUNNER_TEMP" zizmor
-      - name: Workflow audit
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: '"$RUNNER_TEMP/zizmor" .'
 
   test:
     name: Tests (Python ${{ matrix.python-version }})

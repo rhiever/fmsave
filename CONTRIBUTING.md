@@ -52,6 +52,7 @@ uv run --locked pyright
 - **No format write-ups.** Do not add prose descriptions of the save file format to the repository. Code and docstrings are enough.
 
 The commit hooks check staged files and commit messages. Never skip them.
+Run `uv run --frozen python scripts/check-zizmor.py --local-changes` to audit automation changes before staging.
 
 ## Reader validation
 
