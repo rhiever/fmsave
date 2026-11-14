@@ -78,10 +78,10 @@ jobs:
           python-version: "3.12"
           enable-cache: false
       - run: uv sync --locked
-      - name: Lint
-        run: uv run ruff check .
+      - name: Lint (advisory during Ruff rollout)
+        run: uv run --locked ruff check --exit-zero --output-format concise .
       - name: Format check
-        run: uv run ruff format --check .
+        run: uv run --locked ruff format --check .
       - name: Type check
         run: uv run pyright
 

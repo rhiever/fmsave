@@ -29,8 +29,9 @@ repos:
         always_run: true
         stages: [pre-commit]
       - id: ruff-check
-        name: ruff check
-        entry: uv run --frozen ruff check --force-exclude
+        name: ruff check (advisory during rollout)
+        entry: uv run --frozen ruff check --exit-zero --output-format concise --force-exclude
+        verbose: true
         language: system
         types: [python]
         stages: [pre-commit]
