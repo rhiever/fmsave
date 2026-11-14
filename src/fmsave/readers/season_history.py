@@ -139,6 +139,8 @@ def build_history(
     stat_layout: SeasonStatsLayout,
     file_name: str,
     layout: SeasonHistoryLayout | None = None,
+    *,
+    omitted_selectors: frozenset[int] = frozenset(),
 ) -> tuple[tuple[PlayerSeasonHistory, ...], SeasonHistoryStats]:
     """Validate every envelope and reference, then decode the rows with proven ownership."""
     layout = find_history_layout("") if layout is None else layout
@@ -191,6 +193,8 @@ def build_history(
     unresolved_teams = 0
     kinds = tuple(SeasonStatsKind(name) for name in layout.kind_names)
     for selector, uid in owners.items():
+        if selector in omitted_selectors:
+            continue
         player = players[uid]
         for offset in index.lists[selector]:
             at = header_bytes + offset
@@ -224,7 +228,11 @@ def build_history(
         archive_units=unit_count,
         unowned_units=unit_count - owned_units,
         lists=len(index.lists),
-        unowned_lists=sum(bool(items) for i, items in enumerate(index.lists) if i not in owners),
+        unowned_lists=sum(
+            bool(items)
+            for i, items in enumerate(index.lists)
+            if i not in owners or i in omitted_selectors
+        ),
         players_without_history=players_without_history,
         unresolved_teams=unresolved_teams,
     )

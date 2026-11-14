@@ -261,7 +261,7 @@ class SaveContext:
 
         Raises:
             SaveClosedError: The context is closed.
-            ReaderCheckError: No player records were found, a pindex or uid appears in two
+            ReaderCheckError: No player records were found, a pindex appears in two
                 records, or the name pools cannot be located.
             CorruptSaveError: A player record runs past the end of `game_db`.
         """

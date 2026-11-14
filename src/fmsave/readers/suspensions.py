@@ -275,6 +275,7 @@ def locate_suspensions(
     return {
         position: tuple(entry for _, entry in sorted(entries, key=lambda item: item[0]))
         for position, entries in sorted(entries_by_position.items())
+        if position not in player_records.ambiguous_positions
     }
 
 

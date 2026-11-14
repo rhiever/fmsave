@@ -337,6 +337,7 @@ def read_staff_lists(
     if count_bytes not in (1, 2):
         raise ValueError("staff list_count_bytes must be 1 or 2")
     pindex_positions = player_records.position_by_pindex
+    ambiguous_pindexes = player_records.ambiguous_pindexes
     lowest_value, highest_value = layout.list_value_range
     list_count = layout.list_count
     section_end = len(game_db)
@@ -393,7 +394,7 @@ def read_staff_lists(
                     unset_list_values += 1
                     continue
                 person_id = value - _ID_OFFSET
-                if person_id in pindex_positions:
+                if person_id in pindex_positions or person_id in ambiguous_pindexes:
                     player_values_in_lists += 1
                     continue
                 person_ids.append(person_id)
@@ -523,6 +524,7 @@ def discover_contracts(
     offer_marker_offset = staff_layout.offer_marker_offset
     offer_records = 0
     pindex_positions = player_records.position_by_pindex
+    ambiguous_pindexes = player_records.ambiguous_pindexes
     unpack_selector = _UINT32.unpack_from
     decode_chain_record = decoder.decode_chain_record
     records_by_person: dict[int, list[tuple[int, ChainRecordTuple]]] = {}
@@ -555,7 +557,7 @@ def discover_contracts(
         if selector == 0 or selector == human_selector:
             continue
         person_id = selector - _ID_OFFSET
-        if person_id in pindex_positions:
+        if person_id in pindex_positions or person_id in ambiguous_pindexes:
             continue
         record = decode_chain_record(game_db, tag_offset)
         if not record[CHAIN_RECORD_HAS_TERMS]:
@@ -666,6 +668,7 @@ def discover_no_contract_roles(
     pattern = _no_contract_pattern(staff_layout, layouts.contracts, layouts.team_lists)
     selector_offset = staff_layout.no_contract_selector_offset
     pindex_positions = player_records.position_by_pindex
+    ambiguous_pindexes = player_records.ambiguous_pindexes
     roles: dict[tuple[int, int], tuple[int, int, int | None]] = {}
     header_by_person: dict[int, int] = {}
     closed_clubs = club_index.record_spans[:-1]
@@ -687,7 +690,7 @@ def discover_no_contract_roles(
         if selector == 0 or selector == human_selector:
             continue
         person_id = selector - _ID_OFFSET
-        if person_id in pindex_positions:
+        if person_id in pindex_positions or person_id in ambiguous_pindexes:
             continue
         club_uid = club_by_team_id.get(team_id, (None, None))[0]
         if club_uid is None or (club_uid, person_id) in roles:
@@ -877,6 +880,7 @@ def _closing_header(
     uid: int,
     next_header: int | None,
     layout: StaffLayout,
+    ambiguous_headers: frozenset[int],
 ) -> tuple[int, int] | None:
     """The validated (offset, database Unique ID) header closing this person, or None.
 
@@ -886,6 +890,9 @@ def _closing_header(
     search_start = header + layout.kind_offset + 1
     if next_header is None:
         search_end = len(game_db)
+        uid_ceiling = None
+    elif next_header in ambiguous_headers:
+        search_end = next_header
         uid_ceiling = None
     else:
         search_end = next_header + _UINT32.size
@@ -1025,6 +1032,10 @@ def read_staff(
 
     # Every header the decode knows of, so a name-block window can stop at the next one.
     player_header_offset = player_records.layout.pindex_offset
+    ambiguous_player_headers = frozenset(
+        player_records.record_offsets[position] + player_header_offset
+        for position in player_records.ambiguous_positions
+    )
     boundaries = sorted(
         {record_offset + player_header_offset for record_offset in player_records.record_offsets}
         | set(header_by_person.values())
@@ -1046,7 +1057,13 @@ def read_staff(
             )
             human_uid, _human_kind = cast("tuple[int, int]", human_values)
             closing = _closing_header(
-                game_db, human_person_id, human_header, human_uid, next_header, staff_layout
+                game_db,
+                human_person_id,
+                human_header,
+                human_uid,
+                next_header,
+                staff_layout,
+                ambiguous_player_headers,
             )
             if closing is not None:
                 object_end = min(object_end, closing[0])
@@ -1102,7 +1119,9 @@ def read_staff(
             codes_in_set += int(codes_ok)
             block_40_in_range += int(further_ok)
         next_header = _next_header_after(boundaries, header)
-        closing = _closing_header(game_db, person_id, header, uid, next_header, staff_layout)
+        closing = _closing_header(
+            game_db, person_id, header, uid, next_header, staff_layout, ambiguous_player_headers
+        )
         unique_id = None if closing is None else closing[1]
         human_floor = staff_layout.human_personality_floor
         person_boundary = next_header

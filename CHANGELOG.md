@@ -4,6 +4,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.12.5] - 2026-11-14
+
+### Fixed
+
+- Warn and keep reading players with unique UIDs when other player records share a UID.
+  References to those records stay unresolved. Strict mode still raises. (#102)
+
+Thanks to @absalom12 for the report. Refs #102.
+
 ## [0.12.4] - 2026-11-13
 
 ### Added

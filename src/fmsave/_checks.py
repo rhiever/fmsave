@@ -1077,7 +1077,16 @@ def evaluate_competition_rules(
     )
 
 
-def check_players(stats: PlayerStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
+PLAYER_UID_COLLISION_COUNT = "player_records_with_duplicate_uids"
+
+
+def player_uid_collision_gate(omitted: int) -> GateResult:
+    return _gate(PLAYER_UID_COLLISION_COUNT, omitted, (None, 0), applied=True)
+
+
+def check_players(
+    stats: PlayerStats, bounds: GateBounds, game_db_bytes: int, *, omitted: int = 0
+) -> ReaderCheck:
     """The player reader's checks, record count and anomaly counts.
 
     `edited_attribute_players` counts players storing an attribute past the 1 to 100 raw scale,
@@ -1092,9 +1101,12 @@ def check_players(stats: PlayerStats, bounds: GateBounds, game_db_bytes: int) ->
     return ReaderCheck(
         PLAYERS_READER,
         stats.records,
-        evaluate_players(stats, bounds, game_db_bytes),
+        (player_uid_collision_gate(omitted), *evaluate_players(stats, bounds, game_db_bytes))
+        if omitted
+        else evaluate_players(stats, bounds, game_db_bytes),
         FrozenMapping(
             {
+                **({PLAYER_UID_COLLISION_COUNT: omitted} if omitted else {}),
                 "markerless_players": stats.markerless,
                 "unresolved_teams": stats.with_team - stats.team_resolved,
                 "edited_attribute_players": stats.edited_attributes,

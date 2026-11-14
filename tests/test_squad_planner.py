@@ -12,10 +12,13 @@ from fmsave import cli
 from tests.fixtures.career import (
     PLAYER_A_PINDEX,
     PLAYER_A_UID,
+    PLAYER_B_PINDEX,
+    PLAYER_B_UID,
     PLAYER_C_PINDEX,
     PLAYER_C_UID,
     career_fragment,
     career_game_db,
+    player_b_bytes,
 )
 from tests.fixtures.container import SectionFrame, packed_date, section_body
 from tests.test_fm27_experimental import BUILD, UNREGISTERED_BUILD, fm27_fragment
@@ -100,6 +103,40 @@ def test_planner_keeps_numbered_slots_and_depth_order(tmp_path: Path) -> None:
     assert rows[0].player_uids == (PLAYER_C_UID, None, PLAYER_A_UID)
     assert rows[53].player_uids == (PLAYER_A_UID,)
     assert all(row.player_uids == () for index, row in enumerate(rows) if index not in (0, 53))
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_planner_leaves_colliding_player_references_unresolved(
+    tmp_path: Path, strict: bool
+) -> None:
+    original = player_b_bytes()
+    header = struct.pack("<III", PLAYER_B_PINDEX, PLAYER_B_UID, PLAYER_B_UID)
+    duplicate = original.replace(
+        header, struct.pack("<III", PLAYER_B_PINDEX, PLAYER_A_UID, PLAYER_A_UID), 1
+    )
+    game_db = career_game_db()[8:]
+    assert game_db.count(original) == 1 and duplicate != original
+    data = (
+        LEAD
+        + group(slots(PLAYER_A_PINDEX + 1, PLAYER_B_PINDEX + 1, PLAYER_C_PINDEX + 1))
+        + group() * 3
+        + FOOTER
+    )
+    path = planner_path(
+        tmp_path, data, game_db=game_db.replace(original, duplicate, 1) + OWNER_HEADER
+    )
+    with open_fm27(path, strict=strict) as save:
+        if strict:
+            with pytest.raises(
+                fmsave.ReaderCheckError, match="player_records_with_duplicate_uids=2"
+            ):
+                save.squad_planner()
+        else:
+            with pytest.warns(
+                fmsave.ReaderCheckWarning, match="player_records_with_duplicate_uids=2"
+            ):
+                rows = save.squad_planner()
+            assert rows[0].player_uids == (None, None, PLAYER_C_UID)
 
 
 @pytest.mark.parametrize("scouting_date", [SCOUTING_PLACEHOLDER, packed_date(251, 2031)])

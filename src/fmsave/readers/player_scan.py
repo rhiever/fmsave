@@ -50,8 +50,11 @@ class PlayerRecords:
         pindexes: Each record's pindex, aligned with record_offsets.
         uids: Each record's uid, aligned with record_offsets.
         markerless_count: How many records were found only by the completeness pass.
-        position_by_pindex: Position in the arrays above for each pindex.
-        position_by_uid: Position in the arrays above for each uid.
+        position_by_pindex: Position in the arrays for each unambiguous player's pindex.
+        position_by_uid: Position in the arrays for each unambiguous player's uid.
+        ambiguous_positions: Positions of all records sharing a uid. These offsets still
+            bound their neighbors' records.
+        ambiguous_pindexes: Pindexes of the ambiguous records, for membership tests.
         layout: The layout the scan used, for building a PlayerDecoder.
     """
 
@@ -62,6 +65,8 @@ class PlayerRecords:
     position_by_pindex: Mapping[int, int]
     position_by_uid: Mapping[int, int]
     layout: PlayerRecordLayout
+    ambiguous_positions: frozenset[int] = frozenset()
+    ambiguous_pindexes: frozenset[int] = frozenset()
 
     def __repr__(self) -> str:
         return f"<fmsave PlayerRecords {len(self.record_offsets)} records>"
@@ -73,8 +78,7 @@ def locate_player_records(
     """Scan `game_db` for player records with both the marker and completeness passes.
 
     Raises:
-        ReaderCheckError: No player records were found, or a pindex or uid appears in two
-            records.
+        ReaderCheckError: No player records were found, or a pindex appears in two records.
         CorruptSaveError: An accepted record runs past the end of `game_db`.
     """
     uid_layout = _uid_layout(layout)
@@ -103,20 +107,33 @@ def locate_player_records(
     merged.sort(key=lambda candidate: candidate[0])
     if not merged:
         raise layout_mismatch(file_name, "no player records found")
-    _reject_repeated_keys(merged, file_name)
+    duplicate_uids = _find_duplicate_uids(merged, file_name)
     record_offsets = array(RECORD_OFFSET_TYPECODE, (candidate[0] for candidate in merged))
     pindexes = array(PINDEX_TYPECODE, (candidate[1] for candidate in merged))
     uids = array(UID_TYPECODE, (candidate[2] for candidate in merged))
-    position_by_pindex = {pindex: position for position, pindex in enumerate(pindexes)}
-    position_by_uid = {uid: position for position, uid in enumerate(uids)}
+    ambiguous_positions: frozenset[int] = (
+        frozenset(position for position, uid in enumerate(uids) if uid in duplicate_uids)
+        if duplicate_uids
+        else frozenset()
+    )
+    position_by_pindex = {
+        pindex: position
+        for position, pindex in enumerate(pindexes)
+        if position not in ambiguous_positions
+    }
+    position_by_uid = {
+        uid: position for position, uid in enumerate(uids) if position not in ambiguous_positions
+    }
     return PlayerRecords(
         record_offsets=record_offsets,
         pindexes=pindexes,
         uids=uids,
-        markerless_count=len(completeness_candidates),
+        markerless_count=sum(uid not in duplicate_uids for _, _, uid in completeness_candidates),
         position_by_pindex=position_by_pindex,
         position_by_uid=position_by_uid,
         layout=layout,
+        ambiguous_positions=ambiguous_positions,
+        ambiguous_pindexes=frozenset(pindexes[position] for position in ambiguous_positions),
     )
 
 
@@ -188,16 +205,18 @@ def closing_unique_id(
     return None if closing is None else closing[1]
 
 
-def _reject_repeated_keys(candidates: Sequence[_Candidate], file_name: str) -> None:
+def _find_duplicate_uids(candidates: Sequence[_Candidate], file_name: str) -> set[int]:
     seen_pindexes: set[int] = set()
     seen_uids: set[int] = set()
+    duplicate_uids: set[int] = set()
     for _, pindex, uid in candidates:
         if pindex in seen_pindexes:
             raise layout_mismatch(file_name, f"pindex {pindex} appears in two player records")
         if uid in seen_uids:
-            raise layout_mismatch(file_name, f"player uid {uid} appears in two player records")
+            duplicate_uids.add(uid)
         seen_pindexes.add(pindex)
         seen_uids.add(uid)
+    return duplicate_uids
 
 
 def _scan_marker_candidates(

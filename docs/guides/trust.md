@@ -57,6 +57,9 @@ with fmsave.open("career.fm", strict=True) as career_save:
     squad = career_save.players()  # raises ReaderCheckError on a failed blocking check
 ```
 
+When player records share a UID, fmsave warns and returns the players whose UIDs are unique.
+References to omitted players stay unresolved. In strict mode the duplicate UID check raises.
+
 A structural failure that prevents a table from being decoded raises `ReaderCheckError` in either
 mode. Empty output can be valid: `player_match_stats()` accepts it when every player explicitly
 has no stored history. Missing or incomplete histories still fail checks.
