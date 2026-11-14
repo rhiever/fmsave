@@ -10,6 +10,7 @@ Run 1 local save parser at a time across all worktrees. Wait for it to exit befo
 
 - Branch from a fresh `origin/main`: run `git fetch origin` first.
 - Land changes through a pull request, squash-merged.
+- Check `Code scanning results / CodeQL` in PR Checks and inline annotations before merging, even when the check is advisory. Fix confirmed findings introduced by the PR and report any unresolved findings with the reason.
 - After every merge, fast-forward the local `main` checkout (the main worktree, not a linked one):
   `git pull --ff-only origin main`.
 - If that checkout is off `main`, has uncommitted changes, or cannot fast-forward, stop and report.
