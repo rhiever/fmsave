@@ -14,7 +14,8 @@ of the form M1, M2 or M3, in file contents, in file paths and in a commit messag
 written. It is matched on the same normalized and accent-folded forms the denylist uses, and
 the word found is printed, because it is a house style rule rather than private content. Two
 paths are exempt, because they are where the rule itself is written down: `scripts/guard.py`
-and `tests/test_guard.py`. The check does **not** run in history mode, since history is never
+and `tests/test_guard.py`. The CI workflow can name GitHub's pinned dependency-review action.
+The check does **not** run in history mode, since history is never
 rewritten and a past message or path cannot be fixed. So a clean history run says nothing about
 either rule in history: it does not look.
 
@@ -162,6 +163,10 @@ BANNED_WORD_PATTERN = re.compile(rf"(?<![0-9a-z])(?:{'|'.join(BANNED_WORDS)})(?!
 PLAN_NUMBER_PATTERN = re.compile(r"(?<![0-9a-z])m[123](?![0-9a-z])")
 # Where the rule is written down, so the words appear there on purpose.
 BANNED_WORDING_EXEMPT_PATHS = frozenset({"scripts/guard.py", "tests/test_guard.py"})
+DEPENDENCY_REVIEW_ACTION_LINE = re.compile(
+    r" +-[ ]+uses:[ ]+actions/dependency-review-action@[0-9a-f]{40}"
+    r"(?: +# v\d+\.\d+\.\d+)? *"
+)
 # Typographic punctuation. Write the plain ASCII spelling instead: a comma, a colon, a full
 # stop or a pair of brackets says what a dash was doing, and "..." is three full stops.
 SMART_PUNCTUATION = {
@@ -488,9 +493,12 @@ def banned_wording_findings(location: str, path: str, text: str) -> list[Finding
     """Banned wording in a file's contents and in its path, unless the path is exempt."""
     if path in BANNED_WORDING_EXEMPT_PATHS:
         return []
+    lines = text.splitlines()
+    if path == ".github/workflows/ci.yml":
+        lines = ["" if DEPENDENCY_REVIEW_ACTION_LINE.fullmatch(line) else line for line in lines]
     findings = [
         Finding(f"{location}:{line_number}", f"uses banned internal wording ({wording})")
-        for line_number, wording in banned_wording(text.splitlines())
+        for line_number, wording in banned_wording(lines)
     ]
     path_text = PATH_SEPARATOR_PATTERN.sub(" ", normalize_text(path))
     findings.extend(
