@@ -19,7 +19,7 @@ from tests.test_fm27_experimental import UNREGISTERED_BUILD, fm27_fragment
 HOME_TEAM = 701
 AWAY_TEAM = 702
 COMPETITION = 31
-KICK_OFF = datetime.datetime(2031, 3, 1, 15, 0)  # noqa: DTZ001 - the save stores naive local times
+KICK_OFF = datetime.datetime(2031, 3, 1, 15, 0)  # the save stores naive local times
 HOME_FIRST_ANCHOR = 600
 SUMMARY_GAP = 535
 DETAIL_MARKERS = (203, 199, 195, 191, 183)
@@ -135,7 +135,7 @@ def report_bytes(example: ExampleReport) -> bytes:
     away_length = sum(player.length(example.inserted) for player in example.away.players)
     size = HOME_FIRST_ANCHOR + home_length + example.gap + away_length + 600
     report = bytearray(size)
-    minutes = int((example.kick_off - datetime.datetime(1, 1, 1)).total_seconds()) // 60  # noqa: DTZ001
+    minutes = int((example.kick_off - datetime.datetime(1, 1, 1)).total_seconds()) // 60
     struct.pack_into("<I", report, 11, minutes)
     report[37] = 0x02
     struct.pack_into("<I", report, 38, example.competition_id)
