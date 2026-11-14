@@ -1383,6 +1383,40 @@ def test_history_mode_checks_annotated_tag_messages(repository: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("path", "line", "accepted"),
+    [
+        (
+            ".github/workflows/ci.yml",
+            "      - uses: actions/dependency-review-action@" + "a" * 40 + " # v5.0.0",
+            True,
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "      - uses: actions/dependency-review-action@v5",
+            False,
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "      - uses: actions/dependency-review-action@" + "a" * 40 + " # review",
+            False,
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "      - run: echo actions/dependency-review-action@" + "a" * 40,
+            False,
+        ),
+        (
+            ".github/workflows/docs.yml",
+            "      - uses: actions/dependency-review-action@" + "a" * 40,
+            False,
+        ),
+    ],
+)
+def test_pinned_dependency_review_action_wording(path: str, line: str, accepted: bool) -> None:
+    assert (not guard.banned_wording_findings(path, path, line)) is accepted
+
+
+@pytest.mark.parametrize(
     "line",
     [
         "# the reviewer asked for this",

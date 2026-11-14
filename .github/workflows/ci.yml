@@ -18,6 +18,7 @@ jobs:
     name: Select checks
     outputs:
       extended: ${{ steps.paths.outputs.extended }}
+      dependency_audit: ${{ steps.paths.outputs.dependency_audit }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -25,25 +26,51 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Select extended checks
+      - name: Select PR checks
         id: paths
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           extended=true
+          dependency_audit=false
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             changed_paths="$RUNNER_TEMP/changed-paths"
-            if git diff --name-only --no-renames -z "$BASE_SHA" HEAD > "$changed_paths" && [ -s "$changed_paths" ]; then
-              extended=false
-              while IFS= read -r -d '' path; do
-                case "$path" in
-                  AGENTS.md|CLAUDE.md|CONTRIBUTING.md|scripts/dev-standards.md) ;;
-                  *) extended=true; break ;;
-                esac
-              done < "$changed_paths"
+            if git diff --name-only --no-renames -z "$BASE_SHA" HEAD > "$changed_paths"; then
+              if [ -s "$changed_paths" ]; then
+                extended=false
+                while IFS= read -r -d '' path; do
+                  case "$path" in
+                    AGENTS.md|CLAUDE.md|CONTRIBUTING.md|scripts/dev-standards.md) ;;
+                    *) extended=true ;;
+                  esac
+                  case "$path" in
+                    pyproject.toml|uv.lock|scripts/app-smoke/package.json|scripts/app-smoke/package-lock.json)
+                      dependency_audit=true ;;
+                  esac
+                done < "$changed_paths"
+              fi
+            else
+              dependency_audit=true
             fi
           fi
           echo "extended=$extended" >> "$GITHUB_OUTPUT"
+          echo "dependency_audit=$dependency_audit" >> "$GITHUB_OUTPUT"
+
+  dependency-audit:
+    name: Dependency audit
+    needs: paths
+    if: github.event_name == 'pull_request' && needs.paths.outputs.dependency_audit == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          warn-only: true
+          fail-on-scopes: runtime, development, unknown
+          comment-summary-in-pr: never
+          license-check: false
+          show-openssf-scorecard: false
+
   checks:
     name: Checks
     runs-on: ubuntu-latest
