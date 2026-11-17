@@ -1861,7 +1861,7 @@ class Save:
                 club_index,
                 context.own_club_record_spans(),
                 clock,
-                layouts,
+                layouts.for_clubs(club_index),
                 len(managed_clubs) > 0,
             )
             game_db_length = len(game_db)
@@ -1937,7 +1937,7 @@ class Save:
                 game_db,
                 club_index,
                 context.own_club_record_spans(),
-                finance_layouts,
+                finance_layouts.for_clubs(club_index),
                 layout,
                 len(managed_clubs) > 0,
             )

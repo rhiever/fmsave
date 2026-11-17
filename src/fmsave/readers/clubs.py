@@ -24,6 +24,8 @@ from fmsave._layouts import (
     ClubTableLayout,
     TeamListLayout,
     find_layout,
+    fm27_27_1_0,
+    known_builds,
 )
 from fmsave._reader_stats import ClubStats
 from fmsave._scan import decode_date
@@ -51,15 +53,22 @@ class ClubLayouts:
     team_lists: TeamListLayout
     statuses: ClubStatusLayout
     table: ClubTableLayout
+    fallback_table: ClubTableLayout | None = None
 
 
 def find_club_layouts(game_db_schema: int | None, build: str) -> ClubLayouts:
     """Look up the club layouts for a `game_db` schema, falling back to the build."""
+    fallback_table = (
+        fm27_27_1_0.CLUB_TABLE
+        if build.startswith("27.") and build != fm27_27_1_0.BUILD and build not in known_builds()
+        else None
+    )
     return ClubLayouts(
         records=find_layout(ClubRecordLayout, GAME_DB_SECTION, game_db_schema, build).layout,
         team_lists=find_layout(TeamListLayout, GAME_DB_SECTION, game_db_schema, build).layout,
         statuses=find_layout(ClubStatusLayout, GAME_DB_SECTION, game_db_schema, build).layout,
         table=find_layout(ClubTableLayout, GAME_DB_SECTION, game_db_schema, build).layout,
+        fallback_table=fallback_table,
     )
 
 
@@ -126,6 +135,7 @@ class ClubIndex:
         omitted_table_rows: Why each counted-table row that gives no club was omitted, keyed
             by its club index. Empty when no counted table was bound.
         table_row_count: How many rows the counted table holds; None when none was bound.
+        table_layout: The layout that walked the counted table, if one was bound.
     """
 
     clubs: tuple[Club, ...]
@@ -141,6 +151,7 @@ class ClubIndex:
         default_factory=dict[int, OmittedRowKind], repr=False
     )
     table_row_count: int | None = field(default=None, repr=False)
+    table_layout: ClubTableLayout | None = field(default=None, repr=False)
 
     def unresolved_reference(self, club_index: int) -> UnresolvedClubReference:
         """Where `club_index`, which no accepted club holds, points (see `UnresolvedClubReference`)."""
@@ -228,9 +239,13 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
             records; or a team id is listed twice (by one club or by two).
     """
     records, scan_end = _scan_club_records(game_db, layouts.records)
-    records, omitted_table_rows, table_row_count, teamless_without_main_nation = _bind_club_table(
-        game_db, records, layouts, file_name
-    )
+    (
+        records,
+        omitted_table_rows,
+        table_row_count,
+        teamless_without_main_nation,
+        table_layout,
+    ) = _bind_club_table(game_db, records, layouts, file_name)
     omitted_kinds = list(omitted_table_rows.values())
     if not records:
         raise layout_mismatch(file_name, "no club records found")
@@ -333,6 +348,7 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         record_spans=record_spans,
         omitted_table_rows=omitted_table_rows,
         table_row_count=table_row_count,
+        table_layout=table_layout,
     )
 
 
@@ -385,20 +401,13 @@ def _footer_unique_ids(
     return unique_ids
 
 
-def _bind_club_table(
-    game_db: bytes, records: list[_ClubRecord], layouts: ClubLayouts, file_name: str
-) -> tuple[list[_ClubRecord], dict[int, OmittedRowKind], int | None, int]:
-    """Authenticate a counted table before admitting its initial club and footer bounds.
-
-    Also returns why each row after the first that gives no club was omitted (extended variant,
-    no record anchor, or fields rejected), keyed by club index, the table's row count, which
-    is None when no table is bound, and how many rejected rows store no main nation and hold
-    no team list.
-
-    Only here, where the table frames the row, can a club with no main nation be admitted
-    (see `_accepted_record`); it must also hold a team list. The record scan never admits one.
-    """
-    record_layout, table_layout = layouts.records, layouts.table
+def _find_counted_club_tables(
+    game_db: bytes,
+    records: list[_ClubRecord],
+    record_layout: ClubRecordLayout,
+    table_layout: ClubTableLayout,
+) -> tuple[bool, list[tuple[ClubTableRecord, ...]]]:
+    """Find candidate headers and keep complete walks that enclose the scanned records."""
     prefix_end = (
         records[0].record_start + record_layout.anchor_offset + len(record_layout.anchor)
         if records
@@ -428,10 +437,6 @@ def _bind_club_table(
             ):
                 headers.add(head)
         hit = game_db.find(record_layout.anchor, hit + 1, prefix_end)
-    if not headers:
-        if len(game_db) >= FULL_SAVE_MINIMUM_GAME_DB_BYTES:
-            raise layout_mismatch(file_name, "no complete club table was found")
-        return records, {}, None, 0
     tables: list[tuple[ClubTableRecord, ...]] = []
     for head in sorted(headers):
         rows = walk_club_table(game_db, head, table_layout)
@@ -443,6 +448,32 @@ def _bind_club_table(
             for record in records
         ):
             tables.append(rows)
+    return bool(headers), tables
+
+
+def _bind_club_table(
+    game_db: bytes, records: list[_ClubRecord], layouts: ClubLayouts, file_name: str
+) -> tuple[list[_ClubRecord], dict[int, OmittedRowKind], int | None, int, ClubTableLayout | None]:
+    """Authenticate a counted table before admitting its initial club and footer bounds.
+
+    Also return the omitted rows, declared row count, count of rejected teamless rows without a
+    main nation, and the layout that authenticated the table.
+
+    Only here, where the table frames the row, can a club with no main nation be admitted
+    (see `_accepted_record`); it must also hold a team list. The record scan never admits one.
+    """
+    record_layout, table_layout = layouts.records, layouts.table
+    has_header, tables = _find_counted_club_tables(game_db, records, record_layout, table_layout)
+    if not tables and (fallback := layouts.fallback_table) is not None:
+        fallback_has_header, tables = _find_counted_club_tables(
+            game_db, records, record_layout, fallback
+        )
+        has_header = has_header or fallback_has_header
+        table_layout = fallback
+    if not has_header and not tables:
+        if len(game_db) >= FULL_SAVE_MINIMUM_GAME_DB_BYTES:
+            raise layout_mismatch(file_name, "no complete club table was found")
+        return records, {}, None, 0, None
     if len(tables) != 1:
         raise layout_mismatch(file_name, "club table framing is invalid or ambiguous")
     rows = tables[0]
@@ -499,7 +530,7 @@ def _bind_club_table(
                 team_counts_start=row.team_counts_start,
             )
         )
-    return bounded, omitted, len(rows), teamless_without_main_nation
+    return bounded, omitted, len(rows), teamless_without_main_nation, table_layout
 
 
 def _reject_repeated_club_keys(records: Sequence[_ClubRecord], file_name: str) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import struct
+import warnings
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,10 @@ from tests.fixtures.finances import (
 from tests.test_fm27_experimental import fm27_fragment
 
 BUILD = "27.0.0+2486695"
+PATCH_BUILD = "27.1.0+2505117"
+UNKNOWN_BUILD = "27.2.0+3000001"
+FINANCE_EXTENSION = b"\x02" + packed_date(1, 1900)
+BALANCE = -123_456
 
 
 def club_body(
@@ -70,18 +75,7 @@ def test_fm27_counted_club_records_consume_their_own_footer(finance: int, extend
     )
 
 
-@pytest.mark.parametrize(
-    ("build", "finance_extension"),
-    [
-        (BUILD, b""),
-        ("27.1.0+2505117", b"\x02" + packed_date(1, 1900)),
-        ("27.1.0+3000001", b""),
-    ],
-)
-def test_fm27_club_table_public_reader_has_distinct_identity_spaces(
-    tmp_path: Path, build: str, finance_extension: bytes
-) -> None:
-    months = career_finance_rows()
+def _club_table(finance_extension: bytes, finance_types: tuple[int, ...] = (0, 1, 2)) -> bytes:
     sponsor = sponsor_row_bytes(
         sponsor_type=1,
         start=packed_date(200, 2031),
@@ -95,26 +89,97 @@ def test_fm27_club_table_public_reader_has_distinct_identity_spaces(
         annual=100_000,
     )
     finance_details = (
-        finance_chain_bytes(months)
-        + chain_gap_bytes(finance_extension=finance_extension)
+        finance_chain_bytes(career_finance_rows())
+        + chain_gap_bytes(balance=BALANCE, finance_extension=finance_extension)
         + sponsor_chain_bytes((sponsor,))
     )
-    data = struct.pack("<IB", 3, 0)
-    for ordinal, uid in enumerate((6100, 6200, 6300)):
-        data += club_body(finance=ordinal, team_id=71001 + ordinal, finance_details=finance_details)
+    data = struct.pack("<IB", len(finance_types), 0)
+    for ordinal, finance in enumerate(finance_types):
+        uid = 6100 + ordinal * 100
+        data += club_body(finance=finance, team_id=71001 + ordinal, finance_details=finance_details)
         data += struct.pack("<III", ordinal, uid, uid)
-    humans = SectionFrame("humans", section_body(".dat", 24, bytes(40)))
+    return data
+
+
+@pytest.mark.parametrize(
+    ("build", "finance_extension", "fallback", "strict"),
+    [
+        (BUILD, b"", False, False),
+        (PATCH_BUILD, FINANCE_EXTENSION, False, False),
+        (UNKNOWN_BUILD, b"", False, False),
+        (UNKNOWN_BUILD, FINANCE_EXTENSION, True, False),
+        (UNKNOWN_BUILD, FINANCE_EXTENSION, True, True),
+    ],
+)
+def test_fm27_club_table_and_finance_readers_share_the_validated_layout(
+    tmp_path: Path, build: str, finance_extension: bytes, fallback: bool, strict: bool
+) -> None:
+    humans = SectionFrame("humans", section_body(".dat", 24, struct.pack("<HI", 1, 0) + bytes(32)))
+    path = fm27_fragment(
+        tmp_path,
+        build=build,
+        game_db=_club_table(finance_extension),
+        managed_club=("Northbridge", 6101),
+        extra_sections=(humans,),
+    )
     with pytest.warns(UserWarning, match="FM27"):
-        save = fmsave.open(
-            fm27_fragment(tmp_path, build=build, game_db=data, extra_sections=(humans,))
-        )
-    with save:
+        save = fmsave.open(path, strict=strict)
+    with save, warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         assert save.info.known_build is (build == BUILD)
+        (managed_club,) = save.managed_clubs()
+        assert (managed_club.club_uid, managed_club.balance) == (6101, BALANCE)
         rows = save.clubs()
         assert [row.uid for row in rows] == [0, 6101, 6201]
         assert [row.unique_id for row in rows] == [6100, 6200, 6300]
         assert [row.teams[0].team_id for row in rows] == [71001, 71002, 71003]
-        assert [row.club_uid for row in save.finances()] == [6101] * len(months)
+        assert [row.club_uid for row in save.finances()] == [6101] * len(career_finance_rows())
         assert [(row.club_uid, row.annual_value) for row in save.sponsorships()] == [
             (6101, 100_000)
         ]
+        assert [(row.club_uid, row.corporate_facilities.raw) for row in save.facilities()] == [
+            (6101, 17)
+        ]
+    fallback_warnings = [
+        str(item.message) for item in caught if isinstance(item.message, fmsave.UnknownBuildWarning)
+    ]
+    assert len(fallback_warnings) == int(fallback)
+    if fallback:
+        assert PATCH_BUILD in fallback_warnings[0]
+
+
+@pytest.mark.parametrize(("build", "corrupt_footer"), [(UNKNOWN_BUILD, True), (BUILD, False)])
+def test_fm27_fallback_requires_an_unknown_build_and_a_complete_table(
+    tmp_path: Path, build: str, corrupt_footer: bool
+) -> None:
+    data = _club_table(FINANCE_EXTENSION)
+    if corrupt_footer:
+        data = data[:-1]
+    path = fm27_fragment(tmp_path, build=build, game_db=data)
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        save = fmsave.open(path)
+    with save, pytest.raises(fmsave.ReaderCheckError, match="club table framing"):
+        save.clubs()
+
+
+def test_fm27_fallback_can_find_a_header_when_the_first_club_has_full_finances(
+    tmp_path: Path,
+) -> None:
+    data = _club_table(FINANCE_EXTENSION, (1, 0, 2))
+    path = fm27_fragment(tmp_path, build=UNKNOWN_BUILD, game_db=data)
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        save = fmsave.open(path)
+    with save, pytest.warns(fmsave.UnknownBuildWarning, match="uses the club and finance layouts"):
+        assert [row.unique_id for row in save.clubs()] == [6100, 6200, 6300]
+
+
+def test_fm27_keeps_the_default_when_both_layouts_fit(tmp_path: Path) -> None:
+    # Without a full finance block, the counted table has the same shape in both layouts.
+    data = _club_table(b"", (0, 2))
+    path = fm27_fragment(tmp_path, build=UNKNOWN_BUILD, game_db=data)
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        save = fmsave.open(path)
+    with save, warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert [row.unique_id for row in save.clubs()] == [6100, 6200]
+    assert not any(isinstance(item.message, fmsave.UnknownBuildWarning) for item in caught)

@@ -7,6 +7,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 ### Fixed
 
 - Read clubs and club finances from FM27 build `27.1.0+2505117`. FM27 coverage warnings still apply.
+- Try the 27.1 club and finance layout on unverified FM27 builds when the usual layout cannot
+  walk the club table. Use it only when the full table passes structural checks.
 
 Thanks to @rdutra7 and @javiercostoya for the reports. Refs #106 and #107.
 

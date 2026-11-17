@@ -411,10 +411,11 @@ def resolve_managed_clubs(
         else None
     )
     balance: int | None = None
-    if layouts.finances.sponsors.balance_offset is not None:
+    finances = layouts.finances.for_clubs(club_index)
+    if finances.sponsors.balance_offset is not None:
         span = next((span for span in record_spans() if span.club_uid == club.uid), None)
         if span is not None:
-            balance = read_current_balance(game_db, span, layouts.finances)
+            balance = read_current_balance(game_db, span, finances)
     scouting = scouting_budget(humans, layouts.humans) if human_count == 1 else None
     managed_club = ManagedClub(
         club_uid=club.uid,
