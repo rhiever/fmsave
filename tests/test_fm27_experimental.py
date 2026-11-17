@@ -34,6 +34,7 @@ def fm27_fragment(
     game_db_schema: int = 4000,
     summary_schema: int = 31,
     summary_date: bytes = packed_date(190, 2032),
+    managed_club: tuple[str, int] = ("Northbridge FC", 5001),
     extra_sections: tuple[SectionFrame, ...] = (),
 ) -> Path:
     # Independent synthetic metadata: no save bytes, derived identities or real text.
@@ -47,8 +48,9 @@ def fm27_fragment(
     struct.pack_into("<II", info, base + 382, number, 0)
     summary = length_prefixed("EXAMPLE,SETUP") + length_prefixed(build)
     summary += struct.pack("<I", 1) + length_prefixed("Example Division")
-    summary += bytes(8) + length_prefixed("Alex Example") + length_prefixed("Northbridge FC")
-    summary += struct.pack("<I", 5001) + summary_date
+    club_name, club_uid = managed_club
+    summary += bytes(8) + length_prefixed("Alex Example") + length_prefixed(club_name)
+    summary += struct.pack("<I", club_uid) + summary_date
     return build_container_fragment(
         [
             SectionFrame("game_info", bytes(info)),
@@ -97,7 +99,7 @@ def test_an_unregistered_fm27_build_opens_and_reads_a_region_whose_schema_matche
     # One warning carries both the borrowing notice and the FM27 coverage notice.
     assert len(messages) == 1
     assert f"FM27 build {UNREGISTERED_BUILD}, an unverified build" in messages[0]
-    assert f"borrows the {BUILD} layouts for each section whose schema matches" in messages[0]
+    assert f"borrows matching layouts from {BUILD}" in messages[0]
     assert "Please report problems at" in messages[0]
     assert "FM27 field statuses" in messages[0]
 

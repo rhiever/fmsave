@@ -463,9 +463,10 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
             if known_build
             else (
                 f"{file_name} was saved by FM27 build {version.build}, an unverified build: "
-                f"fmsave {__version__} has no layouts registered for it. It borrows the "
-                f"{', '.join(registered_fm27_builds())} layouts for each section whose schema "
-                "matches, and tries an available FM27 layout when the schema differs. "
+                f"fmsave {__version__} has no full set of layouts for it. It borrows matching "
+                f"layouts from {', '.join(registered_fm27_builds())} where it has no build-specific "
+                "layout, and tries an available FM27 "
+                "layout when the schema differs. "
                 "Readers warn about failed checks by default. "
                 f"Please report problems at {ISSUES_URL}. "
             )

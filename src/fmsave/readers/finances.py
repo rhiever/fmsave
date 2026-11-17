@@ -16,11 +16,11 @@ from __future__ import annotations
 import functools
 import struct
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
 from fmsave._frozen import FrozenMapping
-from fmsave._layouts import FinanceChainLayout, SponsorChainLayout, find_layout
+from fmsave._layouts import FinanceChainLayout, SponsorChainLayout, find_layout, fm27_27_1_0
 from fmsave._reader_stats import FinanceStats
 from fmsave._scan import decode_date
 from fmsave.models.common import CodedValue
@@ -54,6 +54,12 @@ class FinanceLayouts:
 
     chains: FinanceChainLayout
     sponsors: SponsorChainLayout
+
+    def for_clubs(self, club_index: ClubIndex) -> FinanceLayouts:
+        """Use the finance suffix paired with the club layout that passed the table walk."""
+        if club_index.table_layout is fm27_27_1_0.CLUB_TABLE:
+            return replace(self, sponsors=fm27_27_1_0.SPONSOR_CHAINS)
+        return self
 
 
 def find_finance_layouts(game_db_schema: int | None, build: str) -> FinanceLayouts:

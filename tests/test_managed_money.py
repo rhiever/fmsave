@@ -84,6 +84,27 @@ def test_the_balance_moves_with_the_counted_prefix_entries() -> None:
     assert read_current_balance(record, span_of(record), FM27_FINANCES) == EXAMPLE_BALANCE
 
 
+def test_fm27_27_1_reads_the_shifted_balance() -> None:
+    layouts = find_finance_layouts(GAME_DB_SCHEMA, "27.1.0+2505117")
+    balance = -123_456
+    gap = chain_gap_bytes(prefix_entries=(bytes(19),), balance=balance)
+    extended_gap = chain_gap_bytes(
+        prefix_entries=(bytes(19),),
+        balance=balance,
+        finance_extension=b"\x02" + packed_date(1, 1900),
+    )
+    record_prefix = bytes(CHAIN_PADDING_BYTES) + finance_chain_bytes(career_finance_rows())
+    record = record_prefix + extended_gap + sponsor_chain_bytes(())
+    assert read_current_balance(record, span_of(record), layouts) == balance
+
+    old_record = record_prefix + gap + sponsor_chain_bytes(())
+    assert read_current_balance(old_record, span_of(old_record), layouts) is None
+    for build in (FM27_BUILD, "27.1.0+3000001"):
+        earlier = find_finance_layouts(GAME_DB_SCHEMA, build)
+        assert read_current_balance(record, span_of(record), earlier) is None
+        assert read_current_balance(old_record, span_of(old_record), earlier) == balance
+
+
 def test_a_record_of_the_other_shape_without_a_chain_gives_no_balance() -> None:
     # The same prefix and balance bytes, but no monthly chain in front of them: the record
     # shape a club with the smaller finance record has, which must never yield a balance.

@@ -10,6 +10,8 @@ context drops both; values already handed out keep working.
 
 from __future__ import annotations
 
+import os
+import warnings
 from collections.abc import Callable, Generator
 from contextlib import AbstractContextManager, contextmanager
 from types import MemberDescriptorType
@@ -23,9 +25,9 @@ from fmsave._container import (
     read_region_frames,
     read_section,
 )
-from fmsave._errors import FmsaveError, SaveClosedError
+from fmsave._errors import FmsaveError, SaveClosedError, UnknownBuildWarning
 from fmsave._frozen import FrozenMapping
-from fmsave._layouts import NamePoolLayout, PlayerRecordLayout, find_layout
+from fmsave._layouts import NamePoolLayout, PlayerRecordLayout, find_layout, fm27_27_1_0
 from fmsave.models.meta import SaveInfo
 from fmsave.name_maps import _EMPTY_COMPETITION_NAMES  # pyright: ignore[reportPrivateUsage]
 from fmsave.readers._common import GAME_DB_SECTION, SPAN_REGION
@@ -214,7 +216,17 @@ class SaveContext:
         save_info = self._info
         layouts = find_club_layouts(save_info.section_schemas.get(GAME_DB_SECTION), save_info.build)
         with self.section(GAME_DB_SECTION) as game_db:
-            return read_club_index(game_db, layouts, save_info.file_name)
+            index = read_club_index(game_db, layouts, save_info.file_name)
+        if layouts.fallback_table is not None and index.table_layout is layouts.fallback_table:
+            warnings.warn(
+                UnknownBuildWarning(
+                    f"{save_info.file_name}: FM27 build {save_info.build} uses the club and "
+                    f"finance layouts from {fm27_27_1_0.BUILD}. The club table passed structural "
+                    "checks. Decoded fields are unverified."
+                ),
+                skip_file_prefixes=(os.path.dirname(__file__) + os.sep,),
+            )
+        return index
 
     def own_club_record_spans(self) -> tuple[ClubRecordSpan, ...]:
         """The club index's record spans cut short at records the club scan did not accept,
