@@ -2605,9 +2605,9 @@ class _BuildModule(Protocol):
 
 
 def _build_modules() -> tuple[_BuildModule, ...]:
-    from fmsave._layouts import fm26_26_1_0, fm26_26_3_2, fm27_27_0_0
+    from fmsave._layouts import fm26_26_1_0, fm26_26_3_2, fm27_27_0_0, fm27_27_1_0
 
-    return (fm26_26_3_2, fm26_26_1_0, fm27_27_0_0)
+    return (fm26_26_3_2, fm26_26_1_0, fm27_27_0_0, fm27_27_1_0)
 
 
 def registered_layouts() -> tuple[LayoutEntry, ...]:
@@ -2620,7 +2620,7 @@ def known_builds() -> frozenset[str]:
 
 
 def registered_fm27_builds() -> tuple[str, ...]:
-    """The FM27 builds with registered layouts, which lend them to other FM27 builds by schema."""
+    """The FM27 builds whose layouts other FM27 builds can borrow."""
     return tuple(sorted(build for build in known_builds() if build.startswith("27.")))
 
 
@@ -2698,7 +2698,7 @@ def _find_fm27_layout[LayoutT: Layout](
         for entry in candidates
         if entry.build in lender_builds and isinstance(entry.layout, layout_type)
     ]
-    own = [entry for entry in lent if entry.build == build]
+    own = [entry for entry in candidates if entry.build == build]
     tiers = (
         [entry for entry in own if entry.schema == schema],
         [entry for entry in lent if entry.schema == schema],

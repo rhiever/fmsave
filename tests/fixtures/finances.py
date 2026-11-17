@@ -66,7 +66,11 @@ def finance_chain_bytes(rows: Sequence[bytes]) -> bytes:
 
 
 def chain_gap_bytes(
-    *, facility_byte: int = 17, prefix_entries: Sequence[bytes] = (), balance: int = 0
+    *,
+    facility_byte: int = 17,
+    prefix_entries: Sequence[bytes] = (),
+    balance: int = 0,
+    finance_extension: bytes = b"",
 ) -> bytes:
     """An independent counted sponsor prefix, excluding the final sponsor count.
 
@@ -85,7 +89,7 @@ def chain_gap_bytes(
     suffix[22:26] = struct.pack("<i", balance)
     for at in (30, 34, 38):
         suffix[at : at + 4] = CHAIN_GAP_LEADING_DATE
-    return bytes(header) + b"".join(prefix_entries) + bytes(suffix)
+    return bytes(header) + b"".join(prefix_entries) + suffix[:22] + finance_extension + suffix[22:]
 
 
 def sponsor_row_bytes(
@@ -131,6 +135,7 @@ def club_finance_bytes(
     dead_sponsors: Sequence[bytes] = (),
     prefix_entries: Sequence[bytes] = (),
     balance: int = 0,
+    finance_extension: bytes = b"",
 ) -> bytes:
     """One club record's finance bytes: padding, the snapshot chain, the gap, the sponsors.
 
@@ -142,7 +147,12 @@ def club_finance_bytes(
     output = bytearray(padding_bytes)
     output.extend(finance_chain_bytes(rows))
     output.extend(
-        chain_gap_bytes(facility_byte=facility_byte, prefix_entries=prefix_entries, balance=balance)
+        chain_gap_bytes(
+            facility_byte=facility_byte,
+            prefix_entries=prefix_entries,
+            balance=balance,
+            finance_extension=finance_extension,
+        )
     )
     output.extend(sponsor_chain_bytes(sponsors))
     if dead_sponsors:

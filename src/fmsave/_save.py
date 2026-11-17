@@ -3028,8 +3028,8 @@ def open_save(
         ValueError: A competition name CSV is malformed, or a supplied name is empty.
 
     Warns:
-        UnknownBuildWarning: An FM26 build lacks layout tables, an FM27 build has no layouts
-            registered and borrows them by schema, or FM27 coverage is incomplete.
+        UnknownBuildWarning: An FM26 or FM27 build lacks a full set of layout tables, or
+            FM27 coverage is incomplete.
     """
     # The map is checked before the file is touched, so a mistake in it costs none of the work
     # of opening a save.

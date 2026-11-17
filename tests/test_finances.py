@@ -1030,11 +1030,13 @@ def test_one_rejected_owned_sponsor_list_fails_even_when_coverage_passes(
     assert [g.name for g in gates if g.applied and not g.passed] == ["sponsor_lists_rejected"]
 
 
-@pytest.fixture
-def fm27_rejected_sponsors_path(tmp_path: Path) -> Path:
-    from tests.fixtures.container import SectionFrame, section_body
-    from tests.test_fm27_experimental import UNREGISTERED_BUILD, fm27_fragment
+@pytest.fixture(params=["27.1.0+3000001", "27.1.0+2505117"])
+def fm27_rejected_sponsors_path(tmp_path: Path, request: pytest.FixtureRequest) -> Path:
+    from tests.fixtures.container import SectionFrame, packed_date, section_body
+    from tests.test_fm27_experimental import fm27_fragment
 
+    build: str = request.param
+    extension = b"\x02" + packed_date(1, 1900) if build == "27.1.0+2505117" else b""
     bad = sponsor_row_bytes(**{**SPONSOR_A, "annual": 4_000_000})  # pyright: ignore[reportArgumentType]
     good = sponsor_row_bytes(**SPONSOR_A)  # pyright: ignore[reportArgumentType]
     clubs = [
@@ -1047,7 +1049,9 @@ def fm27_rejected_sponsors_path(tmp_path: Path) -> Path:
             name=name,
             short_name=name,
             team_ids=(70000 + club_index,),
-            trailing_bytes=club_finance_bytes(rows=career_finance_rows(), sponsors=(row,)),
+            trailing_bytes=club_finance_bytes(
+                rows=career_finance_rows(), sponsors=(row,), finance_extension=extension
+            ),
         )
         for club_index, (name, row) in enumerate(
             (("Northbridge FC", bad), ("Southport FC", good)), start=1
@@ -1056,7 +1060,7 @@ def fm27_rejected_sponsors_path(tmp_path: Path) -> Path:
     data = game_db_body(clubs, [], gap_bytes=256)
     return fm27_fragment(
         tmp_path,
-        build=UNREGISTERED_BUILD,
+        build=build,
         game_db=data,
         extra_sections=(SectionFrame("humans", section_body(".dat", 24, bytes(40))),),
     )

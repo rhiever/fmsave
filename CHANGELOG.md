@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Fixed
+
+- Read clubs and club finances from FM27 build `27.1.0+2505117`. FM27 coverage warnings still apply.
+
+Thanks to @rdutra7 for the report. Refs #106.
+
 ## [0.12.5] - 2026-11-14
 
 ### Fixed
