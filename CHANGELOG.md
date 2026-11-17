@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Documentation
+
+- Explain how exports handle currency.
+
+Thanks to @rdutra7 for help testing. Refs #106.
+
 ## [0.12.6] - 2026-11-17
 
 ### Fixed

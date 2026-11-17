@@ -9,6 +9,9 @@ myst:
 Every reader returns a `Table`. Export nested records for another program or flat columns for
 a spreadsheet.
 
+Exports use the money amounts stored in the save. The game may display those amounts in a
+different currency.
+
 ```python
 import fmsave
 
