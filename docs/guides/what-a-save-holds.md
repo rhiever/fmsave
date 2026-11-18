@@ -45,9 +45,17 @@ unscored. The Attacking, Defending, and Possession coach searches give the highe
 and Technical more weight. The Youth coach search gives Working With Youngsters the most
 weight and also uses coaching and people skills.
 
-The app uses its own weights to rank candidates. Sports Interactive's
+Use More staff roles to look for a Recruitment Analyst, Technical Director, Loan Manager,
+Head of Youth Development, or another specialist. Recruitment Analyst scores give more weight
+to Analysing Data and also use Judging Player Ability. Director of Football scores use
+Negotiating, Judging Player Ability, and Judging Player Potential. Use Confirmed job to show
+staff with a recorded appointment in the selected job.
+
+The app uses its own weights, informed by Sports Interactive's
 [FM26 delegation guide](https://www.footballmanager.com/the-dugout/delegating-success-football-manager-26)
-describes which attributes matter for several staff jobs, including Scout and Director of Football.
+and [observations from FM27 staff profiles](https://github.com/jamiebolden/fm-scoring/blob/main/weights/fm27_staff.md).
+Sports Scientist and Head of Sports Science scores use Sports Science. You can compare
+other ratings, such as Motivating, with the attribute filters.
 
 Add attribute ranges in the Staff filters to narrow a search. Enter a minimum,
 a maximum, or both using the displayed ratings out of 20. Candidates with a missing rating

@@ -139,3 +139,28 @@ test("role shortcuts use the right attributes and stay on the twenty-point scale
   const numbers = Object.fromEntries([...staff.STAFF_ATTRS].map(([key, { scale }]) => [key, [scale]]));
   for (const preset of staff.PRESETS) assert.equal(staff.presetScore({ numbers }, preset, 0), 20, preset.id);
 });
+
+test("related hiring searches cover analysts, scouting leads, medical leads, and academy staff", () => {
+  const names = new Map(staff.PRESETS.map(({ id, label }) => [id, label]));
+  for (const [id, label] of [
+    ["recruitment_analyst", "Recruitment Analyst"],
+    ["head_performance_analyst", "Head Performance Analyst"],
+    ["assistant_manager", "Assistant Manager"],
+    ["manager", "Manager"],
+    ["coach", "Coach"],
+    ["head_of_youth_development", "Head of Youth Development"],
+    ["chief_scout", "Chief Scout"],
+    ["technical_director", "Technical Director"],
+    ["loan_manager", "Loan Manager"],
+    ["head_physio", "Head Physio"],
+    ["head_of_sports_science", "Head of Sports Science"],
+  ]) assert.equal(names.get(id), label);
+});
+
+test("recruitment analysis favours data interpretation and player assessment", () => {
+  const preset = staff.PRESETS.find(({ id }) => id === "recruitment_analyst");
+  const numbers = { analysing_data: [95, 70, NaN], judging_player_ability: [65, 85, 90] };
+  assert.deepEqual(preset.keys, ["analysing_data", "judging_player_ability"]);
+  assert.ok(staff.presetScore({ numbers }, preset, 0) > staff.presetScore({ numbers }, preset, 1));
+  assert.equal(staff.presetScore({ numbers }, preset, 2), null);
+});

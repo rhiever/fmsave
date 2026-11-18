@@ -665,6 +665,7 @@ details.more .cols3 { margin-top: 8px; }
 .free-count { padding: 1px 7px; border-radius: 10px; background: var(--ground); color: var(--ink-2); font: 700 14px/18px var(--cond); }
 .staffbar { display: flex; align-items: center; gap: 12px; padding: 8px 20px; background: var(--sheet); border-bottom: 1px solid var(--rule); }
 .find { flex: none; color: var(--ink); font: 800 19px/1 var(--cond); }
+#staff-more-roles { flex: none; max-width: min(270px, 100%); }
 .presets-scroll { min-width: 0; overflow-x: auto; scrollbar-width: thin; }
 .presets { display: flex; flex-wrap: wrap; gap: 5px; }
 .presets button { padding: 5px 9px; border: 1px solid var(--rule); border-radius: 16px; background: var(--sheet); color: var(--ink); font: 600 15px/18px var(--ui); white-space: nowrap; }
@@ -733,7 +734,8 @@ details.more .cols3 { margin-top: 8px; }
 @media (max-width: 760px) {
   .staff-subbar .seg button { gap: 5px; padding-inline: 7px; }
   .staff-app { --staff-name: min(42vw, 176px, calc(100vw - 207px)); --staff-score: 54px; --staff-attr: 76px; }
-  .staffbar { gap: 10px; padding: 7px 12px; }
+  .staffbar { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; padding: 7px 12px; }
+  #staff-more-roles { grid-column: 2; justify-self: start; }
   .presets { flex-wrap: nowrap; }
   .find { font-size: 17px; }
   .staff-note .bands { display: none; }

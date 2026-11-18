@@ -27,12 +27,14 @@ function preset(id, label, weights, pair) {
 }
 
 const coaching = { authority: 5, determination: 5, motivating: 5 };
+const scouting = { judging_player_ability: 45, judging_player_potential: 45, adaptability: 10 };
+const performanceAnalysis = { analysing_data: 80, judging_player_ability: 20 };
 const techniquePair = ["tactical", "technical"];
 const direction = (id, label) => preset(id, label, {
   [id]: 40, tactical: 30, technical: 15, ...coaching,
 }, techniquePair);
 
-export const PRESETS = [
+const QUICK_PRESETS = [
   direction("attacking", "Attacking coach"),
   direction("defending", "Defending coach"),
   direction("possession", "Possession coach"),
@@ -44,10 +46,49 @@ export const PRESETS = [
   }, techniquePair),
   preset("physio", "Physio", { physiotherapy: 100 }),
   preset("sports_science", "Sports Scientist", { sports_science: 100 }),
-  preset("scout", "Scout", { judging_player_ability: 45, judging_player_potential: 45, adaptability: 10 }),
-  preset("analyst", "Performance Analyst", { analysing_data: 80, judging_player_ability: 20 }),
+  preset("scout", "Scout", scouting),
+  preset("analyst", "Performance Analyst", performanceAnalysis),
   preset("dof", "Director of Football", { negotiating: 40, judging_player_ability: 30, judging_player_potential: 30 }),
 ];
+
+const MORE_PRESETS = {
+  Coaching: [
+    preset("coach", "Coach", {
+      attacking: 15, defending: 15, fitness: 15, tactical: 20, technical: 20, ...coaching,
+    }),
+    preset("assistant_manager", "Assistant Manager", {
+      people_management: 40, judging_player_ability: 30, judging_player_potential: 30,
+    }),
+    preset("manager", "Manager", {
+      people_management: 25, tactical_knowledge: 25, motivating: 20,
+      judging_player_ability: 15, judging_player_potential: 15,
+    }),
+    preset("head_of_youth_development", "Head of Youth Development", {
+      working_with_youngsters: 40, judging_player_potential: 35, judging_player_ability: 25,
+    }),
+  ],
+  Recruitment: [
+    preset("chief_scout", "Chief Scout", scouting),
+    preset("recruitment_analyst", "Recruitment Analyst", {
+      analysing_data: 60, judging_player_ability: 40,
+    }),
+    preset("technical_director", "Technical Director", {
+      judging_staff_ability: 65, negotiating: 35,
+    }),
+    preset("loan_manager", "Loan Manager", {
+      judging_player_ability: 30, judging_player_potential: 30, people_management: 25, analysing_data: 15,
+    }),
+  ],
+  Analysis: [
+    preset("head_performance_analyst", "Head Performance Analyst", performanceAnalysis),
+  ],
+  Medical: [
+    preset("head_physio", "Head Physio", { physiotherapy: 100 }),
+    preset("head_of_sports_science", "Head of Sports Science", { sports_science: 100 }),
+  ],
+};
+
+export const PRESETS = [...QUICK_PRESETS, ...Object.values(MORE_PRESETS).flat()];
 
 const EMPLOYMENT = { employed: "Employed", free_agent: "Free agent (inferred)", unknown: "Employment unknown" };
 const confirmedJob = (appointment) => {
@@ -309,6 +350,7 @@ export function createStaffUi(download) {
   const csvButton = byId("staff-csv-button");
   const viewControls = byId("staff-views");
   const presetControls = byId("presets");
+  const moreRoles = byId("staff-more-roles");
   const search = byId("staff-search");
   const freeOnly = byId("free-only");
   const job = byId("staff-job");
@@ -331,7 +373,10 @@ export function createStaffUi(download) {
   let wasPhone = phone();
 
   viewControls.innerHTML = Object.entries(GROUP_HUES).map(([name, hue]) => `<button type="button" data-staff-view="${name}" aria-pressed="false"><i aria-hidden="true" style="background:rgb(var(--${hue}))"></i>${name}</button>`).join("");
-  presetControls.innerHTML = PRESETS.map(({ id, label }) => `<button type="button" data-preset="${id}" aria-pressed="false">${label}</button>`).join("");
+  presetControls.innerHTML = QUICK_PRESETS.map(({ id, label }) => `<button type="button" data-preset="${id}" aria-pressed="false">${label}</button>`).join("");
+  moreRoles.insertAdjacentHTML("beforeend", Object.entries(MORE_PRESETS).map(([group, presets]) =>
+    `<optgroup label="${esc(group)}">${presets.map(({ id, label }) =>
+      `<option value="${id}">${esc(label)}</option>`).join("")}</optgroup>`).join(""));
 
   function drawHead() {
     const focused = head.contains(document.activeElement) ? document.activeElement.dataset.staffSort : null;
@@ -417,6 +462,8 @@ export function createStaffUi(download) {
     byId("staff-count").innerHTML = count + (preset ? '<small class="staff-formula">fmsave score out of 20</small>' : "");
     for (const b of viewControls.children) b.setAttribute("aria-pressed", b.dataset.staffView === view);
     for (const b of presetControls.children) b.setAttribute("aria-pressed", b.dataset.preset === preset?.id);
+    moreRoles.value = preset && !QUICK_PRESETS.includes(preset) ? preset.id : "";
+    moreRoles.options[0].textContent = moreRoles.value ? "Clear role search" : "More staff roles";
   }
 
   function closeRail({ restoreFocus = true } = {}) {
@@ -496,16 +543,19 @@ export function createStaffUi(download) {
     grid.scrollLeft = 0;
     refresh();
   });
-  presetControls.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-preset]");
-    if (!b) return;
-    preset = b.dataset.preset === preset?.id ? null : PRESETS.find((p) => p.id === b.dataset.preset);
+  function applyPreset(id) {
+    preset = PRESETS.find((p) => p.id === id) ?? null;
     if (preset) view = STAFF_ATTRS.get(preset.keys[0]).group;
     selected = -1;
     sort = { key: preset ? "score" : "name", dir: preset ? -1 : 1 };
     grid.scrollLeft = 0;
     refresh();
+  }
+  presetControls.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-preset]");
+    if (b) applyPreset(b.dataset.preset === preset?.id ? "" : b.dataset.preset);
   });
+  moreRoles.addEventListener("change", () => applyPreset(moreRoles.value));
   head.addEventListener("click", (e) => {
     const key = e.target.closest("[data-staff-sort]")?.dataset.staffSort;
     if (!key) return;
