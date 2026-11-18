@@ -83,7 +83,10 @@ from fmsave.models.squad_planner import SquadPlannerSlot
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import (
     Staff,
+    StaffAppointment,
     StaffAttributes,
+    StaffCandidate,
+    StaffEmployment,
     StaffJob,
     StaffList,
     StaffPreferences,
@@ -188,7 +191,10 @@ __all__ = [
     "SquadStatus",
     "Stadium",
     "Staff",
+    "StaffAppointment",
     "StaffAttributes",
+    "StaffCandidate",
+    "StaffEmployment",
     "StaffJob",
     "StaffList",
     "StaffPreferences",

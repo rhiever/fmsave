@@ -14,12 +14,14 @@ const phone = () => matchMedia("(max-width: 760px)").matches;
 // Every file the page loads carries the build's version, so a deploy never mixes old and new.
 const VERSION = new URL(import.meta.url).searchParams.get("v") || "";
 const asset = (name) => new URL(name + (VERSION ? `?v=${VERSION}` : ""), import.meta.url).href;
+const { createStaffUi, STAFF_ATTRS } = await import(asset("staff.js"));
+const staffUi = createStaffUi(download);
 const LEAD = ["name", "age", "natural_positions", "ability_current", "ability_potential"];
 const PHONE_LEAD = ["name", "ability_current", "ability_potential", "age", "natural_positions"];
 const MIN_MINUTES = 450;
 
 const state = {
-  list: "all", view: "overview", statGroup: "General", statMode: "p90", statKind: "overall", wantedKind: "overall",
+  list: "all", staffActive: false, view: "overview", statGroup: "General", statMode: "p90", statKind: "overall", wantedKind: "overall",
   compare: "position", highlight: 20, extras: [], sort: { key: "ability_current", dir: -1 },
   search: "", positions: new Set(), ageMin: null, ageMax: null, rules: [],
   selected: -1, panelTab: "attributes", demo: null, loading: false, generation: 0,
@@ -309,9 +311,14 @@ function refresh({ head = true, keepScroll = false } = {}) {
   const statsNote = data.stats ? "" : data.statsFailed ? ". Season stats could not be read" : ". Season stats are still loading";
   $("list-count").textContent = `${number(order.length)} of ${number(total)} players. Sorted by ${COLUMNS.get(state.sort.key).label.toLowerCase()}${statsNote}`;
   $("list-title").textContent = { squad: data.meta.club || "Squad", all: "All players", shortlist: "Shortlist" }[state.list];
-  for (const b of $("tabs").querySelectorAll("button")) b.setAttribute("aria-selected", b.dataset.list === state.list);
+  syncTabs();
   updateCounts();
   $("csv-menu").querySelector('[data-csv-count="view"]').textContent = number(order.length) + " players";
+}
+
+function syncTabs() {
+  const list = state.staffActive ? "staff" : state.list;
+  for (const button of $("tabs").querySelectorAll("button")) button.setAttribute("aria-selected", button.dataset.list === list);
 }
 
 function updateCounts() {
@@ -338,10 +345,13 @@ function selectIndex(i, { scroll = true } = {}) {
   if (i < 0) return;
   $("announce").textContent = `${data.text.name[i]}, current ability ${data.num.ability_current[i]}, potential ${data.num.ability_potential[i]}`;
   if (narrow()) openDrawer("panel");
-  if (!state.demo) {
-    const uid = data.num.uid[i];
-    if (!details.has(uid)) { details.set(uid, null); send({ type: "detail", uid }); }
-  }
+  requestPlayerDetail(i);
+}
+
+function requestPlayerDetail(i) {
+  if (i < 0 || state.demo) return;
+  const uid = data.num.uid[i];
+  if (!details.has(uid)) { details.set(uid, null); send({ type: "detail", uid }); }
 }
 
 function step(delta) {
@@ -610,6 +620,9 @@ function wire() {
   new MutationObserver(syncThemeButton).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   onPick("tabs", "data-list", (list) => {
+    state.staffActive = list === "staff";
+    showLists(true);
+    if (state.staffActive) { syncTabs(); return; }
     state.list = list;
     refresh();
     if (!order.includes(state.selected) && order.length && !narrow()) selectIndex(order[0], { scroll: false });
@@ -744,30 +757,69 @@ function download(blob, name) {
 // ---------- The reader worker ----------
 
 // The worker runs from a blob: URL so the page's Content-Security-Policy covers it too.
-let worker = null;
-let booting = null;
-let readerReady = false;
+let idleReader = null;
+let pendingReader = null;
+let committedReader = null;
 let pendingMeta = null;
 let versions = {};
-async function startWorker() {
-  readerReady = false;
-  const source = await (await fetch(asset("worker.js"))).text();
-  const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
-  worker = new Worker(url, { type: "module" });
-  URL.revokeObjectURL(url);
-  worker.onmessage = onWorkerMessage;
-  const wheelFile = new URLSearchParams(location.search).get("wheel");
-  worker.postMessage({ type: "boot", base: new URL(".", import.meta.url).href, version: VERSION, wheel: wheelFile });
+
+function startReader() {
+  const reader = { worker: null, ready: false, stopped: false, staffSettled: false };
+  reader.launch = launchReader(reader);
+  return reader;
 }
-const send = async (message) => { await booting; worker.postMessage({ ...message, generation: state.generation }); };
+
+async function launchReader(reader) {
+  try {
+    const response = await fetch(asset("worker.js"));
+    if (!response.ok) throw new Error("Could not load worker");
+    const source = await response.text();
+    if (reader.stopped) return;
+    const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+    reader.worker = new Worker(url, { type: "module" });
+    URL.revokeObjectURL(url);
+    reader.worker.onmessage = (event) => { if (!reader.stopped) onWorkerMessage(event, reader); };
+    reader.worker.onerror = (event) => {
+      event.preventDefault();
+      if (reader.stopped) return;
+      if (reader === committedReader) {
+        if (!reader.staffSettled) onWorkerError({ request: "staff", text: "Staff could not be read from this save." }, reader);
+        if (!data.stats) onWorkerError({ request: "stats", text: "Season stats could not be read from this save." }, reader);
+        return;
+      }
+      const request = reader.ready ? "open" : "boot";
+      onWorkerError({ request, text: "The reader stopped while opening the save. Try opening it again." }, reader);
+    };
+    const wheelFile = new URLSearchParams(location.search).get("wheel");
+    reader.worker.postMessage({ type: "boot", base: new URL(".", import.meta.url).href, version: VERSION, wheel: wheelFile });
+  } catch {
+    if (!reader.stopped) onWorkerError({ request: "boot", text: "The reader could not load. Check your connection and reload the page." }, reader);
+  }
+}
+
+function stopReader(reader) {
+  if (!reader) return;
+  reader.stopped = true;
+  reader.worker?.terminate();
+}
+
+async function send(message) {
+  const generation = state.generation;
+  const reader = message.type === "open" ? pendingReader : committedReader;
+  if (!reader) return;
+  await reader.launch;
+  if (!reader.stopped && generation === state.generation) reader.worker?.postMessage({ ...message, generation });
+}
 
 const CSV_LABELS = { players: "All players", squad: "Your club", "season-stats": "Every competition" };
-function onWorkerMessage({ data: msg }) {
-  // Answers about a save that has since been replaced are dropped.
-  if (msg.generation !== undefined && msg.generation !== state.generation) return;
+function onWorkerMessage({ data: msg }, reader) {
+  // Optional reads from the visible save can finish while a replacement is opening.
+  const request = msg.type === "error" ? msg.request : msg.type;
+  const optionalRead = reader === committedReader && ["staff", "stats"].includes(request);
+  if (!optionalRead && msg.generation !== undefined && msg.generation !== state.generation) return;
   switch (msg.type) {
     case "ready":
-      readerReady = true;
+      reader.ready = true;
       versions = { fmsave: msg.fmsave, pyodide: msg.pyodide };
       setStatus("ok", `Reader ready (fmsave ${msg.fmsave})`);
       const [major, minor, patch] = msg.fmsave.split(".").map(Number);
@@ -778,14 +830,24 @@ function onWorkerMessage({ data: msg }) {
           ? "FM26 and FM27 build 27.0.0+2486695. Some FM27 fields remain unconfirmed."
           : "This published reader supports FM26. FM27 needs fmsave 0.8.0 or later.";
       break;
-    case "stage": setStage(msg.stage); break;
+    case "stage": if (state.loading) setStage(msg.stage); break;
     case "meta": pendingMeta = msg.meta; break;
     case "players":
+      stopReader(committedReader);
+      committedReader = reader;
+      pendingReader = null;
       state.loading = false;
       state.demo = null;
       clearInterval(tick);
       load(pendingMeta, msg.count, msg.numbers, msg.text, msg.warnings);
+      state.staffActive = false;
+      staffUi.setActive(false);
+      staffUi.setData({ pending: true });
       showApp();
+      break;
+    case "staff":
+      reader.staffSettled = true;
+      staffUi.setData(msg);
       break;
     case "stats": {
       const first = !data.stats;
@@ -809,16 +871,20 @@ function onWorkerMessage({ data: msg }) {
       toast(`${msg.name}.csv: ${number(msg.rows)} rows`);
       break;
     }
-    case "error": onWorkerError(msg); break;
+    case "error": onWorkerError(msg, reader); break;
   }
 }
 
-function onWorkerError(msg) {
+function onWorkerError(msg, reader) {
   if (msg.request === "boot") {
     setStatus("bad", msg.text);
-    if (state.loading) loadFailed(msg.text, msg.kind);
+    if (reader === pendingReader) loadFailed(msg.text, msg.kind);
+    if (reader === idleReader) { stopReader(idleReader); idleReader = null; }
   } else if (msg.request === "open") {
     loadFailed(msg.text, msg.kind);
+  } else if (msg.request === "staff") {
+    reader.staffSettled = true;
+    staffUi.setData({ notice: msg.text });
   } else if (msg.request === "stats" && data && !data.stats) {
     data.statsFailed = true;
     for (const id of ["stat-kind", "stat-kind-bar"]) $(id).disabled = true;
@@ -842,9 +908,10 @@ function setStatus(kind, text) {
   $("reader-status").lastElementChild.textContent = text;
 }
 function setStage(stage) {
-  $("stages").hidden = false;
   const items = [...$("stages").children];
   const at = items.findIndex((p) => p.dataset.stage === stage);
+  if (at < 0) return;
+  $("stages").hidden = false;
   items.forEach((p, k) => { p.classList.toggle("done", k < at); p.classList.toggle("now", k === at); });
   const started = performance.now();
   clearInterval(tick);
@@ -854,9 +921,17 @@ function setStage(stage) {
 // file name or anything read from the save.
 let report = "";
 function loadFailed(text, kind) {
+  stopReader(pendingReader);
+  pendingReader = null;
   state.loading = false;
   clearInterval(tick);
-  if (data) { showApp({ keep: true }); toast(text, 6000); return; }
+  if (data) {
+    for (const [uid, detail] of details) if (!detail) details.delete(uid);
+    requestPlayerDetail(state.selected);
+    showApp({ keep: true });
+    toast(text, 6000);
+    return;
+  }
   showStart();
   const game = pendingMeta && [pendingMeta.game, pendingMeta.build].filter(Boolean).join(" ");
   report = [
@@ -878,15 +953,17 @@ function loadFailed(text, kind) {
 let fileName = "";
 async function begin(file) {
   if (!file) return;
-  fileName = file.name;
-  pendingMeta = null;
   if (!/\.fm$/i.test(file.name)) {
     const text = "That is not a .fm file. Football Manager saves end in .fm.";
-    if (data && !$("app").hidden) return toast(text, 5000);
+    if (state.loading || data) return toast(text, 5000);
     return loadFailed(text);
   }
-  // A save already being read is abandoned: its worker stops and a fresh one starts.
-  if (state.loading) { worker.terminate(); booting = startWorker(); }
+  fileName = file.name;
+  // Keep the visible save's reader until the replacement has successfully read players.
+  stopReader(pendingReader);
+  pendingReader = idleReader ?? startReader();
+  idleReader = null;
+  pendingMeta = null;
   state.loading = true;
   state.generation++;
   showStart();
@@ -894,15 +971,24 @@ async function begin(file) {
   $("report").hidden = true;
   $("drop-actions").hidden = true;
   $("drop-title").textContent = "Reading " + file.name;
-  setStage(readerReady ? "open" : "boot");
+  if (!pendingReader.ready) setStatus("wait", "Getting the reader ready");
+  setStage(pendingReader.ready ? "open" : "boot");
   send({ type: "open", file });
+}
+
+function showLists(inApp) {
+  const staffActive = inApp && state.staffActive;
+  document.body.classList.toggle("staff-mode", staffActive);
+  $("app").hidden = !inApp || staffActive;
+  $("csv-button").hidden = !inApp || staffActive;
+  staffUi.setActive(staffActive);
 }
 
 function setChrome(inApp) {
   document.body.classList.toggle("in-app", inApp);
   $("start").hidden = inApp;
-  $("app").hidden = !inApp;
-  for (const id of ["tabs", "csv-button", "another"]) $(id).hidden = !inApp;
+  showLists(inApp);
+  for (const id of ["tabs", "another"]) $(id).hidden = !inApp;
   $("docs-link").classList.toggle("in-app", inApp);
 }
 function showStart() {
@@ -920,10 +1006,10 @@ function showApp({ keep = false } = {}) {
   for (const b of $("csv-menu").querySelectorAll("[data-csv]")) {
     if (b.dataset.csv in CSV_LABELS) { b.disabled = false; b.querySelector("em").textContent = CSV_LABELS[b.dataset.csv]; }
   }
-  if (keep) return;
   const m = data.meta;
-  showCoverageNote();
   $("meta").innerHTML = [m.save && `<b>${esc(m.save)}</b>`, m.club && esc(m.club), m.date && esc(day(Date.parse(m.date) / DAY))].filter(Boolean).join(", ");
+  if (keep) return;
+  showCoverageNote();
   for (const b of $("csv-menu").querySelectorAll("[data-csv]")) b.hidden = (state.demo && b.dataset.csv !== "view") || (!hasSquad() && b.dataset.csv === "squad");
   $("tabs").querySelector('[data-list="squad"]').hidden = !hasSquad();
   state.list = hasSquad() ? "squad" : "all";
@@ -943,13 +1029,25 @@ const demo = () => (demoWorld ??= import(asset("demo.js")).then((m) => m.buildDe
 
 async function startDemo() {
   if (state.loading) return;
-  const world = await demo();
-  state.generation++;
-  state.demo = world;
-  load(world.meta, world.count, world.num, world.text);
-  loadStats("overall", world.stats("overall"));
-  showApp();
-  toast("These are made-up players. Drop a real save to see your own.", 4000);
+  const generation = state.generation;
+  try {
+    const [world, { buildStaffDemo }] = await Promise.all([demo(), import(asset("staff-demo.js"))]);
+    if (generation !== state.generation || state.loading) return;
+    const staffDemo = buildStaffDemo(STAFF_ATTRS);
+    state.generation++;
+    stopReader(committedReader);
+    committedReader = null;
+    state.demo = world;
+    state.staffActive = false;
+    staffUi.setActive(false);
+    staffUi.setData(staffDemo);
+    load(world.meta, world.count, world.num, world.text);
+    loadStats("overall", world.stats("overall"));
+    showApp();
+    toast("The demo uses fictional players and staff.", 4000);
+  } catch {
+    if (generation === state.generation) toast("The demo could not load. Reload the page and try again.", 5000);
+  }
 }
 
 // The start screen's wheel is a made-up young attacker from the demo league.
@@ -1005,6 +1103,6 @@ function wireStart() {
 wire();
 wireStart();
 drawPanel();
-booting = startWorker();
+idleReader = startReader();
 if (location.hash === "#demo") startDemo();
 (window.requestIdleCallback || setTimeout)(drawSpecimen);

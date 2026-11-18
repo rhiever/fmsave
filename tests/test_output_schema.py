@@ -39,6 +39,7 @@ TABLE_RECORD_TYPES = (
     fmsave.AffiliateGroup,
     fmsave.JobVacancy,
     fmsave.Staff,
+    fmsave.StaffCandidate,
     fmsave.StaffList,
     fmsave.InjuryType,
     fmsave.InjuryRecord,

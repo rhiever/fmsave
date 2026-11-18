@@ -60,14 +60,16 @@
 
 <header class="bar">
   <a class="brand" href="./" aria-label="Start again with fmsave"><span class="mark" aria-hidden="true"></span><span class="brand-word">fmsave</span></a>
-  <nav class="tabs" id="tabs" role="tablist" aria-label="Player lists" hidden>
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Lists" hidden>
     <button role="tab" data-list="squad" aria-selected="false">Squad <span class="count" data-count="squad"></span></button>
     <button role="tab" data-list="all" aria-selected="true"><span class="long">All players</span><span class="short">All</span> <span class="count" data-count="all"></span></button>
     <button role="tab" data-list="shortlist" aria-selected="false">Shortlist <span class="count" data-count="shortlist"></span></button>
+    <button role="tab" data-list="staff" aria-selected="false" aria-controls="staff-app">Staff <span class="count" id="staff-tab-count" data-count="staff"></span></button>
   </nav>
   <div class="meta" id="meta"></div>
   <div class="bar-end">
     <button class="ghost" id="csv-button" popovertarget="csv-menu" hidden><svg class="icon"><use href="#i-down"/></svg><span class="label-long">Download CSV</span><span class="sr">Download CSV</span></button>
+    <button class="ghost" id="staff-csv-button" aria-label="Download staff CSV" title="Download staff CSV" hidden><svg class="icon"><use href="#i-down"/></svg><span class="label-long">Download CSV</span></button>
     <button class="ghost" id="another" hidden><svg class="icon"><use href="#i-file"/></svg><span class="label-long">Open another save</span><span class="sr">Open another save</span></button>
     <a class="ghost" id="docs-link" href="../">Docs</a>
     <button class="ghost square theme-toggle" id="theme-toggle" aria-label="Switch to dark mode" title="Switch to dark mode"><svg class="icon i-moon"><use href="#i-moon"/></svg><svg class="icon i-sun"><use href="#i-sun"/></svg></button>
@@ -85,13 +87,13 @@
 <main class="start" id="start">
   <section>
     <h1>Scout every player in your Football Manager save</h1>
-    <p class="lede">Drop a supported Football Manager save here to see your squad and every player in the game world. Browse their attributes, CA and PA, positions, personality, contracts, and this season's stats. Numbers are ranked against players in the same position. Download the data as CSV.</p>
+    <p class="lede">Drop a supported Football Manager save here to see your squad and every player in the game world. Browse their attributes, CA and PA, positions, personality, contracts, and this season's stats. Numbers are ranked against players in the same position. Search staff by role and ratings. Download the data as CSV.</p>
     <p id="game-support">FM26 and supported FM27 builds. FM27 requires reader 0.8.0 or later.</p>
     <div class="drop" id="drop">
       <strong id="drop-title">Drop your .fm save here</strong>
       <div class="drop-row" id="drop-actions">
         <button class="solid" id="pick"><svg class="icon"><use href="#i-file"/></svg>Choose a save</button>
-        <button class="link" id="demo">Or look around with made-up players</button>
+        <button class="link" id="demo">Or try the demo</button>
       </div>
       <div class="stages" id="stages" role="list" hidden>
         <p role="listitem" data-stage="boot">Loading the reader<time></time></p>
@@ -188,6 +190,51 @@
     <p class="sr" id="announce" aria-live="polite"></p>
   </div>
 </div>
+
+
+<section class="app staff-app" id="staff-app" role="tabpanel" aria-label="Staff" hidden>
+  <div class="subbar staff-subbar">
+    <div class="views-scroll"><div class="seg" id="staff-views" role="group" aria-label="Staff columns"></div></div>
+    <label class="ctl free-toggle"><input type="checkbox" id="free-only">Free agents only <span class="free-count" id="free-count" aria-hidden="true"></span></label>
+  </div>
+  <div class="staffbar">
+    <span class="find" id="find-label">Find a...</span>
+    <div class="presets-scroll"><div class="presets" id="presets" role="group" aria-labelledby="find-label"></div></div>
+  </div>
+  <div class="reader-note staff-note">
+    <span>Ratings are shown out of 20. Word bands are approximate.</span>
+    <span class="bands"><span>Unsuited 1-3</span><span>Reasonable 4-6</span><span>Competent 7-9</span><span>Average 10-11</span><span>Good 12-14</span><span>Very Good 15-17</span><span>Outstanding 18-20</span></span>
+    <p id="staff-source" aria-live="polite" hidden></p>
+  </div>
+  <div class="body">
+    <aside class="rail" id="staff-rail" aria-label="Staff filters">
+      <div class="rail-head"><button class="plain" id="staff-rail-close" type="button"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>Close</button></div>
+      <h2 class="h4"><label for="staff-search">Search</label></h2>
+      <input type="search" id="staff-search" placeholder="Name, club, or job" autocomplete="off" spellcheck="false">
+      <h2 class="h4"><label for="staff-job">Confirmed job</label></h2>
+      <select id="staff-job"><option value="">Any job</option></select>
+      <h2 class="h4" id="staff-age-label">Age</h2>
+      <div class="pair" role="group" aria-labelledby="staff-age-label">
+        <label>From<input type="number" id="staff-age-min" inputmode="numeric"></label>
+        <label>To<input type="number" id="staff-age-max" inputmode="numeric"></label>
+      </div>
+      <button class="link staff-clear" id="staff-clear" type="button">Clear all filters</button>
+    </aside>
+    <section class="list" aria-labelledby="staff-title">
+      <div class="listhead">
+        <h2 id="staff-title" tabindex="-1">Staff</h2>
+        <span id="staff-count" aria-live="polite"></span>
+        <button class="plain filters-button" id="staff-filters-button" aria-controls="staff-rail" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-filter"/></svg>Filters</button>
+      </div>
+      <div class="grid staff-grid" id="staff-grid" role="table" aria-labelledby="staff-title" tabindex="0">
+        <div class="thead" id="staff-thead" role="row"></div>
+        <div class="rows" id="staff-rows" role="rowgroup"></div>
+      </div>
+    </section>
+    <aside class="panel staff-panel" id="staff-panel" aria-label="Staff details"></aside>
+    <p class="sr" id="staff-announce" aria-live="polite"></p>
+  </div>
+</section>
 
 <div class="menu" id="columns-menu" popover>
   <input type="search" class="menu-search" id="columns-search" placeholder="Find a column" autocomplete="off" aria-label="Find a column">

@@ -6,8 +6,8 @@ myst:
 
 # Save
 
-`fmsave.open` returns a `Save`; its reader methods hand back one `Table` each. `validate_save`
-runs every reader at once and reports how each fared, without raising or warning.
+`fmsave.open` returns a `Save` with reader methods that return tables. `validate_save` checks
+the standard readers and reports their results without raising or warning.
 
 ## Opening a save
 
@@ -22,7 +22,7 @@ runs every reader at once and reports how each fared, without raising or warning
    :members: info, closed, clubs, players, contracts, suspensions, managed_clubs, stages,
        competitions, nations, fixtures, officials, stadiums, transfer_windows, injury_types, injuries, affiliates,
        job_vacancies, league_tables, competition_rules, player_match_stats, team_match_stats,
-       player_season_stats, player_season_history, finances, sponsorships, facilities, staff, staff_lists, tactics,
+       player_season_stats, player_season_history, finances, sponsorships, facilities, staff, staff_lists, staff_candidates, tactics,
        set_pieces, selections, squad_planner, training, mentoring, experimental_span, close
 ```
 

@@ -51,6 +51,7 @@ FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
 # A negative number starts with "-" too, and is left as the number it is.
 _PLAIN_NUMBER = re.compile(r"-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?")
 _state: dict[str, Any] = {}
+_previous_state: dict[str, Any] | None = None
 
 
 class AppError(Exception):
@@ -280,10 +281,14 @@ def open_save(path: str) -> dict[str, object]:
     A file that is not a save, or one fmsave cannot read, fails before the last save is
     dropped, so the page can keep showing it.
     """
+    global _state, _previous_state
     started = time.monotonic()
     career_save = fmsave.open(path)
-    close_save()
-    _state.clear()
+    if _previous_state is not None:
+        close_save()
+        _state = _previous_state
+    _previous_state = _state
+    _state = {}
     # WebAssembly memory never shrinks, so the last save is collected before the next is read.
     gc.collect()
     _state["save"] = career_save
@@ -328,7 +333,8 @@ def _read_with_warnings[ResultT](read: Callable[[], ResultT]) -> tuple[ResultT, 
 
 
 def read_players() -> dict[str, object]:
-    """Read every named player and return the page's columns."""
+    """Read every named player and publish the replacement only after packing succeeds."""
+    global _previous_state
     table, check_warnings = _read_with_warnings(_state["save"].players)
     players = table.filter(lambda player: bool(player.name))
     _state["players"] = players
@@ -338,19 +344,24 @@ def read_players() -> dict[str, object]:
         name: _pack(values, "d" if name in WIDE_COLUMNS else "f")
         for name, values in numbers.items()
     }
+    text = player_text(players)
+    if _previous_state is not None:
+        previous_save = _previous_state.pop("save", None)
+        if previous_save is not None:
+            previous_save.close()
+        _previous_state = None
     return {
         "count": len(players),
         "numbers": packed,
-        "text": player_text(players),
+        "text": text,
         "warnings": check_warnings,
         "seconds": round(time.monotonic() - _state["started"], 1),
     }
 
 
 def read_stats() -> dict[str, object]:
-    """Read this season's stats, then close the save, and return the overall columns."""
+    """Read this season's stats and return the overall columns; the worker closes the save."""
     stats, check_warnings = _read_with_warnings(_state["save"].player_season_stats)
-    close_save()
     _state["stats"] = stats
     by_player: dict[int, list[Any]] = {}
     for row in stats:
@@ -361,6 +372,99 @@ def read_stats() -> dict[str, object]:
         "numbers": stats_columns("overall"),
         "warnings": check_warnings,
         "seconds": round(time.monotonic() - _state["started"], 1),
+    }
+
+
+def read_staff() -> dict[str, object]:
+    """Return staff candidates, or clearly identified employed-only released-reader data."""
+    career_save = _state["save"]
+    discover = getattr(career_save, "staff_candidates", None)
+    capability = "candidates" if callable(discover) else "employed_only"
+    table, check_warnings = _read_with_warnings(
+        discover if callable(discover) else career_save.staff
+    )
+    rows: list[dict[str, Any]] = []
+    if capability == "candidates":
+        rows = [
+            export.record_to_dict(row, json_ready=True) for row in table if not row.is_human_manager
+        ]
+    else:
+        grouped: dict[int, dict[str, Any]] = {}
+        for row in table:
+            # A department-list entry alone does not establish a current appointment.
+            clock = career_save.info.game_date
+            active_terms = (
+                row.has_contract
+                and clock is not None
+                and row.contract_start is not None
+                and row.contract_start <= clock
+                and (row.contract_end is None or clock <= row.contract_end)
+            )
+            explicit_role = (
+                not row.has_contract and row.team_id is not None and career_save.info.game == "FM27"
+            )
+            if row.is_human_manager or not (active_terms or explicit_role):
+                continue
+            record = export.record_to_dict(row, json_ready=True)
+            candidate = grouped.setdefault(
+                row.uid,
+                {
+                    **record,
+                    "employment": "employed",
+                    "appointments": [],
+                },
+            )
+            candidate["appointments"].append(record)
+        rows = list(grouped.values())
+    attributes = tuple(field.name for field in dataclasses.fields(fmsave.StaffAttributes))
+    numbers = {
+        "uid": _pack((row["uid"] for row in rows), "d"),
+        "age": _pack(row.get("age") for row in rows),
+    }
+    numbers.update(
+        {key: _pack((row.get("attributes") or {}).get(key) for row in rows) for key in attributes}
+    )
+
+    def appointments_text(row: dict[str, Any], field: str) -> str:
+        return "; ".join(dict.fromkeys(str(a[field]) for a in row["appointments"] if a.get(field)))
+
+    text = {
+        "name": [row.get("name") for row in rows],
+        "employment": [row["employment"] for row in rows],
+        "club_name": [appointments_text(row, "club_name") for row in rows],
+        "job": [appointments_text(row, "job") for row in rows],
+    }
+    note = (
+        "Candidate discovery is unavailable in this published reader; only club staff are shown. "
+        "On FM26, dated offers may appear as appointments; employment remains unconfirmed."
+        if capability == "employed_only"
+        else (
+            "Additional FM26 ratings are unconfirmed. FM26 appointments can include dated offers; "
+            "employment is unconfirmed. Free-agent detection is not established for FM26; "
+            "unattached profiles stay unknown. Word labels are an observed mapping."
+            if career_save.info.game == "FM26"
+            else "Free-agent detection is an unconfirmed inference checked on a small sample. "
+            "Employment with insufficient evidence stays unknown. Word labels are an observed mapping."
+        )
+    )
+    return {
+        "count": len(rows),
+        "numbers": numbers,
+        "text": text,
+        "rows": [
+            {
+                "uid": row["uid"],
+                "employment": row["employment"],
+                "appointments": row["appointments"],
+            }
+            for row in rows
+        ],
+        "warnings": check_warnings,
+        "capability": capability,
+        "coverage_note": note,
+        "ratings_status": "verified"
+        if career_save.info.game == "FM27" and career_save.info.known_build
+        else "unconfirmed",
     }
 
 
@@ -433,6 +537,8 @@ ENTRY_POINTS: dict[str, Callable[..., object]] = {
     "open_save": open_save,
     "read_players": read_players,
     "read_stats": read_stats,
+    "read_staff": read_staff,
+    "close_save": close_save,
     "stats_columns": stats_columns,
     "player_detail": player_detail,
     "write_csv": write_csv,
@@ -444,8 +550,12 @@ def call(name: str, *args: object) -> dict[str, object]:
 
     The error's class name comes back too, for the report the page lets someone copy.
     """
+    global _state, _previous_state
     try:
         return {"ok": ENTRY_POINTS[name](*args)}
     except Exception as error:  # noqa: BLE001 - every error reaches the page as a message
-        close_save()
+        if name in {"open_save", "read_players"} and _previous_state is not None:
+            close_save()
+            _state = _previous_state
+            _previous_state = None
         return {"error": friendly_error(error), "kind": type(error).__name__}

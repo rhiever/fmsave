@@ -44,6 +44,7 @@ READER_NAMES = (
     "facilities",
     "staff",
     "staff_lists",
+    "staff_candidates",
     "tactics",
     "squad_planner",
     "set_pieces",

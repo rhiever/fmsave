@@ -13,15 +13,26 @@ Each reader returns a `Table` of records from the save you open.
 
 ## People
 
-`players()`, `contracts()`, `suspensions()`, `staff()`, `staff_lists()`
+`players()`, `contracts()`, `suspensions()`, `staff()`, `staff_lists()`, `staff_candidates()`
 
 Players carry names, birth date and age, nationality, club, height, positions, 52 attributes,
 the 8 personality attributes, current and potential ability, reputation, transfer value,
 condition, traits, contract and any unserved ban. `contracts()` is the same contract record as a
 table of its own, which is what you want when you are looking across every deal in the save
-rather than at one club's players. Staff carry their people data, ability, personality and how
-they prefer a side to be run. FM27 exposes 21 additional, unconfirmed ratings in
-`Staff.attributes` at their stored scales.
+rather than at one club's players. Staff records include names, ability, personality, and how
+each person prefers a side to be run. FM26 and FM27 expose staff ratings at their stored scales.
+The additional FM26 rating meanings are unconfirmed. FM27 rating meanings have been checked
+against the game's labels.
+
+Use `staff_candidates()` when comparing people across clubs. Each unambiguous person appears
+once and carries its current club appointment records. The reader also looks for profiles
+outside club lists. Club-list membership alone and unresolved teams can leave employment
+`unknown`.
+
+FM27 excludes recognizable offers and can infer `free_agent` for some profiles with a staff
+role hint and no evidence of an appointment. The inference has limited in-game checks.
+On FM26, contract offers can appear as appointments. Profiles without a readable current
+contract remain `unknown`.
 
 `suspensions()` includes recognized European bans. These rows use `scope="europe"` and
 leave the competition and nation IDs empty.
@@ -141,7 +152,7 @@ or could not be joined unambiguously. Injury history also has limits. Neither re
 complete career coverage.
 
 **Unsupported fields.** fmsave does not expose today's availability, a full matchday lineup
-(`selections()` holds the stored picks), most FM26 staff ratings, club debt or asking prices.
+(`selections()` holds the stored picks), club debt, or asking prices.
 That does not establish whether the save stores them. Season statistics do include yellow and
 red cards; check each field's status before using it.
 
@@ -159,10 +170,10 @@ fmsave fills in `name` and every denormalised `competition_name`:
 ```python
 import fmsave
 
-competition_names = fmsave.read_competition_names("competition-names.csv")
-with fmsave.open("career.fm", competition_names=competition_names) as career_save:
-    for competition in career_save.competitions():
-        print(competition.database_id, competition.name)  # 12345 "Example League"
+name_map = fmsave.read_competition_names("competition-names.csv")
+with fmsave.open("career.fm", competition_names=name_map) as career_save:
+    for row in career_save.competitions():
+        print(row.database_id, row.name)  # 12345 "Example League"
 ```
 
 The file is UTF-8, 2 columns, `database_id` then `name`; a leading header row is skipped. Any

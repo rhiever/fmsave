@@ -208,6 +208,8 @@ jobs:
           printf '%s  %s\n' "$NPM_SHA512" "$npm_dir/npm.tgz" | sha512sum --check -
           tar -xzf "$npm_dir/npm.tgz" -C "$npm_dir"
           node "$npm_dir/package/bin/npm-cli.js" ci --ignore-scripts --prefix scripts/app-smoke
+      - name: Staff interface and worker regressions
+        run: node --test scripts/app-smoke/*.test.mjs
       - name: Read the example career in Pyodide with this branch's fmsave
         run: node scripts/app-smoke/smoke.mjs dist/*.whl example-career.fm
       # The live page runs main's reader.py with the newest fmsave on PyPI, so the reader must

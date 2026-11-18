@@ -78,6 +78,15 @@ function openSave(file, reply) {
     unmount();
     throw error;
   }
+  // Optional readers share the open file; neither failure closes it before the other runs.
+  try {
+    reply({ type: "stage", stage: "staff" });
+    const staff = call("read_staff");
+    const numbers = packed(staff.numbers);
+    reply({ type: "staff", ...staff, numbers }, Object.values(numbers));
+  } catch (error) {
+    reply({ type: "error", request: "staff", text: error.safe ? error.message : "Staff could not be read from this save." });
+  }
   // The players are on screen by now, so a stats failure is reported on its own and the
   // page keeps working without stats.
   try {
@@ -87,6 +96,7 @@ function openSave(file, reply) {
   } catch (error) {
     reply({ type: "error", request: "stats", text: error.safe ? error.message : "Season stats could not be read from this save." });
   } finally {
+    call("close_save");
     unmount();
   }
 }

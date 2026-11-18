@@ -12,7 +12,7 @@ their own pages: see {doc}`table` and {doc}`enums`.
 
 ## People
 
-`players()`, `contracts()`, `suspensions()`, `staff()` and `staff_lists()`.
+`players()`, `contracts()`, `suspensions()`, `staff()`, `staff_lists()`, and `staff_candidates()`.
 
 ```{eval-rst}
 .. autoclass:: fmsave.Player
@@ -27,6 +27,8 @@ their own pages: see {doc}`table` and {doc}`enums`.
 .. autoclass:: fmsave.PlayerSuspension
 .. autoclass:: fmsave.Suspension
 .. autoclass:: fmsave.Staff
+.. autoclass:: fmsave.StaffCandidate
+.. autoclass:: fmsave.StaffAppointment
 .. autoclass:: fmsave.StaffAttributes
 .. autoclass:: fmsave.StaffPreferences
 .. autoclass:: fmsave.StaffList
