@@ -17,6 +17,10 @@ const roster = {
     tactical: Float64Array.of(87, 79, NaN, 87),
     working_with_youngsters: Float64Array.of(16, 18, NaN, 16),
     technical: Float64Array.of(82, 78, NaN, 82),
+    authority: Float64Array.of(14, 14, 14, 14),
+    determination: Float64Array.of(75, 75, 75, 75),
+    motivating: Float64Array.of(80, 80, 80, 80),
+    people_management: Float64Array.of(75, 75, 75, 75),
   },
   text: { name: ["Natalia Example", "=Free Example", "Unknown Example", "Final Example"] },
   rows: candidates,
@@ -29,7 +33,7 @@ test("mixed scales display and score exactly without giving missing ratings zero
   assert.equal(staff.displayRating("determination", 100), "20.0");
   assert.equal(staff.displayRating("adaptability", 17), "17");
   assert.equal(staff.displayRating("attacking", NaN), "");
-  assert.equal(staff.presetScore(roster, youth, 0), 32.4);
+  assert.equal(staff.presetScore(roster, youth, 0), 16.03);
   assert.equal(staff.presetScore(roster, youth, 2), null);
 });
 
@@ -72,7 +76,7 @@ test("CSV uses the full sorted order with raw and displayed ratings and protects
   assert.equal(lines.length, 5);
   assert.match(lines[0], /Attacking \(\/20\),Attacking \(raw \/100\)/);
   assert.match(lines[1], /'=Free Example/);
-  assert.match(lines[1], /34\.2,18\.4,92/);
+  assert.match(lines[1], /16\.7,18\.4,92/);
   assert.match(lines[3], /Example FC.*Other FC/);
   assert.match(lines[4], /Unknown Example/);
 });
@@ -89,4 +93,49 @@ test("fictional demo exercises searchable appointments, all employment states, a
   assert.equal(staff.staffOrder(demo, { freeOnly: true }).includes(3), false);
   const analyst = staff.PRESETS.find((p) => p.id === "analyst");
   assert.equal(staff.presetScore(demo, analyst, 3), null);
+});
+
+test("attribute ranges combine with existing filters on the displayed scale", () => {
+  assert.deepEqual(staff.staffOrder(roster, {
+    job: "scout",
+    attributeRanges: [
+      { key: "attacking", min: 16.6, max: 16.6 },
+      { key: "working_with_youngsters", min: 16, max: null },
+    ],
+  }), [0, 3]);
+  assert.deepEqual(staff.staffOrder(roster, {
+    attributeRanges: [{ key: "tactical", min: null, max: 20 }],
+  }), [0, 1, 3]);
+  assert.deepEqual(staff.staffOrder(roster, {
+    freeOnly: true,
+    attributeRanges: [{ key: "attacking", min: 18.5, max: null }],
+  }), []);
+  assert.deepEqual(staff.staffOrder(roster, {
+    attributeRanges: [{ key: "tactical", min: null, max: null }],
+  }), [0, 1, 2, 3]);
+});
+
+
+test("directional coaching rewards either strong pair and gives extra credit for both", () => {
+  const numbers = {
+    attacking: [90, 90, 90, 50], defending: [90, 90, 90, 50], possession: [90, 90, 90, 50],
+    tactical: [90, 25, 90, 90], technical: [25, 90, 90, 90],
+    authority: [16, 16, 16, 16], determination: [80, 80, 80, 80], motivating: [80, 80, 80, 80],
+  };
+  for (const id of ["attacking", "defending", "possession"]) {
+    const preset = staff.PRESETS.find((p) => p.id === id);
+    const scores = [0, 1, 2, 3].map((i) => staff.presetScore({ numbers }, preset, i));
+    assert.deepEqual(scores, [15.75, 15.75, 17.7, 14.5]);
+    assert.equal(staff.presetScore({ numbers: { ...numbers, authority: [NaN] } }, preset, 0), null);
+  }
+});
+
+test("role shortcuts use the right attributes and stay on the twenty-point scale", () => {
+  const find = (id) => staff.PRESETS.find((p) => p.id === id);
+  assert.equal(find("analyst").label, "Performance Analyst");
+  assert.equal(find("dof").label, "Director of Football");
+  assert.deepEqual(find("dof").keys, ["negotiating", "judging_player_ability", "judging_player_potential"]);
+  assert.deepEqual(find("analyst").keys, ["analysing_data", "judging_player_ability"]);
+  const numbers = Object.fromEntries([...staff.STAFF_ATTRS].map(([key, { scale }]) => [key, [scale]]));
+  for (const preset of staff.PRESETS) assert.equal(staff.presetScore({ numbers }, preset, 0), 20, preset.id);
 });

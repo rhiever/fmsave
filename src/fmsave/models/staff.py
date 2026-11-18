@@ -334,7 +334,7 @@ class StaffAppointment:
 
 @dataclass(frozen=True, slots=True)
 class StaffCandidate:
-    """One distinct person available to the staff reader.
+    """A distinct person available to the staff reader.
 
     Identity and profile fields follow `Staff`. Appointments are in file order. Employment
     is `employed` when a current appointment record was read. FM26 can include offers in
@@ -358,7 +358,7 @@ class StaffCandidate:
         age: Age at the save's in-game date (unconfirmed).
         nation_id: Save-local nation id (unconfirmed).
         ability: Current and potential ability, when readable.
-        personality: The eight personality values, when readable.
+        personality: The 8 personality values, when readable.
         attributes: Adaptability and any readable staff ratings.
         preferences: The named preferences, when readable.
         employment: Employment status (unconfirmed).

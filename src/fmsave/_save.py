@@ -2048,7 +2048,7 @@ class Save:
         return context.cached(STAFF_LISTS_TABLE_CACHE_KEY, self._staff_lists_table_entry_point)
 
     def staff_candidates(self) -> Table[StaffCandidate]:
-        """Staff profiles and current appointments, one row per unambiguous person uid.
+        """Return staff profiles and appointments by unambiguous person UID.
 
         Staff search includes readable profiles independently of club lists and contracts.
         FM27 can infer free-agent status for some profiles. On FM26, a readable contract

@@ -19,7 +19,7 @@ Players carry names, birth date and age, nationality, club, height, positions, 5
 the 8 personality attributes, current and potential ability, reputation, transfer value,
 condition, traits, contract and any unserved ban. `contracts()` is the same contract record as a
 table of its own, which is what you want when you are looking across every deal in the save
-rather than at one club's players. Staff records include names, ability, personality, and how
+rather than at the players at a particular club. Staff records include names, ability, personality, and how
 each person prefers a side to be run. FM26 and FM27 expose staff ratings at their stored scales.
 The additional FM26 rating meanings are unconfirmed. FM27 rating meanings have been checked
 against the game's labels.
@@ -36,6 +36,22 @@ contract remain `unknown`.
 
 `suspensions()` includes recognized European bans. These rows use `scope="europe"` and
 leave the competition and nation IDs empty.
+
+### Staff search in the web app
+
+Choose a hiring preset to sort candidates by a weighted score out of 20. The staff profile
+shows the weight and rating for each input to the score. A missing input leaves the candidate
+unscored. The Attacking, Defending, and Possession coach searches give the higher of Tactical
+and Technical more weight. The Youth coach search gives Working With Youngsters the most
+weight and also uses coaching and people skills.
+
+The app uses its own weights to rank candidates. Sports Interactive's
+[FM26 delegation guide](https://www.footballmanager.com/the-dugout/delegating-success-football-manager-26)
+describes which attributes matter for several staff jobs, including Scout and Director of Football.
+
+Add attribute ranges in the Staff filters to narrow a search. Enter a minimum,
+a maximum, or both using the displayed ratings out of 20. Candidates with a missing rating
+are excluded when that rating has a bound.
 
 ## Clubs
 

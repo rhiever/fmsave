@@ -7,8 +7,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 ### Added
 
 - Staff candidates and additional FM26 staff ratings, with employment uncertainty kept explicit.
-- The web app has a Staff tab with rating views, hiring searches, job and age filters,
-  staff profiles, and displayed and stored ratings in CSV downloads.
+- The web app has a Staff tab with weighted hiring scores, job and age filters, attribute
+  ranges, staff profiles, and CSV downloads with displayed and stored ratings.
 
 ### Fixed
 

@@ -22,20 +22,32 @@ const GROUP_HUES = { Coaching: "tec", Mental: "men", Medical: "phy", Scouting: "
 export const STAFF_ATTRS = new Map(Object.entries(STAFF_GROUPS).flatMap(([group, list]) => list.map(
   ([key, abbr, label, scale = 100]) => [key, { key, abbr, label, scale, group, hue: GROUP_HUES[group] }],
 )));
+function preset(id, label, weights, pair) {
+  return { id, label, weights, pair, keys: Object.keys(weights) };
+}
+
+const coaching = { authority: 5, determination: 5, motivating: 5 };
+const techniquePair = ["tactical", "technical"];
+const direction = (id, label) => preset(id, label, {
+  [id]: 40, tactical: 30, technical: 15, ...coaching,
+}, techniquePair);
+
 export const PRESETS = [
-  ["attacking", "Attacking coach", "attacking", "tactical"],
-  ["defending", "Defending coach", "defending", "tactical"],
-  ["possession", "Possession coach", "possession", "technical"],
-  ["fitness", "Fitness coach", "fitness"],
-  ["goalkeeping", "Goalkeeping coach", "goalkeeping"],
-  ["set_pieces", "Set-piece coach", "set_pieces"],
-  ["youth", "Youth coach", "working_with_youngsters", "technical"],
-  ["physio", "Physio", "physiotherapy"],
-  ["sports_science", "Sports scientist", "sports_science"],
-  ["scout", "Scout", "judging_player_ability", "judging_player_potential"],
-  ["analyst", "Analyst", "analysing_data"],
-  ["dof", "Director of Football", "judging_staff_ability", "negotiating"],
-].map(([id, label, ...keys]) => ({ id, label, keys, formula: keys.map((key) => STAFF_ATTRS.get(key).label).join(" + ") }));
+  direction("attacking", "Attacking coach"),
+  direction("defending", "Defending coach"),
+  direction("possession", "Possession coach"),
+  preset("fitness", "Fitness Coach", { fitness: 80, authority: 10, motivating: 10 }),
+  preset("goalkeeping", "Goalkeeping Coach", { goalkeeping: 70, authority: 10, determination: 10, motivating: 10 }),
+  preset("set_pieces", "Set Piece Coach", { set_pieces: 55, tactical_knowledge: 15, authority: 10, determination: 10, motivating: 10 }),
+  preset("youth", "Youth coach", {
+    working_with_youngsters: 60, tactical: 15, technical: 5, ...coaching, people_management: 5,
+  }, techniquePair),
+  preset("physio", "Physio", { physiotherapy: 100 }),
+  preset("sports_science", "Sports Scientist", { sports_science: 100 }),
+  preset("scout", "Scout", { judging_player_ability: 45, judging_player_potential: 45, adaptability: 10 }),
+  preset("analyst", "Performance Analyst", { analysing_data: 80, judging_player_ability: 20 }),
+  preset("dof", "Director of Football", { negotiating: 40, judging_player_ability: 30, judging_player_potential: 30 }),
+];
 
 const EMPLOYMENT = { employed: "Employed", free_agent: "Free agent (inferred)", unknown: "Employment unknown" };
 const confirmedJob = (appointment) => {
@@ -58,14 +70,26 @@ export function displayRating(key, raw) {
   return (ratingUnits(key, raw) / 10).toFixed(STAFF_ATTRS.get(key).scale === 100 ? 1 : 0);
 }
 
+function scoreWeights(roster, preset, i) {
+  if (!preset.pair) return preset.weights;
+  const [first, second] = preset.pair;
+  const a = roster.numbers[first]?.[i];
+  const b = roster.numbers[second]?.[i];
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  if (a >= b) return preset.weights;
+  return { ...preset.weights, [first]: preset.weights[second], [second]: preset.weights[first] };
+}
+
 export function presetScore(roster, preset, i) {
-  let units = 0;
+  const weights = scoreWeights(roster, preset, i);
+  if (!weights) return null;
+  let total = 0;
   for (const key of preset.keys) {
     const raw = roster.numbers[key]?.[i];
     if (!Number.isFinite(raw)) return null;
-    units += ratingUnits(key, raw);
+    total += ratingUnits(key, raw) * weights[key];
   }
-  return units / 10;
+  return total / 1000;
 }
 
 function staffValue(roster, key, i, preset) {
@@ -81,8 +105,9 @@ function staffSearchText(roster, i) {
   return fold([roster.text.name[i], ...appointments(roster, i).flatMap((a) => [employerName(a), jobLabel(confirmedJob(a))])].filter(Boolean).join(" "));
 }
 
-export function staffOrder(roster, { search = "", freeOnly = false, job = "", ageMin, ageMax, preset, sort } = {}) {
+export function staffOrder(roster, { search = "", freeOnly = false, job = "", ageMin, ageMax, attributeRanges = [], preset, sort } = {}) {
   const query = fold(search.trim());
+  const ranges = attributeRanges.filter(({ min, max }) => min != null || max != null);
   const order = [];
   for (let i = 0; i < roster.count; i++) {
     if (freeOnly && employment(roster, i) !== "free_agent") continue;
@@ -90,6 +115,10 @@ export function staffOrder(roster, { search = "", freeOnly = false, job = "", ag
     const age = roster.numbers.age[i];
     if (ageMin != null && !(age >= ageMin) || ageMax != null && !(age <= ageMax)) continue;
     if (query && !(roster.searchText?.[i] ?? staffSearchText(roster, i)).includes(query)) continue;
+    if (!ranges.every(({ key, min, max }) => {
+      const value = ratingUnits(key, roster.numbers[key]?.[i]) / 10;
+      return Number.isFinite(value) && (min == null || value >= min) && (max == null || value <= max);
+    })) continue;
     order.push(i);
   }
   if (!sort) return order;
@@ -155,7 +184,7 @@ const STAFF_LEAD = [
 ];
 
 function defaultFilters() {
-  return { search: "", freeOnly: false, job: "", ageMin: null, ageMax: null };
+  return { search: "", freeOnly: false, job: "", ageMin: null, ageMax: null, attributeRanges: [] };
 }
 
 function attrCell(c, raw) {
@@ -214,9 +243,15 @@ function renderDetail(roster, i, preset) {
   const status = employment(roster, i);
   const summary = [EMPLOYMENT[status], roster.text.job[i], roster.text.club_name[i]].filter(Boolean).map(esc).join(", ");
   const score = preset && presetScore(roster, preset, i);
+  const weights = preset && scoreWeights(roster, preset, i);
   const heading = preset ? `<div class="fit" style="${hueStyle(STAFF_ATTRS.get(preset.keys[0]).hue)}">
     <strong>${preset.label} score</strong>
-    <div class="fit-row"><b>${score?.toFixed(1) ?? "Unscored"}</b><span>${preset.keys.map((key) => `${STAFF_ATTRS.get(key).label} ${displayRating(key, roster.numbers[key]?.[i]) || "-"}`).join(" + ")}</span></div>
+    <div class="fit-row"><b>${score?.toFixed(1) ?? "Unscored"}</b>${score == null ? "<span>Required ratings are missing.</span>" : "<span>out of 20</span>"}</div>
+    ${score == null ? "" : `<ul class="staff-score-weights" aria-label="Ratings and score weights">${preset.keys.map((key) => {
+      const rating = displayRating(key, roster.numbers[key][i]);
+      return `<li><span>${STAFF_ATTRS.get(key).label}</span><b>${rating}</b><small>${weights[key]}%</small></li>`;
+    }).join("")}</ul>`}
+    ${preset.pair ? "<p>The higher of Tactical and Technical gets more weight.</p>" : ""}
   </div>` : "";
   const groups = Object.keys(STAFF_GROUPS);
   const withPreset = preset ? [...new Set(preset.keys.map((key) => STAFF_ATTRS.get(key).group).concat(groups))] : groups;
@@ -279,6 +314,9 @@ export function createStaffUi(download) {
   const job = byId("staff-job");
   const ageMin = byId("staff-age-min");
   const ageMax = byId("staff-age-max");
+  const attributeChoice = byId("staff-attribute-choice");
+  const attributeAdd = byId("staff-attribute-add");
+  const attributeRanges = byId("staff-attribute-ranges");
   const filters = defaultFilters();
   let roster = null;
   let pending = false;
@@ -293,7 +331,7 @@ export function createStaffUi(download) {
   let wasPhone = phone();
 
   viewControls.innerHTML = Object.entries(GROUP_HUES).map(([name, hue]) => `<button type="button" data-staff-view="${name}" aria-pressed="false"><i aria-hidden="true" style="background:rgb(var(--${hue}))"></i>${name}</button>`).join("");
-  presetControls.innerHTML = PRESETS.map(({ id, label, formula }) => `<button type="button" data-preset="${id}" aria-pressed="false" title="${formula}">${label}</button>`).join("");
+  presetControls.innerHTML = PRESETS.map(({ id, label }) => `<button type="button" data-preset="${id}" aria-pressed="false">${label}</button>`).join("");
 
   function drawHead() {
     const focused = head.contains(document.activeElement) ? document.activeElement.dataset.staffSort : null;
@@ -376,8 +414,7 @@ export function createStaffUi(download) {
     grid.setAttribute("aria-rowcount", order.length + 1);
     csvButton.disabled = !order.length;
     const count = roster ? `${number(order.length)} of ${number(roster.count)} staff` : "";
-    const formula = preset ? `<small class="staff-formula">Score = ${esc(preset.formula)}</small>` : "";
-    byId("staff-count").innerHTML = count + formula;
+    byId("staff-count").innerHTML = count + (preset ? '<small class="staff-formula">fmsave score out of 20</small>' : "");
     for (const b of viewControls.children) b.setAttribute("aria-pressed", b.dataset.staffView === view);
     for (const b of presetControls.children) b.setAttribute("aria-pressed", b.dataset.preset === preset?.id);
   }
@@ -416,12 +453,36 @@ export function createStaffUi(download) {
     }
   }
 
+  function drawAttributeRanges() {
+    const used = new Set(filters.attributeRanges.map(({ key }) => key));
+    attributeChoice.innerHTML = '<option value="">Choose an attribute</option>' + Object.entries(STAFF_GROUPS).map(([group, attrs]) => {
+      const choices = attrs.filter(([key]) => !used.has(key));
+      return choices.length ? `<optgroup label="${group}">${choices.map(([key, , label]) =>
+        `<option value="${key}">${esc(label)}</option>`).join("")}</optgroup>` : "";
+    }).join("");
+    attributeChoice.disabled = used.size === STAFF_ATTRS.size;
+    attributeAdd.disabled = true;
+    attributeRanges.innerHTML = filters.attributeRanges.map(({ key, min, max }) => {
+      const { label, scale } = STAFF_ATTRS.get(key);
+      const low = scale === 100 ? "0.2" : "1";
+      return `<fieldset class="staff-range" data-attribute="${key}">
+        <legend>${esc(label)}</legend>
+        <div class="pair">
+          <label>Min<input type="number" data-bound="min" aria-label="${esc(label)} minimum" min="${low}" max="20" step="any" inputmode="decimal" value="${min ?? ""}"></label>
+          <label>Max<input type="number" data-bound="max" aria-label="${esc(label)} maximum" min="${low}" max="20" step="any" inputmode="decimal" value="${max ?? ""}"></label>
+        </div>
+        <button class="link staff-range-remove" type="button" aria-label="Remove ${esc(label)} filter">Remove</button>
+      </fieldset>`;
+    }).join("");
+  }
+
   function syncFilters() {
     search.value = filters.search;
     freeOnly.checked = filters.freeOnly;
     job.value = filters.job;
     ageMin.value = filters.ageMin ?? "";
     ageMax.value = filters.ageMax ?? "";
+    drawAttributeRanges();
   }
 
   viewControls.addEventListener("click", (e) => {
@@ -497,6 +558,32 @@ export function createStaffUi(download) {
       refresh({ headChanged: false });
     });
   }
+  attributeChoice.addEventListener("change", () => {
+    attributeAdd.disabled = !attributeChoice.value;
+  });
+  attributeAdd.addEventListener("click", () => {
+    const key = attributeChoice.value;
+    if (!STAFF_ATTRS.has(key)) return;
+    filters.attributeRanges.push({ key, min: null, max: null });
+    drawAttributeRanges();
+    attributeRanges.querySelector(`[data-attribute="${key}"] [data-bound="min"]`).focus();
+  });
+  attributeRanges.addEventListener("input", (e) => {
+    const input = e.target;
+    if (!input.dataset.bound) return;
+    const key = input.closest("[data-attribute]").dataset.attribute;
+    const range = filters.attributeRanges.find((item) => item.key === key);
+    range[input.dataset.bound] = Number.isFinite(input.valueAsNumber) ? input.valueAsNumber : null;
+    refresh({ headChanged: false });
+  });
+  attributeRanges.addEventListener("click", (e) => {
+    if (!e.target.closest(".staff-range-remove")) return;
+    const key = e.target.closest("[data-attribute]").dataset.attribute;
+    filters.attributeRanges = filters.attributeRanges.filter((range) => range.key !== key);
+    drawAttributeRanges();
+    attributeChoice.focus();
+    refresh({ headChanged: false });
+  });
   byId("staff-clear").addEventListener("click", () => {
     Object.assign(filters, defaultFilters());
     syncFilters();

@@ -360,7 +360,7 @@ def read_players() -> dict[str, object]:
 
 
 def read_stats() -> dict[str, object]:
-    """Read this season's stats and return the overall columns; the worker closes the save."""
+    """Return overall columns for this season's stats. The worker closes the save."""
     stats, check_warnings = _read_with_warnings(_state["save"].player_season_stats)
     _state["stats"] = stats
     by_player: dict[int, list[Any]] = {}
@@ -376,7 +376,7 @@ def read_stats() -> dict[str, object]:
 
 
 def read_staff() -> dict[str, object]:
-    """Return staff candidates, or clearly identified employed-only released-reader data."""
+    """Return staff candidates or fall back to club staff with the published reader."""
     career_save = _state["save"]
     discover = getattr(career_save, "staff_candidates", None)
     capability = "candidates" if callable(discover) else "employed_only"
@@ -435,13 +435,13 @@ def read_staff() -> dict[str, object]:
         "job": [appointments_text(row, "job") for row in rows],
     }
     note = (
-        "Candidate discovery is unavailable in this published reader; only club staff are shown. "
-        "On FM26, dated offers may appear as appointments; employment remains unconfirmed."
+        "This published reader shows club staff only. Candidate discovery is unavailable. "
+        "On FM26, dated offers may appear as appointments. Employment remains unconfirmed."
         if capability == "employed_only"
         else (
-            "Additional FM26 ratings are unconfirmed. FM26 appointments can include dated offers; "
-            "employment is unconfirmed. Free-agent detection is not established for FM26; "
-            "unattached profiles stay unknown. Word labels are an observed mapping."
+            "Additional FM26 ratings are unconfirmed. FM26 appointments can include dated offers. "
+            "Employment is unconfirmed. Free-agent detection is unavailable for FM26. "
+            "Unattached profiles stay unknown. Word labels are an observed mapping."
             if career_save.info.game == "FM26"
             else "Free-agent detection is an unconfirmed inference checked on a small sample. "
             "Employment with insufficient evidence stays unknown. Word labels are an observed mapping."

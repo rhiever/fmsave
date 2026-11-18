@@ -1677,8 +1677,8 @@ class StaffLayout:
     `allocated_uid_minimum`, distinct identity words also require the complete staff ability
     and preference structure. `kind_offset` holds `staff_kind` for a staff member
     and `human_kind` for the human manager. `entry_count_offset` holds how many `entry_bytes`
-    entries the object carries; they start two bytes later, behind a zero byte. Three
-    reputation words follow the entries, so the ability block starts at
+    entries the object carries. The entries start 2 bytes later, after a byte set to 0.
+    The ability block starts after the entries and 3 reputation words, so its offset is
 
         ability = header + ability_base_offset + entry_bytes * entry_count
 
