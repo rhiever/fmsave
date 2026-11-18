@@ -353,10 +353,24 @@ def read_players() -> dict[str, object]:
         _previous_state = None
     return {
         "count": len(players),
+        "scouting": callable(getattr(fmsave, "scouting_score", None)),
         "numbers": packed,
         "text": text,
         "warnings": check_warnings,
         "seconds": round(time.monotonic() - _state["started"], 1),
+    }
+
+
+def scouting_columns(position: str) -> dict[str, bytes]:
+    """Score the selected position in player-list order."""
+    score = getattr(fmsave, "scouting_score", None)
+    if not callable(score):
+        raise AppError("Scouting scores need a newer reader.")
+    return {
+        f"scouting_score_{model}": _pack(
+            (score(player, position, model=model) for player in _state["players"]), "d"
+        )
+        for model in ("full", "visible")
     }
 
 
@@ -539,6 +553,7 @@ ENTRY_POINTS: dict[str, Callable[..., object]] = {
     "read_staff": read_staff,
     "close_save": close_save,
     "stats_columns": stats_columns,
+    "scouting_columns": scouting_columns,
     "player_detail": player_detail,
     "write_csv": write_csv,
 }

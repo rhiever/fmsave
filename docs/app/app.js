@@ -2,29 +2,36 @@
 // column per field; this file ranks, filters, sorts, and draws them. Nothing here sends save
 // data anywhere: the only requests are for the page's own files and the reader.
 
-import {
-  ATTRIBUTES, COLUMNS, DAY, GROUPS, GROUP_HUE, KINDS, PERSONALITY, POSITION_SLOTS, STAT_GROUPS, TOKEN_GROUP, VIEWS,
-  day, esc, fold, format, human, isRate, isText, kindLabel, money, number, ordinal, parseValue, positions,
-} from "./catalog.js";
 import { WHEEL_ORDER, pitch, wheel } from "./charts.js";
 import { createColumnFilters } from "./column-filters.js";
+
+// Keep the player views and their columns on the same app revision.
+const VERSION = new URL(import.meta.url).searchParams.get("v") || "";
+const asset = (name) => new URL(name + (VERSION ? `?v=${VERSION}` : ""), import.meta.url).href;
+const {
+  ATTRIBUTES, COLUMNS, DAY, GROUPS, GROUP_HUE, KINDS, PERSONALITY, POSITION_SLOTS, STAT_GROUPS, TOKEN_GROUP, VIEWS,
+  addScoutingColumns, day, esc, fold, format, human, isRate, isText, kindLabel, money, number, ordinal, parseValue, positions,
+} = await import(asset("catalog.js"));
+addScoutingColumns();
+const PLAYER_VIEWS = [...VIEWS, {
+  id: "scouting", label: "Scouting", cols: ["scouting_score_full", "scouting_score_visible", "transfer_value", "contract_wage"],
+}];
 
 const $ = (id) => document.getElementById(id);
 const narrow = () => matchMedia("(max-width: 1080px)").matches;
 const phone = () => matchMedia("(max-width: 760px)").matches;
-// Every file the page loads carries the build's version, so a deploy never mixes old and new.
-const VERSION = new URL(import.meta.url).searchParams.get("v") || "";
-const asset = (name) => new URL(name + (VERSION ? `?v=${VERSION}` : ""), import.meta.url).href;
 const { createStaffUi, STAFF_ATTRS } = await import(asset("staff.js"));
 const staffUi = createStaffUi(download);
 const LEAD = ["name", "age", "natural_positions", "ability_current", "ability_potential"];
 const PHONE_LEAD = ["name", "ability_current", "ability_potential", "age", "natural_positions"];
 const MIN_MINUTES = 450;
+const SCOUTING_GROUPS = new Map(GROUPS.map(([abbr], i) => [({ FB: "FB/WB", W: "WIDE" })[abbr] || abbr, i]));
+const SCOUTING_SORT = { key: "scouting_score_full", dir: -1 };
 
 const state = {
   list: "all", staffActive: false, view: "overview", statGroup: "General", statMode: "p90", statKind: "overall", wantedKind: "overall",
   compare: "position", highlight: 20, extras: [], sort: { key: "ability_current", dir: -1 },
-  search: "", positions: new Set(), ageMin: null, ageMax: null, rules: [],
+  scoutingPosition: "", search: "", positions: new Set(), ageMin: null, ageMax: null, rules: [],
   selected: -1, panelTab: "attributes", demo: null, loading: false, generation: 0,
 };
 let data = null;
@@ -38,14 +45,18 @@ const details = new Map();
 
 function column(key) {
   if (!data) return null;
-  return data.num[key] || data.text[key] || data.stats?.num[key] || null;
+  return data.num[key] || data.text[key] || data.stats?.num[key] || data.scouting.get(state.scoutingPosition)?.[key] || null;
 }
 const value = (key, i) => column(key)?.[i];
 const shown = (key, i) => format(COLUMNS.get(key), value(key, i));
 const hasSquad = () => data?.squadUid !== null && data?.squadUid !== undefined;
 
-function load(meta, count, numbers, text, readerWarnings = []) {
+function load(meta, count, numbers, text, readerWarnings = [], hasScouting = false) {
   data = { meta, readerWarnings, n: count, num: {}, text, stats: null, squadUid: meta.club_uid, squadCount: null, haystack: null };
+  data.hasScouting = hasScouting;
+  data.scouting = new Map();
+  data.scoutingPending = new Set();
+  if (!hasScouting && state.view === "scouting") setPlayerView("overview");
   for (const [key, buf] of Object.entries(numbers)) {
     data.num[key] = buf instanceof ArrayBuffer ? (buf.byteLength === count * 8 ? new Float64Array(buf) : new Float32Array(buf)) : buf;
   }
@@ -186,7 +197,13 @@ function ruleTest(rule) {
 function compute() {
   const q = fold(state.search.trim());
   if (q && !data.haystack) data.haystack = data.text.name.map((name, i) => fold(name) + " " + fold(data.text.club_name[i]));
-  const posMask = [...state.positions].reduce((m, g) => m | (1 << g), 0);
+  const scouting = state.view === "scouting";
+  const scoutGroup = SCOUTING_GROUPS.get(state.scoutingPosition);
+  if (scouting && (scoutGroup === undefined || !data.scouting.has(state.scoutingPosition))) {
+    order = new Uint32Array(0);
+    return;
+  }
+  const posMask = scouting ? 1 << scoutGroup : [...state.positions].reduce((m, g) => m | (1 << g), 0);
   const tests = state.rules.map(ruleTest);
   const { age, club_uid: club, uid } = data.num;
   const out = [];
@@ -227,14 +244,16 @@ function sortList(list) {
 const rowHeight = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--row")) || 32;
 
 function viewCols() {
-  const view = VIEWS.find((v) => v.id === state.view);
+  const view = PLAYER_VIEWS.find((v) => v.id === state.view);
   let cols = view.cols;
   if (view.id === "stats") {
     cols = STAT_GROUPS[state.statGroup].map((k) => (state.statMode === "p90" && COLUMNS.has(k + "_per_90") ? k + "_per_90" : k));
     if (state.statMode === "p90" && !cols.includes("minutes")) cols = ["minutes", ...cols];
   }
-  const lead = phone() ? PHONE_LEAD : LEAD;
-  const keys = [...new Set([...lead, ...cols, ...state.extras])];
+  const viewKeys = view.id === "scouting"
+    ? ["name", ...cols, "natural_positions", "club_name", "age"]
+    : [...(phone() ? PHONE_LEAD : LEAD), ...cols];
+  const keys = [...new Set([...viewKeys, ...state.extras])];
   return keys.map((k) => COLUMNS.get(k));
 }
 
@@ -501,10 +520,14 @@ function closeDrawer(id) {
 // ---------- Controls ----------
 
 function buildControls() {
-  $("views").innerHTML = VIEWS.map((v) => `<button role="tab" data-view="${v.id}" aria-selected="${v.id === state.view}">${v.hue ? `<i style="background:rgb(var(--${v.hue}))"></i>` : ""}${v.label}</button>`).join("");
+  $("views").innerHTML = PLAYER_VIEWS.filter((v) => v.id !== "scouting" || data.hasScouting).map((v) => `<button role="tab" data-view="${v.id}" aria-selected="${v.id === state.view}">${v.hue ? `<i style="background:rgb(var(--${v.hue}))"></i>` : ""}${v.label}</button>`).join("");
   $("stat-groups").innerHTML = Object.keys(STAT_GROUPS).map((g) => `<button data-group="${g}" aria-pressed="${g === state.statGroup}">${g}</button>`).join("");
   for (const id of ["stat-kind", "stat-kind-bar"]) $(id).innerHTML = KINDS.map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
   $("positions").innerHTML = GROUPS.map(([abbr, label], g) => `<button data-pos="${g}" aria-pressed="${state.positions.has(g)}" title="${label}">${abbr}</button>`).join("");
+  $("scouting-position").innerHTML = '<option value="">Choose a position</option>' + [...SCOUTING_GROUPS].map(([code, i]) => {
+    const label = GROUPS[i][1];
+    return `<option value="${code}">${label[0].toUpperCase() + label.slice(1)}</option>`;
+  }).join("");
   drawColumnsMenu();
   syncControls();
 }
@@ -537,7 +560,7 @@ function playerFilterFields(c) {
 function playerFilterGroups() {
   const groups = new Map();
   for (const c of COLUMNS.values()) {
-    if (isText(c) || c.fmt === "flag") continue;
+    if (isText(c) || c.fmt === "flag" || c.scouting) continue;
     const group = { Ability: "Player", Stats: "Season stats" }[c.group] || c.group;
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group).push(c);
@@ -549,7 +572,7 @@ function drawColumnsMenu() {
   const q = fold($("columns-search").value);
   const groups = new Map();
   for (const c of COLUMNS.values()) {
-    if (LEAD.includes(c.key) || (q && !fold(c.label).includes(q) && !fold(c.abbr).includes(q))) continue;
+    if (c.scouting || LEAD.includes(c.key) || (q && !fold(c.label).includes(q) && !fold(c.abbr).includes(q))) continue;
     const g = { Ability: "Player", Stats: "Season stats" }[c.group] || c.group;
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(c);
@@ -572,7 +595,26 @@ function syncControls() {
   pressed("stat-mode", "data-mode", state.statMode);
   for (const id of ["stat-kind", "stat-kind-bar"]) $(id).value = state.wantedKind;
   $("statbar").hidden = state.view !== "stats";
+  const scouting = state.view === "scouting";
+  $("scouting-bar").hidden = !scouting;
+  $("position-filters").hidden = scouting;
+  $("scouting-position").value = state.scoutingPosition;
+  $("scouting-status").textContent = data.scoutingPending.has(state.scoutingPosition) ? "Scoring players" : "";
+  $("csv-menu").querySelector('[data-csv="view"]').disabled = scouting && !data.scouting.has(state.scoutingPosition);
   $("floor-hint").textContent = `Stat ranks require at least ${minuteFloor()} minutes in this competition. The same cutoff applies when filtering by a rate or average, such as goals per 90 or average rating. It is lower early in the season.`;
+}
+
+function setPlayerView(view) {
+  if (view === "scouting") state.sort = SCOUTING_SORT;
+  else if (state.view === "scouting" && COLUMNS.get(state.sort.key).scouting) state.sort = { key: "ability_current", dir: -1 };
+  state.view = view;
+}
+
+function requestScouting() {
+  const position = state.scoutingPosition;
+  if (!position || data.scouting.has(position) || data.scoutingPending.has(position)) return;
+  data.scoutingPending.add(position);
+  send({ type: "scouting", position });
 }
 
 // Only the competition asked for last is shown, whatever order the answers arrive in.
@@ -693,7 +735,18 @@ function wire() {
     refresh();
     if (!order.includes(state.selected) && order.length && !narrow()) selectIndex(order[0], { scroll: false });
   });
-  onPick("views", "data-view", (view) => { state.view = view; syncControls(); refresh({ keepScroll: true }); });
+  onPick("views", "data-view", (view) => {
+    setPlayerView(view);
+    if (view === "scouting") requestScouting();
+    syncControls();
+    refresh({ keepScroll: true });
+  });
+  $("scouting-position").addEventListener("change", (event) => {
+    state.scoutingPosition = event.target.value;
+    requestScouting();
+    syncControls();
+    refresh();
+  });
   onPick("stat-groups", "data-group", (group) => { state.statGroup = group; syncControls(); refresh({ keepScroll: true }); });
   onPick("stat-mode", "data-mode", (mode) => { state.statMode = mode; syncControls(); refresh({ keepScroll: true }); });
   onPick("positions", "data-pos", (g, b) => {
@@ -797,16 +850,20 @@ function csvCell(v, col) {
   return /[",\n\r]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
 }
 function viewCsv() {
-  const lines = [["shortlisted", ...visibleCols.map((c) => c.key)].join(",")];
+  const position = state.view === "scouting" ? state.scoutingPosition : "";
+  const header = position ? ["shortlisted", "scouting_position"] : ["shortlisted"];
+  const lines = [[...header, ...visibleCols.map((c) => c.key)].join(",")];
   for (const i of order) {
     const cells = visibleCols.map((c) => {
       const v = value(c.key, i);
       if (c.fmt === "date") return Number.isNaN(v) ? "" : new Date(v * DAY).toISOString().slice(0, 10);
       if (c.fmt === "flag") return v ? "yes" : "";
-      if (typeof v === "number" && !["int", "attr", "money"].includes(c.fmt)) return csvCell(Math.round(v * 100) / 100);
+      if (typeof v === "number" && !["int", "attr", "money", "dec3"].includes(c.fmt)) return csvCell(Math.round(v * 100) / 100);
       return csvCell(v, c);
     });
-    lines.push([shortlist.has(data.num.uid[i]) ? "yes" : "", ...cells].join(","));
+    const lead = [shortlist.has(data.num.uid[i]) ? "yes" : ""];
+    if (position) lead.push(position);
+    lines.push([...lead, ...cells].join(","));
   }
   // A byte order mark tells Excel the file is UTF-8, so accented names open correctly.
   return new Blob(["\ufeff" + lines.join("\n") + "\n"], { type: "text/csv" });
@@ -883,7 +940,7 @@ const CSV_LABELS = { players: "All players", squad: "Your club", "season-stats":
 function onWorkerMessage({ data: msg }, reader) {
   // Optional reads from the visible save can finish while a replacement is opening.
   const request = msg.type === "error" ? msg.request : msg.type;
-  const optionalRead = reader === committedReader && ["staff", "stats"].includes(request);
+  const optionalRead = reader === committedReader && ["staff", "stats", "scouting"].includes(request);
   if (!optionalRead && msg.generation !== undefined && msg.generation !== state.generation) return;
   switch (msg.type) {
     case "ready":
@@ -907,7 +964,7 @@ function onWorkerMessage({ data: msg }, reader) {
       state.loading = false;
       state.demo = null;
       clearInterval(tick);
-      load(pendingMeta, msg.count, msg.numbers, msg.text, msg.warnings);
+      load(pendingMeta, msg.count, msg.numbers, msg.text, msg.warnings, msg.scouting);
       state.staffActive = false;
       staffUi.setActive(false);
       staffUi.setData({ pending: true });
@@ -927,6 +984,14 @@ function onWorkerMessage({ data: msg }, reader) {
       if (!first && msg.kind === state.wantedKind) toast(`${kindLabel(msg.kind)} stats loaded.`, 1600);
       break;
     }
+    case "scouting":
+      data.scoutingPending.delete(msg.position);
+      data.scouting.set(msg.position, Object.fromEntries(Object.entries(msg.numbers).map(([key, buffer]) => [key, new Float64Array(buffer)])));
+      if (state.view === "scouting" && msg.position === state.scoutingPosition) {
+        syncControls();
+        refresh();
+      }
+      break;
     case "detail":
       details.set(msg.uid, msg.detail);
       if (data.num.uid[state.selected] === msg.uid && ["contract", "personality"].includes(state.panelTab)) drawPanel();
@@ -959,6 +1024,12 @@ function onWorkerError(msg, reader) {
     $("csv-menu").querySelector('[data-csv="season-stats"]').hidden = true;
     refresh({ head: false, keepScroll: true });
     toast(msg.text, 6000);
+  } else if (msg.request === "scouting") {
+    data.scoutingPending.delete(msg.position);
+    if (state.view === "scouting" && msg.position === state.scoutingPosition) {
+      syncControls();
+      $("scouting-status").textContent = "Scouting scores could not load. Select the position again to retry.";
+    }
   } else if (msg.request === "detail") {
     details.delete(msg.uid);
   } else {
@@ -1081,6 +1152,7 @@ function showApp({ keep = false } = {}) {
   for (const b of $("csv-menu").querySelectorAll("[data-csv]")) b.hidden = (state.demo && b.dataset.csv !== "view") || (!hasSquad() && b.dataset.csv === "squad");
   $("tabs").querySelector('[data-list="squad"]').hidden = !hasSquad();
   state.list = hasSquad() ? "squad" : "all";
+  if (state.view === "scouting") requestScouting();
   buildControls();
   for (const id of ["stat-kind", "stat-kind-bar"]) $(id).disabled = false;
   refresh();

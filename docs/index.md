@@ -67,6 +67,7 @@ If the game is running, copy the save and read the copy.
   and filters. Read this one first.
 - [Getting data out](guides/exporting.md): DataFrames, CSV, JSON, and the `fmsave export`
   command.
+- Rank players by expected league match rating with [scouting scores](guides/scouting.md).
 - [What a save holds](guides/what-a-save-holds.md): the readers and their coverage limits.
 - [Trusting a number](guides/trust.md): how to tell a verified field from an unconfirmed one,
   and what a reader's checks mean.
@@ -80,6 +81,7 @@ The reference section documents every record, field and command.
 
 guides/squad
 guides/exporting
+guides/scouting
 guides/what-a-save-holds
 guides/trust
 ```

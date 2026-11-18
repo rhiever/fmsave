@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-18
+
+### Added
+
+- Scouting scores for 8 positions in the web app, Python player tables, and CLI exports.
+  Choose the full or visible-only model to rank players by expected future league match rating.
 ## [0.13.0] - 2026-11-18
 
 ### Added

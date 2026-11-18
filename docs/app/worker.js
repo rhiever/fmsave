@@ -73,7 +73,7 @@ function openSave(file, reply) {
     reply({ type: "stage", stage: "players" });
     const players = call("read_players");
     const numbers = packed(players.numbers);
-    reply({ type: "players", count: players.count, numbers, text: players.text, warnings: players.warnings }, Object.values(numbers));
+    reply({ type: "players", count: players.count, numbers, text: players.text, scouting: players.scouting, warnings: players.warnings }, Object.values(numbers));
   } catch (error) {
     unmount();
     throw error;
@@ -122,6 +122,9 @@ onmessage = async ({ data }) => {
     else if (data.type === "stats") {
       const numbers = packed(call("stats_columns", data.kind));
       reply({ type: "stats", kind: data.kind, numbers }, Object.values(numbers));
+    } else if (data.type === "scouting") {
+      const numbers = packed(call("scouting_columns", data.position));
+      reply({ type: "scouting", position: data.position, numbers }, Object.values(numbers));
     } else if (data.type === "detail") {
       reply({ type: "detail", uid: data.uid, detail: call("player_detail", data.uid) });
     } else if (data.type === "csv") {
@@ -135,6 +138,6 @@ onmessage = async ({ data }) => {
         : "Something went wrong in the reader. Reload the page and try again.";
     const request = data.type === "boot" ? "boot" : !reader ? "boot" : data.type;
     const kind = error.safe ? error.kind : error.name;
-    postMessage({ type: "error", request, name: data.name, uid: data.uid, text, kind, generation: data.type === "boot" ? undefined : data.generation });
+    postMessage({ type: "error", request, name: data.name, uid: data.uid, position: data.position, text, kind, generation: data.type === "boot" ? undefined : data.generation });
   }
 };

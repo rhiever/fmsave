@@ -481,3 +481,19 @@ def test_unknown_fm27_build_does_not_get_verified_rating_badges(
     )
     monkeypatch.setitem(reader._state, "save", proxy)
     assert reader.read_staff()["ratings_status"] == "unconfirmed"
+
+
+def test_scouting_columns_match_the_scorer_in_player_order(opened: dict[str, Any]) -> None:
+    assert opened["players"]["scouting"] is True
+    players = reader._state["players"]
+    columns = reader.scouting_columns("CB")
+    for mode in ("full", "visible"):
+        expected = [fmsave.scouting_score(player, "CB", model=mode) for player in players]
+        assert len(columns[f"scouting_score_{mode}"]) == 8 * len(players)
+        for value, wanted in zip(
+            unpack(columns[f"scouting_score_{mode}"], "d"), expected, strict=True
+        ):
+            if wanted is None:
+                assert math.isnan(value)
+            else:
+                assert value == wanted

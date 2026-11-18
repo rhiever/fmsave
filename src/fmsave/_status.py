@@ -178,12 +178,11 @@ def field_status(model_class: type, field_name: str) -> FieldStatus:
                 f"{group_name!r} is not a group field of {owner_class.__name__}"
             )
         owner_class = group_class
-    try:
-        return _statuses_by_class[owner_class][leaf_name]
-    except KeyError:
-        raise KeyError(
-            f"{model_class.__name__} has no registered status for {field_name!r}"
-        ) from None
+    for record_class in owner_class.__mro__:
+        status = _statuses_by_class.get(record_class, {}).get(leaf_name)
+        if status is not None:
+            return status
+    raise KeyError(f"{model_class.__name__} has no registered status for {field_name!r}")
 
 
 def registered_statuses() -> FrozenMapping[str, FieldStatus]:

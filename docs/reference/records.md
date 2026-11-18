@@ -16,6 +16,7 @@ their own pages: see {doc}`table` and {doc}`enums`.
 
 ```{eval-rst}
 .. autoclass:: fmsave.Player
+.. autoclass:: fmsave.ScoutedPlayer
 .. autoclass:: fmsave.Attributes
 .. autoclass:: fmsave.Ability
 .. autoclass:: fmsave.Reputation

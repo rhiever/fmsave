@@ -54,9 +54,9 @@ onmessage = async ({ data }) => {
     const { COLUMNS, isText } = await kit;
     const numbers = { uid: Float64Array.of(1), club_uid: Float64Array.of(1) };
     const text = { name: ["Player Example"], natural_positions: ["ST"], club_name: ["Example FC"] };
-    for (const [key, c] of COLUMNS) if (!isText(c) && !c.stat && !numbers[key]) numbers[key] = Float32Array.of(0);
+    for (const [key, c] of COLUMNS) if (!isText(c) && !c.stat && !c.scouting && !numbers[key]) numbers[key] = Float32Array.of(0);
     answer({ type: "meta", meta: { save: file, club_uid: 1, club: "Example FC" } });
-    answer({ type: "players", count: 1, numbers, text, warnings: [] });
+    answer({ type: "players", count: 1, numbers, text, warnings: [], scouting: file === "original.fm" });
     answer({
       type: "staff",
       count: 1,
@@ -69,6 +69,13 @@ onmessage = async ({ data }) => {
       ratings_status: "verified",
     });
     return;
+  }
+  if (data.type === "scouting") {
+    const striker = data.position === "ST";
+    answer({ type: "scouting", position: data.position, numbers: {
+      scouting_score_full: Float64Array.of(striker ? 7.1234 : NaN).buffer,
+      scouting_score_visible: Float64Array.of(striker ? 6.8756 : NaN).buffer,
+    } });
   }
   if (data.type === "csv") {
     if (saved) answer({ type: "csv", name: data.name, rows: 1, blob: new Blob([saved], { type: "text/csv" }) });
@@ -115,6 +122,22 @@ try {
   await page.locator("[data-csv=players]").click();
   const download = await waitingForDownload;
   assert.equal(await readFile(await download.path(), "utf8"), "original.fm");
+  assert.deepEqual(errors, []);
+  await page.keyboard.press("Escape");
+  await page.locator("[data-view=scouting]").click();
+  await page.locator("#scouting-position").selectOption("ST");
+  await page.getByText("7.123", { exact: true }).waitFor();
+  await page.getByText("6.876", { exact: true }).waitFor();
+  await page.locator("#csv-button").click();
+  const scoutingDownload = page.waitForEvent("download", { timeout: 4000 });
+  await page.locator("[data-csv=view]").click();
+  const scoredCsv = await readFile(await (await scoutingDownload).path(), "utf8");
+  assert.match(scoredCsv, /scouting_position,.*scouting_score_full,scouting_score_visible/);
+  assert.match(scoredCsv, /,ST,.*7\.1234,6\.8756/);
+  await page.locator("#scouting-position").selectOption("CB");
+  await page.waitForFunction(() => document.querySelector("#list-count").textContent.startsWith("0 of"));
+  await page.locator("[data-view=overview]").click();
+  await page.getByText("Player Example", { exact: true }).first().waitFor();
   assert.deepEqual(errors, []);
   const race = await browser.newPage({ viewport: { width: 1500, height: 900 } });
   await race.route("**/worker.js", (route) => route.fulfill({ body: workerSource, contentType: "text/javascript" }));
