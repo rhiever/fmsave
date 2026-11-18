@@ -623,6 +623,45 @@ function anchorMenu(menu, button) {
   rail?.addEventListener("scroll", placeIfOpen, { passive: true });
 }
 
+function wireFilterHelp(menu, button) {
+  anchorMenu(menu, button);
+  let closeTimer;
+  let pinned = false;
+  const open = () => menu.showPopover({ source: button });
+  const cancelClose = () => clearTimeout(closeTimer);
+
+  button.addEventListener("pointerenter", (event) => {
+    if (event.pointerType !== "mouse") return;
+    cancelClose();
+    if (!menu.matches(":popover-open")) open();
+  });
+  const scheduleClose = (event) => {
+    if (event.pointerType !== "mouse" || pinned) return;
+    cancelClose();
+    closeTimer = setTimeout(() => menu.hidePopover(), 180);
+  };
+  button.addEventListener("pointerleave", scheduleClose);
+  menu.addEventListener("pointerenter", cancelClose);
+  menu.addEventListener("pointerleave", scheduleClose);
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    cancelClose();
+    if (pinned) {
+      menu.hidePopover();
+    } else {
+      pinned = true;
+      if (!menu.matches(":popover-open")) open();
+    }
+  });
+  menu.addEventListener("beforetoggle", (event) => {
+    if (event.newState === "closed") {
+      pinned = false;
+      cancelClose();
+    }
+    button.setAttribute("aria-expanded", event.newState === "open");
+  });
+}
+
 function syncThemeButton() {
   const label = window.fmsaveTheme?.current() === "dark" ? "Switch to light mode" : "Switch to dark mode";
   $("theme-toggle").setAttribute("aria-label", label);
@@ -640,8 +679,8 @@ function onPick(container, attr, handle) {
 function wire() {
   anchorMenu($("csv-menu"), $("csv-button"));
   anchorMenu($("columns-menu"), $("columns-button"));
-  anchorMenu($("rule-hint"), $("rule-help"));
-  anchorMenu($("floor-hint"), $("floor-help"));
+  wireFilterHelp($("rule-hint"), $("rule-help"));
+  wireFilterHelp($("floor-hint"), $("floor-help"));
   syncThemeButton();
   $("theme-toggle").addEventListener("click", () => window.fmsaveTheme?.toggle());
   new MutationObserver(syncThemeButton).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
@@ -854,9 +893,9 @@ function onWorkerMessage({ data: msg }, reader) {
       const [major, minor, patch] = msg.fmsave.split(".").map(Number);
       const opensOtherFm27Builds = major > 0 || minor > 9 || (minor === 9 && patch >= 1);
       $("game-support").textContent = opensOtherFm27Builds
-        ? "FM26 and FM27. FM27 builds other than 27.0.0+2486695 open as unverified builds. Some FM27 fields remain unconfirmed."
+        ? "FM26 and FM27. FM27 builds other than 27.0.0+2486695 open as unverified builds."
         : major > 0 || minor >= 8
-          ? "FM26 and FM27 build 27.0.0+2486695. Some FM27 fields remain unconfirmed."
+          ? "FM26 and FM27 build 27.0.0+2486695."
           : "This published reader supports FM26. FM27 needs fmsave 0.8.0 or later.";
       break;
     case "stage": if (state.loading) setStage(msg.stage); break;

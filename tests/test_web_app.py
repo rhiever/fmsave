@@ -361,15 +361,21 @@ def test_a_read_error_from_disk_gets_a_message_about_the_save_changing() -> None
     assert "saved over it" in reader.friendly_error(OSError(29, "I/O error"))
 
 
-def test_fm27_reader_opens_normally_and_reports_coverage(tmp_path: Path) -> None:
-    from tests.test_fm27_experimental import fm27_fragment
+@pytest.mark.parametrize("known", [True, False])
+def test_fm27_reader_opens_normally_and_reports_coverage(tmp_path: Path, known: bool) -> None:
+    from tests.test_fm27_experimental import BUILD, UNREGISTERED_BUILD, fm27_fragment
+
+    build = BUILD if known else UNREGISTERED_BUILD
 
     with pytest.warns(fmsave.UnknownBuildWarning, match="FM27"):
-        meta = reader.open_save(str(fm27_fragment(tmp_path)))
+        meta = reader.open_save(str(fm27_fragment(tmp_path, build=build)))
     try:
         assert meta["game"] == "FM27"
         assert meta["build"].startswith("27.")
-        assert "unconfirmed" in meta["coverage_note"]
+        note = "Money is in stored units. Wages are weekly."
+        assert meta["coverage_note"] == (
+            note if known else f"FM27 build {build} is unverified. {note}"
+        )
     finally:
         reader.close_save()
         reader._state.clear()

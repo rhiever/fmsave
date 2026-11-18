@@ -37,6 +37,7 @@ contract remain `unknown`.
 `suspensions()` includes recognized European bans. These rows use `scope="europe"` and
 leave the competition and nation IDs empty.
 
+(staff-search-in-the-web-app)=
 ### Staff search in the web app
 
 Choose a hiring preset to sort candidates by a weighted score out of 20. The staff profile

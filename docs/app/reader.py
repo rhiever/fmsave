@@ -300,14 +300,15 @@ def open_save(path: str) -> dict[str, object]:
         managed = ()
     club = managed[0] if managed else None
     _state["club_uid"] = None if club is None else club.club_uid
+    note = ""
+    if info.game == "FM27":
+        note = "Money is in stored units. Wages are weekly."
+        if not info.known_build:
+            note = f"FM27 build {info.build} is unverified. " + note
     return {
         "game": info.game,
         "build": info.build,
-        "coverage_note": (
-            "FM27 field meanings remain unconfirmed. Money is in stored units; wages are weekly. Unsupported values stay blank."
-            if info.game == "FM27"
-            else ""
-        ),
+        "coverage_note": note,
         "save": info.save_name,
         "date": None if info.game_date is None else info.game_date.isoformat(),
         "club": None if club is None else club.club_name,

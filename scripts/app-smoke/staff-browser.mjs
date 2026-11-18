@@ -138,7 +138,15 @@ try {
   await demo.locator("[data-list=all]").click();
   assert.equal(await demo.locator("#rule-hint").isVisible(), false);
   assert.equal(await demo.locator("#floor-hint").isVisible(), false);
-  await demo.getByRole("button", { name: "About Stats from" }).click();
+  const help = demo.getByRole("button", { name: "About Stats from" });
+  await help.hover();
+  await demo.locator("#floor-hint").waitFor({ timeout: 1500 });
+  await demo.locator("#floor-hint").hover();
+  assert.match(await demo.locator("#floor-hint").innerText(), /minutes/);
+  await demo.locator("#list-title").hover();
+  await demo.locator("#floor-hint").waitFor({ state: "hidden", timeout: 1500 });
+  await help.focus();
+  await demo.keyboard.press("Enter");
   assert.match(await demo.locator("#floor-hint").innerText(), /minutes/);
   await demo.keyboard.press("Escape");
   assert.equal(await demo.locator("#floor-hint").isVisible(), false);
@@ -195,6 +203,18 @@ try {
   await attacking.locator("[data-bound=min]").fill("20");
   await attacking.getByRole("button", { name: "Remove Attacking filter" }).click();
   assert.equal(await attacking.count(), 0);
+
+  const touch = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  await touch.route("**/worker.js", (route) => route.fulfill({ body: workerSource, contentType: "text/javascript" }));
+  await touch.goto(base + "#demo");
+  await touch.locator("[data-list=all]").tap();
+  await touch.locator("#filters-button").tap();
+  const touchHelp = touch.getByRole("button", { name: "About column filters" });
+  await touchHelp.tap();
+  await touch.locator("#rule-hint").waitFor({ timeout: 1500 });
+  await touchHelp.tap();
+  await touch.locator("#rule-hint").waitFor({ state: "hidden", timeout: 1500 });
+  await touch.close();
 
   console.log("Worker lifecycle, player and staff filters, help, and staff presets passed.");
 } finally {

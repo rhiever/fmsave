@@ -4,6 +4,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-18
+
 ### Added
 
 - Staff candidates and additional FM26 staff ratings, with employment uncertainty kept explicit.

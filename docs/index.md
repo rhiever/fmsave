@@ -15,6 +15,8 @@ status.
 No Python? [Open fmsave in your browser](https://rhiever.github.io/fmsave/app/) and drop a save on
 the page. You get your squad and every player in the save, with all attributes, CA and PA, this
 season's stats, and CSV downloads. The save is read on your computer and never uploaded.
+Open Staff to compare ratings, run hiring searches, and export the filtered list.
+See {ref}`Staff search <staff-search-in-the-web-app>` for ranking and filters.
 
 ## Install
 
