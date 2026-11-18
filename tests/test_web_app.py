@@ -22,7 +22,13 @@ import pytest
 import fmsave
 from fmsave.export import column_names
 from fmsave.models.players import Attributes, Personality, Positions
-from tests.fixtures.career import NORTHBRIDGE_TEAM_B, PLAYER_A_UID, PLAYER_B_UID, SOUTHPORT_TEAM
+from tests.fixtures.career import (
+    NORTHBRIDGE_TEAM_B,
+    PLAYER_A_UID,
+    PLAYER_B_UID,
+    SOUTHPORT_TEAM,
+    STAFF_LISTED_ONLY_UID,
+)
 
 APP_FOLDER = Path(__file__).resolve().parents[1] / "docs" / "app"
 
@@ -355,15 +361,123 @@ def test_a_read_error_from_disk_gets_a_message_about_the_save_changing() -> None
     assert "saved over it" in reader.friendly_error(OSError(29, "I/O error"))
 
 
-def test_fm27_reader_opens_normally_and_reports_coverage(tmp_path: Path) -> None:
-    from tests.test_fm27_experimental import fm27_fragment
+@pytest.mark.parametrize("known", [True, False])
+def test_fm27_reader_opens_normally_and_reports_coverage(tmp_path: Path, known: bool) -> None:
+    from tests.test_fm27_experimental import BUILD, UNREGISTERED_BUILD, fm27_fragment
+
+    build = BUILD if known else UNREGISTERED_BUILD
 
     with pytest.warns(fmsave.UnknownBuildWarning, match="FM27"):
-        meta = reader.open_save(str(fm27_fragment(tmp_path)))
+        meta = reader.open_save(str(fm27_fragment(tmp_path, build=build)))
     try:
         assert meta["game"] == "FM27"
         assert meta["build"].startswith("27.")
-        assert "unconfirmed" in meta["coverage_note"]
+        note = "Money is in stored units. Wages are weekly."
+        assert meta["coverage_note"] == (
+            note if known else f"FM27 build {build} is unverified. {note}"
+        )
     finally:
         reader.close_save()
         reader._state.clear()
+
+
+def test_optional_failure_does_not_close_save_before_stats(opened: dict[str, Any]) -> None:
+    del opened
+    assert "error" in reader.call("stats_columns", "invalid")
+    assert "ok" in reader.call("read_stats")
+
+
+def test_staff_columns_and_capability_reach_browser(opened: dict[str, Any]) -> None:
+    result = reader.call("read_staff")
+    assert "ok" in result
+    staff = result["ok"]
+    assert staff["capability"] == "candidates"
+    assert len(staff["rows"]) == staff["count"]
+    assert len(staff["numbers"]["uid"]) == staff["count"] * 8
+    assert len(staff["text"]["employment"]) == staff["count"]
+    assert "save" in reader._state
+    assert "ok" in reader.call("read_stats")
+
+
+def test_failed_players_restore_previous_details_and_exports(
+    opened: dict[str, Any],
+    career_save_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del opened
+    reader.read_stats()
+    previous = reader._state["players"]
+    reader.open_save(str(career_save_path))
+    monkeypatch.setattr(
+        reader, "player_numbers", lambda _: (_ for _ in ()).throw(ValueError("private"))
+    )
+    result = reader.call("read_players")
+    assert result["kind"] == "ValueError"
+    assert reader._state["players"] is previous
+    assert "ok" in reader.call("player_detail", PLAYER_A_UID)
+    assert "ok" in reader.call("write_csv", "players", str(tmp_path / "prior.csv"))
+
+
+def test_released_reader_fallback_is_distinct_from_no_free_agents(
+    opened: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del opened
+    monkeypatch.delattr(fmsave.Save, "staff_candidates")
+    result = reader.read_staff()
+    assert result["capability"] == "employed_only"
+    assert result["count"] > 0
+    assert "unavailable" in result["coverage_note"]
+    assert all(row["employment"] == "employed" for row in result["rows"])
+    assert STAFF_LISTED_ONLY_UID not in {row["uid"] for row in result["rows"]}
+
+
+def test_staff_failure_still_allows_stats(
+    opened: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del opened
+
+    def fail(_: object) -> object:
+        raise fmsave.UnsupportedGameError("private text")
+
+    monkeypatch.setattr(fmsave.Save, "staff_candidates", fail)
+    assert "error" in reader.call("read_staff")
+    assert "ok" in reader.call("read_stats")
+
+
+def test_released_fallback_excludes_future_and_expired_terms(
+    opened: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del opened
+    from datetime import date
+
+    original = next(
+        row
+        for row in reader._state["save"].staff()
+        if row.has_contract and not row.is_human_manager
+    )
+    future = dataclasses.replace(original, contract_start=date(2200, 1, 1))
+    expired = dataclasses.replace(original, contract_end=date(1900, 1, 1))
+    monkeypatch.delattr(fmsave.Save, "staff_candidates")
+    monkeypatch.setattr(fmsave.Save, "staff", lambda _: [future, expired])
+    assert reader.read_staff()["count"] == 0
+
+
+def test_unknown_fm27_build_does_not_get_verified_rating_badges(
+    opened: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del opened
+    from types import SimpleNamespace
+
+    original = reader._state["save"]
+    proxy = SimpleNamespace(
+        info=dataclasses.replace(original.info, game="FM27", known_build=False),
+        staff_candidates=original.staff_candidates,
+        close=original.close,
+    )
+    monkeypatch.setitem(reader._state, "save", proxy)
+    assert reader.read_staff()["ratings_status"] == "unconfirmed"

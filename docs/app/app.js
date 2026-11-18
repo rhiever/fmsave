@@ -4,9 +4,10 @@
 
 import {
   ATTRIBUTES, COLUMNS, DAY, GROUPS, GROUP_HUE, KINDS, PERSONALITY, POSITION_SLOTS, STAT_GROUPS, TOKEN_GROUP, VIEWS,
-  day, esc, fold, format, human, isRate, isText, kindLabel, money, number, ordinal, parseValue, positions, showValue,
+  day, esc, fold, format, human, isRate, isText, kindLabel, money, number, ordinal, parseValue, positions,
 } from "./catalog.js";
 import { WHEEL_ORDER, pitch, wheel } from "./charts.js";
+import { createColumnFilters } from "./column-filters.js";
 
 const $ = (id) => document.getElementById(id);
 const narrow = () => matchMedia("(max-width: 1080px)").matches;
@@ -14,12 +15,14 @@ const phone = () => matchMedia("(max-width: 760px)").matches;
 // Every file the page loads carries the build's version, so a deploy never mixes old and new.
 const VERSION = new URL(import.meta.url).searchParams.get("v") || "";
 const asset = (name) => new URL(name + (VERSION ? `?v=${VERSION}` : ""), import.meta.url).href;
+const { createStaffUi, STAFF_ATTRS } = await import(asset("staff.js"));
+const staffUi = createStaffUi(download);
 const LEAD = ["name", "age", "natural_positions", "ability_current", "ability_potential"];
 const PHONE_LEAD = ["name", "ability_current", "ability_potential", "age", "natural_positions"];
 const MIN_MINUTES = 450;
 
 const state = {
-  list: "all", view: "overview", statGroup: "General", statMode: "p90", statKind: "overall", wantedKind: "overall",
+  list: "all", staffActive: false, view: "overview", statGroup: "General", statMode: "p90", statKind: "overall", wantedKind: "overall",
   compare: "position", highlight: 20, extras: [], sort: { key: "ability_current", dir: -1 },
   search: "", positions: new Set(), ageMin: null, ageMax: null, rules: [],
   selected: -1, panelTab: "attributes", demo: null, loading: false, generation: 0,
@@ -309,9 +312,14 @@ function refresh({ head = true, keepScroll = false } = {}) {
   const statsNote = data.stats ? "" : data.statsFailed ? ". Season stats could not be read" : ". Season stats are still loading";
   $("list-count").textContent = `${number(order.length)} of ${number(total)} players. Sorted by ${COLUMNS.get(state.sort.key).label.toLowerCase()}${statsNote}`;
   $("list-title").textContent = { squad: data.meta.club || "Squad", all: "All players", shortlist: "Shortlist" }[state.list];
-  for (const b of $("tabs").querySelectorAll("button")) b.setAttribute("aria-selected", b.dataset.list === state.list);
+  syncTabs();
   updateCounts();
   $("csv-menu").querySelector('[data-csv-count="view"]').textContent = number(order.length) + " players";
+}
+
+function syncTabs() {
+  const list = state.staffActive ? "staff" : state.list;
+  for (const button of $("tabs").querySelectorAll("button")) button.setAttribute("aria-selected", button.dataset.list === list);
 }
 
 function updateCounts() {
@@ -338,10 +346,13 @@ function selectIndex(i, { scroll = true } = {}) {
   if (i < 0) return;
   $("announce").textContent = `${data.text.name[i]}, current ability ${data.num.ability_current[i]}, potential ${data.num.ability_potential[i]}`;
   if (narrow()) openDrawer("panel");
-  if (!state.demo) {
-    const uid = data.num.uid[i];
-    if (!details.has(uid)) { details.set(uid, null); send({ type: "detail", uid }); }
-  }
+  requestPlayerDetail(i);
+}
+
+function requestPlayerDetail(i) {
+  if (i < 0 || state.demo) return;
+  const uid = data.num.uid[i];
+  if (!details.has(uid)) { details.set(uid, null); send({ type: "detail", uid }); }
 }
 
 function step(delta) {
@@ -494,23 +505,44 @@ function buildControls() {
   $("stat-groups").innerHTML = Object.keys(STAT_GROUPS).map((g) => `<button data-group="${g}" aria-pressed="${g === state.statGroup}">${g}</button>`).join("");
   for (const id of ["stat-kind", "stat-kind-bar"]) $(id).innerHTML = KINDS.map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
   $("positions").innerHTML = GROUPS.map(([abbr, label], g) => `<button data-pos="${g}" aria-pressed="${state.positions.has(g)}" title="${label}">${abbr}</button>`).join("");
-  const groups = new Map();
-  for (const c of COLUMNS.values()) {
-    if (isText(c) || c.fmt === "flag") continue;
-    const g = { Ability: "Player", Stats: "Season stats" }[c.group] || c.group;
-    if (!groups.has(g)) groups.set(g, []);
-    groups.get(g).push(c);
-  }
-  $("rule-column").innerHTML = [...groups].map(([g, cols]) => `<optgroup label="${g}">${cols.map((c) => `<option value="${c.key}"${c.key === "ability_potential" ? " selected" : ""}>${esc(c.label)}</option>`).join("")}</optgroup>`).join("");
-  $("rule-hint").textContent = `Filter by any of ${$("rule-column").options.length} columns covering attributes, positions, personality, contracts, and season stats. "Top %" uses the same ranks as the colours.`;
-  ruleHint();
   drawColumnsMenu();
   syncControls();
 }
 
-function ruleHint() {
-  const c = COLUMNS.get($("rule-column").value);
-  $("rule-value").placeholder = c.fmt === "date" ? "2027" : c.fmt === "money" ? "5M" : c.fmt === "attr" ? "14" : c.fmt === "hundredths" ? "90" : c.stat ? "0.3" : "150";
+function playerFilterFields(c) {
+  const examples = { date: "2027", money: "5M", attr: "14", hundredths: "90", pct: "70", dec1: "0.3", dec2: "0.3" };
+  const example = examples[c.fmt] ?? (c.stat ? "0.3" : "150");
+  const bound = {
+    type: "text",
+    inputMode: c.fmt === "money" ? "text" : c.fmt === "date" ? "numeric" : "decimal",
+    attributes: c.fmt === "date" || c.fmt === "money" ? `placeholder="e.g. ${example}"` : "",
+    parse: (input) => parseValue(input.value, c.fmt),
+    error: `Enter a ${c.fmt === "date" ? "year" : "number"} such as ${example}.`,
+  };
+  const fields = { min: bound, max: bound };
+  if (c.rank) {
+    fields.top = {
+      type: "text",
+      attributes: "",
+      parse(input) {
+        const percent = parseValue(input.value);
+        return percent >= 1 && percent <= 100 ? percent : NaN;
+      },
+      error: "Enter a number from 1 to 100 for Top %.",
+    };
+  }
+  return fields;
+}
+
+function playerFilterGroups() {
+  const groups = new Map();
+  for (const c of COLUMNS.values()) {
+    if (isText(c) || c.fmt === "flag") continue;
+    const group = { Ability: "Player", Stats: "Season stats" }[c.group] || c.group;
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(c);
+  }
+  return groups;
 }
 
 function drawColumnsMenu() {
@@ -532,14 +564,6 @@ function setExtra(key, on) {
   drawColumnsMenu();
 }
 
-function drawRules() {
-  $("rules").innerHTML = state.rules.map((r, k) => {
-    const c = COLUMNS.get(r.key);
-    const text = r.op === "top" ? `top ${r.value}%` : `${r.op === "ge" ? "≥" : "≤"} ${showValue(c, r.value)}`;
-    return `<div class="rule"><i style="background:rgb(var(--${c.hue || "sta"}))"></i><span title="${esc(c.label)}">${esc(c.label)}</span><b>${text}</b><button data-unrule="${k}" aria-label="Remove rule: ${esc(c.label)}"><svg class="icon"><use href="#i-x"/></svg></button></div>`;
-  }).join("");
-}
-
 // Mirrors state into the segmented controls and selects that show it.
 function syncControls() {
   const pressed = (container, attr, current, aria = "aria-pressed") => { for (const b of $(container).querySelectorAll(`[${attr}]`)) b.setAttribute(aria, b.getAttribute(attr) === current); };
@@ -548,7 +572,7 @@ function syncControls() {
   pressed("stat-mode", "data-mode", state.statMode);
   for (const id of ["stat-kind", "stat-kind-bar"]) $(id).value = state.wantedKind;
   $("statbar").hidden = state.view !== "stats";
-  $("floor-hint").textContent = `Stat ranks include only players with at least ${minuteFloor()} minutes in that competition. The same minimum applies to rules on per-90 and percentage stats. This minimum is lower early in a season.`;
+  $("floor-hint").textContent = `Stat ranks require at least ${minuteFloor()} minutes in this competition. The same cutoff applies when filtering by a rate or average, such as goals per 90 or average rating. It is lower early in the season.`;
 }
 
 // Only the competition asked for last is shown, whatever order the answers arrive in.
@@ -577,15 +601,65 @@ function toast(text, ms = 2600) {
 
 // Popovers open just below the button that opened them, kept inside the window.
 function anchorMenu(menu, button) {
+  const rail = button.closest(".rail");
   const place = () => {
     const r = button.getBoundingClientRect();
+    if (rail && menu.matches(":popover-open")) {
+      const bounds = rail.getBoundingClientRect();
+      if (r.bottom <= bounds.top || r.top >= bounds.bottom) {
+        menu.hidePopover();
+        return;
+      }
+    }
     const width = Math.min(menu.offsetWidth || 300, innerWidth - 16);
     menu.style.left = Math.max(8, Math.min(r.right - width, innerWidth - width - 8)) + "px";
-    menu.style.top = r.bottom + 6 + "px";
+    const above = menu.classList.contains("filter-help") && r.bottom + menu.offsetHeight + 14 > innerHeight;
+    menu.style.top = (above ? Math.max(8, r.top - menu.offsetHeight - 6) : r.bottom + 6) + "px";
     menu.style.maxHeight = Math.max(160, innerHeight - r.bottom - 16) + "px";
   };
   for (const type of ["beforetoggle", "toggle"]) menu.addEventListener(type, (e) => { if (e.newState === "open") place(); });
-  window.addEventListener("resize", () => { if (menu.matches(":popover-open")) place(); });
+  const placeIfOpen = () => { if (menu.matches(":popover-open")) place(); };
+  window.addEventListener("resize", placeIfOpen);
+  rail?.addEventListener("scroll", placeIfOpen, { passive: true });
+}
+
+function wireFilterHelp(menu, button) {
+  anchorMenu(menu, button);
+  let closeTimer;
+  let pinned = false;
+  const open = () => menu.showPopover({ source: button });
+  const cancelClose = () => clearTimeout(closeTimer);
+
+  button.addEventListener("pointerenter", (event) => {
+    if (event.pointerType !== "mouse") return;
+    cancelClose();
+    if (!menu.matches(":popover-open")) open();
+  });
+  const scheduleClose = (event) => {
+    if (event.pointerType !== "mouse" || pinned) return;
+    cancelClose();
+    closeTimer = setTimeout(() => menu.hidePopover(), 180);
+  };
+  button.addEventListener("pointerleave", scheduleClose);
+  menu.addEventListener("pointerenter", cancelClose);
+  menu.addEventListener("pointerleave", scheduleClose);
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    cancelClose();
+    if (pinned) {
+      menu.hidePopover();
+    } else {
+      pinned = true;
+      if (!menu.matches(":popover-open")) open();
+    }
+  });
+  menu.addEventListener("beforetoggle", (event) => {
+    if (event.newState === "closed") {
+      pinned = false;
+      cancelClose();
+    }
+    button.setAttribute("aria-expanded", event.newState === "open");
+  });
 }
 
 function syncThemeButton() {
@@ -605,11 +679,16 @@ function onPick(container, attr, handle) {
 function wire() {
   anchorMenu($("csv-menu"), $("csv-button"));
   anchorMenu($("columns-menu"), $("columns-button"));
+  wireFilterHelp($("rule-hint"), $("rule-help"));
+  wireFilterHelp($("floor-hint"), $("floor-help"));
   syncThemeButton();
   $("theme-toggle").addEventListener("click", () => window.fmsaveTheme?.toggle());
   new MutationObserver(syncThemeButton).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   onPick("tabs", "data-list", (list) => {
+    state.staffActive = list === "staff";
+    showLists(true);
+    if (state.staffActive) { syncTabs(); return; }
     state.list = list;
     refresh();
     if (!order.includes(state.selected) && order.length && !narrow()) selectIndex(order[0], { scroll: false });
@@ -623,7 +702,6 @@ function wire() {
     b.setAttribute("aria-pressed", state.positions.has(group));
     refresh({ head: false });
   });
-  onPick("rules", "data-unrule", (k) => { state.rules.splice(Number(k), 1); drawRules(); refresh({ head: false }); });
   onPick("thead", "data-sort", (key) => {
     const c = COLUMNS.get(key);
     state.sort = state.sort.key === key ? { key, dir: -state.sort.dir } : { key, dir: isText(c) || c.lower ? 1 : -1 };
@@ -654,27 +732,29 @@ function wire() {
   for (const [id, key] of [["age-min", "ageMin"], ["age-max", "ageMax"]]) {
     $(id).addEventListener("input", (e) => { state[key] = e.target.value === "" ? null : Number(e.target.value); refresh({ head: false }); });
   }
-  $("rule-column").addEventListener("change", ruleHint);
-  $("add-rule").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const key = $("rule-column").value;
-    const op = $("rule-op").value;
-    const col = COLUMNS.get(key);
-    const v = parseValue(col, $("rule-value").value || $("rule-value").placeholder);
-    if (Number.isNaN(v)) return toast("Enter a number such as 14, 0.35, or 5M.");
-    if (op === "top" && !col.rank) return toast(`${col.label} has no ranks. Use "at least" or "at most".`);
-    if (op === "top" && !(v >= 1 && v <= 100)) return toast("Enter a number from 1 to 100 for Top %.");
-    state.rules.push({ key, op, value: v });
-    $("rule-value").value = "";
-    drawRules();
-    if (!visibleCols.some((c) => c.key === key)) setExtra(key, true);
-    refresh();
+  const playerFilters = createColumnFilters({
+    list: $("rules"),
+    choice: $("rule-column"),
+    add: $("add-rule"),
+    groups: playerFilterGroups(),
+    placeholder: "Choose a column",
+    fields: playerFilterFields,
+    onChange(ranges, addedKey) {
+      state.rules = ranges.flatMap(({ key, min, max, top }) =>
+        [["ge", min], ["le", max], ["top", top]]
+          .filter(([, value]) => value != null)
+          .map(([op, value]) => ({ key, op, value }))
+      );
+      if (addedKey && !visibleCols.some((c) => c.key === addedKey)) setExtra(addedKey, true);
+      refresh({ head: Boolean(addedKey) });
+    },
   });
   $("clear").addEventListener("click", () => {
+    clearTimeout(searchTimer);
     Object.assign(state, { search: "", positions: new Set(), ageMin: null, ageMax: null, rules: [] });
     for (const id of ["search", "age-min", "age-max"]) $(id).value = "";
     for (const b of $("positions").children) b.setAttribute("aria-pressed", "false");
-    drawRules();
+    playerFilters.clear();
     refresh({ head: false });
   });
   $("columns-search").addEventListener("input", drawColumnsMenu);
@@ -696,10 +776,11 @@ function wire() {
   $("another").addEventListener("click", () => $("file").click());
   document.addEventListener("keydown", (e) => {
     if (!data || $("app").hidden) return;
+    if (document.querySelector(":popover-open")) return;
     if (e.key === "Escape" && narrow()) { closeDrawer("rail"); closeDrawer("panel"); return; }
     const typing = e.target.closest("input, select, textarea");
     if (e.key === "/" && !typing) { e.preventDefault(); $("search").focus(); return; }
-    if (typing || e.metaKey || e.ctrlKey || e.altKey || document.querySelector(":popover-open")) return;
+    if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); step(1); }
     else if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); step(-1); }
     else if ((e.key === "s" || e.key === "S") && state.selected >= 0) toggleStar(state.selected);
@@ -744,48 +825,97 @@ function download(blob, name) {
 // ---------- The reader worker ----------
 
 // The worker runs from a blob: URL so the page's Content-Security-Policy covers it too.
-let worker = null;
-let booting = null;
-let readerReady = false;
+let idleReader = null;
+let pendingReader = null;
+let committedReader = null;
 let pendingMeta = null;
 let versions = {};
-async function startWorker() {
-  readerReady = false;
-  const source = await (await fetch(asset("worker.js"))).text();
-  const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
-  worker = new Worker(url, { type: "module" });
-  URL.revokeObjectURL(url);
-  worker.onmessage = onWorkerMessage;
-  const wheelFile = new URLSearchParams(location.search).get("wheel");
-  worker.postMessage({ type: "boot", base: new URL(".", import.meta.url).href, version: VERSION, wheel: wheelFile });
+
+function startReader() {
+  const reader = { worker: null, ready: false, stopped: false, staffSettled: false };
+  reader.launch = launchReader(reader);
+  return reader;
 }
-const send = async (message) => { await booting; worker.postMessage({ ...message, generation: state.generation }); };
+
+async function launchReader(reader) {
+  try {
+    const response = await fetch(asset("worker.js"));
+    if (!response.ok) throw new Error("Could not load worker");
+    const source = await response.text();
+    if (reader.stopped) return;
+    const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+    reader.worker = new Worker(url, { type: "module" });
+    URL.revokeObjectURL(url);
+    reader.worker.onmessage = (event) => { if (!reader.stopped) onWorkerMessage(event, reader); };
+    reader.worker.onerror = (event) => {
+      event.preventDefault();
+      if (reader.stopped) return;
+      if (reader === committedReader) {
+        if (!reader.staffSettled) onWorkerError({ request: "staff", text: "Staff could not be read from this save." }, reader);
+        if (!data.stats) onWorkerError({ request: "stats", text: "Season stats could not be read from this save." }, reader);
+        return;
+      }
+      const request = reader.ready ? "open" : "boot";
+      onWorkerError({ request, text: "The reader stopped while opening the save. Try opening it again." }, reader);
+    };
+    const wheelFile = new URLSearchParams(location.search).get("wheel");
+    reader.worker.postMessage({ type: "boot", base: new URL(".", import.meta.url).href, version: VERSION, wheel: wheelFile });
+  } catch {
+    if (!reader.stopped) onWorkerError({ request: "boot", text: "The reader could not load. Check your connection and reload the page." }, reader);
+  }
+}
+
+function stopReader(reader) {
+  if (!reader) return;
+  reader.stopped = true;
+  reader.worker?.terminate();
+}
+
+async function send(message) {
+  const generation = state.generation;
+  const reader = message.type === "open" ? pendingReader : committedReader;
+  if (!reader) return;
+  await reader.launch;
+  if (!reader.stopped && generation === state.generation) reader.worker?.postMessage({ ...message, generation });
+}
 
 const CSV_LABELS = { players: "All players", squad: "Your club", "season-stats": "Every competition" };
-function onWorkerMessage({ data: msg }) {
-  // Answers about a save that has since been replaced are dropped.
-  if (msg.generation !== undefined && msg.generation !== state.generation) return;
+function onWorkerMessage({ data: msg }, reader) {
+  // Optional reads from the visible save can finish while a replacement is opening.
+  const request = msg.type === "error" ? msg.request : msg.type;
+  const optionalRead = reader === committedReader && ["staff", "stats"].includes(request);
+  if (!optionalRead && msg.generation !== undefined && msg.generation !== state.generation) return;
   switch (msg.type) {
     case "ready":
-      readerReady = true;
+      reader.ready = true;
       versions = { fmsave: msg.fmsave, pyodide: msg.pyodide };
       setStatus("ok", `Reader ready (fmsave ${msg.fmsave})`);
       const [major, minor, patch] = msg.fmsave.split(".").map(Number);
       const opensOtherFm27Builds = major > 0 || minor > 9 || (minor === 9 && patch >= 1);
       $("game-support").textContent = opensOtherFm27Builds
-        ? "FM26 and FM27. FM27 builds other than 27.0.0+2486695 open as unverified builds. Some FM27 fields remain unconfirmed."
+        ? "FM26 and FM27. FM27 builds other than 27.0.0+2486695 open as unverified builds."
         : major > 0 || minor >= 8
-          ? "FM26 and FM27 build 27.0.0+2486695. Some FM27 fields remain unconfirmed."
+          ? "FM26 and FM27 build 27.0.0+2486695."
           : "This published reader supports FM26. FM27 needs fmsave 0.8.0 or later.";
       break;
-    case "stage": setStage(msg.stage); break;
+    case "stage": if (state.loading) setStage(msg.stage); break;
     case "meta": pendingMeta = msg.meta; break;
     case "players":
+      stopReader(committedReader);
+      committedReader = reader;
+      pendingReader = null;
       state.loading = false;
       state.demo = null;
       clearInterval(tick);
       load(pendingMeta, msg.count, msg.numbers, msg.text, msg.warnings);
+      state.staffActive = false;
+      staffUi.setActive(false);
+      staffUi.setData({ pending: true });
       showApp();
+      break;
+    case "staff":
+      reader.staffSettled = true;
+      staffUi.setData(msg);
       break;
     case "stats": {
       const first = !data.stats;
@@ -809,16 +939,20 @@ function onWorkerMessage({ data: msg }) {
       toast(`${msg.name}.csv: ${number(msg.rows)} rows`);
       break;
     }
-    case "error": onWorkerError(msg); break;
+    case "error": onWorkerError(msg, reader); break;
   }
 }
 
-function onWorkerError(msg) {
+function onWorkerError(msg, reader) {
   if (msg.request === "boot") {
     setStatus("bad", msg.text);
-    if (state.loading) loadFailed(msg.text, msg.kind);
+    if (reader === pendingReader) loadFailed(msg.text, msg.kind);
+    if (reader === idleReader) { stopReader(idleReader); idleReader = null; }
   } else if (msg.request === "open") {
     loadFailed(msg.text, msg.kind);
+  } else if (msg.request === "staff") {
+    reader.staffSettled = true;
+    staffUi.setData({ notice: msg.text });
   } else if (msg.request === "stats" && data && !data.stats) {
     data.statsFailed = true;
     for (const id of ["stat-kind", "stat-kind-bar"]) $(id).disabled = true;
@@ -842,9 +976,10 @@ function setStatus(kind, text) {
   $("reader-status").lastElementChild.textContent = text;
 }
 function setStage(stage) {
-  $("stages").hidden = false;
   const items = [...$("stages").children];
   const at = items.findIndex((p) => p.dataset.stage === stage);
+  if (at < 0) return;
+  $("stages").hidden = false;
   items.forEach((p, k) => { p.classList.toggle("done", k < at); p.classList.toggle("now", k === at); });
   const started = performance.now();
   clearInterval(tick);
@@ -854,9 +989,17 @@ function setStage(stage) {
 // file name or anything read from the save.
 let report = "";
 function loadFailed(text, kind) {
+  stopReader(pendingReader);
+  pendingReader = null;
   state.loading = false;
   clearInterval(tick);
-  if (data) { showApp({ keep: true }); toast(text, 6000); return; }
+  if (data) {
+    for (const [uid, detail] of details) if (!detail) details.delete(uid);
+    requestPlayerDetail(state.selected);
+    showApp({ keep: true });
+    toast(text, 6000);
+    return;
+  }
   showStart();
   const game = pendingMeta && [pendingMeta.game, pendingMeta.build].filter(Boolean).join(" ");
   report = [
@@ -878,15 +1021,17 @@ function loadFailed(text, kind) {
 let fileName = "";
 async function begin(file) {
   if (!file) return;
-  fileName = file.name;
-  pendingMeta = null;
   if (!/\.fm$/i.test(file.name)) {
     const text = "That is not a .fm file. Football Manager saves end in .fm.";
-    if (data && !$("app").hidden) return toast(text, 5000);
+    if (state.loading || data) return toast(text, 5000);
     return loadFailed(text);
   }
-  // A save already being read is abandoned: its worker stops and a fresh one starts.
-  if (state.loading) { worker.terminate(); booting = startWorker(); }
+  fileName = file.name;
+  // Keep the visible save's reader until the replacement has successfully read players.
+  stopReader(pendingReader);
+  pendingReader = idleReader ?? startReader();
+  idleReader = null;
+  pendingMeta = null;
   state.loading = true;
   state.generation++;
   showStart();
@@ -894,15 +1039,24 @@ async function begin(file) {
   $("report").hidden = true;
   $("drop-actions").hidden = true;
   $("drop-title").textContent = "Reading " + file.name;
-  setStage(readerReady ? "open" : "boot");
+  if (!pendingReader.ready) setStatus("wait", "Getting the reader ready");
+  setStage(pendingReader.ready ? "open" : "boot");
   send({ type: "open", file });
+}
+
+function showLists(inApp) {
+  const staffActive = inApp && state.staffActive;
+  document.body.classList.toggle("staff-mode", staffActive);
+  $("app").hidden = !inApp || staffActive;
+  $("csv-button").hidden = !inApp || staffActive;
+  staffUi.setActive(staffActive);
 }
 
 function setChrome(inApp) {
   document.body.classList.toggle("in-app", inApp);
   $("start").hidden = inApp;
-  $("app").hidden = !inApp;
-  for (const id of ["tabs", "csv-button", "another"]) $(id).hidden = !inApp;
+  showLists(inApp);
+  for (const id of ["tabs", "another"]) $(id).hidden = !inApp;
   $("docs-link").classList.toggle("in-app", inApp);
 }
 function showStart() {
@@ -920,16 +1074,15 @@ function showApp({ keep = false } = {}) {
   for (const b of $("csv-menu").querySelectorAll("[data-csv]")) {
     if (b.dataset.csv in CSV_LABELS) { b.disabled = false; b.querySelector("em").textContent = CSV_LABELS[b.dataset.csv]; }
   }
-  if (keep) return;
   const m = data.meta;
-  showCoverageNote();
   $("meta").innerHTML = [m.save && `<b>${esc(m.save)}</b>`, m.club && esc(m.club), m.date && esc(day(Date.parse(m.date) / DAY))].filter(Boolean).join(", ");
+  if (keep) return;
+  showCoverageNote();
   for (const b of $("csv-menu").querySelectorAll("[data-csv]")) b.hidden = (state.demo && b.dataset.csv !== "view") || (!hasSquad() && b.dataset.csv === "squad");
   $("tabs").querySelector('[data-list="squad"]').hidden = !hasSquad();
   state.list = hasSquad() ? "squad" : "all";
   buildControls();
   for (const id of ["stat-kind", "stat-kind-bar"]) $(id).disabled = false;
-  drawRules();
   refresh();
   if (order.length && !narrow()) selectIndex(order[0], { scroll: false });
   else drawPanel();
@@ -943,13 +1096,25 @@ const demo = () => (demoWorld ??= import(asset("demo.js")).then((m) => m.buildDe
 
 async function startDemo() {
   if (state.loading) return;
-  const world = await demo();
-  state.generation++;
-  state.demo = world;
-  load(world.meta, world.count, world.num, world.text);
-  loadStats("overall", world.stats("overall"));
-  showApp();
-  toast("These are made-up players. Drop a real save to see your own.", 4000);
+  const generation = state.generation;
+  try {
+    const [world, { buildStaffDemo }] = await Promise.all([demo(), import(asset("staff-demo.js"))]);
+    if (generation !== state.generation || state.loading) return;
+    const staffDemo = buildStaffDemo(STAFF_ATTRS);
+    state.generation++;
+    stopReader(committedReader);
+    committedReader = null;
+    state.demo = world;
+    state.staffActive = false;
+    staffUi.setActive(false);
+    staffUi.setData(staffDemo);
+    load(world.meta, world.count, world.num, world.text);
+    loadStats("overall", world.stats("overall"));
+    showApp();
+    toast("The demo uses fictional players and staff.", 4000);
+  } catch {
+    if (generation === state.generation) toast("The demo could not load. Reload the page and try again.", 5000);
+  }
 }
 
 // The start screen's wheel is a made-up young attacker from the demo league.
@@ -1005,6 +1170,6 @@ function wireStart() {
 wire();
 wireStart();
 drawPanel();
-booting = startWorker();
+idleReader = startReader();
 if (location.hash === "#demo") startDemo();
 (window.requestIdleCallback || setTimeout)(drawSpecimen);

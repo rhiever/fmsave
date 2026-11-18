@@ -4,11 +4,27 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-18
+
+### Added
+
+- Staff candidates and additional FM26 staff ratings, with employment uncertainty kept explicit.
+- The web app has a Staff tab with weighted hiring scores, job and age filters, attribute
+  ranges, staff profiles, and CSV downloads with displayed and stored ratings. Use More staff
+  roles for searches such as Recruitment Analyst, Loan Manager, and Head Physio.
+- Player column filters use the same editable Min and Max controls as Staff. Ranked
+  player columns also offer Top %.
+
+### Fixed
+
+- Failed replacement saves preserve the previous data, and optional staff and statistics
+  failures no longer close the reader before other data can load.
+
 ### Documentation
 
 - Explain how exports handle currency.
 
-Thanks to @rdutra7 for help testing. Refs #106.
+Thanks to @rdutra7 for help testing and @menidi for researching staff ratings. Refs #68 and #106.
 
 ## [0.12.6] - 2026-11-17
 

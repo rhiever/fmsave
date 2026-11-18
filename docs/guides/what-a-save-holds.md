@@ -13,18 +13,54 @@ Each reader returns a `Table` of records from the save you open.
 
 ## People
 
-`players()`, `contracts()`, `suspensions()`, `staff()`, `staff_lists()`
+`players()`, `contracts()`, `suspensions()`, `staff()`, `staff_lists()`, `staff_candidates()`
 
 Players carry names, birth date and age, nationality, club, height, positions, 52 attributes,
 the 8 personality attributes, current and potential ability, reputation, transfer value,
 condition, traits, contract and any unserved ban. `contracts()` is the same contract record as a
 table of its own, which is what you want when you are looking across every deal in the save
-rather than at one club's players. Staff carry their people data, ability, personality and how
-they prefer a side to be run. FM27 exposes 21 additional, unconfirmed ratings in
-`Staff.attributes` at their stored scales.
+rather than at the players at a particular club. Staff records include names, ability, personality, and how
+each person prefers a side to be run. FM26 and FM27 expose staff ratings at their stored scales.
+The additional FM26 rating meanings are unconfirmed. FM27 rating meanings have been checked
+against the game's labels.
+
+Use `staff_candidates()` when comparing people across clubs. Each unambiguous person appears
+once and carries its current club appointment records. The reader also looks for profiles
+outside club lists. Club-list membership alone and unresolved teams can leave employment
+`unknown`.
+
+FM27 excludes recognizable offers and can infer `free_agent` for some profiles with a staff
+role hint and no evidence of an appointment. The inference has limited in-game checks.
+On FM26, contract offers can appear as appointments. Profiles without a readable current
+contract remain `unknown`.
 
 `suspensions()` includes recognized European bans. These rows use `scope="europe"` and
 leave the competition and nation IDs empty.
+
+(staff-search-in-the-web-app)=
+### Staff search in the web app
+
+Choose a hiring preset to sort candidates by a weighted score out of 20. The staff profile
+shows the weight and rating for each input to the score. A missing input leaves the candidate
+unscored. The Attacking, Defending, and Possession coach searches give the higher of Tactical
+and Technical more weight. The Youth coach search gives Working With Youngsters the most
+weight and also uses coaching and people skills.
+
+Use More staff roles to look for a Recruitment Analyst, Technical Director, Loan Manager,
+Head of Youth Development, or another specialist. Recruitment Analyst scores give more weight
+to Analysing Data and also use Judging Player Ability. Director of Football scores use
+Negotiating, Judging Player Ability, and Judging Player Potential. Use Confirmed job to show
+staff with a recorded appointment in the selected job.
+
+The app uses its own weights, informed by Sports Interactive's
+[FM26 delegation guide](https://www.footballmanager.com/the-dugout/delegating-success-football-manager-26)
+and [observations from FM27 staff profiles](https://github.com/jamiebolden/fm-scoring/blob/main/weights/fm27_staff.md).
+Sports Scientist and Head of Sports Science scores use Sports Science. You can compare
+other ratings, such as Motivating, with the attribute filters.
+
+To narrow a Staff search, choose an attribute and select Add filter. Set Min, Max, or
+both on the displayed scale out of 20. A bound excludes candidates whose rating is
+missing. Player lists use the same controls and also offer Top % for ranked columns.
 
 ## Clubs
 
@@ -141,7 +177,7 @@ or could not be joined unambiguously. Injury history also has limits. Neither re
 complete career coverage.
 
 **Unsupported fields.** fmsave does not expose today's availability, a full matchday lineup
-(`selections()` holds the stored picks), most FM26 staff ratings, club debt or asking prices.
+(`selections()` holds the stored picks), club debt, or asking prices.
 That does not establish whether the save stores them. Season statistics do include yellow and
 red cards; check each field's status before using it.
 
@@ -159,10 +195,10 @@ fmsave fills in `name` and every denormalised `competition_name`:
 ```python
 import fmsave
 
-competition_names = fmsave.read_competition_names("competition-names.csv")
-with fmsave.open("career.fm", competition_names=competition_names) as career_save:
-    for competition in career_save.competitions():
-        print(competition.database_id, competition.name)  # 12345 "Example League"
+name_map = fmsave.read_competition_names("competition-names.csv")
+with fmsave.open("career.fm", competition_names=name_map) as career_save:
+    for row in career_save.competitions():
+        print(row.database_id, row.name)  # 12345 "Example League"
 ```
 
 The file is UTF-8, 2 columns, `database_id` then `name`; a leading header row is skipped. Any

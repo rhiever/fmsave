@@ -251,17 +251,12 @@ export function fold(s) {
 }
 
 // Reads a rule value: "14", "0.35", "0,35", "5M", "1.5m", "150k", "1,500,000", or a year for dates.
-export function parseValue(col, raw) {
+export function parseValue(raw, fmt) {
   let text = String(raw).trim().replace(/\s+/g, "");
   if (/^-?\d+,\d{1,2}[kKmM]?$/.test(text)) text = text.replace(",", ".");
   text = text.replace(/,(?=\d{3}(\D|$))/g, "");
   const m = /^(-?\d+(?:\.\d+)?)([kKmM]?)$/.exec(text);
   if (!m) return NaN;
   const v = Number(m[1]) * ({ m: 1e6, k: 1e3 }[m[2].toLowerCase()] || 1);
-  return col.fmt === "hundredths" ? v * 100 : v;
-}
-export function showValue(col, v) {
-  if (col.fmt === "money") return money(v);
-  if (col.fmt === "hundredths") return v / 100 + "%";
-  return String(v);
+  return fmt === "hundredths" ? v * 100 : v;
 }

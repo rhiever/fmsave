@@ -62,6 +62,7 @@ label, and the status types that say whether a field's meaning is verified.
 .. autoclass:: fmsave.SquadStatus
    :members:
 .. autoclass:: fmsave.StaffJob
+.. autoclass:: fmsave.StaffEmployment
    :members:
 .. autoclass:: fmsave.SuspensionScope
    :members:

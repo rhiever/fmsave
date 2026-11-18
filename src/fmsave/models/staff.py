@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 from typing import ClassVar
 
 from fmsave._status import register_field_statuses
@@ -101,7 +101,7 @@ class StaffAttributes:
     """Ratings stored for a staff member.
 
     Adaptability uses the same 1 to 20 scale as `Staff.personality.adaptability`.
-    The other ratings are unconfirmed and currently read only for FM27 non-human staff.
+    The other ratings are read for non-human staff. Their meanings are unconfirmed on FM26.
     Authority and working with youngsters use a 1 to 20 scale. The rest use a 1 to 100
     scale. Missing or out-of-range ratings are None.
 
@@ -292,6 +292,100 @@ class Staff:
     )
 
 
+class StaffEmployment(StrEnum):
+    """Whether a candidate's current appointment or free-agent status is confirmed."""
+
+    EMPLOYED = "employed"
+    FREE_AGENT = "free_agent"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class StaffAppointment:
+    """A staff appointment record with a resolved club.
+
+    FM27 excludes recognized offers. On FM26 the reader cannot distinguish offers from
+    signed contracts, so an appointment may be an offer. Job codes are available on FM27.
+    A code the game has not confirmed keeps its raw number and has an UNKNOWN label. Wage
+    is weekly in the save's base currency. Roles without terms have no wage or contract dates.
+
+    Attributes:
+        club_uid: Uid of the club that holds this appointment.
+        club_name: Full name of the club.
+        team_id: Id of the team this appointment is with.
+        team_slot: The team's position in the club's team list (unconfirmed).
+        job: Job code with label if available (unconfirmed).
+        has_contract: Whether the appointment includes terms (unconfirmed).
+        wage: Weekly wage in the save's base currency.
+        contract_start: The date the contract began.
+        contract_end: The date the contract expires (unconfirmed).
+    """
+
+    club_uid: int
+    club_name: str
+    team_id: int
+    team_slot: int | None
+    job: CodedValue[StaffJob] | None
+    has_contract: bool
+    wage: int | None
+    contract_start: date | None
+    contract_end: date | None
+
+
+@dataclass(frozen=True, slots=True)
+class StaffCandidate:
+    """A distinct person available to the staff reader.
+
+    Identity and profile fields follow `Staff`. Appointments are in file order. Employment
+    is `employed` when a current appointment record was read. FM26 can include offers in
+    that group because the reader cannot distinguish them from signed contracts. An FM27
+    profile with a staff role hint and no evidence of an appointment can be classified as
+    `free_agent`. This inference has limited in-game checks. Remaining cases are `unknown`.
+    Profiles and appointment records are left empty when the end of the person's record
+    cannot be established.
+
+    Attributes:
+        uid: The save-local person id used to join with the staff table (unconfirmed).
+        unique_id: The person's Unique ID in the game database, when readable (unconfirmed).
+        is_human_manager: Whether this is the save's human manager (unconfirmed).
+        name: Common name, else first and last name, else legal name (unconfirmed).
+        first_name: First name (unconfirmed).
+        last_name: Surname (unconfirmed).
+        common_name: The name the game shows in place of the full name (unconfirmed).
+        full_name: First and last name together, when both are known (unconfirmed).
+        legal_name: The stored legal name (unconfirmed).
+        birth_date: Date of birth (unconfirmed).
+        age: Age at the save's in-game date (unconfirmed).
+        nation_id: Save-local nation id (unconfirmed).
+        ability: Current and potential ability, when readable.
+        personality: The 8 personality values, when readable.
+        attributes: Adaptability and any readable staff ratings.
+        preferences: The named preferences, when readable.
+        employment: Employment status (unconfirmed).
+        appointments: The resolved current club appointments found for this person
+            (unconfirmed).
+    """
+
+    uid: int
+    unique_id: int | None
+    is_human_manager: bool
+    name: str | None
+    first_name: str | None
+    last_name: str | None
+    common_name: str | None
+    full_name: str | None
+    legal_name: str | None
+    birth_date: date | None
+    age: int | None
+    nation_id: int | None
+    ability: Ability | None
+    personality: Personality | None
+    attributes: StaffAttributes | None
+    preferences: StaffPreferences | None
+    employment: StaffEmployment
+    appointments: tuple[StaffAppointment, ...]
+
+
 @dataclass(frozen=True, slots=True)
 class StaffList:
     """One of the three staff lists a club record holds, for one club.
@@ -403,4 +497,28 @@ register_field_statuses(
 register_field_statuses(
     StaffList,
     unconfirmed=("club_uid", "club_name", "list_index", "staff_uids", "staff_names"),
+)
+register_field_statuses(
+    StaffAppointment,
+    verified=("club_uid", "club_name", "team_id", "wage", "contract_start"),
+    unconfirmed=("team_slot", "job", "has_contract", "contract_end"),
+)
+register_field_statuses(
+    StaffCandidate,
+    unconfirmed=(
+        "uid",
+        "unique_id",
+        "is_human_manager",
+        "name",
+        "first_name",
+        "last_name",
+        "common_name",
+        "full_name",
+        "legal_name",
+        "birth_date",
+        "age",
+        "nation_id",
+        "employment",
+        "appointments",
+    ),
 )

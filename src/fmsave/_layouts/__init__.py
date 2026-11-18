@@ -1677,9 +1677,8 @@ class StaffLayout:
     `allocated_uid_minimum`, distinct identity words also require the complete staff ability
     and preference structure. `kind_offset` holds `staff_kind` for a staff member
     and `human_kind` for the human manager. `entry_count_offset` holds how many `entry_bytes`
-    entries the object carries; they start two bytes later, behind a zero byte, and nothing
-    reads either of those two positions. Three
-    reputation words follow the entries, so the ability block starts at
+    entries the object carries. The entries start 2 bytes later, after a byte set to 0.
+    The ability block starts after the entries and 3 reputation words, so its offset is
 
         ability = header + ability_base_offset + entry_bytes * entry_count
 
@@ -1768,6 +1767,10 @@ class StaffLayout:
     no_contract_selector_offset: int | None = None
     no_contract_lead: bytes = b""
     unset_code_list_allowed: bool = False
+    candidate_entry_lead: bytes = b""
+    candidate_entry_separator: bytes = b""
+    candidate_block_trailer: bytes = b""
+    candidate_free_agent_supported: bool = False
     rated_block_slots: tuple[tuple[str, int], ...] = ()
     rated_preference_slots: tuple[tuple[str, int, int], ...] = ()
 

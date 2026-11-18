@@ -64,7 +64,7 @@ from fmsave.models.season_history import PlayerSeasonHistory
 from fmsave.models.season_stats import PlayerSeasonStats
 from fmsave.models.squad_planner import SquadPlannerSlot
 from fmsave.models.stadiums import Stadium
-from fmsave.models.staff import Staff, StaffList
+from fmsave.models.staff import Staff, StaffCandidate, StaffList
 from fmsave.models.suspensions import Suspension
 from fmsave.models.tactics import Selection, SetPieceRoutine, Tactic
 from fmsave.models.team_match_stats import TeamMatchStats
@@ -164,7 +164,12 @@ from fmsave.readers.stadiums import (
     find_stadium_layout,
     stadium_table_stats,
 )
-from fmsave.readers.staff import find_staff_layouts, locate_human_header, read_staff
+from fmsave.readers.staff import (
+    find_staff_layouts,
+    locate_human_header,
+    read_staff,
+    read_staff_candidates,
+)
 from fmsave.readers.stages import StageIndex, named_stages
 from fmsave.readers.suspensions import (
     SuspensionEntry,
@@ -218,6 +223,7 @@ AFFILIATES_TABLE_CACHE_KEY = "table:affiliates"
 JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
 STADIUMS_TABLE_CACHE_KEY = "table:stadiums"
 STAFF_TABLE_CACHE_KEY = "table:staff"
+STAFF_CANDIDATES_TABLE_CACHE_KEY = "table:staff_candidates"
 STAFF_LISTS_TABLE_CACHE_KEY = "table:staff_lists"
 SQUAD_PLANNER_TABLE_CACHE_KEY = "table:squad_planner"
 TACTICS_TABLE_CACHE_KEY = "table:tactics"
@@ -2040,6 +2046,41 @@ class Save:
         """
         context = self._context
         return context.cached(STAFF_LISTS_TABLE_CACHE_KEY, self._staff_lists_table_entry_point)
+
+    def staff_candidates(self) -> Table[StaffCandidate]:
+        """Return staff profiles and appointments by unambiguous person UID.
+
+        Staff search includes readable profiles independently of club lists and contracts.
+        FM27 can infer free-agent status for some profiles. On FM26, a readable contract
+        can be an offer. FM26 profiles without a readable current contract have unknown
+        employment. The table is decoded on demand and cached until the save closes.
+        """
+        return self._context.cached(STAFF_CANDIDATES_TABLE_CACHE_KEY, self._decode_staff_candidates)
+
+    def _decode_staff_candidates(self) -> Table[StaffCandidate]:
+        context = self._context
+        info = context.info
+        clock = info.game_date
+        if clock is None:
+            raise ReaderCheckError(
+                f"{info.file_name}: the save's in-game date is unreadable, so staff "
+                "appointments cannot be dated"
+            )
+        layouts = find_staff_layouts(info.section_schemas, info.build)
+        with context.section(GAME_DB_SECTION) as game_db, context.section(HUMANS_SECTION) as humans:
+            self.players()
+            self.clubs()
+            candidates = read_staff_candidates(
+                game_db,
+                humans,
+                context.club_index(),
+                context.player_records(),
+                context.name_pools(),
+                clock,
+                layouts,
+                info.file_name,
+            )
+        return Table(candidates, StaffCandidate)
 
     def _staff_table_entry_point(self) -> Table[Staff]:
         tables = self._decode_staff_tables()

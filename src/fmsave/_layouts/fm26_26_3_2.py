@@ -1314,6 +1314,34 @@ STAFF = StaffLayout(
     list_only_block_search_bytes=20_000,
     # A new manager's profile stores a zero controversy byte (a day-one 26.0.0 save does).
     human_personality_floor=0,
+    candidate_entry_lead=b"\x01\x05",
+    candidate_entry_separator=b"\x05",
+    candidate_block_trailer=b"\xff" * 4,
+    rated_block_slots=(
+        ("goalkeeping", 1),
+        ("judging_player_ability", 2),
+        ("judging_player_potential", 3),
+        ("people_management", 4),
+        ("motivating", 5),
+        ("physiotherapy", 6),
+        ("tactical_knowledge", 7),
+        ("attacking", 8),
+        ("defending", 9),
+        ("fitness", 10),
+        ("possession", 11),
+        ("technical", 12),
+        ("tactical", 13),
+        ("analysing_data", 18),
+        ("sports_science", 21),
+        ("negotiating", 23),
+        ("judging_staff_ability", 24),
+        ("set_pieces", 25),
+    ),
+    rated_preference_slots=(
+        ("authority", 4, 20),
+        ("working_with_youngsters", 12, 20),
+        ("determination", 13, 100),
+    ),
 )
 
 # The match report store. Every field below matched the game's match stats screen on twenty

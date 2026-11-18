@@ -19,9 +19,10 @@ from __future__ import annotations
 import functools
 import re
 import struct
-from bisect import bisect_left
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from bisect import bisect_left, bisect_right
+from collections import Counter
+from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Final, cast
 
@@ -37,7 +38,16 @@ from fmsave._layouts import (
 from fmsave._reader_stats import StaffStats
 from fmsave.models.common import CodedValue
 from fmsave.models.players import Ability
-from fmsave.models.staff import Staff, StaffAttributes, StaffJob, StaffList, StaffPreferences
+from fmsave.models.staff import (
+    Staff,
+    StaffAppointment,
+    StaffAttributes,
+    StaffCandidate,
+    StaffEmployment,
+    StaffJob,
+    StaffList,
+    StaffPreferences,
+)
 from fmsave.readers._common import GAME_DB_SECTION, HUMANS_SECTION, build_gap_padded_struct
 from fmsave.readers.clubs import ClubIndex
 from fmsave.readers.contracts import (
@@ -779,7 +789,7 @@ class _AbilityBlock:
 
 
 def _read_ability_block(
-    game_db: bytes, header: int, layout: StaffLayout
+    game_db: bytes, header: int, layout: StaffLayout, *, object_end: int | None = None
 ) -> tuple[_AbilityBlock | None, bool, bool, bool]:
     """(block, preference slots in range, codes in set, further bytes in range).
 
@@ -792,14 +802,14 @@ def _read_ability_block(
     first byte past what the header test itself reads, so its own place is checked before it is
     read. Such a header is the no-block case, exactly as a block running past the section is.
     """
-    section_end = len(game_db)
+    read_end = len(game_db) if object_end is None else min(object_end, len(game_db))
     entry_count_offset = header + layout.entry_count_offset
-    if entry_count_offset < 0 or entry_count_offset >= section_end:
+    if entry_count_offset < 0 or entry_count_offset >= read_end:
         return None, False, False, False
     entry_count = game_db[entry_count_offset]
     ability_at = header + layout.ability_base_offset + layout.entry_bytes * entry_count
     block_end = ability_at + layout.block_40_offset + layout.block_40_count
-    if ability_at < 0 or block_end > section_end:
+    if ability_at < 0 or block_end > read_end:
         return None, False, False, False
     lowest_ability, highest_ability = layout.ability_range
     current: int = _UINT16.unpack_from(game_db, ability_at + layout.current_ability_offset)[0]
@@ -1431,4 +1441,395 @@ def _build_list_rows(
                     ),
                 )
             )
+    return tuple(rows)
+
+
+@functools.cache
+def _candidate_signature(layout: StaffLayout) -> re.Pattern[bytes]:
+    """Find the fixed part of an ordinary staff object without a contract or list reference."""
+    sentinel = re.escape(bytes((layout.sentinel_value,)))
+    first_preferences = _byte_class(layout.preference_range[1]) + b"{2}"
+    gap = layout.block_40_offset + layout.block_40_count - layout.sentinel_offset - 3
+    return re.compile(
+        sentinel + first_preferences + b"." * gap + re.escape(layout.candidate_block_trailer),
+        re.DOTALL,
+    )
+
+
+def _independent_headers(
+    game_db: bytes, club_index: ClubIndex, layout: StaffLayout
+) -> Iterator[tuple[int, int]]:
+    """Yield (person id, header) for structurally identifiable staff objects."""
+    if not layout.candidate_block_trailer:
+        return
+    reader = _header_reader(layout)
+    closed_clubs = club_index.record_spans[:-1]
+    club_starts = [span.record_start for span in closed_clubs]
+    for match in _candidate_signature(layout).finditer(game_db):
+        ability = match.start() - layout.sentinel_offset
+        header = ability - layout.ability_base_offset
+        entry_start = header + layout.entry_count_offset + 2
+        for count in range(256):
+            if header < 0:
+                break
+            if (
+                game_db[header + layout.kind_offset] == layout.staff_kind
+                and game_db[header + layout.entry_count_offset] == count
+                and game_db[entry_start - 1] == 0
+                and _header_values(game_db, header, reader, layout) is not None
+            ):
+                person_id: int = _UINT32.unpack_from(game_db, header)[0]
+                club_position = bisect_right(club_starts, header) - 1
+                inside_club = club_position >= 0 and header < closed_clubs[club_position].record_end
+                if person_id < layout.discovery_selector_maximum and not inside_club:
+                    block, _slots_ok, _codes_ok, _further_ok = _read_ability_block(
+                        game_db, header, layout
+                    )
+                    if block is not None:
+                        yield person_id, header
+            # Walk backwards over complete entries only. This keeps the work per match
+            # bounded by the object's entry count, with a stop at the first non-entry.
+            entry_start -= layout.entry_bytes
+            if (
+                entry_start < 0
+                or not game_db.startswith(layout.candidate_entry_lead, entry_start)
+                or not game_db.startswith(
+                    layout.candidate_entry_separator,
+                    entry_start + len(layout.candidate_entry_lead) + _UINT16.size,
+                )
+            ):
+                break
+            header -= layout.entry_bytes
+
+
+def _candidate_appointments(
+    game_db: bytes,
+    header: int,
+    object_end: int,
+    selector: int,
+    decoder: ContractDecoder,
+    layouts: StaffLayouts,
+    club_index: ClubIndex,
+) -> tuple[tuple[StaffAppointment, ...], int | None]:
+    """Keep bounded current appointments and the last record before the profile, if found."""
+    staff_layout = layouts.staff
+    contract_layout = layouts.contracts
+    tag = contract_layout.tag
+    offer_offset = staff_layout.offer_marker_offset
+    role_offset = staff_layout.no_contract_selector_offset
+    job_offset = staff_layout.job_offset
+    needle = _UINT32.pack(selector)
+
+    # Contract terms supersede another copy of the same appointment. Different jobs at
+    # the same club or the same job with different teams are separate appointments.
+    appointments: dict[tuple[int, int | None], StaffAppointment] = {}
+    last_record_tag: int | None = None
+    tag_at = game_db.find(tag, header, object_end)
+    while tag_at != -1:
+        selector_at = tag_at + contract_layout.selector_offset
+        role_selector_at = tag_at + (role_offset or 0)
+        team_id: int | None = None
+        job_code: int | None = None
+        record: ChainRecordTuple | None = None
+
+        if (
+            role_offset is not None
+            and job_offset is not None
+            and role_selector_at + job_offset < object_end
+            and game_db.startswith(needle, role_selector_at, object_end)
+            and game_db.startswith(
+                staff_layout.no_contract_lead,
+                role_selector_at - len(staff_layout.no_contract_lead),
+                object_end,
+            )
+        ):
+            _, team_id = _SELECTOR_TEAM.unpack_from(game_db, role_selector_at)
+            job_code = _job_code(game_db, role_selector_at, staff_layout)
+        elif (
+            game_db.startswith(needle, selector_at, object_end)
+            and tag_at + contract_layout.wage_offset + _UINT32.size <= object_end
+            and (
+                offer_offset is None
+                or not game_db.startswith(tag, selector_at + offer_offset, object_end)
+            )
+        ):
+            # decode_chain_record searches backwards for the tail and clause tables.
+            # Give it only bytes owned by this person, even for a large human object.
+            floor = max(header, tag_at - staff_layout.contract_header_search_bytes)
+            fixed_end = tag_at + contract_layout.wage_offset + _UINT32.size
+            record = decoder.decode_chain_record(game_db[floor:fixed_end], tag_at - floor)
+            if record[CHAIN_RECORD_HAS_TERMS]:
+                last_record_tag = tag_at
+                start = record[CHAIN_RECORD_START]
+                end = record[CHAIN_RECORD_END]
+                if (
+                    start is not None
+                    and start <= decoder.clock
+                    and (end is None or decoder.clock <= end)
+                ):
+                    team_id = record[CHAIN_RECORD_TEAM_ID]
+                    if job_offset is not None and selector_at + job_offset < object_end:
+                        job_code = _job_code(game_db, selector_at, staff_layout)
+        tag_at = game_db.find(tag, tag_at + len(tag), object_end)
+        if team_id is None:
+            continue
+        club_uid, club_name = decoder.club_by_team_id.get(team_id, (None, None))
+        if club_uid is None or club_name is None:
+            continue
+        appointment = StaffAppointment(
+            club_uid=club_uid,
+            club_name=club_name,
+            team_id=team_id,
+            team_slot=_team_slot(club_index, team_id),
+            job=None if job_code is None else CodedValue.from_raw(StaffJob, job_code),
+            has_contract=record is not None,
+            wage=None if record is None else record[CHAIN_RECORD_WAGE],
+            contract_start=None if record is None else record[CHAIN_RECORD_START],
+            contract_end=None if record is None else record[CHAIN_RECORD_END],
+        )
+        key = (team_id, job_code)
+        previous = appointments.get(key)
+        if previous is None or (
+            appointment.contract_start is not None
+            and (
+                previous.contract_start is None
+                or appointment.contract_start > previous.contract_start
+            )
+        ):
+            appointments[key] = appointment
+    return tuple(appointments.values()), last_record_tag
+
+
+def _has_candidate_role_evidence(
+    game_db: bytes, header: int, object_end: int, selector: int, layouts: StaffLayouts
+) -> bool:
+    """Whether a record inside the object could be a role or an offer.
+
+    A national appointment can carry the selector and team without the tag used by club
+    contracts. An unfamiliar team or job code does not make that evidence safe to discard.
+    """
+    needle = _UINT32.pack(selector)
+    contract_layout = layouts.contracts
+    team_min, team_max = layouts.team_lists.team_id_range
+    hit = game_db.find(needle, header + _header_reader(layouts.staff).extent, object_end)
+    while hit >= 0:
+        if hit + _SELECTOR_TEAM.size <= object_end:
+            _, team_id = _SELECTOR_TEAM.unpack_from(game_db, hit)
+            if team_min <= team_id <= team_max:
+                return True
+        # A tagged record warrants caution even when its team is outside the expected range.
+        for offset in (contract_layout.selector_offset, layouts.staff.no_contract_selector_offset):
+            if (
+                offset is not None
+                and hit - offset >= header
+                and game_db.startswith(contract_layout.tag, hit - offset, object_end)
+            ):
+                return True
+        hit = game_db.find(needle, hit + 1, object_end)
+    return False
+
+
+def read_staff_candidates(
+    game_db: bytes,
+    humans: bytes,
+    club_index: ClubIndex,
+    player_records: PlayerRecords,
+    name_pools: NamePools,
+    clock: date,
+    layouts: StaffLayouts,
+    file_name: str,
+) -> tuple[StaffCandidate, ...]:
+    """Read staff profiles and confirmed appointments independently of the legacy tables."""
+    layout = layouts.staff
+    contract_decoder = build_contract_decoder(layouts.contracts, club_index, clock, file_name)
+    person_decoder = build_person_block_decoder(
+        replace(layouts.person_blocks, require_unique_candidate=True),
+        name_pools,
+        club_index,
+        clock,
+        file_name,
+    )
+    human_selector = first_human_selector(humans, layouts.humans, file_name)
+    known_contracts = discover_contracts(
+        game_db, player_records, human_selector, contract_decoder, layouts, club_index
+    )
+    known_roles = discover_no_contract_roles(
+        game_db,
+        player_records,
+        human_selector,
+        contract_decoder.club_by_team_id,
+        layouts,
+        club_index,
+    )
+    linked = set(known_contracts.header_by_person.items()) | set(
+        known_roles.header_by_person.items()
+    )
+    listed_pairs, _, _ = read_staff_lists(game_db, club_index, player_records, layout)
+    listed_person_ids = {person_id for _club_uid, person_id in listed_pairs}
+    independent = set(_independent_headers(game_db, club_index, layout))
+    known_ids = {person_id for person_id, _header in linked | independent}
+    linked.update(pair for pair in independent if pair[0] in listed_person_ids)
+    ambiguous_ids: set[int] = set()
+    # Avoid scanning a player-bracketed window per listed person whose header is already
+    # known. Conflicting indexed headers are still removed by the identity counts below.
+    for person_id in listed_person_ids - known_ids:
+        located = locate_listed_header(game_db, person_id, player_records, layout)
+        if isinstance(located, int):
+            linked.add((person_id, located))
+        elif located is _AMBIGUOUS:
+            ambiguous_ids.add(person_id)
+    if human_selector is not None:
+        human_header = locate_human_header(game_db, human_selector, layout, require_unique=True)
+        if human_header is not None:
+            linked.add((human_selector - _ID_OFFSET, human_header))
+
+    player_id_set = set(player_records.pindexes)
+    player_uid_set = set(player_records.uids)
+    headers = linked | independent
+    reader = _header_reader(layout)
+    persons: list[tuple[int, int, int, int]] = []
+    for person_id, header in headers:
+        values = _header_values(game_db, header, reader, layout)
+        if values is not None:
+            uid, kind = values
+            persons.append((header, person_id, uid, kind))
+    ids = Counter(person_id for _header, person_id, _uid, _kind in persons)
+    uids = Counter(uid for _header, _person_id, uid, _kind in persons)
+    player_header_offset = player_records.layout.pindex_offset
+    boundaries = sorted(
+        {header for header, _person_id, _uid, _kind in persons}
+        | {offset + player_header_offset for offset in player_records.record_offsets}
+    )
+    ambiguous_headers = frozenset(
+        {
+            header
+            for header, person_id, uid, _kind in persons
+            if ids[person_id] > 1 or uids[uid] > 1 or person_id in ambiguous_ids
+        }
+        | {
+            player_records.record_offsets[position] + player_header_offset
+            for position in player_records.ambiguous_positions
+        }
+    )
+
+    rows: list[StaffCandidate] = []
+    for header, person_id, uid, kind in sorted(persons):
+        if header in ambiguous_headers or person_id in player_id_set or uid in player_uid_set:
+            continue
+        next_header = _next_header_after(boundaries, header)
+        is_human = kind == layout.human_kind
+        # The human object can be large. Ordinary discovery never searches farther than
+        # the configured person window for an independent object's closing header.
+        ceiling = next_header
+        if not is_human:
+            limit = min(header + layout.list_only_block_search_bytes, len(game_db))
+            if ceiling is None or ceiling > limit:
+                ceiling = None
+            closing_search_end = limit if ceiling is None else ceiling + _UINT32.size
+        else:
+            closing_search_end = len(game_db) if ceiling is None else ceiling + _UINT32.size
+        next_values = (
+            None
+            if ceiling is None or ceiling in ambiguous_headers
+            else _header_values(game_db, ceiling, reader, layout)
+        )
+        if ceiling in ambiguous_headers:
+            closing_search_end = ceiling
+        closing = closing_person_header(
+            game_db,
+            person_id,
+            header + reader.extent,
+            closing_search_end,
+            uid,
+            None if next_values is None else next_values[0],
+        )
+        if closing is None and (person_id, header) not in linked:
+            continue
+        object_end = (
+            closing[0]
+            if closing is not None
+            else (next_header if next_header is not None else len(game_db))
+        )
+        if not is_human:
+            object_end = min(object_end, header + layout.contract_header_search_bytes)
+        person: PersonTuple | None = None
+        appointments: tuple[StaffAppointment, ...] = ()
+        # A selector can support a person's header without establishing where their object
+        # ends. A validated closing header or the next accepted person in sequence bounds
+        # the fields owned by this person.
+        bounded_object = closing is not None or (
+            next_header is not None
+            and next_header not in ambiguous_headers
+            and _UINT32.unpack_from(game_db, next_header)[0] == person_id + _ID_OFFSET
+        )
+        if bounded_object:
+            appointments, last_tag = _candidate_appointments(
+                game_db,
+                header,
+                object_end,
+                person_id + _ID_OFFSET,
+                contract_decoder,
+                layouts,
+                club_index,
+            )
+            for tag in (None,) if last_tag is None else (last_tag, None):
+                start, end = _person_block_window(game_db, header, tag, object_end, layout)
+                person = person_decoder.decode(game_db, start, end)
+                if person is None and is_human and layout.human_personality_floor is not None:
+                    person = person_decoder.decode(
+                        game_db, start, end, layout.human_personality_floor
+                    )
+                if person is not None:
+                    break
+        if person is None and (person_id, header) not in linked:
+            continue
+        block = None
+        if not is_human and bounded_object:
+            block, _, _, _ = _read_ability_block(game_db, header, layout, object_end=object_end)
+        personality = None if person is None else person[_PERSON_PERSONALITY]
+        employment = StaffEmployment.UNKNOWN
+        if appointments:
+            employment = StaffEmployment.EMPLOYED
+        elif (
+            layout.candidate_free_agent_supported
+            and person_id not in listed_person_ids
+            and (person_id, header) not in linked
+            and not is_human
+            and closing is not None
+            and object_end == closing[0]
+            and person is not None
+            and person[_PERSON_NAME] is not None
+            and block is not None
+            and block.unknown[_ROLE_KEY] != 0
+            and not _has_candidate_role_evidence(
+                game_db, header, object_end, person_id + _ID_OFFSET, layouts
+            )
+        ):
+            employment = StaffEmployment.FREE_AGENT
+        rows.append(
+            StaffCandidate(
+                uid=uid,
+                unique_id=None if closing is None else closing[1],
+                is_human_manager=is_human,
+                name=None if person is None else person[_PERSON_NAME],
+                first_name=None if person is None else person[_PERSON_FIRST_NAME],
+                last_name=None if person is None else person[_PERSON_LAST_NAME],
+                common_name=None if person is None else person[_PERSON_COMMON_NAME],
+                full_name=None if person is None else person[_PERSON_FULL_NAME],
+                legal_name=None if person is None else person[_PERSON_LEGAL_NAME],
+                birth_date=None if person is None else person[_PERSON_BIRTH_DATE],
+                age=None if person is None else person[_PERSON_AGE],
+                nation_id=None if person is None else person[_PERSON_NATION_ID],
+                ability=None if block is None else block.ability,
+                personality=personality,
+                attributes=None
+                if personality is None
+                else StaffAttributes(
+                    personality.adaptability, **({} if block is None else block.ratings)
+                ),
+                preferences=None if block is None else block.preferences,
+                employment=employment,
+                appointments=appointments,
+            )
+        )
     return tuple(rows)
