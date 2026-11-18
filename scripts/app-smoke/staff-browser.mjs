@@ -132,7 +132,71 @@ try {
   await race.waitForLoadState("networkidle");
   assert.match(await race.locator("#staff-rows").innerText(), /Coach Example/);
   assert.match(await race.locator("#meta").innerText(), /race.fm/);
-  console.log("Replacement rollback, worker failure, retained export, and stale demo regressions passed.");
+  const demo = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+  await demo.route("**/worker.js", (route) => route.fulfill({ body: workerSource, contentType: "text/javascript" }));
+  await demo.goto(base + "#demo");
+  await demo.locator("[data-list=all]").click();
+  assert.equal(await demo.locator("#rule-hint").isVisible(), false);
+  assert.equal(await demo.locator("#floor-hint").isVisible(), false);
+  await demo.getByRole("button", { name: "About Stats from" }).click();
+  assert.match(await demo.locator("#floor-hint").innerText(), /minutes/);
+  await demo.keyboard.press("Escape");
+  assert.equal(await demo.locator("#floor-hint").isVisible(), false);
+
+  const playerCount = () => demo.locator("#list-count").innerText();
+  const initial = await playerCount();
+  const addPlayerFilter = async (key) => {
+    await demo.locator("#rule-column").selectOption(key);
+    await demo.locator("#add-rule").click();
+    return demo.locator(`#rules [data-attribute="${key}"]`);
+  };
+  const ability = await addPlayerFilter("ability_current");
+  assert.equal(await ability.getByRole("textbox", { name: "Current ability minimum" }).evaluate(
+    (input) => input === document.activeElement
+  ), true);
+  await ability.locator("[data-bound=min]").fill("100");
+  assert.notEqual(await playerCount(), initial);
+  const filtered = await playerCount();
+  await ability.locator("[data-bound=max]").fill("1");
+  assert.match(await playerCount(), /^0 of/);
+  await ability.locator("[data-bound=max]").clear();
+  assert.equal(await playerCount(), filtered);
+  const top = ability.locator("[data-bound=top]");
+  await top.fill("1,5");
+  assert.notEqual(await playerCount(), filtered);
+  await top.fill("101");
+  assert.equal(await top.getAttribute("aria-invalid"), "true");
+  assert.equal(await playerCount(), filtered);
+  await ability.getByRole("button", { name: "Remove Current ability filter" }).click();
+  assert.equal(await playerCount(), initial);
+  const wage = await addPlayerFilter("contract_wage");
+  await wage.locator("[data-bound=min]").fill("5M");
+  assert.match(await playerCount(), /^0 of/);
+  await demo.locator("#clear").click();
+  assert.equal(await playerCount(), initial);
+  const end = await addPlayerFilter("contract_end");
+  await end.locator("[data-bound=max]").fill("1990");
+  assert.match(await playerCount(), /^0 of/);
+  await demo.locator("#clear").click();
+
+  await demo.locator("[data-list=staff]").click();
+  assert.deepEqual(await demo.locator("#presets [data-preset]").evaluateAll(
+    (buttons) => buttons.map((button) => button.dataset.preset)
+  ), ["attacking", "defending", "possession", "physio", "sports_science", "scout", "analyst"]);
+  assert.equal(await demo.locator("#staff-more-roles option").count(), 17);
+  await demo.locator("#staff-more-roles").selectOption("head_performance_analyst");
+  assert.equal(await demo.locator("#staff-more-roles").inputValue(), "head_performance_analyst");
+  await demo.locator("#free-only").check();
+  assert.match(await demo.locator("#staff-rows").innerText(), /Free agent/);
+  assert.doesNotMatch(await demo.locator("#staff-rows").innerText(), /inferred/);
+  await demo.locator("#staff-attribute-choice").selectOption("attacking");
+  await demo.locator("#staff-attribute-add").click();
+  const attacking = demo.locator('#staff-attribute-ranges [data-attribute="attacking"]');
+  await attacking.locator("[data-bound=min]").fill("20");
+  await attacking.getByRole("button", { name: "Remove Attacking filter" }).click();
+  assert.equal(await attacking.count(), 0);
+
+  console.log("Worker lifecycle, player and staff filters, help, and staff presets passed.");
 } finally {
   await browser?.close();
   server.close();

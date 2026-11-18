@@ -434,19 +434,17 @@ def read_staff() -> dict[str, object]:
         "club_name": [appointments_text(row, "club_name") for row in rows],
         "job": [appointments_text(row, "job") for row in rows],
     }
-    note = (
-        "This published reader shows club staff only. Candidate discovery is unavailable. "
-        "On FM26, dated offers may appear as appointments. Employment remains unconfirmed."
-        if capability == "employed_only"
-        else (
-            "Additional FM26 ratings are unconfirmed. FM26 appointments can include dated offers. "
-            "Employment is unconfirmed. Free-agent detection is unavailable for FM26. "
-            "Unattached profiles stay unknown. Word labels are an observed mapping."
-            if career_save.info.game == "FM26"
-            else "Free-agent detection is an unconfirmed inference checked on a small sample. "
-            "Employment with insufficient evidence stays unknown. Word labels are an observed mapping."
+    if capability == "employed_only":
+        note = "This reader shows club staff only. Free-agent detection is unavailable."
+        if career_save.info.game == "FM26":
+            note += " Appointments can include contract offers."
+    elif career_save.info.game == "FM26":
+        note = (
+            "Free-agent detection is unavailable for FM26. Some staff ratings are unconfirmed. "
+            "Appointments can include contract offers."
         )
-    )
+    else:
+        note = "FM27 free-agent detection has had limited in-game checks."
     return {
         "count": len(rows),
         "numbers": numbers,

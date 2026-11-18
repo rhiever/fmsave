@@ -4,9 +4,10 @@
 
 import {
   ATTRIBUTES, COLUMNS, DAY, GROUPS, GROUP_HUE, KINDS, PERSONALITY, POSITION_SLOTS, STAT_GROUPS, TOKEN_GROUP, VIEWS,
-  day, esc, fold, format, human, isRate, isText, kindLabel, money, number, ordinal, parseValue, positions, showValue,
+  day, esc, fold, format, human, isRate, isText, kindLabel, money, number, ordinal, parseValue, positions,
 } from "./catalog.js";
 import { WHEEL_ORDER, pitch, wheel } from "./charts.js";
+import { createColumnFilters } from "./column-filters.js";
 
 const $ = (id) => document.getElementById(id);
 const narrow = () => matchMedia("(max-width: 1080px)").matches;
@@ -504,23 +505,44 @@ function buildControls() {
   $("stat-groups").innerHTML = Object.keys(STAT_GROUPS).map((g) => `<button data-group="${g}" aria-pressed="${g === state.statGroup}">${g}</button>`).join("");
   for (const id of ["stat-kind", "stat-kind-bar"]) $(id).innerHTML = KINDS.map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
   $("positions").innerHTML = GROUPS.map(([abbr, label], g) => `<button data-pos="${g}" aria-pressed="${state.positions.has(g)}" title="${label}">${abbr}</button>`).join("");
-  const groups = new Map();
-  for (const c of COLUMNS.values()) {
-    if (isText(c) || c.fmt === "flag") continue;
-    const g = { Ability: "Player", Stats: "Season stats" }[c.group] || c.group;
-    if (!groups.has(g)) groups.set(g, []);
-    groups.get(g).push(c);
-  }
-  $("rule-column").innerHTML = [...groups].map(([g, cols]) => `<optgroup label="${g}">${cols.map((c) => `<option value="${c.key}"${c.key === "ability_potential" ? " selected" : ""}>${esc(c.label)}</option>`).join("")}</optgroup>`).join("");
-  $("rule-hint").textContent = `Filter by any of ${$("rule-column").options.length} columns covering attributes, positions, personality, contracts, and season stats. "Top %" uses the same ranks as the colours.`;
-  ruleHint();
   drawColumnsMenu();
   syncControls();
 }
 
-function ruleHint() {
-  const c = COLUMNS.get($("rule-column").value);
-  $("rule-value").placeholder = c.fmt === "date" ? "2027" : c.fmt === "money" ? "5M" : c.fmt === "attr" ? "14" : c.fmt === "hundredths" ? "90" : c.stat ? "0.3" : "150";
+function playerFilterFields(c) {
+  const examples = { date: "2027", money: "5M", attr: "14", hundredths: "90", pct: "70", dec1: "0.3", dec2: "0.3" };
+  const example = examples[c.fmt] ?? (c.stat ? "0.3" : "150");
+  const bound = {
+    type: "text",
+    inputMode: c.fmt === "money" ? "text" : c.fmt === "date" ? "numeric" : "decimal",
+    attributes: c.fmt === "date" || c.fmt === "money" ? `placeholder="e.g. ${example}"` : "",
+    parse: (input) => parseValue(input.value, c.fmt),
+    error: `Enter a ${c.fmt === "date" ? "year" : "number"} such as ${example}.`,
+  };
+  const fields = { min: bound, max: bound };
+  if (c.rank) {
+    fields.top = {
+      type: "text",
+      attributes: "",
+      parse(input) {
+        const percent = parseValue(input.value);
+        return percent >= 1 && percent <= 100 ? percent : NaN;
+      },
+      error: "Enter a number from 1 to 100 for Top %.",
+    };
+  }
+  return fields;
+}
+
+function playerFilterGroups() {
+  const groups = new Map();
+  for (const c of COLUMNS.values()) {
+    if (isText(c) || c.fmt === "flag") continue;
+    const group = { Ability: "Player", Stats: "Season stats" }[c.group] || c.group;
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(c);
+  }
+  return groups;
 }
 
 function drawColumnsMenu() {
@@ -542,14 +564,6 @@ function setExtra(key, on) {
   drawColumnsMenu();
 }
 
-function drawRules() {
-  $("rules").innerHTML = state.rules.map((r, k) => {
-    const c = COLUMNS.get(r.key);
-    const text = r.op === "top" ? `top ${r.value}%` : `${r.op === "ge" ? "≥" : "≤"} ${showValue(c, r.value)}`;
-    return `<div class="rule"><i style="background:rgb(var(--${c.hue || "sta"}))"></i><span title="${esc(c.label)}">${esc(c.label)}</span><b>${text}</b><button data-unrule="${k}" aria-label="Remove rule: ${esc(c.label)}"><svg class="icon"><use href="#i-x"/></svg></button></div>`;
-  }).join("");
-}
-
 // Mirrors state into the segmented controls and selects that show it.
 function syncControls() {
   const pressed = (container, attr, current, aria = "aria-pressed") => { for (const b of $(container).querySelectorAll(`[${attr}]`)) b.setAttribute(aria, b.getAttribute(attr) === current); };
@@ -558,7 +572,7 @@ function syncControls() {
   pressed("stat-mode", "data-mode", state.statMode);
   for (const id of ["stat-kind", "stat-kind-bar"]) $(id).value = state.wantedKind;
   $("statbar").hidden = state.view !== "stats";
-  $("floor-hint").textContent = `Stat ranks include only players with at least ${minuteFloor()} minutes in that competition. The same minimum applies to rules on per-90 and percentage stats. This minimum is lower early in a season.`;
+  $("floor-hint").textContent = `Stat ranks require at least ${minuteFloor()} minutes in this competition. The same cutoff applies when filtering by a rate or average, such as goals per 90 or average rating. It is lower early in the season.`;
 }
 
 // Only the competition asked for last is shown, whatever order the answers arrive in.
@@ -587,15 +601,26 @@ function toast(text, ms = 2600) {
 
 // Popovers open just below the button that opened them, kept inside the window.
 function anchorMenu(menu, button) {
+  const rail = button.closest(".rail");
   const place = () => {
     const r = button.getBoundingClientRect();
+    if (rail && menu.matches(":popover-open")) {
+      const bounds = rail.getBoundingClientRect();
+      if (r.bottom <= bounds.top || r.top >= bounds.bottom) {
+        menu.hidePopover();
+        return;
+      }
+    }
     const width = Math.min(menu.offsetWidth || 300, innerWidth - 16);
     menu.style.left = Math.max(8, Math.min(r.right - width, innerWidth - width - 8)) + "px";
-    menu.style.top = r.bottom + 6 + "px";
+    const above = menu.classList.contains("filter-help") && r.bottom + menu.offsetHeight + 14 > innerHeight;
+    menu.style.top = (above ? Math.max(8, r.top - menu.offsetHeight - 6) : r.bottom + 6) + "px";
     menu.style.maxHeight = Math.max(160, innerHeight - r.bottom - 16) + "px";
   };
   for (const type of ["beforetoggle", "toggle"]) menu.addEventListener(type, (e) => { if (e.newState === "open") place(); });
-  window.addEventListener("resize", () => { if (menu.matches(":popover-open")) place(); });
+  const placeIfOpen = () => { if (menu.matches(":popover-open")) place(); };
+  window.addEventListener("resize", placeIfOpen);
+  rail?.addEventListener("scroll", placeIfOpen, { passive: true });
 }
 
 function syncThemeButton() {
@@ -615,6 +640,8 @@ function onPick(container, attr, handle) {
 function wire() {
   anchorMenu($("csv-menu"), $("csv-button"));
   anchorMenu($("columns-menu"), $("columns-button"));
+  anchorMenu($("rule-hint"), $("rule-help"));
+  anchorMenu($("floor-hint"), $("floor-help"));
   syncThemeButton();
   $("theme-toggle").addEventListener("click", () => window.fmsaveTheme?.toggle());
   new MutationObserver(syncThemeButton).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
@@ -636,7 +663,6 @@ function wire() {
     b.setAttribute("aria-pressed", state.positions.has(group));
     refresh({ head: false });
   });
-  onPick("rules", "data-unrule", (k) => { state.rules.splice(Number(k), 1); drawRules(); refresh({ head: false }); });
   onPick("thead", "data-sort", (key) => {
     const c = COLUMNS.get(key);
     state.sort = state.sort.key === key ? { key, dir: -state.sort.dir } : { key, dir: isText(c) || c.lower ? 1 : -1 };
@@ -667,27 +693,29 @@ function wire() {
   for (const [id, key] of [["age-min", "ageMin"], ["age-max", "ageMax"]]) {
     $(id).addEventListener("input", (e) => { state[key] = e.target.value === "" ? null : Number(e.target.value); refresh({ head: false }); });
   }
-  $("rule-column").addEventListener("change", ruleHint);
-  $("add-rule").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const key = $("rule-column").value;
-    const op = $("rule-op").value;
-    const col = COLUMNS.get(key);
-    const v = parseValue(col, $("rule-value").value || $("rule-value").placeholder);
-    if (Number.isNaN(v)) return toast("Enter a number such as 14, 0.35, or 5M.");
-    if (op === "top" && !col.rank) return toast(`${col.label} has no ranks. Use "at least" or "at most".`);
-    if (op === "top" && !(v >= 1 && v <= 100)) return toast("Enter a number from 1 to 100 for Top %.");
-    state.rules.push({ key, op, value: v });
-    $("rule-value").value = "";
-    drawRules();
-    if (!visibleCols.some((c) => c.key === key)) setExtra(key, true);
-    refresh();
+  const playerFilters = createColumnFilters({
+    list: $("rules"),
+    choice: $("rule-column"),
+    add: $("add-rule"),
+    groups: playerFilterGroups(),
+    placeholder: "Choose a column",
+    fields: playerFilterFields,
+    onChange(ranges, addedKey) {
+      state.rules = ranges.flatMap(({ key, min, max, top }) =>
+        [["ge", min], ["le", max], ["top", top]]
+          .filter(([, value]) => value != null)
+          .map(([op, value]) => ({ key, op, value }))
+      );
+      if (addedKey && !visibleCols.some((c) => c.key === addedKey)) setExtra(addedKey, true);
+      refresh({ head: Boolean(addedKey) });
+    },
   });
   $("clear").addEventListener("click", () => {
+    clearTimeout(searchTimer);
     Object.assign(state, { search: "", positions: new Set(), ageMin: null, ageMax: null, rules: [] });
     for (const id of ["search", "age-min", "age-max"]) $(id).value = "";
     for (const b of $("positions").children) b.setAttribute("aria-pressed", "false");
-    drawRules();
+    playerFilters.clear();
     refresh({ head: false });
   });
   $("columns-search").addEventListener("input", drawColumnsMenu);
@@ -709,10 +737,11 @@ function wire() {
   $("another").addEventListener("click", () => $("file").click());
   document.addEventListener("keydown", (e) => {
     if (!data || $("app").hidden) return;
+    if (document.querySelector(":popover-open")) return;
     if (e.key === "Escape" && narrow()) { closeDrawer("rail"); closeDrawer("panel"); return; }
     const typing = e.target.closest("input, select, textarea");
     if (e.key === "/" && !typing) { e.preventDefault(); $("search").focus(); return; }
-    if (typing || e.metaKey || e.ctrlKey || e.altKey || document.querySelector(":popover-open")) return;
+    if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); step(1); }
     else if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); step(-1); }
     else if ((e.key === "s" || e.key === "S") && state.selected >= 0) toggleStar(state.selected);
@@ -1015,7 +1044,6 @@ function showApp({ keep = false } = {}) {
   state.list = hasSquad() ? "squad" : "all";
   buildControls();
   for (const id of ["stat-kind", "stat-kind-bar"]) $(id).disabled = false;
-  drawRules();
   refresh();
   if (order.length && !narrow()) selectIndex(order[0], { scroll: false });
   else drawPanel();

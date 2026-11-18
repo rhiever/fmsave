@@ -57,9 +57,9 @@ and [observations from FM27 staff profiles](https://github.com/jamiebolden/fm-sc
 Sports Scientist and Head of Sports Science scores use Sports Science. You can compare
 other ratings, such as Motivating, with the attribute filters.
 
-Add attribute ranges in the Staff filters to narrow a search. Enter a minimum,
-a maximum, or both using the displayed ratings out of 20. Candidates with a missing rating
-are excluded when that rating has a bound.
+To narrow a Staff search, choose an attribute and select Add filter. Set Min, Max, or
+both on the displayed scale out of 20. A bound excludes candidates whose rating is
+missing. Player lists use the same controls and also offer Top % for ranked columns.
 
 ## Clubs
 

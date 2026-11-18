@@ -53,6 +53,7 @@
   <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5M12 18v-6m-3 3l3-3 3 3"/></symbol>
   <symbol id="i-cols" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM9.5 5v14M14.5 5v14"/></symbol>
   <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8v.1"/></symbol>
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
   <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z"/></symbol>
   <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.5 1.5M17.2 17.2l1.5 1.5M5.3 18.7l1.5-1.5M17.2 6.8l1.5-1.5"/></symbol>
@@ -154,26 +155,21 @@
         <label>From<input type="number" id="age-min" min="14" max="50" inputmode="numeric"></label>
         <label>To<input type="number" id="age-max" min="14" max="50" inputmode="numeric"></label>
       </div>
-      <h2 class="h4">Rules</h2>
+      <div class="filter-heading">
+        <h2 class="h4">Column filters</h2>
+        <button class="filter-info" type="button" id="rule-help" popovertarget="rule-hint" aria-label="About column filters"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg></button>
+      </div>
+      <p class="menu filter-help" id="rule-hint" popover>Min and Max include the value you enter. For dates, enter a year. You can enter amounts like 5M. Top % uses the same ranks as the table colours.</p>
       <div id="rules"></div>
-      <form class="add-rule" id="add-rule">
-        <select id="rule-column" aria-label="Column"></select>
-        <div class="pair">
-          <select id="rule-op" aria-label="Comparison">
-            <option value="ge">at least</option>
-            <option value="le">at most</option>
-            <option value="top">top %</option>
-          </select>
-          <input type="text" id="rule-value" aria-label="Value" placeholder="14" inputmode="decimal" autocomplete="off">
-        </div>
-        <button class="plain" type="submit">Add rule</button>
-      </form>
-      <p class="hint" id="rule-hint"></p>
-      <h2 class="h4">Stats from</h2>
+      <select id="rule-column" aria-label="Column to filter"></select>
+      <button class="plain column-filter-add" id="add-rule" type="button" disabled>Add filter</button>
+      <div class="filter-heading">
+        <h2 class="h4"><label for="stat-kind">Stats from</label></h2>
+        <button class="filter-info" type="button" id="floor-help" popovertarget="floor-hint" aria-label="About Stats from"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg></button>
+      </div>
+      <p class="menu filter-help" id="floor-hint" popover></p>
       <select id="stat-kind"></select>
-      <p class="hint" id="floor-hint">Stat ranks include only players with at least 450 minutes in that competition. The same minimum applies to rules on per-90 and percentage stats.</p>
-      <h2 class="h4">Clear</h2>
-      <button class="link" id="clear">Clear all filters</button>
+      <button class="link filter-clear" id="clear" type="button">Clear all filters</button>
     </aside>
     <section class="list" aria-labelledby="list-title">
       <div class="listhead">
@@ -221,11 +217,11 @@
         <label>From<input type="number" id="staff-age-min" inputmode="numeric"></label>
         <label>To<input type="number" id="staff-age-max" inputmode="numeric"></label>
       </div>
-      <h2 class="h4"><label for="staff-attribute-choice">Attributes</label></h2>
+      <h2 class="h4">Attribute filters</h2>
       <div id="staff-attribute-ranges"></div>
       <select id="staff-attribute-choice" aria-label="Attribute to filter"></select>
-      <button class="plain staff-attribute-add" id="staff-attribute-add" type="button" disabled>Add filter</button>
-      <button class="link staff-clear" id="staff-clear" type="button">Clear all filters</button>
+      <button class="plain column-filter-add" id="staff-attribute-add" type="button" disabled>Add filter</button>
+      <button class="link filter-clear" id="staff-clear" type="button">Clear all filters</button>
     </aside>
     <section class="list" aria-labelledby="staff-title">
       <div class="listhead">

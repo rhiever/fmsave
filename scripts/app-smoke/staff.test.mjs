@@ -75,7 +75,7 @@ test("CSV uses the full sorted order with raw and displayed ratings and protects
   const lines = csv.trim().split("\r\n");
   assert.equal(lines.length, 5);
   assert.match(lines[0], /Attacking \(\/20\),Attacking \(raw \/100\)/);
-  assert.match(lines[1], /'=Free Example/);
+  assert.match(lines[1], /'=Free Example,39,Free agent,/);
   assert.match(lines[1], /16\.7,18\.4,92/);
   assert.match(lines[3], /Example FC.*Other FC/);
   assert.match(lines[4], /Unknown Example/);

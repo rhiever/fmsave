@@ -10,6 +10,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - The web app has a Staff tab with weighted hiring scores, job and age filters, attribute
   ranges, staff profiles, and CSV downloads with displayed and stored ratings. Use More staff
   roles for searches such as Recruitment Analyst, Loan Manager, and Head Physio.
+- Player column filters use the same editable Min and Max controls as Staff. Ranked
+  player columns also offer Top %.
 
 ### Fixed
 

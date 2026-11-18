@@ -1,4 +1,5 @@
 import { DAY, day, esc, fold, money, number } from "./catalog.js";
+import { createColumnFilters } from "./column-filters.js";
 
 export const STAFF_GROUPS = {
   Coaching: [
@@ -38,21 +39,20 @@ const QUICK_PRESETS = [
   direction("attacking", "Attacking coach"),
   direction("defending", "Defending coach"),
   direction("possession", "Possession coach"),
-  preset("fitness", "Fitness Coach", { fitness: 80, authority: 10, motivating: 10 }),
-  preset("goalkeeping", "Goalkeeping Coach", { goalkeeping: 70, authority: 10, determination: 10, motivating: 10 }),
-  preset("set_pieces", "Set Piece Coach", { set_pieces: 55, tactical_knowledge: 15, authority: 10, determination: 10, motivating: 10 }),
-  preset("youth", "Youth coach", {
-    working_with_youngsters: 60, tactical: 15, technical: 5, ...coaching, people_management: 5,
-  }, techniquePair),
   preset("physio", "Physio", { physiotherapy: 100 }),
   preset("sports_science", "Sports Scientist", { sports_science: 100 }),
   preset("scout", "Scout", scouting),
   preset("analyst", "Performance Analyst", performanceAnalysis),
-  preset("dof", "Director of Football", { negotiating: 40, judging_player_ability: 30, judging_player_potential: 30 }),
 ];
 
 const MORE_PRESETS = {
   Coaching: [
+    preset("fitness", "Fitness Coach", { fitness: 80, authority: 10, motivating: 10 }),
+    preset("goalkeeping", "Goalkeeping Coach", { goalkeeping: 70, authority: 10, determination: 10, motivating: 10 }),
+    preset("set_pieces", "Set Piece Coach", { set_pieces: 55, tactical_knowledge: 15, authority: 10, determination: 10, motivating: 10 }),
+    preset("youth", "Youth coach", {
+      working_with_youngsters: 60, tactical: 15, technical: 5, ...coaching, people_management: 5,
+    }, techniquePair),
     preset("coach", "Coach", {
       attacking: 15, defending: 15, fitness: 15, tactical: 20, technical: 20, ...coaching,
     }),
@@ -68,6 +68,7 @@ const MORE_PRESETS = {
     }),
   ],
   Recruitment: [
+    preset("dof", "Director of Football", { negotiating: 40, judging_player_ability: 30, judging_player_potential: 30 }),
     preset("chief_scout", "Chief Scout", scouting),
     preset("recruitment_analyst", "Recruitment Analyst", {
       analysing_data: 60, judging_player_ability: 40,
@@ -90,7 +91,7 @@ const MORE_PRESETS = {
 
 export const PRESETS = [...QUICK_PRESETS, ...Object.values(MORE_PRESETS).flat()];
 
-const EMPLOYMENT = { employed: "Employed", free_agent: "Free agent (inferred)", unknown: "Employment unknown" };
+const EMPLOYMENT = { employed: "Employed", free_agent: "Free agent", unknown: "Employment unknown" };
 const confirmedJob = (appointment) => {
   const label = appointment.job;
   return label && label !== "unknown" ? label : "";
@@ -356,9 +357,6 @@ export function createStaffUi(download) {
   const job = byId("staff-job");
   const ageMin = byId("staff-age-min");
   const ageMax = byId("staff-age-max");
-  const attributeChoice = byId("staff-attribute-choice");
-  const attributeAdd = byId("staff-attribute-add");
-  const attributeRanges = byId("staff-attribute-ranges");
   const filters = defaultFilters();
   let roster = null;
   let pending = false;
@@ -425,7 +423,7 @@ export function createStaffUi(download) {
     if (!order.length) {
       const reason = !roster ? (pending ? "Reading staff from this save." : "Staff data could not be read from this save.")
         : !roster.count ? "The reader returned no staff records for this save."
-        : filters.freeOnly && !roster.freeCount ? "The reader found no identified free agents in this save."
+        : filters.freeOnly && !roster.freeCount ? "No free agents found in this save."
         : "Clear a filter to see more staff.";
       rows.innerHTML = `<div class="empty"><b>${pending ? "Reading staff" : roster?.count ? "No staff match" : "No staff to show"}</b>${reason}</div>`;
       return;
@@ -500,28 +498,27 @@ export function createStaffUi(download) {
     }
   }
 
-  function drawAttributeRanges() {
-    const used = new Set(filters.attributeRanges.map(({ key }) => key));
-    attributeChoice.innerHTML = '<option value="">Choose an attribute</option>' + Object.entries(STAFF_GROUPS).map(([group, attrs]) => {
-      const choices = attrs.filter(([key]) => !used.has(key));
-      return choices.length ? `<optgroup label="${group}">${choices.map(([key, , label]) =>
-        `<option value="${key}">${esc(label)}</option>`).join("")}</optgroup>` : "";
-    }).join("");
-    attributeChoice.disabled = used.size === STAFF_ATTRS.size;
-    attributeAdd.disabled = true;
-    attributeRanges.innerHTML = filters.attributeRanges.map(({ key, min, max }) => {
-      const { label, scale } = STAFF_ATTRS.get(key);
-      const low = scale === 100 ? "0.2" : "1";
-      return `<fieldset class="staff-range" data-attribute="${key}">
-        <legend>${esc(label)}</legend>
-        <div class="pair">
-          <label>Min<input type="number" data-bound="min" aria-label="${esc(label)} minimum" min="${low}" max="20" step="any" inputmode="decimal" value="${min ?? ""}"></label>
-          <label>Max<input type="number" data-bound="max" aria-label="${esc(label)} maximum" min="${low}" max="20" step="any" inputmode="decimal" value="${max ?? ""}"></label>
-        </div>
-        <button class="link staff-range-remove" type="button" aria-label="Remove ${esc(label)} filter">Remove</button>
-      </fieldset>`;
-    }).join("");
-  }
+  const attributeFilters = createColumnFilters({
+    list: byId("staff-attribute-ranges"),
+    choice: byId("staff-attribute-choice"),
+    add: byId("staff-attribute-add"),
+    groups: new Map(Object.entries(STAFF_GROUPS).map(([group, attrs]) =>
+      [group, attrs.map(([key]) => STAFF_ATTRS.get(key))])),
+    placeholder: "Choose an attribute",
+    fields({ scale }) {
+      const bound = {
+        type: "number",
+        attributes: `min="${scale === 100 ? "0.2" : "1"}" max="20" step="any"`,
+        parse: (input) => input.valueAsNumber,
+        error: "Enter a number.",
+      };
+      return { min: bound, max: bound };
+    },
+    onChange(ranges) {
+      filters.attributeRanges = ranges;
+      refresh({ headChanged: false });
+    },
+  });
 
   function syncFilters() {
     search.value = filters.search;
@@ -529,7 +526,7 @@ export function createStaffUi(download) {
     job.value = filters.job;
     ageMin.value = filters.ageMin ?? "";
     ageMax.value = filters.ageMax ?? "";
-    drawAttributeRanges();
+    attributeFilters.clear();
   }
 
   viewControls.addEventListener("click", (e) => {
@@ -608,32 +605,6 @@ export function createStaffUi(download) {
       refresh({ headChanged: false });
     });
   }
-  attributeChoice.addEventListener("change", () => {
-    attributeAdd.disabled = !attributeChoice.value;
-  });
-  attributeAdd.addEventListener("click", () => {
-    const key = attributeChoice.value;
-    if (!STAFF_ATTRS.has(key)) return;
-    filters.attributeRanges.push({ key, min: null, max: null });
-    drawAttributeRanges();
-    attributeRanges.querySelector(`[data-attribute="${key}"] [data-bound="min"]`).focus();
-  });
-  attributeRanges.addEventListener("input", (e) => {
-    const input = e.target;
-    if (!input.dataset.bound) return;
-    const key = input.closest("[data-attribute]").dataset.attribute;
-    const range = filters.attributeRanges.find((item) => item.key === key);
-    range[input.dataset.bound] = Number.isFinite(input.valueAsNumber) ? input.valueAsNumber : null;
-    refresh({ headChanged: false });
-  });
-  attributeRanges.addEventListener("click", (e) => {
-    if (!e.target.closest(".staff-range-remove")) return;
-    const key = e.target.closest("[data-attribute]").dataset.attribute;
-    filters.attributeRanges = filters.attributeRanges.filter((range) => range.key !== key);
-    drawAttributeRanges();
-    attributeChoice.focus();
-    refresh({ headChanged: false });
-  });
   byId("staff-clear").addEventListener("click", () => {
     Object.assign(filters, defaultFilters());
     syncFilters();
@@ -686,10 +657,7 @@ export function createStaffUi(download) {
       closePanel({ restoreFocus: false });
       grid.scrollLeft = 0;
       const source = byId("staff-source");
-      const freeAgentNote = payload?.capability === "candidates" && payload.ratings_status === "verified"
-        ? "The free-agent filter includes inferred free agents and excludes people with unknown employment."
-        : "";
-      source.textContent = [payload?.notice, payload?.coverage_note, freeAgentNote, ...(payload?.warnings ?? [])].filter(Boolean).join(" ");
+      source.textContent = [payload?.notice, payload?.coverage_note, ...(payload?.warnings ?? [])].filter(Boolean).join(" ");
       source.hidden = !source.textContent;
       if (!app.hidden) refresh();
     },
