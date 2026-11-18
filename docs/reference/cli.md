@@ -55,6 +55,7 @@ $ fmsave export --help
 usage: fmsave export [-h] (--club VALUE | --managed-club |
                      --competition VALUE | --nation VALUE | --all)
                      [--format {csv,json,jsonl}] [--columns NAMES]
+                     [--scouting-position {GK,CB,FB/WB,DM,CM,AM,WIDE,ST}]
                      [--competition-names PATH] [-o PATH] [--strict]
                      SAVE TABLE
 
@@ -101,6 +102,8 @@ options:
                         output format (default: csv)
   --columns NAMES       comma-separated flat column names to write, in this
                         order
+  --scouting-position {GK,CB,FB/WB,DM,CM,AM,WIDE,ST}
+                        add scouting scores for this position to a players export
   --competition-names PATH
                         a UTF-8 CSV of database_id,name naming competitions,
                         which no save stores

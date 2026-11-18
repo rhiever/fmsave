@@ -146,6 +146,12 @@ def("club_join_date", { label: "Joined club", abbr: "Joined", group: "Contract",
 def("raw_condition", { label: "Condition", abbr: "Cond", group: "Contract", fmt: "hundredths", width: 54 });
 def("raw_match_sharpness", { label: "Match sharpness", abbr: "Sharp", group: "Contract", fmt: "hundredths", width: 54 });
 
+export function addScoutingColumns() {
+  for (const [model, label] of [["full", "Full"], ["visible", "Visible only"]]) {
+    def("scouting_score_" + model, { label: label + " scouting score", abbr: label, group: "Scouting", fmt: "dec3", width: 92, rank: false, scouting: true });
+  }
+}
+
 function statFormat(key) {
   if (key.endsWith("_percent")) return "pct";
   if (key === "average_rating" || key.startsWith("expected_") || key.startsWith("non_penalty") || key.endsWith("_per_shot")) return "dec2";
@@ -209,6 +215,7 @@ export function format(col, v) {
     case "flag": return v ? "Yes" : "";
     case "hundredths": return Math.round(v / 100) + "%";
     case "pct": return v.toFixed(0) + "%";
+    case "dec3": return v.toFixed(3);
     case "dec2": return v.toFixed(2);
     case "dec1": return v.toFixed(1);
     default: return nf.format(Math.round(v));

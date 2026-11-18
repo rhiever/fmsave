@@ -111,12 +111,14 @@ from fmsave.models.training import (
     TrainingWeek,
 )
 from fmsave.name_maps import read_competition_names
+from fmsave.scouting import SCOUTING_POSITIONS, ScoutedPlayer, scout_players, scouting_score
 from fmsave.table import Table
 
 OUTPUT_SCHEMA_VERSION = 4
 
 __all__ = [
     "OUTPUT_SCHEMA_VERSION",
+    "SCOUTING_POSITIONS",
     "Ability",
     "AffiliateGroup",
     "AmbiguousNameError",
@@ -181,6 +183,7 @@ __all__ = [
     "SaveChangedError",
     "SaveClosedError",
     "SaveInfo",
+    "ScoutedPlayer",
     "SeasonStatsKind",
     "SectionInfo",
     "Selection",
@@ -223,5 +226,7 @@ __all__ = [
     "field_status",
     "open",
     "read_competition_names",
+    "scout_players",
+    "scouting_score",
     "validate_save",
 ]

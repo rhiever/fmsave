@@ -97,6 +97,8 @@ The rest:
 
 - `--format {csv,json,jsonl}`, default `csv`.
 - `--columns NAMES`: flat column names, comma-separated, written in the order you give them.
+- `--scouting-position POSITION`: add both scouting scores and the chosen position to a player
+  export. See [Scouting scores](scouting.md).
 - `-o PATH`: a file instead of standard output.
 - `--competition-names PATH`: a UTF-8 CSV of `database_id,name`. See
   [What a save holds](what-a-save-holds.md).

@@ -1665,3 +1665,34 @@ def test_a_club_without_a_league_nation_exports_an_empty_nation() -> None:
         export.flat_rows((without_nation,), Club), ("uid", "nation_id", "fa_nation_id"), stream
     )
     assert stream.getvalue().splitlines() == ["uid,nation_id,fa_nation_id", "5202,,3"]
+
+
+@pytest.mark.parametrize("fmt", ["csv", "json", "jsonl"])
+def test_scouted_player_export_includes_both_scores_by_default(
+    save_path: Path, capsys: pytest.CaptureFixture[str], fmt: str
+) -> None:
+    exit_code, output, _ = run_export(
+        capsys, str(save_path), "players", "--all", "--scouting-position", "CB", "--format", fmt
+    )
+    assert exit_code == cli.EXIT_OK
+    if fmt == "csv":
+        rows = csv_records(output)
+    elif fmt == "json":
+        rows = json.loads(output)
+    else:
+        rows = [json.loads(line) for line in output.splitlines()]
+    assert rows and all(row["scouting_position"] == "CB" for row in rows)
+    assert all({"scouting_score_full", "scouting_score_visible"} <= set(row) for row in rows)
+
+
+def test_scouting_export_respects_column_selection(
+    save_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = (str(save_path), "players", "--all", "--columns", "name,scouting_score_visible")
+    code, output, _ = run_export(capsys, *args, "--scouting-position", "CB")
+    assert code == cli.EXIT_OK
+    assert csv_rows(output)[0] == ["name", "scouting_score_visible"]
+
+    code, _, error = run_export(capsys, *args)
+    assert code == cli.EXIT_USAGE
+    assert "scouting_score_visible" in error

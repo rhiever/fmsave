@@ -51,6 +51,15 @@ check(optional.error, "unknown stats kind should fail safely");
 const stats = call("read_stats").ok;
 check(stats && stats.numbers.minutes.byteLength === players.count * 4, "season stats did not line up");
 call("close_save");
+if (players.scouting) {
+  const scores = call("scouting_columns", "CB");
+  check(scores.ok, "scouting_columns failed: " + JSON.stringify(scores.error));
+  for (const model of ["full", "visible"]) {
+    const values = scores.ok[`scouting_score_${model}`];
+    check(values?.byteLength === players.count * 8, "scouting scores did not line up");
+    check(new Float64Array(values.slice().buffer).some(Number.isFinite), "no centre-back score was returned");
+  }
+}
 const csv = call("write_csv", "players", "/tmp/players.csv").ok;
 check(csv === players.count, "players.csv has the wrong row count");
 const bad = call("open_save", "/tmp/not a save.fm");

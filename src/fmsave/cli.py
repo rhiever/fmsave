@@ -22,10 +22,10 @@ import warnings
 from collections.abc import Callable, Generator, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
-from typing import NoReturn, TextIO
+from typing import NoReturn, TextIO, cast
 
 import fmsave
-from fmsave import export
+from fmsave import export, scouting
 from fmsave._errors import (
     ISSUES_URL,
     AmbiguousNameError,
@@ -63,6 +63,7 @@ from fmsave.models.suspensions import Suspension
 from fmsave.models.tactics import Selection, SetPieceRoutine, Tactic
 from fmsave.models.team_match_stats import TeamMatchStats
 from fmsave.models.training import MentoringGroup, TeamTraining
+from fmsave.scouting import SCOUTING_POSITIONS, ScoutedPlayer
 from fmsave.table import Table
 
 __all__ = ["EXIT_OK", "EXIT_UNEXPECTED", "EXIT_UNSUPPORTED", "EXIT_USAGE", "main"]
@@ -327,6 +328,12 @@ def _build_parser() -> _CommandLineParser:
         "--columns",
         metavar="NAMES",
         help="comma-separated flat column names to write, in this order",
+    )
+    export_parser.add_argument(
+        "--scouting-position",
+        type=str.upper,
+        choices=SCOUTING_POSITIONS,
+        help="add scouting scores for this position to a players export",
     )
     export_parser.add_argument(
         "--competition-names",
@@ -1229,7 +1236,10 @@ def _competition_name_map(names_path: str | None) -> dict[int, str] | None:
 
 def _run_export(arguments: argparse.Namespace) -> int:
     export_table = _EXPORT_TABLES[arguments.table]
-    record_type = export_table.record_type
+    position = arguments.scouting_position
+    if position is not None and arguments.table != "players":
+        raise _CommandUsageError("--scouting-position requires the players table")
+    record_type = export_table.record_type if position is None else ScoutedPlayer
     column_names = _selected_column_names(arguments.columns, record_type)
     _check_scope_arguments(arguments)
     competition_names = _competition_name_map(arguments.competition_names)
@@ -1245,6 +1255,10 @@ def _run_export(arguments: argparse.Namespace) -> int:
     ) as career_save:
         scope = _resolve_scope(career_save, arguments)
         records = export_table.rows(career_save, scope)
+        if position is not None:
+            records = scouting._scouted_players(  # pyright: ignore[reportPrivateUsage]
+                cast("Iterable[Player]", records), position
+            )
         if export_table.empty_note:
             # Only these small tables are held whole, so an empty export can be explained.
             records = tuple(records)

@@ -142,14 +142,21 @@
     </div>
     <label class="ctl">Competition <select id="stat-kind-bar"></select></label>
   </div>
+  <div class="statbar" id="scouting-bar" hidden>
+    <label class="ctl">Scouting position <select id="scouting-position"></select></label>
+    <p class="scouting-note">Research preview. Rank players at the same position by expected future league match rating. <a href="../guides/scouting.html">How scores work</a></p>
+    <span id="scouting-status" role="status"></span>
+  </div>
   <p id="coverage-note" class="reader-note" aria-live="polite" tabindex="0" hidden></p>
   <div class="body">
     <aside class="rail" id="rail" aria-label="Filters">
       <div class="rail-head"><button class="plain" id="rail-close"><svg class="icon"><use href="#i-x"/></svg>Close</button></div>
       <h2 class="h4">Search</h2>
       <input type="search" id="search" placeholder="Name or club" autocomplete="off" spellcheck="false">
-      <h2 class="h4">Position</h2>
-      <div class="chips" id="positions"></div>
+      <div id="position-filters">
+        <h2 class="h4">Position</h2>
+        <div class="chips" id="positions"></div>
+      </div>
       <h2 class="h4">Age</h2>
       <div class="pair">
         <label>From<input type="number" id="age-min" min="14" max="50" inputmode="numeric"></label>
