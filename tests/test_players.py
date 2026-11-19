@@ -874,6 +874,13 @@ def test_unique_id_is_found_behind_an_object_that_is_not_a_player() -> None:
     assert by_uid(players, 900001).unique_id == 900002
 
 
+def test_unique_id_uses_the_next_player_header_when_its_uid_is_lower() -> None:
+    first: dict[str, Any] = {**PLAYER_A, "uid": 2_000_000_004}
+    second: dict[str, Any] = {**PLAYER_B, "pindex": 12, "uid": 2_000_000_002}
+    players = decode_region(player_record_bytes(**first) + player_record_bytes(**second))
+    assert by_uid(players, 2_000_000_004).unique_id == 2_000_000_002
+
+
 def test_a_header_with_a_uid_out_of_order_is_passed_over() -> None:
     # Two headers carry the next person id, but only one uid lies between this record's uid
     # and the next record's.
@@ -929,21 +936,96 @@ def test_fallback_contract_dates_come_only_from_the_players_own_object(
         assert contract is None
 
 
+def test_recovered_unique_id_does_not_shorten_the_contract_window() -> None:
+    uid = 2_000_000_001
+    pair = fallback_pair_bytes(packed_date(1, 2033), packed_date(1, 2030))
+    trailing = bytes(64) + closing_header_bytes(13, uid) + pair + bytes(200)
+    free_agent: dict[str, Any] = {**PLAYER_B, "trailing": trailing}
+    next_player: dict[str, Any] = {**PLAYER_A, "pindex": 14, "uid": 900004}
+    players = decode_region(player_record_bytes(**free_agent) + player_record_bytes(**next_player))
+    player = by_uid(players, 900002)
+    assert player.unique_id == uid
+    assert player.contract is not None
+    assert player.contract.end == date(2033, 1, 1)
+
+
+_ALLOCATED_UID_MINIMUM = 2_000_000_000
+
+
 def test_closing_unique_id_reads_only_a_sound_header_inside_its_bounds() -> None:
     header = struct.pack("<III", 8, 700, 700)
     unsound = struct.pack("<III", 8, 700, 701)
     buffer = bytes(16) + header + bytes(16)
-    assert closing_person_header(buffer, 7, 0, len(buffer), 600, 800) == (16, 700)
-    assert closing_unique_id(buffer, 7, 0, len(buffer), 600, 800) == 700
-    assert closing_unique_id(buffer, 7, 0, len(buffer), 600, None) == 700
-    assert closing_unique_id(buffer, 7, 0, len(buffer), 700, None) is None
-    assert closing_unique_id(buffer, 7, 0, len(buffer), 600, 699) is None
-    assert closing_unique_id(buffer, 7, 20, len(buffer), 600, 800) is None
-    assert closing_unique_id(buffer, 7, 0, 16, 600, 800) is None
-    assert closing_unique_id(buffer, 6, 0, len(buffer), 600, 800) is None
-    assert closing_unique_id(bytes(16) + unsound, 7, 0, 28, 600, 800) is None
-    assert closing_unique_id(buffer[:24], 7, 0, 24, 600, 800) is None
-    assert closing_unique_id(buffer, 0xFFFFFFFF, 0, len(buffer), 600, 800) is None
+    options = {"allocated_uid_minimum": _ALLOCATED_UID_MINIMUM}
+    assert closing_person_header(buffer, 7, 0, len(buffer), 600, 800, **options) == (16, 700)
+    assert closing_unique_id(buffer, 7, 0, len(buffer), 600, 800, **options) == 700
+    assert closing_unique_id(buffer, 7, 0, len(buffer), 600, None, **options) == 700
+    assert closing_unique_id(buffer, 7, 0, len(buffer), 700, None, **options) is None
+    assert closing_unique_id(buffer, 7, 0, len(buffer), 600, 699, **options) is None
+    assert closing_unique_id(buffer, 7, 20, len(buffer), 600, 800, **options) is None
+    assert closing_unique_id(buffer, 7, 0, 16, 600, 800, **options) is None
+    assert closing_unique_id(buffer, 6, 0, len(buffer), 600, 800, **options) is None
+    assert closing_unique_id(bytes(16) + unsound, 7, 0, 28, 600, 800, **options) is None
+    assert closing_unique_id(buffer[:24], 7, 0, 24, 600, 800, **options) is None
+    assert closing_unique_id(buffer, 0xFFFFFFFF, 0, len(buffer), 600, 800, **options) is None
+
+
+@pytest.mark.parametrize(
+    ("floor", "ceiling"),
+    [
+        (2_000_000_002, 2_000_000_003),
+        (2_000_000_000, 2_000_000_000),
+        (2_000_000_002, 2_000_000_000),
+    ],
+)
+def test_closing_unique_id_recovers_one_allocated_uid_out_of_order(
+    floor: int, ceiling: int
+) -> None:
+    buffer = closing_header_bytes(8, 2_000_000_001)
+    assert (
+        closing_unique_id(
+            buffer, 7, 0, len(buffer), floor, ceiling, allocated_uid_minimum=_ALLOCATED_UID_MINIMUM
+        )
+        == 2_000_000_001
+    )
+
+
+def test_closing_unique_id_rejects_the_opening_uid_in_fallback() -> None:
+    uid = 2_000_000_001
+    buffer = closing_header_bytes(8, uid)
+    assert (
+        closing_person_header(
+            buffer, 7, 0, len(buffer), uid, None, allocated_uid_minimum=_ALLOCATED_UID_MINIMUM
+        )
+        is None
+    )
+
+
+def test_closing_unique_id_rejects_multiple_out_of_order_headers() -> None:
+    buffer = closing_header_bytes(8, 2_000_000_001) + closing_header_bytes(8, 2_000_000_003)
+    assert (
+        closing_unique_id(
+            buffer,
+            7,
+            0,
+            len(buffer),
+            2_000_000_002,
+            2_000_000_002,
+            allocated_uid_minimum=_ALLOCATED_UID_MINIMUM,
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize("uid", [0, 0xFFFFFFFF])
+def test_closing_unique_id_rejects_reserved_ids_in_fallback(uid: int) -> None:
+    buffer = closing_header_bytes(8, uid)
+    assert (
+        closing_unique_id(
+            buffer, 7, 0, len(buffer), 600, 800, allocated_uid_minimum=_ALLOCATED_UID_MINIMUM
+        )
+        is None
+    )
 
 
 def test_no_player_records_found_raises_reader_check() -> None:
