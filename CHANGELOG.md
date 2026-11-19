@@ -4,6 +4,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-11-19
+
+### Fixed
+
+- Recover missing Unique IDs for players and staff whose records are stored out of UID order.
+
+Thanks to @SabrinaDoesStuff for the report. Refs #112.
+
 ## [0.14.0] - 2026-11-18
 
 ### Added

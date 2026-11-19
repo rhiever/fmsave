@@ -15,6 +15,7 @@ import struct
 from array import array
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from fmsave._errors import CorruptSaveError
 from fmsave._layouts import PlayerRecordLayout
@@ -151,6 +152,13 @@ _CLOSING_HEADER = struct.Struct("<III")
 _LAST_PERSON_ID = 0xFFFFFFFF
 
 
+class ClosingPersonHeader(NamedTuple):
+    """A database Unique ID and the closing offset when it can bound other reads."""
+
+    offset: int | None
+    uid: int
+
+
 def closing_person_header(
     game_db: bytes,
     person_id: int,
@@ -158,36 +166,45 @@ def closing_person_header(
     search_end: int,
     uid_floor: int,
     uid_ceiling: int | None,
-) -> tuple[int, int] | None:
-    """The (offset, database Unique ID) of the unique header closing this person, or None.
+    *,
+    allocated_uid_minimum: int,
+) -> ClosingPersonHeader | None:
+    """Find the database Unique ID from the header closing this person, or return None.
 
-    It is the doubled uid of the sound header that carries `person_id + 1`, the id the save's
-    references use for him, and that closes his object. That header is looked for with its id
-    starting in `[search_start, search_end)`, and it counts only when its uid is above
-    `uid_floor` (his own header's uid) and not above `uid_ceiling` (the next known header's
-    uid), since objects are stored in ascending uid order. None unless exactly one header
-    passes.
+    Look for `person_id + 1` starting in `[search_start, search_end)`, followed by a
+    non-reserved UID repeated twice. Prefer a unique match within the neighboring UID
+    bounds. Career-generated people can appear out of UID order, so when no match falls
+    within the bounds, recover the sole candidate's UID if it is in the allocated range
+    and differs from the opening UID. Leave the offset unset for this weaker match.
     """
     if person_id >= _LAST_PERSON_ID:
         return None
     needle = struct.pack("<I", person_id + 1)
     last_start = len(game_db) - _CLOSING_HEADER.size
     find = game_db.find
-    found: tuple[int, int] | None = None
+    bounded: ClosingPersonHeader | None = None
+    candidate_uid = 0
+    candidate_count = 0
     hit = find(needle, search_start, search_end)
     while 0 <= hit <= last_start:
         _, uid, uid_copy = _CLOSING_HEADER.unpack_from(game_db, hit)
-        if (
-            uid == uid_copy
-            and uid != MISSING_REFERENCE
-            and uid > uid_floor
-            and (uid_ceiling is None or uid <= uid_ceiling)
-        ):
-            if found is not None:
-                return None
-            found = (hit, uid)
+        if uid == uid_copy and uid not in (0, MISSING_REFERENCE):
+            candidate_uid = uid
+            candidate_count += 1
+            if uid > uid_floor and (uid_ceiling is None or uid <= uid_ceiling):
+                if bounded is not None:
+                    return None
+                bounded = ClosingPersonHeader(hit, uid)
         hit = find(needle, hit + 1, search_end)
-    return found
+    if bounded is not None:
+        return bounded
+    if (
+        candidate_count == 1
+        and candidate_uid >= allocated_uid_minimum
+        and candidate_uid != uid_floor
+    ):
+        return ClosingPersonHeader(None, candidate_uid)
+    return None
 
 
 def closing_unique_id(
@@ -197,12 +214,20 @@ def closing_unique_id(
     search_end: int,
     uid_floor: int,
     uid_ceiling: int | None,
+    *,
+    allocated_uid_minimum: int,
 ) -> int | None:
     """The database Unique ID from the unique validated closing-person header, or None."""
     closing = closing_person_header(
-        game_db, person_id, search_start, search_end, uid_floor, uid_ceiling
+        game_db,
+        person_id,
+        search_start,
+        search_end,
+        uid_floor,
+        uid_ceiling,
+        allocated_uid_minimum=allocated_uid_minimum,
     )
-    return None if closing is None else closing[1]
+    return None if closing is None else closing.uid
 
 
 def _find_duplicate_uids(candidates: Sequence[_Candidate], file_name: str) -> set[int]:

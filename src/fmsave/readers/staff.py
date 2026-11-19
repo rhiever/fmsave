@@ -67,7 +67,7 @@ from fmsave.readers.contracts import (
 from fmsave.readers.managed import first_human_selector
 from fmsave.readers.names import NamePools
 from fmsave.readers.persons import PersonTuple, build_person_block_decoder
-from fmsave.readers.player_scan import PlayerRecords, closing_person_header
+from fmsave.readers.player_scan import ClosingPersonHeader, PlayerRecords, closing_person_header
 
 _UINT32 = struct.Struct("<I")
 _SELECTOR_TEAM = struct.Struct("<II")
@@ -891,11 +891,10 @@ def _closing_header(
     next_header: int | None,
     layout: StaffLayout,
     ambiguous_headers: frozenset[int],
-) -> tuple[int, int] | None:
-    """The validated (offset, database Unique ID) header closing this person, or None.
+) -> ClosingPersonHeader | None:
+    """The database Unique ID and any validated closing offset for this person.
 
-    That header lies after his own and no further on than the next header the decode knows
-    of, which may be it; the next header's uid is the highest the closing one can carry.
+    The next known header limits the search window. Its UID helps disambiguate matches.
     """
     search_start = header + layout.kind_offset + 1
     if next_header is None:
@@ -908,7 +907,15 @@ def _closing_header(
         search_end = next_header + _UINT32.size
         next_values = _header_values(game_db, next_header, _header_reader(layout), layout)
         uid_ceiling = None if next_values is None else next_values[0]
-    return closing_person_header(game_db, person_id, search_start, search_end, uid, uid_ceiling)
+    return closing_person_header(
+        game_db,
+        person_id,
+        search_start,
+        search_end,
+        uid,
+        uid_ceiling,
+        allocated_uid_minimum=layout.allocated_uid_minimum,
+    )
 
 
 def _person_block_window(
@@ -1075,8 +1082,8 @@ def read_staff(
                 staff_layout,
                 ambiguous_player_headers,
             )
-            if closing is not None:
-                object_end = min(object_end, closing[0])
+            if closing is not None and closing.offset is not None:
+                object_end = min(object_end, closing.offset)
         found_records = _human_records(
             game_db,
             human_header,
@@ -1132,16 +1139,17 @@ def read_staff(
         closing = _closing_header(
             game_db, person_id, header, uid, next_header, staff_layout, ambiguous_player_headers
         )
-        unique_id = None if closing is None else closing[1]
+        unique_id = None if closing is None else closing.uid
+        closing_offset = None if closing is None else closing.offset
         human_floor = staff_layout.human_personality_floor
         person_boundary = next_header
         # Where the human's own block can store a personality byte the ordinary search skips,
         # his window ends at his closing header, so the block of whoever follows is never his.
-        if closing is not None and (
+        if closing_offset is not None and (
             layouts.person_blocks.require_unique_candidate
             or (is_human_manager and human_floor is not None)
         ):
-            person_boundary = closing[0]
+            person_boundary = closing_offset
         own_records = records_by_person.get(person_id)
         tag_offset = None if own_records is None else _latest_started(own_records)[0]
         window_start, window_end = _person_block_window(
@@ -1742,12 +1750,14 @@ def read_staff_candidates(
             closing_search_end,
             uid,
             None if next_values is None else next_values[0],
+            allocated_uid_minimum=layout.allocated_uid_minimum,
         )
-        if closing is None and (person_id, header) not in linked:
+        closing_offset = None if closing is None else closing.offset
+        if closing_offset is None and (person_id, header) not in linked:
             continue
         object_end = (
-            closing[0]
-            if closing is not None
+            closing_offset
+            if closing_offset is not None
             else (next_header if next_header is not None else len(game_db))
         )
         if not is_human:
@@ -1757,7 +1767,7 @@ def read_staff_candidates(
         # A selector can support a person's header without establishing where their object
         # ends. A validated closing header or the next accepted person in sequence bounds
         # the fields owned by this person.
-        bounded_object = closing is not None or (
+        bounded_object = closing_offset is not None or (
             next_header is not None
             and next_header not in ambiguous_headers
             and _UINT32.unpack_from(game_db, next_header)[0] == person_id + _ID_OFFSET
@@ -1795,8 +1805,7 @@ def read_staff_candidates(
             and person_id not in listed_person_ids
             and (person_id, header) not in linked
             and not is_human
-            and closing is not None
-            and object_end == closing[0]
+            and object_end == closing_offset
             and person is not None
             and person[_PERSON_NAME] is not None
             and block is not None
@@ -1809,7 +1818,7 @@ def read_staff_candidates(
         rows.append(
             StaffCandidate(
                 uid=uid,
-                unique_id=None if closing is None else closing[1],
+                unique_id=None if closing is None else closing.uid,
                 is_human_manager=is_human,
                 name=None if person is None else person[_PERSON_NAME],
                 first_name=None if person is None else person[_PERSON_FIRST_NAME],
