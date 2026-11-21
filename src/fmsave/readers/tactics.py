@@ -234,15 +234,21 @@ def _stored_block_starts(section: bytes, layout: TacticsLayout, file_name: str) 
 
 
 def _read_text(
-    section: bytes, cursor: int, limit: int, layout: TacticsLayout, file_name: str, what: str
+    section: bytes,
+    cursor: int,
+    limit: int,
+    file_name: str,
+    what: str,
+    *,
+    length_range: tuple[int, int] | None = None,
 ) -> tuple[str, int]:
     """One length-prefixed UTF-8 string and the offset just past it, within `limit`."""
-    lowest_length, highest_length = layout.name_length_range
     if cursor + _UINT32.size > limit:
         raise _too_short(file_name, f"the length of {what}")
     (length,) = _UINT32.unpack_from(section, cursor)
     cursor += _UINT32.size
-    if not lowest_length <= length <= highest_length:
+    if length_range is not None and not length_range[0] <= length <= length_range[1]:
+        lowest_length, highest_length = length_range
         raise layout_mismatch(
             file_name,
             f"{what} claims {length} bytes, outside the {lowest_length} to {highest_length} "
@@ -332,7 +338,14 @@ def _read_selection_part(
         file_name,
         "a team block's marker",
     )
-    _label, cursor = _read_text(section, cursor, block_end, layout, file_name, "a selection label")
+    _label, cursor = _read_text(
+        section,
+        cursor,
+        block_end,
+        file_name,
+        "a selection label",
+        length_range=layout.name_length_range,
+    )
     selectors: list[int] = []
     slots_start = cursor
     slots_bytes = layout.selection_slot_count * _UINT32.size
@@ -586,15 +599,21 @@ def _read_tactic_record(
             at the next signature rather than where this walk stopped.
     """
     cursor = signature_at + len(layout.user_signature)
-    name, cursor = _read_text(section, cursor, record_end, layout, file_name, "a tactic name")
+    name, cursor = _read_text(
+        section,
+        cursor,
+        record_end,
+        file_name,
+        "a tactic name",
+        length_range=layout.name_length_range,
+    )
     cursor += layout.name_zero_bytes
     if cursor + layout.team_instruction_bytes > record_end:
         raise _too_short(file_name, "a tactic's team instructions")
     team_instructions = section[cursor : cursor + layout.team_instruction_bytes]
     cursor += layout.team_instruction_bytes
-    style_name, cursor = _read_text(
-        section, cursor, record_end, layout, file_name, "a tactic style label"
-    )
+    # The game can append to the style label each time a tactic is customized.
+    style_name, cursor = _read_text(section, cursor, record_end, file_name, "a tactic style label")
     if cursor + layout.style_code_bytes > record_end:
         raise _too_short(file_name, "a tactic's style code")
     style_code = int.from_bytes(section[cursor : cursor + layout.style_code_bytes], "little")
