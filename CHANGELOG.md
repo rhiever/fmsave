@@ -4,6 +4,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-11-20
+
 ### Fixed
 
 - Read tactics whose saved style labels exceed 256 bytes.
