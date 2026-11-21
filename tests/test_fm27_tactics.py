@@ -150,16 +150,15 @@ FM27_PRESET_SIGNATURE = bytes.fromhex("2244001b00000001")
 FM27_FIRST_TACTIC = "Example Shape"
 FM27_STYLE = "Example Style"
 FM27_INSTRUCTIONS = bytes([4, 21, 6, 6, 2, 3, 30, 48, 40, 41, 42, 84, 43, 44, 45, 46, 47, 0, 255])
-# Position bits per slot: a goalkeeper, the back four, two wide midfielders, two defensive
-# midfielders, a wide attacker who drops to the wide midfield out of possession, and two
-# strikers. The column flags tell each pair apart.
+# Position bits for a goalkeeper, a back four, four midfielders, and two strikers.
+# The column flags tell each pair apart.
 FM27_SLOT_BITS = (
     (0, 0),
     (2, 2),
     (4, 4),
     (4, 4),
     (3, 3),
-    (8, 8),
+    (8, 10),
     (7, 7),
     (7, 7),
     (12, 9),
@@ -179,7 +178,13 @@ def fm27_slot_block(mask: int, units: int, role_bit: int, index: int | None = No
     return bytes(block)
 
 
-def fm27_record(name: str, *, preset: bool = False, style_name: str = FM27_STYLE) -> bytes:
+def fm27_record(
+    name: str,
+    *,
+    preset: bool = False,
+    style_name: str = FM27_STYLE,
+    oop_indexes: tuple[int, ...] = tuple(range(len(FM27_SLOT_BITS))),
+) -> bytes:
     record = bytearray(FM27_PRESET_SIGNATURE if preset else FM27_USER_SIGNATURE)
     name_bytes = name.encode()
     style_bytes = style_name.encode()
@@ -188,7 +193,7 @@ def fm27_record(name: str, *, preset: bool = False, style_name: str = FM27_STYLE
     for number, (in_bit, out_bit) in enumerate(FM27_SLOT_BITS):
         flag = FM27_COLUMN_FLAGS.get(number, 0)
         record += fm27_slot_block((1 << in_bit) | flag, 2, 1)
-        record += fm27_slot_block((1 << out_bit) | flag, 1, 3, number)
+        record += fm27_slot_block((1 << out_bit) | flag, 1, 3, oop_indexes[number])
     return bytes(record)
 
 
@@ -225,6 +230,25 @@ def test_fm27_user_record_decodes_its_name_mentality_and_eleven_slot_pairs() -> 
     assert counts.tactic_blocks == counts.tactic_blocks_count_matching == 1
     assert counts.preset_tactics == 0
     assert counts.routine_blocks_complete == 1
+
+
+def test_fm27_starters_defend_in_the_indexed_slots() -> None:
+    record = fm27_record(FM27_FIRST_TACTIC, oop_indexes=(0, 5, 2, 3, 4, 8, 6, 7, 1, 9, 10))
+    rows, _counts = walk_tactic_blocks(
+        fm27_section((record,)), TEAMS[:1], FM27_LAYOUT, "fictional.bin"
+    )
+
+    (tactic,) = rows[0].tactics
+    assert tactic.walk_complete and tactic.oop_index_permutation
+    slots = [tactic.slots[number] for number in (1, 5, 8)]
+    assert [slot.out_of_possession_positions[0].raw for slot in slots] == [2, 10, 9]
+    assert [slot.out_of_possession_position_index for slot in slots] == [5, 8, 1]
+    resolved = []
+    for slot in slots:
+        index = slot.out_of_possession_position_index
+        assert index is not None
+        resolved.append(tactic.slots[index].out_of_possession_positions[0].label.name)
+    assert resolved == ["MIDFIELDER_CENTRE", "MIDFIELDER_LEFT", "DEFENDER_RIGHT"]
 
 
 def test_fm27_long_style_labels_do_not_drop_unlisted_tactics() -> None:

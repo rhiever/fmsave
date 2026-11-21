@@ -156,6 +156,7 @@ class _Squads:
     home: tuple[int, ...]
     away: tuple[int, ...]
     detailed: bool
+    trailing_walk: bool
 
 
 def _header(report: bytes, layout: MatchReportLayout) -> _Header | None:
@@ -226,6 +227,13 @@ def _walk(head: int, successor: dict[int, int]) -> list[int]:
     return walk
 
 
+def _has_detail_markers(report: bytes, anchor: int, layout: MatchReportLayout) -> bool:
+    return all(
+        anchor - back >= 0 and report[anchor - back] == layout.detail_marker
+        for back in layout.detail_marker_offsets
+    )
+
+
 def _squads(
     report: bytes, layout: MatchReportLayout, seed_pattern: re.Pattern[bytes]
 ) -> _Squads | None:
@@ -234,8 +242,8 @@ def _squads(
     Seeds must leave room for the team fields that precede the squad. Each seed is walked
     record by record while the next record carries its markers. The two longest walks are
     the squads, home first. Both must be at least a starting eleven. In the summary format,
-    the block between them must be too short to hide a missing record. No walk of two or more
-    records may follow the away squad, which would be a squad cut in two.
+    the block between them must be too short to hide a missing record. Short walks after both
+    marked detailed squads are flagged because they may be a fragment or incidental data.
     """
     # An earlier header hit can join a real walk after its first player. It cannot
     # start a squad if there is no room for that squad's team fields.
@@ -277,10 +285,7 @@ def _squads(
     away = _walk(longest[1], successor)
     if min(len(home), len(away)) < layout.minimum_squad:
         return None
-    detailed = all(
-        home[0] - back >= 0 and report[home[0] - back] == layout.detail_marker
-        for back in layout.detail_marker_offsets
-    )
+    detailed = _has_detail_markers(report, home[0], layout)
     home_length = _record_length(report, home[-1], layout)
     away_length = _record_length(report, away[-1], layout)
     if home_length is None or away_length is None:
@@ -296,9 +301,20 @@ def _squads(
     ):
         return None
     away_end = away[-1] + away_length
-    if any(head >= away_end and remaining[head] > 1 for head in heads):
+    if away_end > len(report):
         return None
-    return _Squads(home=tuple(home), away=tuple(away), detailed=detailed)
+    trailing_walk = any(head >= away_end and remaining[head] > 1 for head in heads)
+    if trailing_walk and (
+        not detailed
+        or not _has_detail_markers(report, away[0], layout)
+        or any(
+            remaining[head] >= layout.minimum_squad or _has_detail_markers(report, head, layout)
+            for head in heads
+            if head not in longest and remaining[head] > 1
+        )
+    ):
+        return None
+    return _Squads(tuple(home), tuple(away), detailed, trailing_walk)
 
 
 def _read(report: bytes, code: str, at: int, layout: MatchReportLayout) -> float:
@@ -352,7 +368,12 @@ def _shares_half_up(home: int, away: int) -> tuple[int, int]:
 
 
 def read_team_match_stats(
-    section: bytes, layout: MatchReportLayout, file_name: str, *, check_borrowed: bool = False
+    section: bytes,
+    layout: MatchReportLayout,
+    file_name: str,
+    *,
+    check_borrowed: bool = False,
+    strict: bool = False,
 ) -> tuple[list[TeamMatchStats], TeamMatchStatsStats]:
     """Two rows for every report whose squads frame and whose key no other report shares.
 
@@ -368,7 +389,8 @@ def read_team_match_stats(
     budget = layout.maximum_expansion * len(section) + layout.maximum_report_bytes
     framed: list[tuple[_Header, bool, dict[str, int | float | None], dict[str, int | float | None]]]
     framed = []
-    decompressed = without_header = incomplete = detailed = 0
+    key_counts: Counter[_Header] = Counter()
+    decompressed = without_header = incomplete = detailed = with_trailing_walks = 0
     for start, size in entries:
         report = _decompress(view[start : start + size], layout)
         if report is None:
@@ -384,19 +406,35 @@ def read_team_match_stats(
         if header is None:
             without_header += 1
             continue
-        squads = _squads(report, layout, seed_pattern)
+        record_layout = next(
+            (
+                candidate
+                for prefix, candidate in layout.record_variants
+                if report.startswith(prefix)
+            ),
+            layout,
+        )
+        squads = _squads(report, record_layout, seed_pattern)
+        if squads is None:
+            incomplete += 1
+            continue
         try:
-            if squads is None:
-                raise struct.error
-            home = _team_values(report, squads.home, squads.detailed, layout)
-            away = _team_values(report, squads.away, squads.detailed, layout)
+            home = _team_values(report, squads.home, squads.detailed, record_layout)
+            away = _team_values(report, squads.away, squads.detailed, record_layout)
         except struct.error:
             incomplete += 1
             continue
+        # A report still contributes its key when strict mode leaves its totals out.
+        key_counts[header] += 1
+        if squads.trailing_walk:
+            with_trailing_walks += 1
+            if strict:
+                incomplete += 1
+                continue
         detailed += squads.detailed
         framed.append((header, squads.detailed, home, away))
 
-    if check_borrowed and entries and not framed:
+    if check_borrowed and entries and not key_counts:
         raise layout_mismatch(
             file_name,
             "no indexed match report could be decoded",
@@ -405,7 +443,6 @@ def read_team_match_stats(
         )
 
     # Two reports with one key cannot be told apart, so neither is used.
-    key_counts = Counter(header for header, _, _, _ in framed)
     rows: list[TeamMatchStats] = []
     for header, is_detailed, home, away in framed:
         if key_counts[header] > 1:
@@ -436,7 +473,7 @@ def read_team_match_stats(
                     **values,  # type: ignore[arg-type]
                 )
             )
-    if check_borrowed and entries and not rows:
+    if check_borrowed and key_counts and 1 not in key_counts.values():
         raise layout_mismatch(
             file_name,
             "all decoded match reports have ambiguous keys",
@@ -452,5 +489,6 @@ def read_team_match_stats(
         detailed=detailed,
         duplicate_keys=sum(1 for count in key_counts.values() if count > 1),
         rows=len(rows),
+        with_trailing_walks=with_trailing_walks,
     )
     return rows, stats

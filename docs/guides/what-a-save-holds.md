@@ -19,10 +19,19 @@ Players carry names, birth date and age, nationality, club, height, positions, 5
 the 8 personality attributes, current and potential ability, reputation, transfer value,
 condition, traits, contract and any unserved ban. `contracts()` is the same contract record as a
 table of its own, which is what you want when you are looking across every deal in the save
-rather than at the players at a particular club. Staff records include names, ability, personality, and how
-each person prefers a side to be run. FM26 and FM27 expose staff ratings at their stored scales.
-The additional FM26 rating meanings are unconfirmed. FM27 rating meanings have been checked
+rather than at the players at a particular club. Staff records include names, ability, personality,
+and how each person prefers a side to be run.
+
+In FM26 and FM27, `Staff.attributes`, `StaffCandidate.attributes`, and staff exports use
+the stored scales. `adaptability`, `authority`, and `working_with_youngsters` use a
+20-point scale. The other staff attributes use a scale of 1 to 100. On FM26, only the
+meaning of adaptability is verified. On FM27, the other ratings have been checked
 against the game's labels.
+
+In Python, call `row.attributes.to_display_scale()` when `row.attributes` is available
+to get whole-number ratings out of 20. The method rounds each 100-point rating with
+`(raw + 2) // 5` and bounds the result to 1 through 20. It preserves ratings already
+out of 20 and leaves individual missing ratings as `None`.
 
 Use `staff_candidates()` when comparing people across clubs. Each unambiguous person appears
 once and carries its current club appointment records. The reader also looks for profiles
@@ -128,8 +137,9 @@ possession, passes, crosses, tackles, aerials, fouls, cards, corners, and distan
 2 rows, 1 per team. Join them to `fixtures()` on `competition_id`, `home_team_id`,
 `away_team_id`, and `date`. The game keeps these reports for some matches only, mostly recent
 ones, so older fixtures often have no rows. Progressive passes appear only on matches the game
-kept in its detailed format. The reader supports FM26 builds 26.3.1 and 26.3.2 and FM27 build
-`27.0.0+2486695`.
+kept in its detailed format. The reader supports FM26 builds 26.3.1 and 26.3.2 and FM27 builds
+`27.0.0+2486695` and `27.1.0+2505117`. A save updated from 27.0 can hold reports from both
+FM27 versions.
 
 ## Injuries
 
@@ -149,9 +159,14 @@ career and a pre-season save held none, so `injury_types()` was empty and `type_
 
 These readers return data for the club you manage. Other clubs return no rows. `tactics()`
 includes stored preset and alternate tactics; a row is a copy for one team, so the same tactic
-can appear more than once. `selections()` holds each team's stored starters and substitutes. A
-starter's slot is a tactic slot, but nothing stored says which tactic is selected, and the
-substitutes can keep players past the next match's bench size.
+can appear more than once. `selections()` holds each team's stored starters and substitutes.
+A starter's `slot` points to the in-possession slot in the selected tactic. Its
+`out_of_possession_position_index` gives the player's defending slot in `tactic.slots`, counting
+from 0. Before following the index, check that the tactic has 11 slots and their indexes
+include each value from 0 through 10 exactly once. Read the defending slot's
+`out_of_possession_positions`.
+The selected tactic is unknown. The stored substitutes can include players beyond the next
+match's bench size.
 
 Training sessions and sponsorship types use labels confirmed for the save's edition.
 Both retain the original codes, including codes without a confirmed label.

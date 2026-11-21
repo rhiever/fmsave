@@ -9,6 +9,11 @@ _UNKNOWN_MEMBER_NAME = "UNKNOWN"
 _UNKNOWN_MEMBER_VALUE = -1
 
 
+def round_attribute_for_display(raw: int) -> int:
+    """Round a 100-point attribute to whole display points with a floor of 1."""
+    return max(1, (raw + 2) // 5)
+
+
 @dataclass(frozen=True, slots=True)
 class CodedValue[EnumT: IntEnum]:
     """A number the save uses as a code, with its label.

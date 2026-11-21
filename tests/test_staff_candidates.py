@@ -205,8 +205,8 @@ def _fm27_candidates(
 def test_fm27_appointments_keep_distinct_same_team_jobs_and_exclude_offers() -> None:
     from tests.test_fm27_staff import job_contract, no_contract_role, person_with
 
-    job = job_contract(job=2, wage=900)
-    renewal = job_contract(job=2, start_year=2030, wage=1_500, offer=True)
+    job = job_contract(job=22, wage=900)
+    renewal = job_contract(job=22, start_year=2030, wage=1_500, offer=True)
     offer = job_contract(job=16, team_id=SOUTHPORT_TEAM, offer=True)
     board = no_contract_role(job=4)
     raw_job = no_contract_role(job=222)
@@ -216,12 +216,12 @@ def test_fm27_appointments_keep_distinct_same_team_jobs_and_exclude_offers() -> 
     assert candidate.legal_name == "Role Example"
     assert candidate.employment == "employed"
     assert [
-        (role.job and role.job.label, role.job and role.job.raw)
+        (role.job and role.job.label_text, role.job and role.job.raw)
         for role in (candidate.appointments)
     ] == [
-        (fmsave.StaffJob.COACH, 2),
-        (fmsave.StaffJob.CHAIRPERSON, 4),
-        (fmsave.StaffJob.UNKNOWN, 222),
+        ("set_piece_coach", 22),
+        ("chairperson", 4),
+        ("unknown", 222),
     ]
     assert [role.has_contract for role in candidate.appointments] == [True, False, False]
     assert [role.wage for role in candidate.appointments] == [900, None, None]

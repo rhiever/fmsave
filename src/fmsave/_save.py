@@ -1584,7 +1584,9 @@ class Save:
 
         Reads FM26 and FM27 match report stores with a registered or borrowed layout. A report whose
         squads do not frame, or whose match key another report shares, gives no rows and is
-        counted in the checks.
+        counted in the checks. A detailed report with two marked squads followed only by
+        short, unmarked walks produces a warning. The default reader returns those squads'
+        totals and strict mode skips the report.
 
         Raises:
             UnsupportedGameError: The save's game or build has no registered report layout.
@@ -1611,6 +1613,7 @@ class Save:
                 match.layout,
                 info.file_name,
                 check_borrowed=not match.exact or not info.known_build,
+                strict=self._strict,
             )
         check = _checks.check_team_match_stats(stats, self._gate_bounds())
         self._enforce_checks((check,))
@@ -2223,8 +2226,10 @@ class Save:
 
         `mentality` carries the word the game shows: the seven codes are the seven mentalities
         it offers, from Very Defensive to Very Attacking, confirmed against a manager's own
-        tactics. Eleven position bits carry the label a tactics screen showed for them, from
-        goalkeeper to centre striker; **the others read UNKNOWN** with their bit number kept.
+        tactics. Labels from FM27 tactics screens cover 12 position bits, from goalkeeper to
+        centre striker. The others read UNKNOWN and keep their bit number. In a complete tactic
+        with valid indexes, each slot's `out_of_possession_position_index` points to the defending
+        slot for its player.
         Roles have no label. The 19 team instructions and the
         setting units of each slot are unidentified numbers in the same way, and ship in
         `unknown` and as `TacticSettingUnit` values rather than under names they have not
@@ -2288,10 +2293,10 @@ class Save:
         """Every stored pick of the manager's teams: starters, then substitutes, by team.
 
         A row is one starter or substitute place that holds a pick; an empty place has no row.
-        A starter's `slot` is the tactic slot it fills, in the tactic the team has selected,
-        which nothing stored identifies. **The substitutes are the stored list rather than the
-        next match's bench**: places past the bench size of the next match can still hold
-        players picked for an earlier one. Only the manager's own teams are here.
+        A starter's `slot` is the in-possession slot in the team's selected tactic. In a complete
+        tactic with valid indexes, follow its `out_of_possession_position_index` for the defending
+        slot. The selected tactic is unknown. The stored substitute list can keep players beyond
+        the next match's bench size. Only the manager's own teams are here.
 
         The table is read on the first call to `tactics()`, `set_pieces()` or `selections()`,
         from one walk; later calls to any of them return the same tables. When a tactic or

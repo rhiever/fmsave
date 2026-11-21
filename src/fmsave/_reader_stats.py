@@ -939,10 +939,11 @@ class TeamMatchStatsStats:
 
     `entries` counts the reports the page index lists and `decompressed` those whose frame
     decompressed whole. Of those, `without_header` lack a competition and two teams and
-    `incomplete` have a header but squads that do not frame; neither gives rows. `framed`
+    `incomplete` have a header but fail squad checks in the requested mode. `framed`
     reports give two rows each unless their key is one of the `duplicate_keys` more than one
     report holds, which are all left out. `detailed` counts framed reports in the long format,
-    and `rows` the rows handed out.
+    and `rows` the rows handed out. `with_trailing_walks` counts detailed reports with
+    two marked squads followed by short walks, including those omitted in strict mode.
     """
 
     entries: int
@@ -953,3 +954,4 @@ class TeamMatchStatsStats:
     detailed: int
     duplicate_keys: int
     rows: int
+    with_trailing_walks: int

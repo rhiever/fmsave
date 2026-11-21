@@ -3,12 +3,13 @@ from __future__ import annotations
 import datetime
 import struct
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pytest
 
 import fmsave
+from fmsave._layouts.fm27_27_1_0 import BUILD as FM27_27_1_BUILD
 from fmsave.cli import main
 from fmsave.export import column_names
 from tests.fixtures.career import career_fragment
@@ -133,7 +134,8 @@ def _write_team(report: bytearray, first_anchor: int, team: ExampleTeam, inserte
 def report_bytes(example: ExampleReport) -> bytes:
     home_length = sum(player.length(example.inserted) for player in example.home.players)
     away_length = sum(player.length(example.inserted) for player in example.away.players)
-    size = HOME_FIRST_ANCHOR + home_length + example.gap + away_length + 600
+    trailer_length = max(600, 100 + example.trailing_walk * ExamplePlayer().length())
+    size = HOME_FIRST_ANCHOR + home_length + example.gap + away_length + trailer_length
     report = bytearray(size)
     minutes = int((example.kick_off - datetime.datetime(1, 1, 1)).total_seconds()) // 60
     struct.pack_into("<I", report, 11, minutes)
@@ -307,6 +309,95 @@ def test_a_detailed_report_carries_progressive_passes_and_metres(tmp_path: Path)
     assert home_row.distance_km == pytest.approx(104.5)
     assert away_row.distance_km == pytest.approx(110.0)
     assert (home_row.progressive_passes, away_row.progressive_passes) == (44, 33)
+
+
+def fm27_27_1_frame(example: ExampleReport) -> bytes:
+    """Mark and extend the FM27 fixture's player records for 27.1."""
+    report = bytearray(report_bytes(example))
+    report[:5] = b"\x01\x00\x01\x3d\x1f"
+    insertions: list[int] = []
+    anchor = HOME_FIRST_ANCHOR
+    for team in (example.home, example.away):
+        for player in team.players:
+            insertions.append(anchor + 35)
+            anchor += player.length(example.inserted)
+        anchor += example.gap
+    for at in reversed(insertions):
+        report[at:at] = bytes((42, 43, 44, 45, 46))
+    return zstd.compress(report)
+
+
+@pytest.mark.parametrize(
+    ("build", "layout_build"),
+    [(FM27_27_1_BUILD, FM27_27_1_BUILD), (UNREGISTERED_BUILD, FM27_BUILD)],
+)
+def test_fm27_reads_both_match_report_revisions(
+    tmp_path: Path, build: str, layout_build: str
+) -> None:
+    old = summary_match(inserted=8)
+    new_summary = replace(old, kick_off=KICK_OFF + datetime.timedelta(days=7))
+    new_detailed = ExampleReport(
+        home=ExampleTeam(
+            squad(11, shots=1, npxg=0.25, distance=8_000, progressive=4, events=(1, 2)),
+            passes=(500, 450),
+        ),
+        away=ExampleTeam(
+            squad(12, shots=2, npxg=0.125, distance=7_000, progressive=3, optional_block=True),
+            passes=(400, 349),
+        ),
+        kick_off=KICK_OFF + datetime.timedelta(days=14),
+        detailed=True,
+        gap=1_400,
+        inserted=8,
+    )
+    section = store([frame(old), fm27_27_1_frame(new_summary), fm27_27_1_frame(new_detailed)])
+    path = fm27_fragment(
+        tmp_path, build=build, extra_sections=(SectionFrame("match_stats_cfg", section),)
+    )
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        save = fmsave.open(path, strict=True)
+    with save:
+        rows = save.team_match_stats()
+        validation = fmsave.validate_save(save)
+    assert len(rows) == 6
+    old_home, old_away, new_home, new_away, detailed_home, detailed_away = rows
+    assert new_home == replace(old_home, date=new_summary.kick_off.date())
+    assert new_away == replace(old_away, date=new_summary.kick_off.date())
+    assert (detailed_home.players, detailed_home.shots) == (11, 11)
+    assert (detailed_away.players, detailed_away.shots) == (12, 24)
+    assert (detailed_home.distance_km, detailed_away.distance_km) == (88, 84)
+    assert (detailed_home.non_penalty_expected_goals, detailed_away.non_penalty_expected_goals) == (
+        2.75,
+        1.5,
+    )
+    assert (detailed_home.progressive_passes, detailed_away.progressive_passes) == (44, 36)
+    assert (detailed_home.passes_completed, detailed_home.possession_percent) == (450, 56)
+    (reader,) = [report for report in validation.readers if report.reader == "team_match_stats"]
+    assert reader.status == "ok"
+    assert reader.to_json_dict()["layout"] == {
+        "region": "match_stats_cfg",
+        "build": layout_build,
+        "schema": 6,
+        "save_schema": 6,
+    }
+
+
+def test_a_new_match_report_with_legacy_record_lengths_is_incomplete(tmp_path: Path) -> None:
+    intact = summary_match(inserted=8)
+    malformed = replace(intact, kick_off=KICK_OFF + datetime.timedelta(days=7))
+    report = bytearray(report_bytes(malformed))
+    report[:5] = b"\x01\x00\x01\x3d\x1f"
+    section = store([frame(intact), zstd.compress(report)])
+    path = fm27_fragment(
+        tmp_path,
+        build=FM27_27_1_BUILD,
+        extra_sections=(SectionFrame("match_stats_cfg", section),),
+    )
+    with pytest.warns(fmsave.UnknownBuildWarning):
+        save = fmsave.open(path, strict=True)
+    with save, pytest.warns(fmsave.ReaderCheckWarning, match="match_reports_framed"):
+        rows = save.team_match_stats()
+    assert [row.date for row in rows] == [KICK_OFF.date(), KICK_OFF.date()]
 
 
 def test_distance_adds_up_in_single_precision() -> None:
@@ -522,6 +613,70 @@ def test_an_unframed_squad_gives_no_rows_and_is_counted(tmp_path: Path) -> None:
     assert framed.advisory and not framed.passed
 
 
+@pytest.mark.parametrize(
+    ("strict", "away_marked", "trailing_walk", "trailing_marked", "duplicate", "recoverable"),
+    [
+        (False, True, 2, False, False, True),
+        (True, True, 2, False, False, True),
+        (False, False, 2, False, False, False),
+        (False, True, 11, False, False, False),
+        (False, True, 2, True, False, False),
+        (True, True, 2, False, True, True),
+    ],
+    ids=[
+        "default-keeps",
+        "strict-skips",
+        "unmarked-away",
+        "third-squad",
+        "marked-trail",
+        "duplicate",
+    ],
+)
+def test_two_detailed_squads_with_a_trailing_walk(
+    tmp_path: Path,
+    strict: bool,
+    away_marked: bool,
+    trailing_walk: int,
+    trailing_marked: bool,
+    duplicate: bool,
+    recoverable: bool,
+) -> None:
+    example = ExampleReport(
+        home=ExampleTeam(squad(12, shots=1), passes=(120, 100)),
+        away=ExampleTeam(squad(12, shots=2), passes=(150, 120)),
+        detailed=True,
+        gap=1_400,
+        trailing_walk=trailing_walk,
+    )
+    report = bytearray(report_bytes(example))
+    away_start = HOME_FIRST_ANCHOR + 12 * ExamplePlayer().length() + example.gap
+    if away_marked:
+        for back in DETAIL_MARKERS:
+            report[away_start - back] = 0xFF
+    if trailing_marked:
+        trailing_start = away_start + 12 * ExamplePlayer().length() + 100
+        for back in DETAIL_MARKERS:
+            report[trailing_start - back] = 0xFF
+    frames = [zstd.compress(report)]
+    if duplicate:
+        frames.append(frame(replace(example, trailing_walk=0)))
+    section = store(frames)
+    warning_check = "match_reports_with_trailing_walks" if recoverable else "match_reports_framed"
+    with open_store(tmp_path, section, strict=strict) as save:
+        with pytest.warns(fmsave.ReaderCheckWarning, match=warning_check):
+            rows = save.team_match_stats()
+        validation = fmsave.validate_save(save)
+
+    framed = recoverable and not strict
+    assert [row.shots for row in rows] == ([12, 24] if framed and not duplicate else [])
+    (reader,) = [r for r in validation.readers if r.reader == "team_match_stats"]
+    assert reader.anomalies["reports_with_trailing_walks"] == int(recoverable)
+    assert reader.anomalies["incomplete_reports"] == int(not framed)
+    assert reader.anomalies["duplicate_keys"] == int(duplicate)
+    (gate,) = [gate for gate in reader.gates if gate.name == warning_check]
+    assert gate.advisory and not gate.passed
+
+
 def test_reports_sharing_a_key_are_both_left_out(tmp_path: Path) -> None:
     section = store([frame(summary_match()), frame(summary_match())])
     with open_store(tmp_path, section) as save:
@@ -529,6 +684,40 @@ def test_reports_sharing_a_key_are_both_left_out(tmp_path: Path) -> None:
         report = fmsave.validate_save(save)
     (validation,) = [r for r in report.readers if r.reader == "team_match_stats"]
     assert validation.anomalies["duplicate_keys"] == 1
+
+
+def test_borrowed_layout_uses_decoded_keys_to_check_ambiguity_in_strict_mode() -> None:
+    from fmsave._layouts.fm26_26_3_2 import MATCH_REPORTS
+    from fmsave.readers.team_match_stats import read_team_match_stats
+
+    example = replace(summary_match(), detailed=True, gap=1_400, trailing_walk=2)
+    report = bytearray(report_bytes(example))
+    away_start = HOME_FIRST_ANCHOR + sum(player.length() for player in example.home.players)
+    for back in DETAIL_MARKERS:
+        report[away_start + example.gap - back] = 0xFF
+    uncertain = zstd.compress(report)
+    clean = frame(summary_match(kick_off=KICK_OFF + datetime.timedelta(days=1)))
+
+    with pytest.raises(
+        fmsave.ReaderCheckError, match="all decoded match reports have ambiguous keys"
+    ):
+        read_team_match_stats(
+            store([uncertain, uncertain]),
+            MATCH_REPORTS,
+            "fictional.bin",
+            check_borrowed=True,
+            strict=True,
+        )
+
+    rows, stats = read_team_match_stats(
+        store([clean, clean, uncertain]),
+        MATCH_REPORTS,
+        "fictional.bin",
+        check_borrowed=True,
+        strict=True,
+    )
+    assert rows == []
+    assert (stats.duplicate_keys, stats.with_trailing_walks) == (1, 1)
 
 
 def test_a_frame_that_does_not_decompress_fails_the_index_check(tmp_path: Path) -> None:
@@ -639,8 +828,6 @@ def test_a_team_id_cut_off_by_the_report_end_gives_no_header() -> None:
 
 
 def test_reports_that_expand_past_the_budget_raise() -> None:
-    from dataclasses import replace
-
     from fmsave._layouts.fm26_26_3_2 import MATCH_REPORTS
     from fmsave.readers.team_match_stats import read_team_match_stats
 

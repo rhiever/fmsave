@@ -31,6 +31,7 @@ their own pages: see {doc}`table` and {doc}`enums`.
 .. autoclass:: fmsave.StaffCandidate
 .. autoclass:: fmsave.StaffAppointment
 .. autoclass:: fmsave.StaffAttributes
+   :members: to_display_scale
 .. autoclass:: fmsave.StaffPreferences
 .. autoclass:: fmsave.StaffList
 ```
@@ -119,6 +120,7 @@ only for the club the save's human manager runs.
 .. autoclass:: fmsave.ManagedClub
 .. autoclass:: fmsave.Tactic
 .. autoclass:: fmsave.TacticSlot
+   :members: out_of_possession_position_index
 .. autoclass:: fmsave.TacticSettingUnit
 .. autoclass:: fmsave.SetPieceRoutine
 .. autoclass:: fmsave.Selection

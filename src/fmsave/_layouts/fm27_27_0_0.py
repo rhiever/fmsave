@@ -331,7 +331,7 @@ SQUAD_PLANNER = SquadPlannerLayout(
 # as in its FM26 save, with the new bytes zero.
 _MATCH_RECORD_INSERT_AT = 77
 _MATCH_RECORD_INSERT_BYTES = 8
-MATCH_REPORTS = replace(
+_MATCH_REPORTS_27_0 = replace(
     FM26_MATCH_REPORTS,
     record_bytes=FM26_MATCH_REPORTS.record_bytes + _MATCH_RECORD_INSERT_BYTES,
     event_count_offset=FM26_MATCH_REPORTS.event_count_offset + _MATCH_RECORD_INSERT_BYTES,
@@ -342,6 +342,26 @@ MATCH_REPORTS = replace(
         for name, code, offset in FM26_MATCH_REPORTS.player_fields
     ),
     progressive_passes_field=("B", 86),
+)
+
+# A 27.1 report adds five bytes before distance. The revision is stored in each report, so
+# the page index can still refer to older reports written before the career was updated.
+_MATCH_RECORD_27_1_INSERT_BYTES = 5
+_MATCH_REPORTS_27_1 = replace(
+    _MATCH_REPORTS_27_0,
+    record_bytes=_MATCH_REPORTS_27_0.record_bytes + _MATCH_RECORD_27_1_INSERT_BYTES,
+    event_count_offset=_MATCH_REPORTS_27_0.event_count_offset + _MATCH_RECORD_27_1_INSERT_BYTES,
+    player_fields=tuple(
+        (name, code, offset + _MATCH_RECORD_27_1_INSERT_BYTES)
+        if offset >= _MATCH_REPORTS_27_0.distance_field[1]
+        else (name, code, offset)
+        for name, code, offset in _MATCH_REPORTS_27_0.player_fields
+    ),
+    progressive_passes_field=("B", 91),
+    distance_field=("f", 45),
+)
+MATCH_REPORTS = replace(
+    _MATCH_REPORTS_27_0, record_variants=((b"\x01\x00\x01\x3d\x1f", _MATCH_REPORTS_27_1),)
 )
 
 LAYOUTS = (
