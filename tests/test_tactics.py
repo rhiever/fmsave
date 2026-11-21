@@ -231,6 +231,14 @@ def test_a_column_flag_is_not_a_position_and_the_index_byte_is_per_slot(
     assert first.slots[10].unknown["out_of_possession_position_index"] == 10
 
 
+def test_the_defending_slot_index_is_optional_for_legacy_records(career_path: Path) -> None:
+    with fmsave.open(career_path) as save:
+        slot = save.tactics()[0].slots[0]
+
+    assert slot.out_of_possession_position_index == 0
+    assert dataclasses.replace(slot, unknown={}).out_of_possession_position_index is None
+
+
 def test_only_position_bits_a_screen_showed_are_named(career_path: Path) -> None:
     with fmsave.open(career_path) as save:
         first = save.tactics()[0]
@@ -242,7 +250,7 @@ def test_only_position_bits_a_screen_showed_are_named(career_path: Path) -> None
         [TacticPosition.DEFENDER_LEFT],
         [TacticPosition.DEFENDER_LEFT],
         [TacticPosition.UNKNOWN],
-        [TacticPosition.UNKNOWN],
+        [TacticPosition.MIDFIELDER_CENTRE],
         [TacticPosition.DEFENSIVE_MIDFIELDER],
         [TacticPosition.DEFENSIVE_MIDFIELDER],
         [TacticPosition.ATTACKING_MIDFIELDER_LEFT],
@@ -262,6 +270,7 @@ def test_only_position_bits_a_screen_showed_are_named(career_path: Path) -> None
         (7, TacticPosition.DEFENSIVE_MIDFIELDER),
         (8, TacticPosition.MIDFIELDER_RIGHT),
         (9, TacticPosition.MIDFIELDER_LEFT),
+        (10, TacticPosition.MIDFIELDER_CENTRE),
         (11, TacticPosition.ATTACKING_MIDFIELDER_RIGHT),
         (12, TacticPosition.ATTACKING_MIDFIELDER_LEFT),
         (13, TacticPosition.ATTACKING_MIDFIELDER_CENTRE),
@@ -269,7 +278,6 @@ def test_only_position_bits_a_screen_showed_are_named(career_path: Path) -> None
         (1, TacticPosition.UNKNOWN),
         (5, TacticPosition.UNKNOWN),
         (6, TacticPosition.UNKNOWN),
-        (10, TacticPosition.UNKNOWN),
     ),
 )
 def test_each_position_bit_reads_its_screen_label_or_unknown(
@@ -419,7 +427,10 @@ def test_a_slot_claiming_one_unit_too_many_leaves_that_walk_incomplete(tmp_path:
     assert stats.slot_walks_complete == 1
 
 
-def test_a_repeated_index_byte_is_not_a_permutation(tmp_path: Path) -> None:
+@pytest.mark.parametrize("position_index", (6, 255), ids=("duplicate", "out-of-range"))
+def test_an_invalid_index_is_retained_without_passing_the_permutation_check(
+    tmp_path: Path, position_index: int
+) -> None:
     slots = list(career_tactic_slots())
     in_possession, _out_of_possession = slots[7]
     slots[7] = (
@@ -428,10 +439,10 @@ def test_a_repeated_index_byte_is_not_a_permutation(tmp_path: Path) -> None:
             mask=1 << 7,
             units=(setting_unit_bytes(head_byte=0, first_bits=1, second_bits=1),),
             role_bits=8,
-            position_index=6,
+            position_index=position_index,
         ),
     )
-    repeated = tactic_record_bytes(
+    malformed = tactic_record_bytes(
         name="Example 451",
         team_instructions=bytes(19),
         style_name="Example Style",
@@ -439,11 +450,12 @@ def test_a_repeated_index_byte_is_not_a_permutation(tmp_path: Path) -> None:
         slots=slots,
     )
     save_path = tactics_path(
-        tmp_path, career_tactics_body(first_team_records=(career_tactic_records()[0], repeated))
+        tmp_path, career_tactics_body(first_team_records=(career_tactic_records()[0], malformed))
     )
 
-    _tactics, _routines, stats = decoded_tactics(save_path)
+    tactics, _routines, stats = decoded_tactics(save_path)
 
+    assert tactics[1].slots[7].out_of_possession_position_index == position_index
     assert stats.slot_walks_complete == 2
     assert stats.oop_index_permutations == 1
 
@@ -773,6 +785,8 @@ def test_the_columns_the_export_flattens(career_path: Path) -> None:
     assert slots[1]["in_possession_positions"] == ["unknown"]
     assert slots[1]["in_possession_positions_code"] == [5]
     assert first_slot["in_possession_positions_code"] == [0]
+    assert first_slot["unknown"]["out_of_possession_position_index"] == 0
+    assert "out_of_possession_position_index" not in first_slot
 
 
 def test_a_row_survives_pickling_and_deep_copying(career_path: Path) -> None:

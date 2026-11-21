@@ -127,7 +127,9 @@ class MatchReportLayout:
     event list (count at `event_count_offset`, items of `event_item_header_bytes` and
     `event_entry_bytes` per entry counted at `event_entry_count_offset`) and, when the flag
     `optional_flag_gap` bytes after the list is 1, `optional_block_bytes` more. Player fields
-    count from the anchor; team fields count back from the team's first anchor.
+    count from the anchor; team fields count back from the team's first anchor. A report
+    prefix can select a different player record layout within the same store, with the
+    header and anchor seed unchanged.
     """
 
     page_count_offset: int
@@ -167,6 +169,7 @@ class MatchReportLayout:
     detailed_distance_scale: float
     team_fields: tuple[tuple[str, str, int], ...]
     float_limit: float
+    record_variants: tuple[tuple[bytes, MatchReportLayout], ...] = ()
 
 
 # Count checks (such as the name pool minimum) apply only to a decompressed `game_db` at

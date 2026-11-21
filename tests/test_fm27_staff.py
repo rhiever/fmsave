@@ -528,28 +528,41 @@ def person_with(record: bytes, name: str = "Role Example") -> bytes:
     ) + staff_object_bytes(person_id=19, uid=810_019, person_block=person_block("Neighbor"))
 
 
-@pytest.mark.parametrize(("code", "label"), [(16, "MANAGER"), (88, "TECHNICAL_DIRECTOR")])
+@pytest.mark.parametrize(
+    ("code", "label"),
+    [
+        (16, "manager"),
+        (22, "set_piece_coach"),
+        (26, "fitness_coach"),
+        (44, "chief_scout"),
+        (58, "recruitment_analyst"),
+        (62, "head_performance_analyst"),
+        (86, "loan_manager"),
+        (88, "technical_director"),
+    ],
+)
 def test_a_contracted_persons_job_comes_from_his_contract_record(code: int, label: str) -> None:
-    from fmsave import StaffJob
+    from fmsave import Staff
+    from fmsave.export import to_columns
 
     rows = unique_staff_rows(person_with(job_contract(job=code)), fm27_jobs=True)
     row = next(row for row in rows if row.uid == 810_018)
 
-    assert row.job is not None
-    assert row.job.label is StaffJob[label]
-    assert row.job.raw == code
+    columns = to_columns([row], Staff)
+    assert columns["job"] == [label]
+    assert columns["job_code"] == [code]
     assert row.has_contract is True
 
 
 def test_a_job_code_no_screen_has_labelled_keeps_its_raw_number() -> None:
     from fmsave import StaffJob
 
-    rows = unique_staff_rows(person_with(job_contract(job=26)), fm27_jobs=True)
+    rows = unique_staff_rows(person_with(job_contract(job=24)), fm27_jobs=True)
     row = next(row for row in rows if row.uid == 810_018)
 
     assert row.job is not None
     assert row.job.label is StaffJob.UNKNOWN
-    assert row.job.raw == 26
+    assert row.job.raw == 24
 
 
 def test_without_the_layout_values_no_job_is_read_and_an_offer_is_a_row() -> None:
@@ -592,25 +605,30 @@ def test_an_offer_to_renew_does_not_replace_the_contract_he_is_on() -> None:
     assert row.contract_start == date(2029, 1, 1)
 
 
-def test_a_role_held_with_no_contract_is_a_row_with_its_team_and_job() -> None:
-    from fmsave import StaffJob
+@pytest.mark.parametrize(
+    ("code", "label"), [(4, "chairperson"), (46, "doctor"), (66, "owner"), (70, "president")]
+)
+def test_a_role_held_with_no_contract_is_a_row_with_its_team_and_job(code: int, label: str) -> None:
+    from fmsave import Staff
+    from fmsave.export import to_columns
     from tests.fixtures.career import NORTHBRIDGE_TEAM_A, NORTHBRIDGE_UID
 
     rows, stats = unique_staff_read(
-        person_with(no_contract_role(job=4), "Chair Example"), fm27_jobs=True
+        person_with(no_contract_role(job=code), "Board Example"), fm27_jobs=True
     )
     row = next(row for row in rows if row.uid == 810_018)
 
+    columns = to_columns([row], Staff)
+    assert columns["job"] == [label]
+    assert columns["job_code"] == [code]
     assert row.club_uid == NORTHBRIDGE_UID
     assert row.team_id == NORTHBRIDGE_TEAM_A
     assert row.team_slot == 0
-    assert row.job is not None
-    assert row.job.label is StaffJob.CHAIRPERSON
     assert row.has_contract is False
     assert row.wage is None
     assert row.contract_start is None
     assert row.in_club_lists is False
-    assert row.legal_name == "Chair Example"
+    assert row.legal_name == "Board Example"
     assert stats.no_contract_roles == 1
 
 

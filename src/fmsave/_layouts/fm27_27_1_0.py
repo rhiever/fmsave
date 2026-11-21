@@ -1,4 +1,4 @@
-"""Build-specific club finance layouts for FM27 27.1.0+2505117."""
+"""Build-specific layouts for FM27 27.1.0+2505117."""
 
 from dataclasses import replace
 
@@ -42,4 +42,5 @@ SPONSOR_CHAINS = replace(
 LAYOUTS = (
     LayoutEntry("game_db", 4000, BUILD, CLUB_TABLE),
     LayoutEntry("game_db", 4000, BUILD, SPONSOR_CHAINS),
+    LayoutEntry("match_stats_cfg", 6, BUILD, previous.MATCH_REPORTS),
 )

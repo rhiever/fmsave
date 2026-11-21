@@ -7,12 +7,10 @@ team and the tactic's place in that team's own list, and the same tactic name ap
 team.
 
 **The mentality and most positions are named; little else here is.** The seven mentality
-codes carry the seven words the game shows, read off a manager's own tactics. Eleven position
-bits carry the labels a tactics screen showed for them; the rest read `UNKNOWN`. The roles, the
-19 team instruction bytes and the 24-byte setting units are read from offsets that are pinned
-by measurement, but no displayed label has been matched to one of those codes, so every
-unnamed number ships raw. Two slots the screen showed with different roles store the same
-role bits, so those bits alone do not name a role.
+codes carry the words the game shows, read off a manager's own tactics. Labels from FM27
+tactics screens cover 12 position bits. The rest read `UNKNOWN`. The roles, the 19 team
+instruction bytes, and the 24-byte setting units ship as raw numbers. Slots with different
+roles can store the same role bits.
 """
 
 from __future__ import annotations
@@ -52,14 +50,10 @@ class TacticPosition(IntEnum):
     is deliberately **not** the same enum as `fmsave.models.matches.MatchPosition`, whose codes
     come from a different field and are ordinals rather than bit numbers.
 
-    The eleven named bits were matched to the position labels one FM27 tactics screen shows,
-    in possession and out of possession, through the player picked in each slot. In member
-    order the screen showed them as GK, D (R), D (L), D (C), DM, M (R), M (L), AM (R), AM (L),
-    AM (C) and ST (C). The column flags above the position bits, which tell
-    the two halves of a pair apart, are not positions and stay out of this enum. Bits 1, 5, 6
-    and 10 appear in stored formations but on no screen compared, so they read UNKNOWN. FM26
-    stores the same field; there the players picked in each slot fit these labels, which is a
-    corroboration rather than a screen comparison.
+    The named bits match the position labels shown for players on FM27 tactics screens in
+    and out of possession. In member order they are GK, D (R), D (L), D (C), DM, M (R), M (L),
+    M (C), AM (R), AM (L), AM (C), and ST (C). The enum excludes the column flags that distinguish
+    paired slots. Bits 1, 5, and 6 still read UNKNOWN. FM26 stores the same field.
     """
 
     UNKNOWN = -1
@@ -70,6 +64,7 @@ class TacticPosition(IntEnum):
     DEFENSIVE_MIDFIELDER = 7  # DM
     MIDFIELDER_RIGHT = 8  # M (R)
     MIDFIELDER_LEFT = 9  # M (L)
+    MIDFIELDER_CENTRE = 10  # M (C)
     ATTACKING_MIDFIELDER_RIGHT = 11  # AM (R)
     ATTACKING_MIDFIELDER_LEFT = 12  # AM (L)
     ATTACKING_MIDFIELDER_CENTRE = 13  # AM (C)
@@ -122,18 +117,16 @@ class TacticSlot:
         in_possession_setting_count: How many setting units the in-possession block holds
             (unconfirmed).
         in_possession_settings: Those units, in stored order (unconfirmed).
-        out_of_possession_positions: The same for the out-of-possession block, which differs
-            from the in-possession one on some slots of some saves.
+        out_of_possession_positions: The positions stored for this slot in the defending
+            formation. Use `out_of_possession_position_index` to look up where the player in
+            this slot defends.
         out_of_possession_mask: The whole out-of-possession mask.
         out_of_possession_setting_count: How many setting units that block holds
             (unconfirmed).
         out_of_possession_settings: Those units, in stored order (unconfirmed).
-        unknown: The two bit fields each block carries besides its units, and the index byte
-            the out-of-possession block carries. The role bits hold exactly one bit and
-            relate to the position's role, but two slots the game shows with different roles
-            can store the same bits, so they are not the role on their own. The index bytes of
-            a record are a permutation of 0 to 10 which is the identity on all but one record
-            measured (unconfirmed).
+        unknown: The role and trail bits for each phase (unconfirmed). The role bits can be
+            identical for different roles. The defending slot index also appears here for
+            compatibility.
     """
 
     number: int
@@ -154,6 +147,15 @@ class TacticSlot:
         "out_of_possession_trail_bits",
         "out_of_possession_position_index",
     )
+
+    @property
+    def out_of_possession_position_index(self) -> int | None:
+        """The raw defending slot index, counting from 0, or None if the index is absent.
+
+        Follow the index when the tactic has 11 slots and their indexes include every value
+        from 0 through 10 exactly once.
+        """
+        return self.unknown.get("out_of_possession_position_index")
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,9 +234,10 @@ class Selection:
     is one place that holds a pick; an empty place has no row, so a team with nothing picked
     has no rows at all. Only the manager's own teams store a selection in this form.
 
-    **A starter's place is a tactic slot.** The starter in `slot` n plays the position of
-    `TacticSlot.number` n, but only in the tactic the team has selected, and nothing stored
-    says which of a team's tactics that is.
+    In the team's selected tactic, a starter's `slot` matches `TacticSlot.number` for the
+    in-possession position. In a complete tactic with valid indexes, follow that slot's
+    `out_of_possession_position_index` to find the defending position. The selected tactic
+    is unknown.
 
     **The substitutes are the stored list, not the next match's bench.** On one FM27 career
     the stored starters and the first thirteen substitutes matched the tactics screen in its

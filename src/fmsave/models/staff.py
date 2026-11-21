@@ -14,23 +14,23 @@ board among them, is a row with `has_contract` false, and every row carries its 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, replace
 from datetime import date
 from enum import IntEnum, StrEnum
 from typing import ClassVar
 
 from fmsave._status import register_field_statuses
-from fmsave.models.common import CodedValue
+from fmsave.models.common import CodedValue, round_attribute_for_display
 from fmsave.models.players import Ability, Personality
+
+_NATIVE_STAFF_20_POINT_FIELDS = frozenset({"adaptability", "authority", "working_with_youngsters"})
 
 
 class StaffJob(IntEnum):
     """A person's job at his club, as a club's All Staff screen shows it.
 
-    A code is named only where an in-game label confirms that exact code. Each named code
-    matched one FM27 club's All Staff screen, person for person, across its senior and under-18
-    staff and its board. A code no screen we hold has labelled is UNKNOWN and keeps its raw
-    number, even where a label has been reported for it.
+    In-game staff screens confirm each named code. Other codes use UNKNOWN and keep their raw
+    number.
 
     MANAGER is the job of whoever manages a team, the first team's or a youth side's.
     """
@@ -45,13 +45,22 @@ class StaffJob(IntEnum):
     SCOUT = 14
     MANAGER = 16
     ASSISTANT_MANAGER = 20
+    SET_PIECE_COACH = 22
+    FITNESS_COACH = 26
     GOALKEEPING_COACH = 34
     CHIEF_DOCTOR = 38
     HEAD_OF_SPORTS_SCIENCE = 40
+    CHIEF_SCOUT = 44
+    DOCTOR = 46
     SPORTS_SCIENTIST = 48
     HEAD_PHYSIO = 50
+    RECRUITMENT_ANALYST = 58
     PERFORMANCE_ANALYST = 60
+    HEAD_PERFORMANCE_ANALYST = 62
     HEAD_OF_YOUTH_DEVELOPMENT = 64
+    OWNER = 66
+    PRESIDENT = 70
+    LOAN_MANAGER = 86
     TECHNICAL_DIRECTOR = 88
 
 
@@ -98,12 +107,13 @@ class StaffPreferences:
 
 @dataclass(frozen=True, slots=True)
 class StaffAttributes:
-    """Ratings stored for a staff member.
+    """Ratings for a staff member.
 
-    Adaptability uses the same 1 to 20 scale as `Staff.personality.adaptability`.
-    The other ratings are read for non-human staff. Their meanings are unconfirmed on FM26.
-    Authority and working with youngsters use a 1 to 20 scale. The rest use a 1 to 100
-    scale. Missing or out-of-range ratings are None.
+    Staff records and exports use the stored scales. `adaptability`, `authority`, and
+    `working_with_youngsters` are out of 20. The other ratings are out of 100.
+    Adaptability comes from the person's personality and can be 0 for the human manager.
+    Other ratings are read for non-human staff, and their meanings are unconfirmed on FM26.
+    Missing ratings are None. Use `to_display_scale()` for whole-number ratings out of 20.
 
     Attributes:
         adaptability: Adaptability.
@@ -152,6 +162,19 @@ class StaffAttributes:
     authority: int | None = None
     working_with_youngsters: int | None = None
     determination: int | None = None
+
+    def to_display_scale(self) -> StaffAttributes:
+        """Convert stored ratings to whole display points in a new record.
+
+        Each 100-point rating uses `(raw + 2) // 5`, bounded to 1 through 20.
+        Ratings already out of 20 and missing ratings retain their stored values.
+        """
+        display: dict[str, int] = {}
+        for field in fields(self):
+            rating: int | None = getattr(self, field.name)
+            if rating is not None and field.name not in _NATIVE_STAFF_20_POINT_FIELDS:
+                display[field.name] = min(20, round_attribute_for_display(rating))
+        return replace(self, **display)
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,7 +245,7 @@ class Staff:
         ability: Current and potential ability, None when the object carries no readable
             ability block, as the human manager's does not.
         personality: The eight personality values, None without a name block.
-        attributes: Adaptability and any readable staff ratings, None without a name block.
+        attributes: Readable staff ratings on their stored scales, None without a name block.
         preferences: The named preferences, None when the object carries no readable ability
             block.
         unknown: Numeric fields with no known meaning (unconfirmed). The ability-block keys
@@ -359,7 +382,7 @@ class StaffCandidate:
         nation_id: Save-local nation id (unconfirmed).
         ability: Current and potential ability, when readable.
         personality: The 8 personality values, when readable.
-        attributes: Adaptability and any readable staff ratings.
+        attributes: Readable staff ratings on their stored scales.
         preferences: The named preferences, when readable.
         employment: Employment status (unconfirmed).
         appointments: The resolved current club appointments found for this person

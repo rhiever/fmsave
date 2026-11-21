@@ -267,6 +267,7 @@ _ADVISORY_GATES = frozenset(
         "job_vacancy_dates_ordered",
         "join_date_valid",
         "match_reports_framed",
+        "match_reports_with_trailing_walks",
         "mentoring_members_at_club",
         "names_resolved",
         "no_contract_in_effect",
@@ -1635,10 +1636,10 @@ def evaluate_team_match_stats(
     """The team match stats reader's checks, in a fixed order.
 
     Every report the page index lists must decompress whole: the count is the save's own. The
-    framed share is advisory, because a long detailed report can hold a stray walk that leaves
-    its squads unframed. Both judge nothing when the index lists no report.
+    framed share is advisory. Short walks after two marked detailed squads also warn
+    because the trailing data might include an incomplete squad.
     """
-    return (
+    gates = (
         _share_gate(
             "match_report_entries_decompressed",
             stats.decompressed,
@@ -1654,6 +1655,16 @@ def evaluate_team_match_stats(
             applied=True,
         ),
     )
+    if stats.with_trailing_walks:
+        gates += (
+            _gate(
+                "match_reports_with_trailing_walks",
+                stats.with_trailing_walks,
+                (0, 0),
+                applied=True,
+            ),
+        )
+    return gates
 
 
 def check_team_match_stats(stats: TeamMatchStatsStats, bounds: GateBounds) -> ReaderCheck:
@@ -1668,6 +1679,7 @@ def check_team_match_stats(stats: TeamMatchStatsStats, bounds: GateBounds) -> Re
                 "undecompressed_entries": stats.entries - stats.decompressed,
                 "reports_without_header": stats.without_header,
                 "incomplete_reports": stats.incomplete,
+                "reports_with_trailing_walks": stats.with_trailing_walks,
                 "detailed_reports": stats.detailed,
                 "duplicate_keys": stats.duplicate_keys,
             }

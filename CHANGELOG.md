@@ -4,6 +4,22 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.14.3] - 2026-11-21
+
+### Added
+
+- Convert staff ratings to the game's 20-point scale with `StaffAttributes.to_display_scale()`.
+- Expose the defending slot index as `TacticSlot.out_of_possession_position_index` in Python.
+
+### Fixed
+
+- Read team match reports written by FM27 27.1, including saves with reports from earlier builds.
+- Return detailed match stats with a warning when short runs of squad-like data follow both
+  teams. Strict mode skips those reports.
+- Label 9 FM27 staff job codes and the centre midfielder position in tactics.
+
+Thanks to @onehoka for the report, @jeohist for researching staff jobs, and @menidi for researching staff ratings. Refs #44, #68, #114, #117, #118, and #119.
+
 ## [0.14.2] - 2026-11-20
 
 ### Fixed

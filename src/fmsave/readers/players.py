@@ -19,7 +19,7 @@ from datetime import date
 from fmsave._layouts import ContractLayout, GateBounds, PersonBlockLayout, PlayerRecordLayout
 from fmsave._reader_stats import PlayerStats
 from fmsave._scan import decode_date
-from fmsave.models.common import TransferValueState
+from fmsave.models.common import TransferValueState, round_attribute_for_display
 from fmsave.models.contracts import Contract
 from fmsave.models.players import Ability, Attributes, Player, Positions, Reputation
 from fmsave.readers._common import MISSING_REFERENCE
@@ -54,7 +54,7 @@ _DATE_CACHE_MISS = object()
 
 _UINT32 = struct.Struct("<I")
 
-_SCALE_TABLE = bytes(max(1, (raw_value + 2) // 5) for raw_value in range(256))
+_SCALE_TABLE = bytes(round_attribute_for_display(raw_value) for raw_value in range(256))
 
 # The None/empty value for every person field, used when no person block validates.
 _EMPTY_PERSON_TUPLE: tuple[
