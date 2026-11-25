@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,6 +13,7 @@ from fmsave._container import (
     EXPANSION_ALLOWANCE,
     ContainerLimits,
     DirectoryEntry,
+    decompress_frame,
     read_index,
     read_region_frames,
     read_section,
@@ -122,6 +124,28 @@ def test_a_frame_expanding_past_its_bound_is_stopped_while_decompressing(
     assert f"decompresses to more than {bound:,} bytes" in str(error_info.value)
     # The decompressor itself was stopped one byte past the bound.
     assert max(spy.output_limits) == bound + 1
+
+
+def test_unlisted_frame_with_large_expansion_bounds_can_be_read(tmp_path: Path) -> None:
+    payload = b"example"
+    path = with_unlisted_frame(tmp_path, payload)
+    limits = ContainerLimits(part_expansion=sys.maxsize, save_expansion=sys.maxsize)
+    index = read_index(path, limits)
+    assert list(read_region_frames(index, UNLISTED_REGION)) == [payload]
+
+
+def test_frame_output_cannot_exceed_runtime_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    compressed = zstd.compress(b"example")
+    monkeypatch.setattr(container, "sys", SimpleNamespace(maxsize=7))
+
+    with pytest.raises(MemoryError, match="too large for this Python runtime"):
+        decompress_frame(
+            compressed, expected_size=None, cap=20, what="test frame", file_name="example.fm"
+        )
+    with pytest.raises(CorruptSaveError, match="more than 6 bytes"):
+        decompress_frame(
+            compressed, expected_size=None, cap=6, what="test frame", file_name="example.fm"
+        )
 
 
 def test_unlisted_frames_count_against_the_whole_save_bound(tmp_path: Path) -> None:

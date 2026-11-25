@@ -4,6 +4,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.14.5] - 2026-11-25
+
+### Fixed
+
+- Fix an overflow when Pyodide reads season statistics from large saves.
+
+Thanks to @ibaivalencia for the report. Refs #124.
+
 ## [0.14.4] - 2026-11-24
 
 ### Added
