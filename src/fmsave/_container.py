@@ -186,14 +186,16 @@ def decompress_frame(
 ) -> bytes:
     """Decompress exactly one frame without ever producing more than the allowed bytes.
 
-    The decompressor itself stops one byte past `cap`, so no more memory is spent. Output past
-    `cap` raises the error `overrun` builds, which names the bound `cap` came from, or a plain
-    `CorruptSaveError` without one; output past a declared size is always the plain error.
+    The decompressor stops one byte past the smallest bound. Output past `cap` raises the
+    error `overrun` builds, or a plain `CorruptSaveError` without one. Output past a declared size
+    raises `CorruptSaveError`. Exhausting the runtime's output limit raises `MemoryError`.
     """
     output_limit = cap if expected_size is None else min(expected_size, cap)
+    # Zstandard takes a Py_ssize_t. Leave room for the extra byte even on 32-bit builds.
+    runtime_limit = sys.maxsize - 1
     decompressor = zstd.ZstdDecompressor()
     try:
-        data = decompressor.decompress(compressed, max_length=output_limit + 1)
+        data = decompressor.decompress(compressed, max_length=min(output_limit, runtime_limit) + 1)
     except zstd.ZstdError as error:
         raise CorruptSaveError(
             f"{file_name}: {what} could not be decompressed. {RETRY_HINT}"
@@ -204,6 +206,8 @@ def decompress_frame(
         raise CorruptSaveError(
             f"{file_name}: {what} decompresses to more than {output_limit} bytes"
         )
+    if len(data) > runtime_limit:
+        raise MemoryError("decompressed frame is too large for this Python runtime")
     if not decompressor.eof:
         raise CorruptSaveError(f"{file_name}: {what} is truncated. {RETRY_HINT}")
     if decompressor.unused_data:
