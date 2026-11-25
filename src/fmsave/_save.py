@@ -1798,10 +1798,13 @@ class Save:
 
         The clubs are the ones `finances()` keeps a series for, in the same order, and each
         club's contracts keep the order the save stores them in. **The list keeps contracts that
-        have ended**, and an ended contract's `annual_value` can remain non-zero. Dates and
-        values are retained as stored. Filtering by `end` alone has not been established to
-        reproduce the game's displayed sponsorship income. On FM27, an invalid list is
-        skipped and reported as a warning. Strict mode raises `ReaderCheckError` instead.
+        have ended**, and an ended contract's `annual_value` can remain non-zero. Filtering by
+        `end` alone may differ from the game's displayed sponsorship income. On FM27, an invalid list
+        emits a warning. When reversed dates are the only failures, rows with valid
+        dates are returned. Ended contracts with reversed dates are also returned when their
+        dates match the financial term after reordering. Those rows set `dates_reordered`
+        to True. Other failures skip the whole list. Strict mode raises `ReaderCheckError`
+        for invalid lists.
 
         `kind` carries a label for codes confirmed on the sponsorship screen for the save's
         edition. Other codes read UNKNOWN and retain their raw number. Take a contract's length
@@ -2230,10 +2233,9 @@ class Save:
         centre striker. The others read UNKNOWN and keep their bit number. In a complete tactic
         with valid indexes, each slot's `out_of_possession_position_index` points to the defending
         slot for its player.
-        Roles have no label. The 19 team instructions and the
-        setting units of each slot are unidentified numbers in the same way, and ship in
-        `unknown` and as `TacticSettingUnit` values rather than under names they have not
-        earned.
+        Each phase's role label is available for observed position and role combinations.
+        A slot with an unrecognized role has `None` for that phase. The 19 team instructions
+        and the slot settings are available in `unknown` and as `TacticSettingUnit` values.
 
         The table is read on the first call to `tactics()`, `set_pieces()` or `selections()`,
         from one walk; later calls to any of them return the same tables. When a tactic or

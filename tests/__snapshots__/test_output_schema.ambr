@@ -741,6 +741,7 @@
         'unknown_b17',
         'unknown_enum18',
         'unknown_b19',
+        'dates_reordered',
       ]),
       'SquadPlannerSlot': list([
         'season_offset',
@@ -873,6 +874,14 @@
         'unknown_contract_e38',
         'unknown_contract_e39',
         'unknown_contract_type',
+        'secondary_job',
+        'secondary_job_code',
+        'job_ratings_fitness_coach',
+        'job_ratings_goalkeeping_coach',
+        'job_ratings_set_piece_coach',
+        'job_ratings_loan_manager',
+        'job_ratings_physio',
+        'job_ratings_sports_scientist',
       ]),
       'StaffCandidate': list([
         'uid',

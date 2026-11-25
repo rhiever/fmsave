@@ -302,6 +302,7 @@ class _SponsorChainResult:
     row_count: int
     valid: bool
     suffix_start: int
+    reversed_date_rows: frozenset[int] = frozenset()
 
 
 def locate_sponsor_chain(
@@ -321,8 +322,9 @@ def _inspect_sponsor_chain(
     data yields None; later sponsor-shaped bytes are never a fallback. A positive count
     requires every row to pass tag, flag, calendar-date and monetary checks. Once ownership
     is established, historical contract dates use the ordinary game date format; an
-    empirical search-year window is unnecessary. Invalid rows retain their owned count
-    in a result marked invalid, so coverage cannot hide a rejected list.
+    empirical search-year window is unnecessary. Lists with invalid rows are marked
+    invalid so coverage cannot hide them. On layouts that allow partial reads, the
+    result identifies reversed dates when all rows pass the other checks.
     """
     if search_start < 0 or record_end > len(game_db) or search_start >= record_end:
         return None
@@ -366,6 +368,7 @@ def _inspect_sponsor_chain(
         return _SponsorChainResult(first_row, 0, valid=True, suffix_start=entries_end)
 
     row_struct, index_by_name = _sponsor_row_struct(layout)
+    reversed_date_rows: set[int] = set()
     for row_offset in range(first_row, run_end, layout.row_bytes):
         row = row_struct.unpack_from(game_db, row_offset)
         total_value: int = row[index_by_name["total"]]
@@ -378,8 +381,20 @@ def _inspect_sponsor_chain(
             return rejected
         start = decode_date(game_db, row_offset + layout.start_offset)
         end = decode_date(game_db, row_offset + layout.end_offset)
-        if start is None or end is None or (end - start).days < layout.minimum_row_days:
+        if start is None or end is None:
             return rejected
+        if (end - start).days < layout.minimum_row_days:
+            if not layout.recover_reversed_dates or end >= start:
+                return rejected
+            reversed_date_rows.add(row_offset)
+    if reversed_date_rows:
+        return _SponsorChainResult(
+            first_row,
+            row_count,
+            valid=False,
+            suffix_start=entries_end,
+            reversed_date_rows=frozenset(reversed_date_rows),
+        )
     return _SponsorChainResult(first_row, row_count, valid=True, suffix_start=entries_end)
 
 
@@ -550,15 +565,17 @@ def read_club_finances(
             continue
         if not sponsor_result.valid:
             sponsor_lists_rejected += 1
-            continue
-        located_run = (sponsor_result.first_row, sponsor_result.row_count)
-        if located_run[1] == 0:
+            if not sponsor_result.reversed_date_rows:
+                continue
+        if sponsor_result.row_count == 0:
             clubs_with_empty_sponsor_lists += 1
             continue
-        clubs_with_sponsors += 1
-        sponsorships.extend(
-            _club_sponsorships(game_db, club.uid, club.name, located_run, sponsor_layout)
+        club_sponsors = _club_sponsorships(
+            game_db, club.uid, club.name, sponsor_result, sponsor_layout, clock
         )
+        if club_sponsors:
+            clubs_with_sponsors += 1
+            sponsorships.extend(club_sponsors)
     return (
         tuple(months),
         tuple(sponsorships),
@@ -582,22 +599,47 @@ def read_club_finances(
     )
 
 
+def _can_reorder_sponsor_dates(
+    later: date | None, earlier: date | None, total: int, annual: int, clock: date
+) -> bool:
+    """Require the observed date pattern and a matching financial term."""
+    if later is None or earlier is None or later >= clock or annual == 0:
+        return False
+    anniversary = later - timedelta(days=1)
+    years = anniversary.year - earlier.year
+    return (
+        years > 0
+        and (anniversary.month, anniversary.day) == (earlier.month, earlier.day)
+        and abs(total - years * annual) * 366 <= annual
+    )
+
+
 def _club_sponsorships(
     game_db: bytes,
     club_uid: int,
     club_name: str,
-    located_run: tuple[int, int],
+    chain: _SponsorChainResult,
     layout: SponsorChainLayout,
+    clock: date,
 ) -> list[Sponsorship]:
     """One club's sponsor rows, in the order the save stores them."""
     row_struct, index_by_name = _sponsor_row_struct(layout)
     kind_labels = _sponsor_kind_labels(layout.kind_names)
     unpack_row = row_struct.unpack_from
-    first_row, row_count = located_run
+    first_row, row_count = chain.first_row, chain.row_count
     rows: list[Sponsorship] = []
     for row_offset in range(first_row, first_row + layout.row_bytes * row_count, layout.row_bytes):
         row = unpack_row(game_db, row_offset)
         kind_code = row[index_by_name["type"]]
+        start = decode_date(game_db, row_offset + layout.start_offset)
+        end = decode_date(game_db, row_offset + layout.end_offset)
+        total = row[index_by_name["total"]]
+        annual = row[index_by_name["annual"]]
+        dates_reordered = row_offset in chain.reversed_date_rows
+        if dates_reordered:
+            if not _can_reorder_sponsor_dates(start, end, total, annual, clock):
+                continue
+            start, end = end, start
         rows.append(
             Sponsorship(
                 club_uid=club_uid,
@@ -605,10 +647,10 @@ def _club_sponsorships(
                 kind=CodedValue(
                     label=kind_labels.get(kind_code, SponsorType.UNKNOWN), raw=kind_code
                 ),
-                start=decode_date(game_db, row_offset + layout.start_offset),
-                end=decode_date(game_db, row_offset + layout.end_offset),
-                total_value=row[index_by_name["total"]],
-                annual_value=row[index_by_name["annual"]],
+                start=start,
+                end=end,
+                total_value=total,
+                annual_value=annual,
                 unknown=FrozenMapping(
                     {
                         "flag10": row[index_by_name["flag10"]],
@@ -618,6 +660,7 @@ def _club_sponsorships(
                         "b19": row[index_by_name["b19"]],
                     }
                 ),
+                dates_reordered=dates_reordered,
             )
         )
     return rows

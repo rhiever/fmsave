@@ -187,6 +187,8 @@ STAFF = replace(
     no_contract_lead=b"\x05\x05",
     unset_code_list_allowed=True,
     candidate_free_agent_supported=True,
+    job_ratings_offset_from_person=-54,
+    secondary_job_supported=True,
 )
 
 # The header list keeps the FM26 entry size. A block's tail is four bytes shorter than on FM26
@@ -258,6 +260,7 @@ SPONSOR_CHAINS = replace(
     FM26_SPONSOR_CHAINS,
     minimum_row_days=-1,
     reject_invalid_lists=True,
+    recover_reversed_dates=True,
     balance_offset=22,
     kind_names=(
         (1, "MAIN_KIT"),

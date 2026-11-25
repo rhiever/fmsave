@@ -4,6 +4,21 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.14.4] - 2026-11-24
+
+### Added
+
+- Export FM27 secondary staff jobs and Preferred Jobs ratings for 6 roles.
+- Export known tactic role labels in and out of possession. Unrecognized roles keep their raw settings.
+
+### Fixed
+
+- Keep readable FM27 sponsorships when other rows in the list have reversed dates.
+- Recover ended FM27 sponsorships when the reordered dates match the financial term. The export flags
+  reordered dates. Strict mode still rejects lists that require recovery.
+
+Thanks to @jeohist for help testing. Refs #118, #120, and #122.
+
 ## [0.14.3] - 2026-11-21
 
 ### Added

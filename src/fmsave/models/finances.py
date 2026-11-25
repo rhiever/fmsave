@@ -111,6 +111,9 @@ class Sponsorship:
             in the screen's sponsorship income either: on one FM27 club an unexpired kind 6
             row was left out of it.
         unknown: Numeric fields with no known meaning (unconfirmed).
+        dates_reordered: True when the reader reversed the stored dates of an ended FM27
+            contract based on its financial term. In this case, `end` is the stored start
+            and `start` is the stored end.
     """
 
     club_uid: int
@@ -121,6 +124,7 @@ class Sponsorship:
     total_value: int
     annual_value: int
     unknown: Mapping[str, int]
+    dates_reordered: bool = False
 
     UNKNOWN_KEYS: ClassVar[tuple[str, ...]] = ("flag10", "u15", "b17", "enum18", "b19")
 
@@ -155,6 +159,6 @@ register_field_statuses(
 )
 register_field_statuses(
     Sponsorship,
-    verified=("kind", "start", "end", "total_value", "annual_value"),
+    verified=("kind", "start", "end", "total_value", "annual_value", "dates_reordered"),
     unconfirmed=("club_uid", "club_name", "unknown"),
 )

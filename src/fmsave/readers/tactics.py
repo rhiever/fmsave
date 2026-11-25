@@ -54,6 +54,49 @@ _UNIT_WORD_MASK = (1 << _UNIT_WORD_BITS) - 1
 # variants apart, used to find, count and retry records whose variant the layout does not list.
 _SIGNATURE_LEAD_BYTES = 4
 
+# A role change alters the last setting unit's high word. Player instructions can add
+# units before it or change the first field. The high word is reused across phases and
+# positions, and can even be shared by different roles at the same position. Only use
+# combinations that matched one observed role.
+_IN_POSSESSION_ROLES: dict[tuple[TacticPosition, int], str] = {
+    (TacticPosition.GOALKEEPER, 0x401000): "Ball-Playing Goalkeeper",
+    (TacticPosition.DEFENDER_RIGHT, 0x400004): "Full-Back",
+    (TacticPosition.DEFENDER_RIGHT, 0x400008): "Wing-Back",
+    (TacticPosition.DEFENDER_LEFT, 0x400004): "Full-Back",
+    (TacticPosition.DEFENDER_LEFT, 0x400008): "Wing-Back",
+    (TacticPosition.DEFENDER_CENTRE, 0x200002): "Centre-Back",
+    (TacticPosition.DEFENDER_CENTRE, 0x1200000): "Ball-Playing Centre-Back",
+    (TacticPosition.DEFENDER_CENTRE, 0x204000): "Advanced Centre-Back",
+    (TacticPosition.DEFENDER_CENTRE, 0x20200000): "No-Nonsense Centre-Back",
+    (TacticPosition.DEFENSIVE_MIDFIELDER, 0x408000): "Deep-Lying Playmaker",
+    (TacticPosition.DEFENSIVE_MIDFIELDER, 0x410000): "Box-to-Box Midfielder",
+    (TacticPosition.DEFENSIVE_MIDFIELDER, 0x200010): "Defensive Midfielder",
+    (TacticPosition.ATTACKING_MIDFIELDER_RIGHT, 0x400000): "Inverted Winger",
+    (TacticPosition.ATTACKING_MIDFIELDER_RIGHT, 0x8800000): "Inside Forward",
+    (TacticPosition.ATTACKING_MIDFIELDER_LEFT, 0x400000): "Inverted Winger",
+    (TacticPosition.ATTACKING_MIDFIELDER_LEFT, 0x8800000): "Inside Forward",
+    # Free Role and Shadow Striker can share 0x800000 at attacking midfield.
+    (TacticPosition.STRIKER_CENTRE, 0x800800): "Centre Forward",
+}
+_OUT_OF_POSSESSION_ROLES: dict[tuple[TacticPosition, int], str] = {
+    (TacticPosition.GOALKEEPER, 0x400001): "Goalkeeper",
+    (TacticPosition.GOALKEEPER, 0x800002): "Sweeper Keeper",
+    (TacticPosition.DEFENDER_RIGHT, 0x200200): "Full-Back",
+    (TacticPosition.DEFENDER_LEFT, 0x200200): "Full-Back",
+    (TacticPosition.DEFENDER_CENTRE, 0x200008): "Centre-Back",
+    (TacticPosition.DEFENDER_CENTRE, 0x200010): "Stopping Centre-Back",
+    (TacticPosition.DEFENDER_CENTRE, 0x200020): "Covering Centre-Back",
+    (TacticPosition.DEFENSIVE_MIDFIELDER, 0x208000): "Defensive Midfielder",
+    (TacticPosition.DEFENSIVE_MIDFIELDER, 0x420000): "Pressing Defensive Midfielder",
+    (TacticPosition.MIDFIELDER_RIGHT, 0x400000): "Wide Midfielder",
+    (TacticPosition.MIDFIELDER_LEFT, 0x400000): "Wide Midfielder",
+    (TacticPosition.ATTACKING_MIDFIELDER_RIGHT, 0x200000): "Tracking Winger",
+    (TacticPosition.ATTACKING_MIDFIELDER_LEFT, 0x200000): "Tracking Winger",
+    (TacticPosition.ATTACKING_MIDFIELDER_CENTRE, 0x80200000): "Tracking Attacking Midfielder",
+    (TacticPosition.ATTACKING_MIDFIELDER_CENTRE, 0x40400000): "Attacking Midfielder",
+    (TacticPosition.STRIKER_CENTRE, 0x400000): "Centre Forward",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class RawTactic:
@@ -551,6 +594,19 @@ def _read_slot_block(
     )
 
 
+def _slot_role(
+    positions: tuple[CodedValue[TacticPosition], ...],
+    settings: tuple[TacticSettingUnit, ...],
+    labels: Mapping[tuple[TacticPosition, int], str],
+) -> str | None:
+    if len(positions) != 1 or not settings:
+        return None
+    final_setting = settings[-1]
+    if final_setting.second_bits_low or final_setting.second_bits_middle:
+        return None
+    return labels.get((positions[0].label, final_setting.second_bits_high))
+
+
 def _slot_from_pair(
     number: int, in_possession: _SlotBlock, out_of_possession: _SlotBlock, layout: TacticsLayout
 ) -> TacticSlot:
@@ -562,17 +618,23 @@ def _slot_from_pair(
     }
     if out_of_possession.position_index is not None:
         unknown["out_of_possession_position_index"] = out_of_possession.position_index
+    in_positions = _mask_positions(in_possession.mask, layout)
+    out_positions = _mask_positions(out_of_possession.mask, layout)
     return TacticSlot(
         number,
-        _mask_positions(in_possession.mask, layout),
+        in_positions,
         in_possession.mask,
         in_possession.setting_count,
         in_possession.settings,
-        _mask_positions(out_of_possession.mask, layout),
+        out_positions,
         out_of_possession.mask,
         out_of_possession.setting_count,
         out_of_possession.settings,
         FrozenMapping(unknown),
+        in_possession_role=_slot_role(in_positions, in_possession.settings, _IN_POSSESSION_ROLES),
+        out_of_possession_role=_slot_role(
+            out_positions, out_of_possession.settings, _OUT_OF_POSSESSION_ROLES
+        ),
     )
 
 

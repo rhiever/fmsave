@@ -6,11 +6,10 @@ records, and the copies are not byte-identical. A row here is one stored copy, k
 team and the tactic's place in that team's own list, and the same tactic name appears once per
 team.
 
-**The mentality and most positions are named; little else here is.** The seven mentality
-codes carry the words the game shows, read off a manager's own tactics. Labels from FM27
-tactics screens cover 12 position bits. The rest read `UNKNOWN`. The roles, the 19 team
-instruction bytes, and the 24-byte setting units ship as raw numbers. Slots with different
-roles can store the same role bits.
+The seven mentality codes carry the words the game shows, and labels cover 12 position
+bits. The remaining position bits read `UNKNOWN`. Some roles have labels based on the
+position and the final setting unit in each phase. The 19 team instruction bytes and the
+24-byte setting units are available as raw numbers.
 """
 
 from __future__ import annotations
@@ -127,6 +126,11 @@ class TacticSlot:
         unknown: The role and trail bits for each phase (unconfirmed). The role bits can be
             identical for different roles. The defending slot index also appears here for
             compatibility.
+        in_possession_role: Role label for this slot's attacking position, or None when
+            the position and stored code have no matching label (unconfirmed).
+        out_of_possession_role: Role label for this slot's defending position, or None when
+            the position and stored code have no matching label (unconfirmed). Use
+            `out_of_possession_position_index` to find this player's defending slot.
     """
 
     number: int
@@ -139,6 +143,8 @@ class TacticSlot:
     out_of_possession_setting_count: int
     out_of_possession_settings: tuple[TacticSettingUnit, ...]
     unknown: Mapping[str, int]
+    in_possession_role: str | None = None
+    out_of_possession_role: str | None = None
 
     UNKNOWN_KEYS: ClassVar[tuple[str, ...]] = (
         "in_possession_role_bits",
@@ -298,6 +304,8 @@ register_field_statuses(
         "out_of_possession_setting_count",
         "out_of_possession_settings",
         "unknown",
+        "in_possession_role",
+        "out_of_possession_role",
     ),
 )
 # The mentality byte and the slots are read from a record the walk consumes exactly, and the

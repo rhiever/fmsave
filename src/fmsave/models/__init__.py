@@ -62,6 +62,7 @@ from fmsave.models.staff import (
     StaffCandidate,
     StaffEmployment,
     StaffJob,
+    StaffJobRatings,
     StaffList,
     StaffPreferences,
 )
@@ -149,6 +150,7 @@ __all__ = [
     "StaffCandidate",
     "StaffEmployment",
     "StaffJob",
+    "StaffJobRatings",
     "StaffList",
     "StaffPreferences",
     "Stage",

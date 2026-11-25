@@ -635,7 +635,12 @@ class ContractDecoder:
         return None
 
     def _locate_clause_base_fallback(
-        self, game_db: bytes, tail_offset: int
+        self,
+        game_db: bytes,
+        tail_offset: int,
+        *,
+        staff_marker: bytes | None = None,
+        first_marker_at: int = 0,
     ) -> tuple[int, int] | None:
         """(base, count) of the clause table nearest the tail start that ends exactly there, or
         None.
@@ -649,7 +654,9 @@ class ContractDecoder:
         end, and each clause count then fixes one base. A base is accepted when its zero run
         and count byte check and its marker is all `FF`, or a team id that is neither all `FF`
         nor all zero, followed by zero bytes. Of the accepted bases, the nearest to the tail is
-        returned.
+        returned. With `staff_marker`, the header must belong to the staff member's
+        team and can carry a secondary job in the first byte of the otherwise zero run.
+        A staff result requires a single matching header.
         """
         startswith = game_db.startswith
         trailer_start = tail_offset - len(self.clause_trailer)
@@ -721,19 +728,66 @@ class ContractDecoder:
                 for clause_count in range(clause_max_count + 1):
                     base = entries_end - entries_offset - entry_bytes * clause_count
                     marker_offset = base + ff_offset
-                    if marker_offset < 0 or (nearest is not None and base <= nearest[0]):
-                        break
-                    if startswith(count_needles[clause_count], base + zero_offset) and (
-                        startswith(ff_run, marker_offset)
-                        or (
-                            not startswith(team_id_ff, marker_offset)
-                            and not startswith(team_id_zeros, marker_offset)
-                            and startswith(team_zero_run, marker_offset + team_zero_offset)
-                        )
+                    if marker_offset < first_marker_at or (
+                        staff_marker is None and nearest is not None and base <= nearest[0]
                     ):
-                        nearest = (base, clause_count)
                         break
+                    if staff_marker is None:
+                        matches = startswith(count_needles[clause_count], base + zero_offset) and (
+                            startswith(ff_run, marker_offset)
+                            or (
+                                not startswith(team_id_ff, marker_offset)
+                                and not startswith(team_id_zeros, marker_offset)
+                                and startswith(team_zero_run, marker_offset + team_zero_offset)
+                            )
+                        )
+                    else:
+                        count_at = base + self.clause_count_offset
+                        matches = (
+                            game_db[count_at] == clause_count
+                            and game_db[count_at - 1] == 0
+                            and startswith(staff_marker, marker_offset - len(self.tag))
+                        )
+                    if matches:
+                        candidate = (base, clause_count)
+                        if (
+                            nearest is not None
+                            and staff_marker is not None
+                            and nearest != candidate
+                        ):
+                            return None
+                        nearest = candidate
+                        if staff_marker is None:
+                            break
         return nearest
+
+    def staff_secondary_job_code(
+        self, game_db: bytes, tag_offset: int, record: ChainRecordTuple, person_header: int
+    ) -> int | None:
+        """Return the optional secondary job on this staff member's contract."""
+        events = record[CHAIN_RECORD_EVENT_COUNT]
+        start = record[CHAIN_RECORD_START]
+        end = record[CHAIN_RECORD_END]
+        if (
+            events is None
+            or start is None
+            or start > self.clock
+            or (end is not None and end < self.clock)
+        ):
+            return None
+        tail = tag_offset - self.tail_base_offset - self.tail_step_bytes * events
+        marker = (
+            self.tag + _U32.pack(record[CHAIN_RECORD_TEAM_ID]) + self.clause_team_marker_id_zeros
+        )
+        if game_db.find(marker, person_header, tail) < 0:
+            return None
+        table = self._locate_clause_base_fallback(
+            game_db, tail, staff_marker=marker, first_marker_at=person_header + len(self.tag)
+        )
+        if table is None:
+            return None
+        base, _count = table
+        return game_db[base + self.clause_zero_offset] or None
 
     def _read_clauses(
         self, game_db: bytes, base: int, count: int

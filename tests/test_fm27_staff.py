@@ -223,6 +223,10 @@ def unique_staff_read(
             human_personality_floor=human_personality_floor,
             rated_block_slots=FM27_STAFF_LAYOUT.rated_block_slots if fm27_jobs else (),
             rated_preference_slots=FM27_STAFF_LAYOUT.rated_preference_slots if fm27_jobs else (),
+            job_ratings_offset_from_person=(
+                FM27_STAFF_LAYOUT.job_ratings_offset_from_person if fm27_jobs else None
+            ),
+            secondary_job_supported=fm27_jobs,
             **(FM27_JOB_VALUES if fm27_jobs else {}),  # pyright: ignore[reportArgumentType]
         ),
         person_blocks=replace(
@@ -788,3 +792,164 @@ def test_out_of_range_ratings_are_absent_without_losing_other_fields() -> None:
     assert row.attributes.authority is None
     assert row.attributes.working_with_youngsters is None
     assert row.attributes.determination is None
+
+
+@pytest.mark.parametrize(
+    ("fm27", "valid_frame", "fitness", "expected"),
+    [
+        (True, True, 15, (15, 6, 0, 12, 18, 9)),
+        (True, True, 255, (None, 6, 0, 12, 18, 9)),
+        (True, False, 15, (None,) * 6),
+        (False, True, 15, (None,) * 6),
+    ],
+)
+def test_staff_job_ratings_read_from_the_owned_person_block(
+    fm27: bool, valid_frame: bool, fitness: int, expected: tuple[int | None, ...]
+) -> None:
+    from fmsave import Staff, field_status
+    from fmsave.export import flat_rows
+    from tests.fixtures.game_db import CONTRACT_TAG
+    from tests.fixtures.staff import staff_object_bytes
+
+    names = person_block("Example Coach")
+    # The synthetic rating group is placed ahead of the three name IDs.
+    name_ids_at = 133
+    prefix = bytearray(names[:name_ids_at])
+    ratings_at = name_ids_at - 54
+    prefix[ratings_at : ratings_at + 16] = bytes(
+        (8, 4, 14, 7, 18, 2, 6, fitness, 3, 4, 5, 12, 6, 7, 9, 0)
+    )
+    prefix[name_ids_at - 29 : name_ids_at - 21] = CONTRACT_TAG * 2 if valid_frame else b"\x01" * 8
+    staff = staff_object_bytes(
+        person_id=18,
+        uid=810_018,
+        contract=job_contract(job=2),
+        person_block=bytes(prefix) + names[name_ids_at:],
+    )
+    row = next(r for r in unique_staff_rows(staff, fm27_jobs=fm27) if r.uid == 810_018)
+    exported = next(flat_rows([row], Staff))
+    assert (astuple(row.job_ratings) if row.job_ratings else (None,) * 6) == expected
+    for name, value in zip(
+        (
+            "fitness_coach",
+            "goalkeeping_coach",
+            "set_piece_coach",
+            "loan_manager",
+            "physio",
+            "sports_scientist",
+        ),
+        expected,
+        strict=True,
+    ):
+        assert exported[f"job_ratings_{name}"] == value
+        assert field_status(Staff, f"job_ratings.{name}") == "unconfirmed"
+
+
+@pytest.mark.parametrize(
+    (
+        "fm27",
+        "team_matches",
+        "clause_count",
+        "events",
+        "bonus",
+        "years",
+        "secondary",
+        "ambiguous",
+        "expected",
+    ),
+    [
+        (True, True, 0, 0, False, (2029, 2032), 14, False, 14),
+        (True, True, 2, 3, True, (2029, 2032), 14, False, 14),
+        (True, True, 2, 0, False, (2029, 2032), 14, True, None),
+        (True, True, 2, 1, False, (2029, 2032), 246, False, 246),
+        (True, False, 1, 0, False, (2029, 2032), 14, False, None),
+        (True, True, 1, 0, False, (2029, 2032), 0, False, None),
+        (False, True, 1, 0, False, (2029, 2032), 14, False, None),
+        (True, True, 1, 0, False, (2031, 2032), 14, False, None),
+        (True, True, 1, 0, False, (2027, 2028), 14, False, None),
+    ],
+)
+def test_staff_secondary_job_reads_only_the_current_contract_for_its_team(
+    fm27: bool,
+    team_matches: bool,
+    clause_count: int,
+    events: int,
+    bonus: bool,
+    years: tuple[int, int],
+    secondary: int,
+    ambiguous: bool,
+    expected: int | None,
+) -> None:
+    from fmsave import Staff, StaffJob, field_status
+    from fmsave.export import flat_rows
+    from tests.fixtures.career import NORTHBRIDGE_TEAM_A, NORTHBRIDGE_TEAM_B
+    from tests.fixtures.container import packed_date
+    from tests.fixtures.game_db import CONTRACT_TAG, clause_bonus_lists_bytes, contract_bytes
+    from tests.fixtures.staff import staff_object_bytes
+
+    suffix = (
+        clause_bonus_lists_bytes(competition_bonuses=((45, 100),), award_bonuses=((8, 90),))
+        if bonus
+        else clause_bonus_lists_bytes()
+    )
+    record, tag_at = contract_bytes(
+        selector=19,
+        team_id=NORTHBRIDGE_TEAM_A,
+        wage=1_000,
+        start=packed_date(12, years[0]),
+        tail={"end": packed_date(45, years[1])},
+        clauses=((100, 5, 13),) * clause_count,
+        head={"type": 1},
+        events=events,
+        clause_suffix=suffix,
+    )
+    patched = bytearray(record)
+    patched[tag_at + JOB_FROM_TAG] = 2
+    patched[tag_at + AFTER_JOB_FROM_TAG : tag_at + AFTER_JOB_FROM_TAG + 4] = NOT_AN_OFFER
+    empty_suffix_bytes = len(clause_bonus_lists_bytes())
+    marker_at = tag_at - 86 - 29 * events - 8 * clause_count - (len(suffix) - empty_suffix_bytes)
+    team = NORTHBRIDGE_TEAM_A if team_matches else NORTHBRIDGE_TEAM_B
+    patched[marker_at : marker_at + 16] = (
+        CONTRACT_TAG + struct.pack("<II", team, 0) + bytes((secondary, 32, 0, clause_count))
+    )
+    if ambiguous:
+        patched[marker_at + 16 : marker_at + 32] = (
+            CONTRACT_TAG + struct.pack("<II", team, 0) + bytes((2, 0, 0, 0))
+        )
+    staff = staff_object_bytes(
+        person_id=18,
+        uid=810_018,
+        contract=bytes(patched),
+        person_block=person_block("Example Coach"),
+    )
+    row = next(r for r in unique_staff_rows(staff, fm27_jobs=fm27) if r.uid == 810_018)
+    if fm27:
+        assert row.job is not None and row.job.label is StaffJob.COACH
+    else:
+        assert row.job is None
+    if expected is None:
+        assert row.secondary_job is None
+    else:
+        assert row.secondary_job is not None
+        assert row.secondary_job.raw == expected
+        assert row.secondary_job.label is (StaffJob.SCOUT if expected == 14 else StaffJob.UNKNOWN)
+    assert next(flat_rows([row], Staff))["secondary_job_code"] == expected
+    assert field_status(Staff, "secondary_job") == "unconfirmed"
+
+
+def test_job_ratings_cannot_overlap_the_primary_contract_fields() -> None:
+    from tests.fixtures.game_db import CONTRACT_TAG
+    from tests.fixtures.staff import staff_object_bytes
+
+    contract = bytearray(job_contract(job=2, wage=0))
+    tag_at = len(contract) - 40
+    contract[tag_at + 25 : tag_at + 33] = CONTRACT_TAG * 2
+    staff = staff_object_bytes(
+        person_id=18,
+        uid=810_018,
+        contract=bytes(contract),
+        padding_after_contract=0,
+        person_block=bytes(14) + person_block("Example Coach")[133:],
+    )
+    row = next(r for r in unique_staff_rows(staff, fm27_jobs=True) if r.uid == 810_018)
+    assert row.job_ratings is None
