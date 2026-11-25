@@ -33,6 +33,11 @@ to get whole-number ratings out of 20. The method rounds each 100-point rating w
 `(raw + 2) // 5` and bounds the result to 1 through 20. It preserves ratings already
 out of 20 and leaves individual missing ratings as `None`.
 
+On FM27, `Staff.secondary_job` gives the job code and label from the current
+contract when the save provides it. `Staff.job_ratings` has Preferred Jobs ratings
+for fitness coach, goalkeeping coach, set piece coach, loan manager, physio, and
+sports scientist, each on a scale of 0 to 20. Both fields are unconfirmed.
+
 Use `staff_candidates()` when comparing people across clubs. Each unambiguous person appears
 once and carries its current club appointment records. The reader also looks for profiles
 outside club lists. Club-list membership alone and unresolved teams can leave employment
@@ -164,7 +169,9 @@ A starter's `slot` points to the in-possession slot in the selected tactic. Its
 `out_of_possession_position_index` gives the player's defending slot in `tactic.slots`, counting
 from 0. Before following the index, check that the tactic has 11 slots and their indexes
 include each value from 0 through 10 exactly once. Read the defending slot's
-`out_of_possession_positions`.
+`out_of_possession_positions` and `out_of_possession_role`. Role labels are available as
+`in_possession_role` and `out_of_possession_role` for observed combinations of position
+and role. Other combinations return `None`. The slot settings include the raw values.
 The selected tactic is unknown. The stored substitutes can include players beyond the next
 match's bench size.
 

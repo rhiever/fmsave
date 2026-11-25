@@ -511,8 +511,8 @@ class FinanceStats:
     that begins with the career stores in its oldest row the balance before that month's net,
     and `opening_balance_steps` counts the first steps accepted that way.
 
-    `clubs_with_sponsors` counts the clubs with a series that also hold a sponsor run, and
-    `sponsor_rows` the rows those runs hold. `clubs_with_empty_sponsor_lists` counts primary
+    `clubs_with_sponsors` counts clubs with a series and at least one returned sponsor row,
+    and `sponsor_rows` counts the rows returned. `clubs_with_empty_sponsor_lists` counts primary
     lists whose prefix decoded correctly and whose stored count explicitly says zero.
     `sponsor_lists_rejected` counts structurally owned lists with invalid or truncated rows;
     these are reported separately from absent prefixes. `managed_club_exists` says whether the save lists a

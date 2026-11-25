@@ -45,6 +45,7 @@ from fmsave.models.staff import (
     StaffCandidate,
     StaffEmployment,
     StaffJob,
+    StaffJobRatings,
     StaffList,
     StaffPreferences,
 )
@@ -865,16 +866,42 @@ def _read_ability_block(
     return block, slots_in_range, codes_in_set, further_in_range
 
 
+def _read_job_ratings(
+    game_db: bytes, prefix_start: int, person_start: int | None, layouts: StaffLayouts
+) -> StaffJobRatings | None:
+    """Read the ratings only in the framed prefix of an accepted staff person block."""
+    relative = layouts.staff.job_ratings_offset_from_person
+    if relative is None or person_start is None:
+        return None
+    start = person_start + relative
+    if (
+        start < prefix_start
+        or not game_db.startswith(bytes(4), start + 16)
+        or not game_db.startswith(layouts.contracts.tag * 2, start + 25)
+    ):
+        return None
+    fitness, goalkeeping, set_piece, loan, physio, sports_science = (
+        game_db[start + slot] for slot in (7, 6, 15, 11, 4, 14)
+    )
+    ratings = tuple(
+        value if value <= 20 else None
+        for value in (fitness, goalkeeping, set_piece, loan, physio, sports_science)
+    )
+    return StaffJobRatings(*ratings) if any(value is not None for value in ratings) else None
+
+
 @dataclass(frozen=True, slots=True)
 class _PersonObject:
     """One person's object, decoded once however many clubs give him a row."""
 
     header: int
+    end: int
     uid: int
     unique_id: int | None
     is_human_manager: bool
     person: PersonTuple | None
     block: _AbilityBlock | None
+    job_ratings: StaffJobRatings | None
 
 
 def _next_header_after(headers: Sequence[int], header: int) -> int | None:
@@ -1118,6 +1145,12 @@ def read_staff(
     codes_in_set = 0
     block_40_in_range = 0
     persons_with_block = 0
+    contract_fields_end = max(
+        layouts.contracts.wage_offset + _UINT32.size,
+        layouts.contracts.selector_offset
+        + (staff_layout.offer_marker_offset or 0)
+        + len(layouts.contracts.tag),
+    )
     for person_id in sorted(row_persons):
         header = header_by_person[person_id]
         header_values = _header_values(game_db, header, _header_reader(staff_layout), staff_layout)
@@ -1162,15 +1195,28 @@ def read_staff(
             persons_with_block += 1
         objects[person_id] = _PersonObject(
             header=header,
+            end=min(closing_offset or len(game_db), next_header or len(game_db)),
             uid=uid,
             unique_id=unique_id,
             is_human_manager=is_human_manager,
             person=person,
             block=block,
+            job_ratings=(
+                None
+                if is_human_manager
+                else _read_job_ratings(
+                    game_db,
+                    header if tag_offset is None else tag_offset + contract_fields_end,
+                    person_decoder.last_block_start,
+                    layouts,
+                )
+            ),
         )
 
     roles = _row_roles(game_db, rows_by_club_and_person, no_contract.roles, layouts)
-    rows = _build_rows(rows_by_club_and_person, objects, club_index, roles)
+    rows = _build_rows(
+        rows_by_club_and_person, objects, club_index, roles, game_db, contract_decoder, staff_layout
+    )
     list_rows = _build_list_rows(lists_by_club, objects, club_index)
     listed_persons_staff = sum(
         1
@@ -1359,6 +1405,9 @@ def _build_rows(
     objects: Mapping[int, _PersonObject],
     club_index: ClubIndex,
     roles: Mapping[tuple[int, int], tuple[int | None, int | None]],
+    game_db: bytes,
+    contract_decoder: ContractDecoder,
+    staff_layout: StaffLayout,
 ) -> tuple[Staff, ...]:
     """One `Staff` per row, ordered by where the person's object sits and then by club uid."""
     rows: list[Staff] = []
@@ -1376,6 +1425,17 @@ def _build_rows(
         record = None if own_record is None else own_record[1]
         team_id, job_code = roles[key]
         personality = None if person is None else person[_PERSON_PERSONALITY]
+        secondary_job_code = None
+        if (
+            staff_layout.secondary_job_supported
+            and own_record is not None
+            and own_record[0] < person_object.end
+            and not person_object.is_human_manager
+        ):
+            primary_tag, primary_record = own_record
+            secondary_job_code = contract_decoder.staff_secondary_job_code(
+                game_db, primary_tag, primary_record, person_object.header
+            )
         rows.append(
             Staff(
                 uid=person_object.uid,
@@ -1414,6 +1474,12 @@ def _build_rows(
                 ),
                 preferences=None if block is None else block.preferences,
                 unknown=_staff_unknown(None if block is None else block.unknown, record),
+                secondary_job=(
+                    None
+                    if secondary_job_code is None
+                    else CodedValue.from_raw(StaffJob, secondary_job_code)
+                ),
+                job_ratings=person_object.job_ratings,
             )
         )
     return tuple(rows)

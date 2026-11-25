@@ -395,6 +395,83 @@ def test_unknown_set_piece_markers_remain_errors(marker: bytes) -> None:
         walk_tactic_blocks(body, (NORTHBRIDGE_TEAM_A,), LAYOUT, FILE_NAME)
 
 
+@pytest.mark.parametrize(
+    ("position_bits", "in_code", "out_code", "in_label", "out_label"),
+    (
+        ((0,), 0x401000, 0x800002, "Ball-Playing Goalkeeper", "Sweeper Keeper"),
+        ((2,), 0x400008, 0x200200, "Wing-Back", "Full-Back"),
+        ((3,), 0x400004, 0x200200, "Full-Back", "Full-Back"),
+        ((4,), 0x200002, 0x200008, "Centre-Back", "Centre-Back"),
+        ((4,), 0x1200000, 0x200010, "Ball-Playing Centre-Back", "Stopping Centre-Back"),
+        ((4,), 0x204000, 0x200020, "Advanced Centre-Back", "Covering Centre-Back"),
+        ((4,), 0x20200000, 0x200002, "No-Nonsense Centre-Back", None),
+        ((7,), 0x200010, 0x208000, "Defensive Midfielder", "Defensive Midfielder"),
+        ((7,), 0x408000, 0x420000, "Deep-Lying Playmaker", "Pressing Defensive Midfielder"),
+        ((7,), 0x1200000, 0x200020, None, None),
+        ((8,), None, 0x400000, None, "Wide Midfielder"),
+        ((9,), None, 0x400000, None, "Wide Midfielder"),
+        ((11,), 0x400000, None, "Inverted Winger", None),
+        ((12,), 0x8800000, None, "Inside Forward", None),
+        ((13,), 0x800000, 0x40400000, None, "Attacking Midfielder"),
+        ((4, 7), 0x200002, 0x200008, None, None),
+        ((4,), None, None, None, None),
+    ),
+)
+def test_tactic_role_labels_use_position_phase_and_final_setting(
+    tmp_path: Path,
+    position_bits: tuple[int, ...],
+    in_code: int | None,
+    out_code: int | None,
+    in_label: str | None,
+    out_label: str | None,
+) -> None:
+    def units(code: int | None) -> tuple[bytes, ...]:
+        if code is None:
+            return ()
+        return (
+            setting_unit_bytes(head_byte=0, first_bits=4, second_bits=0x1200000 << 64),
+            setting_unit_bytes(head_byte=0, first_bits=4, second_bits=code << 64),
+        )
+
+    slots = list(career_tactic_slots())
+    # Side flags distinguish slots, but do not change the position used for the role.
+    mask = sum(1 << bit for bit in position_bits) | (1 << 21)
+    slots[2] = (
+        slot_block_bytes(mask=mask, units=units(in_code), role_bits=2),
+        slot_block_bytes(mask=mask, units=units(out_code), role_bits=8, position_index=3),
+    )
+    slots[3] = (
+        slots[3][0],
+        slot_block_bytes(mask=1 << 7, units=units(0x208000), role_bits=8, position_index=2),
+    )
+    record = tactic_record_bytes(
+        name="Example Roles",
+        team_instructions=bytes(19),
+        style_name="Example Style",
+        style_code=b"EXMP",
+        slots=slots,
+    )
+    save_path = tactics_path(tmp_path, career_tactics_body(first_team_records=(record,)))
+
+    with fmsave.open(save_path) as save:
+        tactic = save.tactics()[0]
+
+    slot = tactic.slots[2]
+    assert (slot.in_possession_role, slot.out_of_possession_role) == (in_label, out_label)
+    assert slot.out_of_possession_position_index == 3
+    assert tactic.slots[slot.out_of_possession_position_index].out_of_possession_role == (
+        "Defensive Midfielder"
+    )
+    exported_slots = record_to_dict(tactic, json_ready=True)["slots"]
+    assert isinstance(exported_slots, list)
+    assert exported_slots[2]["in_possession_role"] == in_label
+    assert exported_slots[2]["out_of_possession_role"] == out_label
+    if in_code is not None:
+        assert exported_slots[2]["in_possession_settings"][-1]["second_bits_high"] == in_code
+    if out_code is not None:
+        assert exported_slots[2]["out_of_possession_settings"][-1]["second_bits_high"] == out_code
+
+
 def test_a_slot_claiming_one_unit_too_many_leaves_that_walk_incomplete(tmp_path: Path) -> None:
     slots = list(career_tactic_slots())
     _in_possession, out_of_possession = slots[4]

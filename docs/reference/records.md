@@ -32,6 +32,7 @@ their own pages: see {doc}`table` and {doc}`enums`.
 .. autoclass:: fmsave.StaffAppointment
 .. autoclass:: fmsave.StaffAttributes
    :members: to_display_scale
+.. autoclass:: fmsave.StaffJobRatings
 .. autoclass:: fmsave.StaffPreferences
 .. autoclass:: fmsave.StaffList
 ```

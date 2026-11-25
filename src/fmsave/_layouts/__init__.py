@@ -356,6 +356,9 @@ class SponsorChainLayout:
 
     `balance_offset` is where the club's current balance, a signed 32-bit word, sits in that
     suffix; None on a build where no screen has pinned it.
+
+    `recover_reversed_dates` allows the unaffected rows of an owned list to be read if
+    its only failures are rows whose decoded dates are in reverse order.
     """
 
     prefix_marker: bytes
@@ -387,6 +390,7 @@ class SponsorChainLayout:
     reject_invalid_lists: bool = False
     kind_names: tuple[tuple[int, str], ...] = ()
     balance_offset: int | None = None
+    recover_reversed_dates: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1776,6 +1780,8 @@ class StaffLayout:
     candidate_free_agent_supported: bool = False
     rated_block_slots: tuple[tuple[str, int], ...] = ()
     rated_preference_slots: tuple[tuple[str, int, int], ...] = ()
+    job_ratings_offset_from_person: int | None = None
+    secondary_job_supported: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -2291,8 +2297,8 @@ class GateBounds:
     `sponsor_clubs_minimum` is the sponsor share's own numerator judged without a denominator.
     It distinguishes a table that is empty because valid primary lists contain zero rows
     from a table that is empty because no lists were decoded. The floor applies where a
-    managed club exists, as the series floor does. An invalid or missing positive list still
-    lowers the coverage share even when a later sponsor-shaped run exists.
+    managed club exists, as the series floor does. A list outside the counted position never
+    contributes to coverage.
 
 
     Club facilities: `facility_byte_in_range` (clubs whose rating lies inside the layout's

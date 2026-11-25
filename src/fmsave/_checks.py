@@ -2014,9 +2014,9 @@ def evaluate_sponsorships(
 ) -> tuple[GateResult, ...]:
     """Judge coverage of the structurally located primary sponsor lists.
 
-    A nonempty list with valid rows and an explicitly counted empty list both establish
-    coverage. Missing prefixes and invalid positive lists remain uncovered. The existing
-    share and count bounds apply to that coverage, including when every list is empty.
+    A list with returned rows and an explicitly counted empty list both establish coverage.
+    Missing prefixes and invalid lists without recoverable rows remain uncovered. The share
+    and count bounds apply to that coverage, including when every list is empty.
     Builds that require valid owned lists apply that structural check regardless of
     save size or coverage. Other builds report rejections without changing their gates.
     """
@@ -2416,7 +2416,7 @@ def check_sponsorships(stats: FinanceStats, bounds: GateBounds, game_db_bytes: i
 
     The existing `clubs_without_sponsors` counts clubs returning no sponsor rows. The
     separate empty-list count identifies confirmed absence; `clubs_without_sponsor_lists`
-    counts unresolved or invalid lists rather than treating those as empty.
+    counts clubs with neither returned rows nor a confirmed empty list.
     """
     return ReaderCheck(
         SPONSORSHIPS_READER,

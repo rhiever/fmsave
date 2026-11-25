@@ -65,6 +65,29 @@ class StaffJob(IntEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class StaffJobRatings:
+    """Preferred Jobs ratings on the FM27 editor's 0 to 20 scale.
+
+    Only roles checked with controlled editor changes are named. An unreadable rating is None.
+
+    Attributes:
+        fitness_coach: Fitness coach rating (unconfirmed).
+        goalkeeping_coach: Goalkeeping coach rating (unconfirmed).
+        set_piece_coach: Set piece coach rating (unconfirmed).
+        loan_manager: Loan manager rating (unconfirmed).
+        physio: Physio rating (unconfirmed).
+        sports_scientist: Sports scientist rating (unconfirmed).
+    """
+
+    fitness_coach: int | None
+    goalkeeping_coach: int | None
+    set_piece_coach: int | None
+    loan_manager: int | None
+    physio: int | None
+    sports_scientist: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class StaffPreferences:
     """How a member of staff prefers a team to be run, each on a 1 to 20 scale.
 
@@ -251,6 +274,8 @@ class Staff:
         unknown: Numeric fields with no known meaning (unconfirmed). The ability-block keys
             (`entry_count`, `r4` to `r12` and every `preference_slot_*`) are absent when that
             block does not read, and the `contract_*` keys when no contract was read.
+        secondary_job: The optional secondary job on the current FM27 contract (unconfirmed).
+        job_ratings: FM27 Preferred Jobs ratings, when available.
     """
 
     uid: int
@@ -283,6 +308,8 @@ class Staff:
     attributes: StaffAttributes | None
     preferences: StaffPreferences | None
     unknown: Mapping[str, int]
+    secondary_job: CodedValue[StaffJob] | None = None
+    job_ratings: StaffJobRatings | None = None
 
     UNKNOWN_KEYS: ClassVar[tuple[str, ...]] = (
         "entry_count",
@@ -445,6 +472,17 @@ class StaffList:
 
 
 register_field_statuses(
+    StaffJobRatings,
+    unconfirmed=(
+        "fitness_coach",
+        "goalkeeping_coach",
+        "set_piece_coach",
+        "loan_manager",
+        "physio",
+        "sports_scientist",
+    ),
+)
+register_field_statuses(
     StaffPreferences,
     verified=(
         "attacking",
@@ -515,6 +553,7 @@ register_field_statuses(
         "has_contract",
         "contract_end",
         "unknown",
+        "secondary_job",
     ),
 )
 register_field_statuses(

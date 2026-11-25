@@ -23,6 +23,7 @@ from fmsave._checks import (
 from fmsave._layouts import FULL_SAVE_MINIMUM_GAME_DB_BYTES, GateBounds, find_layout
 from fmsave._reader_stats import FinanceStats
 from fmsave._save import FINANCE_TABLES_CACHE_KEY, SPONSORSHIPS_TABLE_CACHE_KEY
+from fmsave.export import record_to_dict
 from fmsave.readers._common import GAME_DB_SECTION
 from fmsave.readers.clubs import (
     ClubIndex,
@@ -972,14 +973,14 @@ def test_historical_sponsor_dates_still_reject_null_and_malformed_values(packed:
         ("27.0.0+2486695", (183, 2032), (182, 2032), 3),
         ("27.0.0+2486695", (183, 2032), (183, 2032), 3),
         ("27.0.0+2486695", (183, 2032), (184, 2032), 3),
-        ("27.0.0+2486695", (183, 2032), (181, 2032), 0),
+        ("27.0.0+2486695", (183, 2032), (181, 2032), 2),
         ("27.0.0+2486695", (1, 2032), (365, 2031), 3),
         (BUILD_STRING, (183, 2032), (182, 2032), 0),
         (BUILD_STRING, (183, 2032), (183, 2032), 0),
         (BUILD_STRING, (183, 2032), (184, 2032), 3),
     ),
 )
-def test_sponsor_date_boundary_preserves_the_entire_owned_list(
+def test_sponsor_date_boundary_determines_which_rows_are_returned(
     build: str, start: tuple[int, int], end: tuple[int, int], expected_count: int
 ) -> None:
     from tests.fixtures.container import packed_date
@@ -996,12 +997,63 @@ def test_sponsor_date_boundary_preserves_the_entire_owned_list(
         data, index, own_spans(data, index), CLOCK, find_finance_layouts(4000, build), True
     )
     assert len(sponsors) == expected_count
-    assert stats.sponsor_lists_rejected == int(expected_count == 0)
-    if sponsors:
+    assert stats.sponsor_lists_rejected == int(expected_count != 3)
+    if expected_count == 3:
         from datetime import timedelta
 
         assert sponsors[1].start == date(start[1], 1, 1) + timedelta(days=start[0] - 1)
         assert sponsors[1].end == date(end[1], 1, 1) + timedelta(days=end[0] - 1)
+
+
+@pytest.mark.parametrize(
+    ("clock", "start_day", "total", "annual", "recovered"),
+    (
+        (CLOCK, 2, 3_000_017, 1_000_000, True),
+        (CLOCK, 2, 1_099, 366, True),
+        (CLOCK, 2, 1_100, 366, False),
+        (date(2023, 7, 1), 2, 3_000_017, 1_000_000, False),
+        (CLOCK, 2, 2_000_000, 1_000_000, False),
+        (CLOCK, 3, 3_000_017, 1_000_000, False),
+    ),
+)
+def test_fm27_only_reorders_ended_sponsor_dates_with_a_matching_term(
+    clock: date, start_day: int, total: int, annual: int, recovered: bool
+) -> None:
+    from tests.fixtures.container import packed_date
+
+    reversed_row = sponsor_row_bytes(
+        **{
+            **SPONSOR_A,
+            "start": packed_date(start_day, 2024),
+            "end": packed_date(1, 2021),
+            "total": total,
+            "annual": annual,
+        }
+    )  # pyright: ignore[reportArgumentType]
+    data = one_club_game_db(
+        club_finance_bytes(
+            rows=career_finance_rows(),
+            sponsors=(reversed_row,),
+            finance_extension=b"\x02" + packed_date(1, 1900),
+        )
+    )
+    index = read_club_index(data, find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING), FILE_NAME)
+    _, sponsors, stats = read_club_finances(
+        data,
+        index,
+        own_spans(data, index),
+        clock,
+        find_finance_layouts(4000, "27.1.0+2505117"),
+        True,
+    )
+    assert stats.sponsor_lists_rejected == 1
+    assert stats.clubs_with_sponsors == int(recovered)
+    assert len(sponsors) == int(recovered)
+    if recovered:
+        sponsor = sponsors[0]
+        assert sponsor.start == date(2021, 1, 1)
+        assert sponsor.end == date(2024, 1, 2)
+        assert record_to_dict(sponsor, json_ready=True)["dates_reordered"] is True
 
 
 @pytest.mark.parametrize("game_db_bytes", (FRAGMENT_GAME_DB_BYTES, FULL_SIZE_GAME_DB_BYTES))
@@ -1030,15 +1082,37 @@ def test_one_rejected_owned_sponsor_list_fails_even_when_coverage_passes(
     assert [g.name for g in gates if g.applied and not g.passed] == ["sponsor_lists_rejected"]
 
 
-@pytest.fixture(params=["27.1.0+3000001", "27.1.0+2505117"])
-def fm27_rejected_sponsors_path(tmp_path: Path, request: pytest.FixtureRequest) -> Path:
+@pytest.fixture(
+    params=[
+        ("27.1.0+3000001", "amount"),
+        ("27.1.0+2505117", "amount"),
+        ("27.1.0+2505117", "dates"),
+        ("27.1.0+2505117", "both"),
+    ]
+)
+def fm27_rejected_sponsors_path(
+    tmp_path: Path, request: pytest.FixtureRequest
+) -> tuple[Path, bool]:
     from tests.fixtures.container import SectionFrame, packed_date, section_body
     from tests.test_fm27_experimental import fm27_fragment
 
-    build: str = request.param
+    build, defect = request.param
     extension = b"\x02" + packed_date(1, 1900) if build == "27.1.0+2505117" else b""
-    bad = sponsor_row_bytes(**{**SPONSOR_A, "annual": 4_000_000})  # pyright: ignore[reportArgumentType]
+    reversed_row = sponsor_row_bytes(
+        **{**SPONSOR_A, "start": packed_date(1, 2026), "end": packed_date(1, 2024)}
+    )  # pyright: ignore[reportArgumentType]
+    invalid_amount = sponsor_row_bytes(**{**SPONSOR_A, "annual": 4_000_000})  # pyright: ignore[reportArgumentType]
+    invalid_rows = {
+        "amount": (invalid_amount,),
+        "dates": (reversed_row,),
+        "both": (reversed_row, invalid_amount),
+    }[defect]
     good = sponsor_row_bytes(**SPONSOR_A)  # pyright: ignore[reportArgumentType]
+    different_good = sponsor_row_bytes(**{**SPONSOR_A, "total": 4_500_000})  # pyright: ignore[reportArgumentType]
+    club_rows = (
+        ("Northbridge FC", (good, *invalid_rows, different_good)),
+        ("Southport FC", (good,)),
+    )
     clubs = [
         club_record_bytes(
             club_index=club_index,
@@ -1050,28 +1124,28 @@ def fm27_rejected_sponsors_path(tmp_path: Path, request: pytest.FixtureRequest) 
             short_name=name,
             team_ids=(70000 + club_index,),
             trailing_bytes=club_finance_bytes(
-                rows=career_finance_rows(), sponsors=(row,), finance_extension=extension
+                rows=career_finance_rows(), sponsors=rows, finance_extension=extension
             ),
         )
-        for club_index, (name, row) in enumerate(
-            (("Northbridge FC", bad), ("Southport FC", good)), start=1
-        )
+        for club_index, (name, rows) in enumerate(club_rows, start=1)
     ]
     data = game_db_body(clubs, [], gap_bytes=256)
-    return fm27_fragment(
+    path = fm27_fragment(
         tmp_path,
         build=build,
         game_db=data,
         extra_sections=(SectionFrame("humans", section_body(".dat", 24, bytes(40))),),
     )
+    return path, defect == "dates"
 
 
 @pytest.mark.parametrize("first_reader", ("finances", "sponsorships"))
 def test_rejected_owned_sponsors_do_not_stop_fm27_finances(
-    fm27_rejected_sponsors_path: Path, first_reader: str
+    fm27_rejected_sponsors_path: tuple[Path, bool], first_reader: str
 ) -> None:
+    path, _ = fm27_rejected_sponsors_path
     with pytest.warns(fmsave.UnknownBuildWarning):
-        save = fmsave.open(fm27_rejected_sponsors_path, strict=True)
+        save = fmsave.open(path, strict=True)
     with (
         save,
         patch.object(
@@ -1100,15 +1174,27 @@ def test_rejected_owned_sponsors_do_not_stop_fm27_finances(
 
 
 def test_fm27_default_returns_available_sponsorships_with_a_warning(
-    fm27_rejected_sponsors_path: Path,
+    fm27_rejected_sponsors_path: tuple[Path, bool],
 ) -> None:
+    path, reversed_dates = fm27_rejected_sponsors_path
     with pytest.warns(fmsave.UnknownBuildWarning):
-        save = fmsave.open(fm27_rejected_sponsors_path)
+        save = fmsave.open(path)
     with save:
         with pytest.warns(fmsave.ReaderCheckWarning, match="sponsor_lists_rejected"):
             sponsors = save.sponsorships()
-        assert len(sponsors) == 1
-        assert sponsors[0].club_name == "Southport FC"
+        expected = (
+            [("Northbridge FC", SPONSOR_A["total"]), ("Northbridge FC", 4_500_000)]
+            if reversed_dates
+            else []
+        )
+        assert [(sponsor.club_name, sponsor.total_value) for sponsor in sponsors] == [
+            *expected,
+            ("Southport FC", SPONSOR_A["total"]),
+        ]
+        assert all(
+            sponsor.start is not None and sponsor.end is not None and sponsor.start <= sponsor.end
+            for sponsor in sponsors
+        )
         assert len(save.finances()) == 6
         reports = {reader.reader: reader for reader in fmsave.validate_save(save).readers}
         assert reports["finances"].status == "ok"
@@ -1117,18 +1203,19 @@ def test_fm27_default_returns_available_sponsorships_with_a_warning(
 
 
 def test_fm27_finance_failure_preserves_sponsorship_diagnostics(
-    fm27_rejected_sponsors_path: Path, monkeypatch: pytest.MonkeyPatch
+    fm27_rejected_sponsors_path: tuple[Path, bool], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from fmsave import _checks
 
+    path, reversed_dates = fm27_rejected_sponsors_path
     monkeypatch.setattr(_checks, "evaluate_finances", failing_evaluate_finances)
     with pytest.warns(fmsave.UnknownBuildWarning):
-        save = fmsave.open(fm27_rejected_sponsors_path, strict=True)
+        save = fmsave.open(path, strict=True)
     with save:
         reports = {reader.reader: reader for reader in fmsave.validate_save(save).readers}
         assert reports["finances"].status == "failed"
         assert reports["sponsorships"].status == "failed"
-        assert reports["sponsorships"].record_count == 1
+        assert reports["sponsorships"].record_count == (3 if reversed_dates else 1)
         assert reports["sponsorships"].anomalies["sponsor_lists_rejected"] == 1
 
 
