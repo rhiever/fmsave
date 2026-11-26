@@ -75,8 +75,10 @@ _IN_POSSESSION_ROLES: dict[tuple[TacticPosition, int], str] = {
     (TacticPosition.ATTACKING_MIDFIELDER_RIGHT, 0x8800000): "Inside Forward",
     (TacticPosition.ATTACKING_MIDFIELDER_LEFT, 0x400000): "Inverted Winger",
     (TacticPosition.ATTACKING_MIDFIELDER_LEFT, 0x8800000): "Inside Forward",
+    (TacticPosition.ATTACKING_MIDFIELDER_CENTRE, 0x820000): "Advanced Playmaker",
     # Free Role and Shadow Striker can share 0x800000 at attacking midfield.
     (TacticPosition.STRIKER_CENTRE, 0x800800): "Centre Forward",
+    (TacticPosition.STRIKER_CENTRE, 0x80800000): "Channel Forward",
 }
 _OUT_OF_POSSESSION_ROLES: dict[tuple[TacticPosition, int], str] = {
     (TacticPosition.GOALKEEPER, 0x400001): "Goalkeeper",
@@ -90,8 +92,12 @@ _OUT_OF_POSSESSION_ROLES: dict[tuple[TacticPosition, int], str] = {
     (TacticPosition.DEFENSIVE_MIDFIELDER, 0x420000): "Pressing Defensive Midfielder",
     (TacticPosition.MIDFIELDER_RIGHT, 0x400000): "Wide Midfielder",
     (TacticPosition.MIDFIELDER_LEFT, 0x400000): "Wide Midfielder",
+    (TacticPosition.MIDFIELDER_CENTRE, 0x500000): "Central Midfielder",
+    (TacticPosition.MIDFIELDER_CENTRE, 0x8800000): "Pressing Central Midfielder",
     (TacticPosition.ATTACKING_MIDFIELDER_RIGHT, 0x200000): "Tracking Winger",
+    (TacticPosition.ATTACKING_MIDFIELDER_RIGHT, 0x400000): "Winger",
     (TacticPosition.ATTACKING_MIDFIELDER_LEFT, 0x200000): "Tracking Winger",
+    (TacticPosition.ATTACKING_MIDFIELDER_LEFT, 0x400000): "Winger",
     (TacticPosition.ATTACKING_MIDFIELDER_CENTRE, 0x80200000): "Tracking Attacking Midfielder",
     (TacticPosition.ATTACKING_MIDFIELDER_CENTRE, 0x40400000): "Attacking Midfielder",
     (TacticPosition.STRIKER_CENTRE, 0x400000): "Centre Forward",

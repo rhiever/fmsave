@@ -4,6 +4,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.14.6] - 2026-11-26
+
+### Fixed
+
+- Fill blank tactic role labels for Advanced Playmaker and Channel Forward in possession and for
+  Central Midfielder, Pressing Central Midfielder, and Winger out of possession.
+
 ## [0.14.5] - 2026-11-25
 
 ### Fixed
