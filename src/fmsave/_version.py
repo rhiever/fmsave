@@ -139,11 +139,9 @@ def read_summary_clock(
 ) -> tuple[date, int] | None:
     """Read the structured summary clock, never a date-shaped byte scan.
 
-    Schema 29 stores a setup string, build string, counted division names, an eight-byte
-    manager header, manager and club names, club uid, then the date. A fresh career can have
-    this date before `game_info` has a clock, and a continued career can retain an older
-    internal clock. Other summary shapes remain readable for their version and strings,
-    but cannot supply a displayed save clock.
+    The clock follows the setup and division list, and the manager profiles. FM27 can
+    store multiple profiles before the clock. A fresh career can have this date before
+    `game_info` has a clock, and a continued career can retain an older internal clock.
     """
     try:
         _, offset = read_length_prefixed_string(
@@ -160,15 +158,22 @@ def read_summary_clock(
         offset += LENGTH_PREFIX_BYTES
         for _ in range(division_count):
             _, offset = read_length_prefixed_string(summary, offset, layout.max_summary_name_bytes)
-        _, offset = read_length_prefixed_string(
-            summary, offset + layout.manager_header_bytes, layout.max_summary_name_bytes
-        )
-        _, offset = read_length_prefixed_string(summary, offset, layout.max_summary_name_bytes)
-        clock_at = offset + layout.club_uid_bytes
-        game_date = decode_date(summary, clock_at)
+        profiles_at = offset + layout.manager_header_bytes
+        if profiles_at > len(summary):
+            return None
+        count_offset = layout.manager_count_offset
+        manager_count = 1 if count_offset is None else max(1, summary[offset + count_offset])
+        offset = profiles_at
+        for _ in range(manager_count):
+            for _ in range(2):  # Manager and club names
+                _, offset = read_length_prefixed_string(
+                    summary, offset, layout.max_summary_name_bytes
+                )
+            offset += layout.club_uid_bytes
+        game_date = decode_date(summary, offset)
         if game_date is None:
             return None
-        return game_date, decode_time_slot(summary, clock_at)
+        return game_date, decode_time_slot(summary, offset)
     except CorruptSaveError:
         return None
 

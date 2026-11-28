@@ -65,7 +65,7 @@ from fmsave.readers.contracts import (
     ContractDecoder,
     build_contract_decoder,
 )
-from fmsave.readers.managed import first_human_selector
+from fmsave.readers.managed import first_human
 from fmsave.readers.names import NamePools
 from fmsave.readers.persons import PersonTuple, build_person_block_decoder
 from fmsave.readers.player_scan import ClosingPersonHeader, PlayerRecords, closing_person_header
@@ -516,6 +516,8 @@ def discover_contracts(
     decoder: ContractDecoder,
     layouts: StaffLayouts,
     club_index: ClubIndex,
+    *,
+    human_count: int = 1,
 ) -> _Discovery:
     """Every contract record a person who is not a player owns, from one filtered pass.
 
@@ -596,6 +598,15 @@ def discover_contracts(
                 ):
                     non_staff_tailed_hits += 1
                     continue
+                if human_count > 1 and staff_layout.multiplayer_contracts_supported:
+                    manager_header = locate_human_header(
+                        game_db, selector, staff_layout, require_unique=True
+                    )
+                    if manager_header is not None:
+                        start, end = _bracket_window(game_db, person_id, player_records)
+                        if start <= manager_header < tag_offset < end:
+                            non_staff_tailed_hits += 1
+                            continue
                 unowned_tailed_hits += 1
                 continue
             header_by_person[person_id] = header
@@ -880,13 +891,8 @@ def _read_job_ratings(
         or not game_db.startswith(layouts.contracts.tag * 2, start + 25)
     ):
         return None
-    fitness, goalkeeping, set_piece, loan, physio, sports_science = (
-        game_db[start + slot] for slot in (7, 6, 15, 11, 4, 14)
-    )
-    ratings = tuple(
-        value if value <= 20 else None
-        for value in (fitness, goalkeeping, set_piece, loan, physio, sports_science)
-    )
+    slots = (7, 6, 15, 11, 4, 14, 9, 12, 1, 2, 3, 10, 5, 13)
+    ratings = tuple(value if value <= 20 else None for value in (game_db[start + i] for i in slots))
     return StaffJobRatings(*ratings) if any(value is not None for value in ratings) else None
 
 
@@ -1033,13 +1039,20 @@ def read_staff(
     person_decoder = build_person_block_decoder(
         layouts.person_blocks, name_pools, club_index, clock, file_name
     )
-    human_selector = first_human_selector(humans, layouts.humans, file_name)
+    human = first_human(humans, layouts.humans, file_name)
+    human_count, human_selector = human if human is not None else (0, None)
 
     listed_pairs, lists_by_club, list_counts = read_staff_lists(
         game_db, club_index, player_records, staff_layout
     )
     discovery = discover_contracts(
-        game_db, player_records, human_selector, contract_decoder, layouts, club_index
+        game_db,
+        player_records,
+        human_selector,
+        contract_decoder,
+        layouts,
+        club_index,
+        human_count=human_count,
     )
     no_contract = discover_no_contract_roles(
         game_db,
@@ -1723,9 +1736,16 @@ def read_staff_candidates(
         clock,
         file_name,
     )
-    human_selector = first_human_selector(humans, layouts.humans, file_name)
+    human = first_human(humans, layouts.humans, file_name)
+    human_count, human_selector = human if human is not None else (0, None)
     known_contracts = discover_contracts(
-        game_db, player_records, human_selector, contract_decoder, layouts, club_index
+        game_db,
+        player_records,
+        human_selector,
+        contract_decoder,
+        layouts,
+        club_index,
+        human_count=human_count,
     )
     known_roles = discover_no_contract_roles(
         game_db,

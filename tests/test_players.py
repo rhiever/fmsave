@@ -54,6 +54,7 @@ from tests.fixtures.game_db import (
     game_db_body,
     match_list_bytes,
     name_pools_bytes,
+    person_block_bytes,
     player_record_bytes,
     status_record_bytes,
 )
@@ -308,14 +309,16 @@ def build_index(game_db: bytes):
     return name_pools, player_records, club_index
 
 
-def decode_all(game_db: bytes) -> list[Player]:
+def decode_all(game_db: bytes, *, require_unique_person: bool = False) -> list[Player]:
     name_pools, player_records, club_index = build_index(game_db)
     decoder = build_player_decoder(
         player_records.layout,
         club_index,
         name_pools,
         CLOCK,
-        registered_person_layout(),
+        dataclasses.replace(
+            registered_person_layout(), require_unique_candidate=require_unique_person
+        ),
         registered_contract_layout(),
         FILE_NAME,
     )
@@ -851,13 +854,15 @@ def closing_header_bytes(person_id: int, uid: int, kind: int = 1) -> bytes:
     return struct.pack("<III", person_id, uid, uid) + bytes((kind,)) + bytes(40)
 
 
-def decode_region(region: bytes) -> list[Player]:
+def decode_region(region: bytes, *, require_unique_person: bool = False) -> list[Player]:
     payload = (
         name_pools_bytes([], [], [])
         + game_db_body([SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000)
         + region
     )
-    return decode_all(section_body(".dat", GAME_DB_SCHEMA, payload))
+    return decode_all(
+        section_body(".dat", GAME_DB_SCHEMA, payload), require_unique_person=require_unique_person
+    )
 
 
 def test_unique_id_is_the_uid_of_the_next_record_carrying_the_next_person_id() -> None:
@@ -934,6 +939,67 @@ def test_fallback_contract_dates_come_only_from_the_players_own_object(
         assert contract.end_source == ContractEndSource.PLAYER_RECORD
     else:
         assert contract is None
+
+
+@pytest.mark.parametrize(
+    ("boundary_uid", "kind", "duplicate", "own_person", "expected_id", "resolved"),
+    [
+        (2_000_000_020, 1, False, True, 2_000_000_020, True),
+        (780_020, 1, False, True, None, True),
+        (2_000_000_030, 1, False, True, None, False),
+        (2_000_000_020, 1, False, False, 2_000_000_020, False),
+        (2_000_000_020, 4, False, True, 2_000_000_020, False),
+        (2_000_000_020, 1, True, True, None, False),
+    ],
+)
+def test_allocated_player_identity_stops_before_an_out_of_order_staff_object(
+    boundary_uid: int,
+    kind: int,
+    duplicate: bool,
+    own_person: bool,
+    expected_id: int | None,
+    resolved: bool,
+) -> None:
+    def person(name: str) -> bytes:
+        return person_block_bytes(
+            first_name_id=0xFFFFFFFF,
+            surname_id=0xFFFFFFFF,
+            common_name_id=0xFFFFFFFF,
+            legal_name=name,
+            birth=packed_date(20, 2007),
+            nation_id=3,
+            personality=(10,) * 8,
+            trait_bits=0,
+            relations=(),
+        )
+
+    boundary = closing_header_bytes(13, boundary_uid, kind)
+    if duplicate:
+        boundary += closing_header_bytes(13, boundary_uid - 1)
+    uid = 2_000_000_030
+    pair = fallback_pair_bytes(packed_date(1, 2033), packed_date(1, 2030))
+    first = {
+        **PLAYER_B,
+        "uid": uid,
+        "trailing": (person("Own Example") if own_person else b"")
+        + boundary
+        + person("Neighbor Example")
+        + pair
+        + bytes(200),
+    }
+    second = {**PLAYER_A, "pindex": 14, "uid": 2_000_000_040}
+    player = by_uid(
+        decode_region(
+            player_record_bytes(**first) + player_record_bytes(**second),
+            require_unique_person=True,
+        ),
+        uid,
+    )
+    assert player.unique_id == expected_id
+    assert player.legal_name == ("Own Example" if resolved else None)
+    assert player.birth_date == (date(2007, 1, 20) if resolved else None)
+    assert player.contract is not None
+    assert player.contract.end == date(2033, 1, 1)
 
 
 def test_recovered_unique_id_does_not_shorten_the_contract_window() -> None:

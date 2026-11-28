@@ -255,8 +255,12 @@ def _manager_staff_uid(
     return human_uids[0] if len(human_uids) == 1 else None
 
 
-def first_human(humans: bytes, layout: HumansLayout, file_name: str) -> tuple[int, int] | None:
+def first_human(
+    humans: bytes, layout: HumansLayout, file_name: str
+) -> tuple[int, int | None] | None:
     """(human count, first human manager's selector), or None when the save lists no human.
+
+    A missing person selector leaves the count available and the selector unset.
 
     Raises:
         CorruptSaveError: The section ends before the count or the selector.
@@ -265,7 +269,8 @@ def first_human(humans: bytes, layout: HumansLayout, file_name: str) -> tuple[in
         human_count = read_u16(humans, layout.human_count_offset)
         if human_count == 0:
             return None
-        return human_count, read_u32(humans, layout.first_selector_offset)
+        selector = read_u32(humans, layout.first_selector_offset)
+        return human_count, None if selector in _NO_PERSON_UIDS else selector
     except CorruptSaveError as error:
         raise damaged_part_error(file_name, f"section {HUMANS_SECTION!r}", error) from error
 
@@ -306,21 +311,6 @@ def scouting_budget(humans: bytes, layout: HumansLayout) -> tuple[int, int] | No
     if budget > layout.scouting_budget_maximum or remaining > budget:
         return None
     return found
-
-
-def first_human_selector(humans: bytes, layout: HumansLayout, file_name: str) -> int | None:
-    """The first human manager's selector (person id plus 1), or None.
-
-    None means the save lists no human manager, or stores no person id for him.
-
-    Raises:
-        CorruptSaveError: The `humans` section ends before the count or the selector.
-    """
-    human = first_human(humans, layout, file_name)
-    if human is None:
-        return None
-    _human_count, selector = human
-    return None if selector in _NO_PERSON_UIDS else selector
 
 
 class ManagedClubsResult(NamedTuple):
@@ -366,10 +356,9 @@ def resolve_managed_clubs(
     if human is None:
         return ManagedClubsResult((), ManagedStats(0, 0, 0, 0))
     human_count, selector = human
-    has_person_id = selector not in _NO_PERSON_UIDS
     chain_club = (
         _chain_record_club(game_db, selector, club_index, clock, layouts.contracts, file_name)
-        if has_person_id
+        if selector is not None
         else None
     )
     links = _summary_links(summary, layouts.summary_strings, club_index)
@@ -407,7 +396,7 @@ def resolve_managed_clubs(
 
     manager_staff_uid = (
         _manager_staff_uid(game_db, selector, layouts.humans, layouts.staff)
-        if has_person_id
+        if selector is not None
         else None
     )
     balance: int | None = None

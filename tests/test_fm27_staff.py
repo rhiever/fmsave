@@ -797,10 +797,10 @@ def test_out_of_range_ratings_are_absent_without_losing_other_fields() -> None:
 @pytest.mark.parametrize(
     ("fm27", "valid_frame", "fitness", "expected"),
     [
-        (True, True, 15, (15, 6, 0, 12, 18, 9)),
-        (True, True, 255, (None, 6, 0, 12, 18, 9)),
-        (True, False, 15, (None,) * 6),
-        (False, True, 15, (None,) * 6),
+        (True, True, 17, (17, 7, 0, 12, 5, 15, 10, 13, 2, 3, 4, 11, 6, 14)),
+        (True, True, 255, (None, 7, 0, 12, 5, 15, 10, None, 2, 3, 4, 11, 6, 14)),
+        (True, False, 15, (None,) * 14),
+        (False, True, 15, (None,) * 14),
     ],
 )
 def test_staff_job_ratings_read_from_the_owned_person_block(
@@ -816,9 +816,11 @@ def test_staff_job_ratings_read_from_the_owned_person_block(
     name_ids_at = 133
     prefix = bytearray(names[:name_ids_at])
     ratings_at = name_ids_at - 54
-    prefix[ratings_at : ratings_at + 16] = bytes(
-        (8, 4, 14, 7, 18, 2, 6, fitness, 3, 4, 5, 12, 6, 7, 9, 0)
-    )
+    ratings = bytearray(range(1, 17))
+    ratings[7] = fitness
+    ratings[12] = 13 if fitness == 17 else 21
+    ratings[15] = 0
+    prefix[ratings_at : ratings_at + len(ratings)] = ratings
     prefix[name_ids_at - 29 : name_ids_at - 21] = CONTRACT_TAG * 2 if valid_frame else b"\x01" * 8
     staff = staff_object_bytes(
         person_id=18,
@@ -828,7 +830,7 @@ def test_staff_job_ratings_read_from_the_owned_person_block(
     )
     row = next(r for r in unique_staff_rows(staff, fm27_jobs=fm27) if r.uid == 810_018)
     exported = next(flat_rows([row], Staff))
-    assert (astuple(row.job_ratings) if row.job_ratings else (None,) * 6) == expected
+    assert (astuple(row.job_ratings) if row.job_ratings else (None,) * 14) == expected
     for name, value in zip(
         (
             "fitness_coach",
@@ -837,6 +839,14 @@ def test_staff_job_ratings_read_from_the_owned_person_block(
             "loan_manager",
             "physio",
             "sports_scientist",
+            "director_of_football",
+            "technical_director",
+            "manager",
+            "assistant_manager",
+            "coach",
+            "head_of_youth_development",
+            "scout",
+            "chief_data_analyst",
         ),
         expected,
         strict=True,

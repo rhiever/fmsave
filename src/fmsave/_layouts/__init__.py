@@ -39,7 +39,7 @@ class SaveSummaryLayout:
 
     `version_pattern` must match a whole length-prefixed string, so it carries no anchors
     or lookarounds. The date follows the setup and build strings, counted division names,
-    the manager header, manager and club strings, and the club uid.
+    the manager header, and the list of manager and club strings paired with their club uids.
     """
 
     version_pattern: str
@@ -49,6 +49,7 @@ class SaveSummaryLayout:
     max_summary_name_bytes: int = 1_024
     max_divisions: int = 4_096
     manager_header_bytes: int = 8
+    manager_count_offset: int | None = None
     club_uid_bytes: int = 4
 
 
@@ -1782,6 +1783,7 @@ class StaffLayout:
     rated_preference_slots: tuple[tuple[str, int, int], ...] = ()
     job_ratings_offset_from_person: int | None = None
     secondary_job_supported: bool = False
+    multiplayer_contracts_supported: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1791,9 +1793,8 @@ class TacticsLayout:
     **Header.** The byte at `header_marker_offset` is `header_marker`, the u32 at
     `selector_offset` is the human manager's own selector (his person id plus 1, the value
     `humans` stores) and the u32 at `block_count_offset` is how many team blocks follow from
-    `first_block_offset`. The u16 in front of the marker is 1 on every save measured and is
-    read by nothing: "the number of human managers" is a hypothesis with no second case to
-    test, and a save with two humans is not in the corpus.
+    `first_block_offset`. The u16 in front of the first marker matched the human manager
+    count in the single-player and multiplayer saves measured.
 
     **Team blocks.** Stored blocks for teams of the managed club, in ascending team id, found
     by searching for the team's own id followed by `block_marker`. Not every club team has a

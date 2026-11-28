@@ -77,6 +77,14 @@ class StaffJobRatings:
         loan_manager: Loan manager rating (unconfirmed).
         physio: Physio rating (unconfirmed).
         sports_scientist: Sports scientist rating (unconfirmed).
+        director_of_football: Director of football rating (unconfirmed).
+        technical_director: Technical director rating (unconfirmed).
+        manager: Manager rating (unconfirmed).
+        assistant_manager: Assistant manager rating (unconfirmed).
+        coach: Coach rating (unconfirmed).
+        head_of_youth_development: Head of youth development rating (unconfirmed).
+        scout: Scout rating (unconfirmed).
+        chief_data_analyst: Chief data analyst rating (unconfirmed).
     """
 
     fitness_coach: int | None
@@ -85,6 +93,14 @@ class StaffJobRatings:
     loan_manager: int | None
     physio: int | None
     sports_scientist: int | None
+    director_of_football: int | None = None
+    technical_director: int | None = None
+    manager: int | None = None
+    assistant_manager: int | None = None
+    coach: int | None = None
+    head_of_youth_development: int | None = None
+    scout: int | None = None
+    chief_data_analyst: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -480,6 +496,14 @@ register_field_statuses(
         "loan_manager",
         "physio",
         "sports_scientist",
+        "director_of_football",
+        "technical_director",
+        "manager",
+        "assistant_manager",
+        "coach",
+        "head_of_youth_development",
+        "scout",
+        "chief_data_analyst",
     ),
 )
 register_field_statuses(

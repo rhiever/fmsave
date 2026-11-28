@@ -22,7 +22,7 @@ from __future__ import annotations
 import functools
 import re
 import struct
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from fmsave._errors import ReaderCheckError, UnsupportedGameError
@@ -78,6 +78,7 @@ _IN_POSSESSION_ROLES: dict[tuple[TacticPosition, int], str] = {
     (TacticPosition.ATTACKING_MIDFIELDER_CENTRE, 0x820000): "Advanced Playmaker",
     # Free Role and Shadow Striker can share 0x800000 at attacking midfield.
     (TacticPosition.STRIKER_CENTRE, 0x800800): "Centre Forward",
+    (TacticPosition.STRIKER_CENTRE, 0x880000): "Poacher",
     (TacticPosition.STRIKER_CENTRE, 0x80800000): "Channel Forward",
 }
 _OUT_OF_POSSESSION_ROLES: dict[tuple[TacticPosition, int], str] = {
@@ -1068,11 +1069,55 @@ def _lenient_records(
     return _LenientRead(tactics, presets, unknown, unlisted_units, tuple(unit_separators))
 
 
+def _first_manager_group_end(
+    section: bytes,
+    layout: TacticsLayout,
+    starts: Sequence[int],
+    first_selector: int,
+    first_count: int,
+    human_count: int,
+    is_human_selector: Callable[[int], bool],
+) -> int | None:
+    """Accept separate block counts only when every group has a distinct human owner."""
+    if (
+        not 0 < first_count < len(starts)
+        or first_selector in (0, MISSING_REFERENCE)
+        or not is_human_selector(first_selector)
+    ):
+        return None
+    seen = {first_selector}
+    group_end = first_count
+    for _ in range(1, human_count):
+        if group_end >= len(starts):
+            return None
+        origin = starts[group_end] - layout.first_block_offset
+        marker_at = origin + layout.header_marker_offset
+        if origin < 0 or section[marker_at] != layout.header_marker:
+            return None
+        selector = _UINT32.unpack_from(section, origin + layout.selector_offset)[0]
+        count = _UINT32.unpack_from(section, origin + layout.block_count_offset)[0]
+        if (
+            not count
+            or selector in (0, MISSING_REFERENCE)
+            or selector in seen
+            or not is_human_selector(selector)
+        ):
+            return None
+        seen.add(selector)
+        group_end += count
+    if group_end == len(starts):
+        return starts[first_count] - layout.first_block_offset + layout.header_marker_offset
+    return None
+
+
 def walk_tactic_blocks(
     section: bytes,
     club_team_ids: Sequence[int],
     layout: TacticsLayout,
     file_name: str,
+    *,
+    human_count: int = 1,
+    is_human_selector: Callable[[int], bool] | None = None,
 ) -> tuple[tuple[RawTacticBlock, ...], TacticWalkCounts]:
     """Every team block of the managed club, in ascending team id, and what the walk counted.
 
@@ -1081,6 +1126,8 @@ def walk_tactic_blocks(
     signature and bounded by the next signature, so a record whose slot walk breaks does not
     move the next one. A block whose listed signatures fall short of its count gets one lenient
     retry, which `_lenient_records` describes; a block they already satisfy is never retried.
+    When all human manager groups validate, only the first group's blocks are compared
+    with the first header or considered for export.
 
     Raises:
         ReaderCheckError: The section is too short to hold its header, a constant a block is
@@ -1089,10 +1136,17 @@ def walk_tactic_blocks(
         UnsupportedGameError: The layout supports only empty tactic records or routine names
             and a block contains a populated or inconsistent variant.
     """
-    _selector, header_blocks = read_tactics_header(section, layout, file_name)
+    selector, header_blocks = read_tactics_header(section, layout, file_name)
+    stored_starts = _stored_block_starts(section, layout, file_name)
+    if human_count > 1 and is_human_selector is not None:
+        first_group_end = _first_manager_group_end(
+            section, layout, stored_starts, selector, header_blocks, human_count, is_human_selector
+        )
+        if first_group_end is not None:
+            section = section[:first_group_end]
+            stored_starts = stored_starts[:header_blocks]
     starts = _block_starts(section, club_team_ids, layout)
     ordered_starts = sorted(starts.items(), key=lambda pair: pair[1])
-    stored_starts = _stored_block_starts(section, layout, file_name)
     blocks: list[RawTacticBlock] = []
     routine_blocks_complete = 0
     tactic_blocks = 0

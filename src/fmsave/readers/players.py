@@ -33,6 +33,7 @@ from fmsave.readers.player_scan import (
     build_header_layout,
     closing_person_header,
     indexed_struct,
+    unordered_staff_boundary,
 )
 from fmsave.readers.suspensions import SuspensionEntry, player_suspensions
 
@@ -208,8 +209,26 @@ class PlayerDecoder:
         record_offset: int,
         record_window_end: int,
         closing_header: ClosingPersonHeader | None,
+        *,
+        pindex: int,
+        uid: int,
     ) -> PersonTuple | None:
         closing_offset = None if closing_header is None else closing_header.offset
+        if (
+            closing_offset is None
+            and self.person_decoder.require_unique_candidate
+            and uid >= self.layout.allocated_uid_minimum
+        ):
+            # Out-of-order UIDs do not bound contracts. An unambiguous staff header can
+            # still keep a neighboring person's name block outside this player's search.
+            closing_offset = unordered_staff_boundary(
+                game_db,
+                pindex,
+                record_offset + self.layout.decode_extent,
+                record_window_end,
+                uid,
+                self.layout.allocated_uid_minimum,
+            )
         person_window_end = record_window_end if closing_offset is None else closing_offset
         person_window_start = record_offset + self.person_window_start_offset
         return self.person_decoder.decode(game_db, person_window_start, person_window_end)
@@ -326,7 +345,9 @@ class PlayerDecoder:
         )
         unique_id = None if closing_header is None else closing_header.uid
         closing_offset = None if closing_header is None else closing_header.offset
-        person = self.decode_person(game_db, record_offset, record_window_end, closing_header)
+        person = self.decode_person(
+            game_db, record_offset, record_window_end, closing_header, pindex=pindex, uid=uid
+        )
         (
             name,
             first_name,

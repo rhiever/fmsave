@@ -169,6 +169,7 @@ game stores its data:
 <a href="https://github.com/jtstothard" title="@jtstothard"><img src="https://github.com/jtstothard.png?size=80" width="40" height="40" alt="@jtstothard"></a>
 <a href="https://github.com/kdr6989" title="@kdr6989"><img src="https://github.com/kdr6989.png?size=80" width="40" height="40" alt="@kdr6989"></a>
 <a href="https://github.com/mameabdou24" title="@mameabdou24"><img src="https://github.com/mameabdou24.png?size=80" width="40" height="40" alt="@mameabdou24"></a>
+<a href="https://github.com/Marsinator" title="@Marsinator"><img src="https://github.com/Marsinator.png?size=80" width="40" height="40" alt="@Marsinator"></a>
 <a href="https://github.com/matthiasvetter1104" title="@matthiasvetter1104"><img src="https://github.com/matthiasvetter1104.png?size=80" width="40" height="40" alt="@matthiasvetter1104"></a>
 <a href="https://github.com/menidi" title="@menidi"><img src="https://github.com/menidi.png?size=80" width="40" height="40" alt="@menidi"></a>
 <a href="https://github.com/Namhahaha1110" title="@Namhahaha1110"><img src="https://github.com/Namhahaha1110.png?size=80" width="40" height="40" alt="@Namhahaha1110"></a>
@@ -179,6 +180,7 @@ game stores its data:
 <a href="https://github.com/rui7avares-create" title="@rui7avares-create"><img src="https://github.com/rui7avares-create.png?size=80" width="40" height="40" alt="@rui7avares-create"></a>
 <a href="https://github.com/SabrinaDoesStuff" title="@SabrinaDoesStuff"><img src="https://github.com/SabrinaDoesStuff.png?size=80" width="40" height="40" alt="@SabrinaDoesStuff"></a>
 <a href="https://github.com/sebheusig" title="@sebheusig"><img src="https://github.com/sebheusig.png?size=80" width="40" height="40" alt="@sebheusig"></a>
+<a href="https://github.com/spencergilbert" title="@spencergilbert"><img src="https://github.com/spencergilbert.png?size=80" width="40" height="40" alt="@spencergilbert"></a>
 <a href="https://github.com/thaffy" title="@thaffy"><img src="https://github.com/thaffy.png?size=80" width="40" height="40" alt="@thaffy"></a>
 <a href="https://github.com/thetowny" title="@thetowny"><img src="https://github.com/thetowny.png?size=80" width="40" height="40" alt="@thetowny"></a>
 </p>

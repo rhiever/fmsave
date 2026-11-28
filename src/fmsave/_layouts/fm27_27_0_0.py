@@ -111,6 +111,7 @@ GAME_INFO = GameInfoLayout(
 SAVE_SUMMARY = SaveSummaryLayout(
     version_pattern=r"([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,4})\+([0-9]{1,10})",
     max_version_bytes=32,
+    manager_count_offset=7,
 )
 SUMMARY_STRINGS = SummaryStringsLayout(
     strings_start_offset=8, string_length_range=(2, 120), lowest_code_point=0x20
@@ -189,6 +190,7 @@ STAFF = replace(
     candidate_free_agent_supported=True,
     job_ratings_offset_from_person=-54,
     secondary_job_supported=True,
+    multiplayer_contracts_supported=True,
 )
 
 # The header list keeps the FM26 entry size. A block's tail is four bytes shorter than on FM26
