@@ -417,6 +417,8 @@ def test_unknown_set_piece_markers_remain_errors(marker: bytes) -> None:
         ((13,), 0x800000, 0x40400000, None, "Attacking Midfielder"),
         ((13,), 0x820000, 0x820000, "Advanced Playmaker", None),
         ((14,), 0x80800000, 0x400000, "Channel Forward", "Centre Forward"),
+        ((14,), 0x880000, 0x880000, "Poacher", None),
+        ((13,), 0x880000, None, None, None),
         ((4, 7), 0x200002, 0x200008, None, None),
         ((4,), None, None, None, None),
     ),
@@ -745,6 +747,55 @@ def test_club_teams_without_stored_tactics_blocks_do_not_fail_coverage(
     assert BLOCKS_GATE_NAME not in failed_gate_names(
         evaluate_tactics(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     )
+
+
+@pytest.mark.parametrize(
+    "mode",
+    (
+        "two_managers",
+        "overlapping_team",
+        "unknown_primary",
+        "unknown_selector",
+        "wrong_count",
+        "single",
+    ),
+)
+def test_tactics_counts_each_manager_group_against_its_own_header(mode: str) -> None:
+    first = career_tactics_body()
+    second_selector = MANAGER_SELECTOR + 100
+    other_team = selection_part_bytes(
+        team_id=NORTHBRIDGE_TEAM_A if mode == "overlapping_team" else 910_200,
+        label="",
+        slots=(),
+        list_a=(),
+        list_b=(),
+        single=NO_SELECTOR,
+        tactics_value=NO_TACTICS_VALUE,
+        tactic_count=0,
+    )
+    other_group = bytearray(tactics_man_body(selector=second_selector, blocks=(other_team,)))
+    if mode == "wrong_count":
+        struct.pack_into("<I", other_group, LAYOUT.block_count_offset, 2)
+    section = first + other_group[LAYOUT.header_marker_offset :]
+
+    known_selectors = {MANAGER_SELECTOR, second_selector}
+    if mode == "unknown_primary":
+        known_selectors.remove(MANAGER_SELECTOR)
+    if mode == "unknown_selector":
+        known_selectors.remove(second_selector)
+    blocks, counts = walk_tactic_blocks(
+        section,
+        CAREER_TEAM_IDS,
+        LAYOUT,
+        FILE_NAME,
+        human_count=1 if mode == "single" else 2,
+        is_human_selector=known_selectors.__contains__,
+    )
+
+    assert [block.team_id for block in blocks] == list(CAREER_TEAM_IDS)
+    assert counts.header_blocks == 2
+    assert counts.stored_blocks == (2 if mode in ("two_managers", "overlapping_team") else 3)
+    assert counts.stored_club_blocks == 2
 
 
 def test_a_header_selector_that_is_not_the_human_managers_fails_the_gate(tmp_path: Path) -> None:

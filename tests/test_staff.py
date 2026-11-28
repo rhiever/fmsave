@@ -5,6 +5,7 @@ import pickle
 import struct
 from array import array
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -681,6 +682,66 @@ def test_contract_like_club_data_is_excluded_only_from_closed_records(
     assert len(found.records_by_person[FAR_CONTRACT_PERSON_ID]) == 1
     tag = found.records_by_person[FAR_CONTRACT_PERSON_ID][0][0]
     assert tag >= len(db) - len(real_staff)
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ("two_managers", "single", "duplicate", "after_contract", "outside_window", "other_layout"),
+)
+def test_secondary_human_manager_contract_is_not_an_unowned_staff_contract(mode: str) -> None:
+    record, _ = _far_contract_record()
+    manager = struct.pack(
+        "<IIIB",
+        FAR_CONTRACT_PERSON_ID,
+        FAR_CONTRACT_PERSON_UID,
+        FAR_CONTRACT_PERSON_UID,
+        STAFF_LAYOUT.human_kind,
+    )
+    if mode == "after_contract":
+        region = record + manager
+    else:
+        region = manager + bytes(FAR_CONTRACT_PADDING_BYTES) + record
+    if mode == "duplicate":
+        region += manager
+    club = club_record_bytes(
+        club_index=1,
+        uid=4_001,
+        nation_id=3,
+        fa_nation_id=3,
+        city_id=7,
+        name="Example Club",
+        short_name="Example",
+        team_ids=(NORTHBRIDGE_TEAM_A,),
+        staff_lists=((), (), ()),
+    )
+    clubs = game_db_body([club], [], gap_bytes=64)
+    db = clubs + region
+    # The next player has a higher person index. Set where that record begins in
+    # the index independently of the contract, either side of the terms record.
+    window_end = len(clubs) + len(manager) if mode == "outside_window" else len(db)
+    player_records = replace(
+        empty_player_records(),
+        pindexes=array("I", [FAR_CONTRACT_PERSON_ID + 1]),
+        record_offsets=array("Q", [window_end - PLAYER_LAYOUT.pindex_offset]),
+    )
+    layouts = replace(
+        STAFF_LAYOUTS,
+        staff=replace(STAFF_LAYOUT, multiplayer_contracts_supported=mode != "other_layout"),
+    )
+    index = read_club_index(db, CLUB_LAYOUTS, FILE_NAME)
+    decoder = build_contract_decoder(STAFF_LAYOUTS.contracts, index, date(2031, 3, 1), FILE_NAME)
+    found = discover_contracts(
+        db,
+        player_records,
+        10,
+        decoder,
+        layouts,
+        index,
+        human_count=1 if mode == "single" else 2,
+    )
+    assert found.owned_records == 0
+    assert found.unowned_tailed_hits == (0 if mode == "two_managers" else 1)
+    assert found.non_staff_tailed_hits == (1 if mode == "two_managers" else 0)
 
 
 def test_an_object_whose_sentinel_is_wrong_keeps_its_name_and_contract(tmp_path: Path) -> None:

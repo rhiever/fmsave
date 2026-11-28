@@ -604,6 +604,42 @@ def read_fm27_info(tmp_path: Path, build: str, game_info: bytes) -> SaveInfo:
         return read_save_info(build_index(tmp_path, sections))
 
 
+@pytest.mark.parametrize("count", (0, 1, 2, 3))
+def test_fm27_summary_clock_follows_all_manager_entries(tmp_path: Path, count: int) -> None:
+    summary = fm27_summary_with_managers(count, written=max(1, count))
+    with pytest.warns(UnknownBuildWarning, match="FM27 coverage"):
+        info = fm27_info_with_summary(tmp_path, summary)
+    assert (info.game_date, info.time_slot) == (date(2031, 3, 2), 12)
+
+
+def test_fm27_summary_clock_rejects_a_manager_list_cut_short(tmp_path: Path) -> None:
+    with pytest.raises(ReaderCheckError, match="structured clock layout"):
+        fm27_info_with_summary(tmp_path, fm27_summary_with_managers(3, written=2))
+
+
+def fm27_summary_with_managers(count: int, *, written: int | None = None) -> bytes:
+    payload = length_prefixed("EXAMPLE,SETUP") + length_prefixed(FM27_BUILD)
+    payload += struct.pack("<I", 1) + length_prefixed("Example Division")
+    payload += bytes(7) + bytes((count,))
+    for i in range(count if written is None else written):
+        payload += length_prefixed(f"Manager Example {i}") + length_prefixed(f"Club Example {i}")
+        payload += struct.pack("<I", 5100 + i)
+    payload += packed_date(61, 2031, 12)
+    return section_body(".dat", 31, payload)
+
+
+def fm27_info_with_summary(tmp_path: Path, summary: bytes) -> SaveInfo:
+    return read_save_info(
+        build_index(
+            tmp_path,
+            sections_with(
+                save_game_summary=summary,
+                game_info=fm27_game_info_body(FM27_BUILD, ()),
+            ),
+        )
+    )
+
+
 @pytest.mark.parametrize("build", [FM27_BUILD, UNREGISTERED_FM27_BUILD])
 @pytest.mark.parametrize(
     "filenames", [(), ("Example Tool.dll",), ("Example Tool.exe", "Пример.tmp")]

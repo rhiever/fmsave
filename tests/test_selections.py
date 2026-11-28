@@ -164,9 +164,9 @@ def test_the_three_tactics_tables_come_from_one_walk(
     walks: list[object] = []
     walk = save_module.walk_tactic_blocks
 
-    def counted_walk(*args: Any) -> Any:
+    def counted_walk(*args: Any, **kwargs: Any) -> Any:
         walks.append(args)
-        return walk(*args)
+        return walk(*args, **kwargs)
 
     monkeypatch.setattr(save_module, "walk_tactic_blocks", counted_walk)
     save_path = career_fragment().write(tmp_path / "career.bin")

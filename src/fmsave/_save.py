@@ -80,7 +80,6 @@ from fmsave.readers._common import (
     INJURY_MANAGER_SECTION,
     JOB_CENTRE_SECTION,
     MATCH_REPORTS_SECTION,
-    MISSING_REFERENCE,
     SAVE_SUMMARY_SECTION,
     SPAN_REGION,
     TACTICS_SECTION,
@@ -108,7 +107,6 @@ from fmsave.readers.league_tables import build_league_tables
 from fmsave.readers.managed import (
     find_managed_club_layouts,
     first_human,
-    first_human_selector,
     resolve_managed_clubs,
 )
 from fmsave.readers.match_summaries import (
@@ -2181,7 +2179,7 @@ class Save:
             count, selector = owner
             if count != 1:
                 raise UnsupportedGameError("squad planner requires a single human manager")
-            if selector in (0, MISSING_REFERENCE):
+            if selector is None:
                 raise layout_mismatch(
                     info.file_name, "the squad planner owner has no person selector", HUMANS_SECTION
                 )
@@ -2375,7 +2373,8 @@ class Save:
             if not managed_clubs:
                 return self._empty_tactic_tables(gate_bounds)
             managed_club_uid = managed_clubs[0].club_uid
-            human_selector = first_human_selector(humans, humans_layout, save_info.file_name)
+            human = first_human(humans, humans_layout, save_info.file_name)
+            human_count, human_selector = human if human is not None else (0, None)
             header_selector, _header_blocks = read_tactics_header(
                 tactics_section, layout, save_info.file_name
             )
@@ -2391,8 +2390,21 @@ class Save:
             club_team_ids = (
                 [] if managed_club is None else [team.team_id for team in managed_club.teams]
             )
+
+            def is_human_selector(selector: int) -> bool:
+                staff_layout = find_staff_layouts(save_info.section_schemas, save_info.build).staff
+                return (
+                    locate_human_header(game_db, selector, staff_layout, require_unique=True)
+                    is not None
+                )
+
             blocks, walk_counts = walk_tactic_blocks(
-                tactics_section, club_team_ids, layout, save_info.file_name
+                tactics_section,
+                club_team_ids,
+                layout,
+                save_info.file_name,
+                human_count=human_count if save_info.game == "FM27" else 1,
+                is_human_selector=is_human_selector,
             )
         tactics, set_pieces, tactic_stats = build_tactic_tables(
             blocks,
@@ -2933,7 +2945,14 @@ class Save:
                         next_record_ambiguous=next_record_ambiguous,
                     )
                     try:
-                        decoder.decode_person(game_db, record_offset, record_window_end, closing)
+                        decoder.decode_person(
+                            game_db,
+                            record_offset,
+                            record_window_end,
+                            closing,
+                            pindex=player_records.pindexes[position],
+                            uid=player_records.uids[position],
+                        )
                     except CorruptSaveError:
                         continue
                     omitted_history_selectors.add(

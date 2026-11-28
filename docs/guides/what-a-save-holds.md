@@ -34,9 +34,9 @@ to get whole-number ratings out of 20. The method rounds each 100-point rating w
 out of 20 and leaves individual missing ratings as `None`.
 
 On FM27, `Staff.secondary_job` gives the job code and label from the current
-contract when the save provides it. `Staff.job_ratings` has Preferred Jobs ratings
-for fitness coach, goalkeeping coach, set piece coach, loan manager, physio, and
-sports scientist, each on a scale of 0 to 20. Both fields are unconfirmed.
+contract when the save provides it. `Staff.job_ratings` has 14 Preferred Jobs ratings on
+a scale of 0 to 20, including managerial, coaching, scouting, analysis, and medical roles.
+Both fields are unconfirmed.
 
 Use `staff_candidates()` when comparing people across clubs. Each unambiguous person appears
 once and carries its current club appointment records. The reader also looks for profiles

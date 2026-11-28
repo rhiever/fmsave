@@ -16,7 +16,7 @@ import fmsave
 from fmsave._layouts import ClubRecordLayout, HumansLayout, find_layout
 from fmsave.readers._common import GAME_DB_SECTION, HUMANS_SECTION
 from fmsave.readers.clubs import find_club_layouts, read_club_index
-from fmsave.readers.managed import first_human_selector
+from fmsave.readers.managed import first_human
 from tests.fixtures.career import (
     ATHLETIC_UID,
     BUILD_STRING,
@@ -85,18 +85,18 @@ def test_a_record_without_a_parsed_team_list_has_no_team_list_end() -> None:
     assert [span.team_list_end for span in club_index.record_spans] == [None]
 
 
-def test_the_first_human_selector_is_read_from_the_humans_section() -> None:
+def test_the_first_human_is_read_from_the_humans_section() -> None:
     layout = humans_layout()
     body = humans_body(count=1, selector=EXAMPLE_SELECTOR)
-    assert first_human_selector(body, layout, FILE_NAME) == EXAMPLE_SELECTOR
-    assert first_human_selector(humans_body(count=0, selector=0), layout, FILE_NAME) is None
-    assert first_human_selector(humans_body(count=1, selector=0), layout, FILE_NAME) is None
-    assert (
-        first_human_selector(humans_body(count=1, selector=MISSING_SELECTOR), layout, FILE_NAME)
-        is None
+    assert first_human(body, layout, FILE_NAME) == (1, EXAMPLE_SELECTOR)
+    assert first_human(humans_body(count=0, selector=0), layout, FILE_NAME) is None
+    assert first_human(humans_body(count=1, selector=0), layout, FILE_NAME) == (1, None)
+    assert first_human(humans_body(count=2, selector=MISSING_SELECTOR), layout, FILE_NAME) == (
+        2,
+        None,
     )
     with pytest.raises(fmsave.CorruptSaveError, match=f"section {HUMANS_SECTION!r}"):
-        first_human_selector(bytes(9), layout, FILE_NAME)
+        first_human(bytes(9), layout, FILE_NAME)
 
 
 def example_record(

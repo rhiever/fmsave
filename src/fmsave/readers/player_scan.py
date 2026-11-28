@@ -150,6 +150,7 @@ def window_end(records: PlayerRecords, position: int, game_db_length: int) -> in
 
 _CLOSING_HEADER = struct.Struct("<III")
 _LAST_PERSON_ID = 0xFFFFFFFF
+_STAFF_OBJECT_KIND = 1
 
 
 class ClosingPersonHeader(NamedTuple):
@@ -205,6 +206,32 @@ def closing_person_header(
     ):
         return ClosingPersonHeader(None, candidate_uid)
     return None
+
+
+def unordered_staff_boundary(
+    game_db: bytes,
+    person_id: int,
+    search_start: int,
+    search_end: int,
+    opening_uid: int,
+    allocated_uid_minimum: int,
+) -> int | None:
+    """The sole next-person header when it is fully contained and starts a staff object."""
+    header = closing_person_header(
+        game_db,
+        person_id,
+        search_start,
+        search_end,
+        0,
+        None,
+        allocated_uid_minimum=allocated_uid_minimum,
+    )
+    if header is None or header.offset is None or header.uid == opening_uid:
+        return None
+    kind_at = header.offset + _CLOSING_HEADER.size
+    if kind_at >= search_end or game_db[kind_at] != _STAFF_OBJECT_KIND:
+        return None
+    return header.offset
 
 
 def closing_unique_id(

@@ -4,6 +4,21 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.14.7] - 2026-11-28
+
+### Added
+
+- Export Preferred Jobs ratings for 8 more FM27 staff roles.
+
+### Fixed
+
+- Open FM27 saves with more than one manager profile in the save summary.
+- Validate staff contracts and first-manager tactics on FM27 multiplayer saves.
+- Recover player names and birth dates when a neighboring FM27 staff record has an out-of-order UID.
+- Label the Poacher role for central strikers in possession.
+
+Thanks to @Marsinator for the report and @spencergilbert for researching tactic roles. Refs #122 and #128.
+
 ## [0.14.6] - 2026-11-26
 
 ### Fixed
